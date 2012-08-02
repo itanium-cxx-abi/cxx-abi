@@ -1,0 +1,264 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+   <meta name="GENERATOR" content="Mozilla/4.51C-SGI [en] (X11; I; IRIX 6.5 IP22) [Netscape]">
+   <title>C++ class layout and member function invocation</title>
+</head>
+<body>
+
+<center>
+<h1>
+C++ Class layout and member function invocation</h1></center>
+
+<hr WIDTH="100%">
+<h2>
+Ordinary class, no inheritance or virtual functions</h2>
+Same as in C.&nbsp; An object is a contiguous region of storage; the data
+members appear in the order of declaration.&nbsp; (Not quite required by
+the C++ standard, but everyone does it that way.)&nbsp; Every object has
+nonzero size.&nbsp; Padding is same as in C.
+<p>Member function invocation: calling convention for a member function
+of class <tt>X</tt> is just the same as for a non-member, except that it
+gets an extra argument.&nbsp; This argument comes before all of the ones
+<br>that the user declares.&nbsp; For non-<tt>const</tt> member functions
+this argument is of type <tt>X*</tt>, and for const member functions it
+is of type const <tt>X*</tt>.
+<p>Static data members and static member functions are not part of the
+class, except for name resolution and access rules.&nbsp; They get mangled
+names, but otherwise they are handled just the same way as any ordinary
+global variable or global function.
+<br>
+<hr WIDTH="100%">
+<h2>
+Base class(es), no virtual functions</h2>
+An object in C++ is a contiguous region of storage, and it's possible to
+convert a pointer to a derived class to a pointer to any of its base classes,
+so there isn't much choice here: a derived class must have a contiguous
+region for each of its base class subobjects, and then a region for all
+of its own data members.&nbsp; Issues: what order do the base class subobjects
+come in (only matters for multiple inheritance), how do we handle alignment
+restrictions, and do we do anything special for empty base classes?
+<p>Cfront solution:
+<ul>
+<li>
+Base class subobjects are in order of declaration.&nbsp; That is, if we've
+got</li>
+
+<pre>&nbsp;&nbsp; struct Y : public X1, public X2, public X3 { int n; };</pre>
+then, in order of increasing address, we've got an <tt>X1</tt> subobject
+starting at the same address as the <tt>Y</tt> object; then an <tt>X2</tt>
+subobject; then an <tt>X3</tt> subobject; then an <tt>int</tt>.
+<li>
+Each of the subobjects has the appropriate padding.&nbsp; There is as much
+space reserved for an <tt>X1</tt> subobject in a <tt>Y</tt> as for <tt>sizeof(X1)</tt>,
+including <tt>X1</tt>'s padding.&nbsp; Implication: if each of <tt>X1</tt>,
+<tt>X2</tt>,
+<tt>X3</tt>
+consists of a single <tt>char</tt>, we can expect that <tt>sizeof(Y)</tt>
+is considerably larger than <tt>3*sizeof(char) + sizeof(int)</tt>.&nbsp;
+(Rationale: simplifies the handling of the subobjects.&nbsp; We can freely
+use bitwise copying, which copies the base class padding areas as well
+as their data members.&nbsp; If we didn't include the padding in the derived
+classes, we'd have to make sure to handle an <tt>X1</tt> subobject more
+carefully than a standalone <tt>X1</tt> object.)</li>
+
+<li>
+No special handling for empty base classes.</li>
+</ul>
+Sun solution:&nbsp;same as above, except they do have special handling
+for empty base classes.&nbsp; An empty base class takes up no space in
+the complete class, except that no other instance of the same empty class
+will be allocated at the same offset.
+<br>
+
+<hr WIDTH="100%">
+
+<a name=vfunc>
+<h2> Virtual functions and a single base class </h2>
+
+A class with virtual functions differs in two ways.&nbsp; First, it has
+a type id tag for the RTTI mechanism.&nbsp; Second, it has a virtual function
+table (vtbl) and a virtual function pointer (vptr).&nbsp; This isn't required
+by the C++ standard, but everyone does it this way.
+<p>A virtual function table is a table of function addresses,&nbsp; If
+a class <tt>X</tt> has three virtual functions <tt>f</tt>, <tt>g</tt>,
+and <tt>h</tt>, then the addresses of those virtual functions appear at
+fixed offsets, known at compile time, from the beginning of the vtbl.&nbsp;
+A vtbl is one-per-class, not one-per-object.&nbsp; Each object of type
+<tt>X</tt>
+has a vptr, a pointer to the single <tt>X</tt> vtbl.
+<p>(Implication: a class with virtual functions can never be empty.&nbsp;
+Even if the user declares no data members, it always contains a vptr data
+member.)
+<p>If class <tt>Y</tt> is derived from class <tt>X</tt>, then <tt>Y</tt>'s
+vtbl puts <tt>f</tt>, <tt>g</tt>, and <tt>h</tt> in the same slots as <tt>X</tt>'s
+vtbl did.&nbsp; Any additional virtual functions introduced in <tt>Y</tt>
+come later.&nbsp; That is, anyone who is expecting a pointer
+<br>to the beginning of <tt>X</tt>'s vtbl and get a pointer to the beginning
+of <tt>Y</tt>'s vtbl instead won't get any surprises.
+<p>An object of class <tt>Y</tt> has two vptrs, one for the <tt>X</tt>
+subobject (a subobject always has the same layout as a standalone object
+of the same type) and one for the <tt>Y</tt> object itself.&nbsp; While
+<tt>X</tt>'s
+constructor is being run, the <tt>X</tt> subobject's vptr points to <tt>X</tt>'s
+vptr.&nbsp; While <tt>Y</tt>'s constructor is being run, and for the remainder
+of the object's lifetime, both of the <tt>Y</tt> object's vptrs point to
+<tt>Y</tt>'s
+vtbl.
+<p>A virtual function call is just like an ordinary member call, except
+that the call is through a function pointer in the vtbl.&nbsp; For example
+if <tt>p</tt> is of type <tt>X*</tt> and if <tt>f</tt> is a member function
+that takes a single argument of type <tt>int</tt>, then the expression
+<tt>p->f(5)</tt>
+is implemented as something like this:
+<br><tt>(*(p->__vptr[__VTBL_OFFSET_OF_f]))(p, 5)</tt>.&nbsp; This is all
+done on the caller side.&nbsp; The callee, <tt>f</tt>, need know nothing
+about it.
+<p>(Note: it is essential that this all be done on the caller side.&nbsp;
+In some cases the function resolution can be performed at compile time.&nbsp;
+If we are to allow the virtual function mechanism to be bypassed in such
+cases, virtual functions and nonvirtual functions must use the same calling
+convention.)
+<p>Issues:
+<ol>
+<li>
+What is the name of the vptr data member, here shown as <tt>__vptr</tt>?</li>
+
+<li>
+What is the location of the vptr relative to the class's other data members?&nbsp;
+(Usual answer: either it's the first data member, or it's the last.)</li>
+
+<li>
+There is a single vtbl for each virtual-function-containing class, meaning
+that the vtbl is emitted only in a single translation unit.&nbsp; Which
+one?</li>
+
+<li>
+What is the exact layout of entries within a vtbl?</li>
+</ol>
+Sun:&nbsp;the vtbl is a static data member called __vtbl.&nbsp; The vptr
+is at offset 0 within the class.&nbsp; In the vtbl, offset 0 is for RTTI;
+it is the address of a function called _RT returning a <tt>const type_info*</tt>.&nbsp;
+Offset 1 is unused except for base class subobjects within derived class
+objects.&nbsp; It is the offset of the subobject from the beginning of
+the complete object.&nbsp; (See below for why this is needed.)&nbsp; The
+remaining indices are allocated to virtual functions in this order:&nbsp;first,
+virtual functions from the leftmost immediate base class, with the same
+index assignments as in the base; then virtual functions from other base
+classes; then virtual functions newly declared in the derived class.&nbsp;
+Index -1 is unused.&nbsp; Ordering of virtual base class pointers:&nbsp;first
+the ones along the leftmost path, in depth-first order, then the other
+virtual base classes, in depth-first, left-to-right order.
+<br>
+<hr WIDTH="100%">
+<h2>
+Virtual functions and multiple base classes</h2>
+If <tt>Y</tt> inherits from <tt>X1</tt> and <tt>X2</tt>, then either the
+<tt>X1</tt>
+or the <tt>X2</tt> subobject begins at the same address as the full Y object.&nbsp;
+Let's say, for argument's sake, that it's the
+<tt>X1</tt> subobject.&nbsp;
+That means that whenever we have an <tt>X2*</tt> that points to an <tt>X2</tt>
+subobject, and we need to convert it to a
+<tt>Y*</tt> pointing to the full
+<tt>Y</tt> object, we need to subtract some fixed offset.&nbsp; That's
+fine if the user is performing an explicit cast; the difficulty is what
+happens when the conversion is part of the virtual function mechanism.&nbsp;
+A virtual member function invoked through an <tt>X2*</tt> can yield a <tt>Y</tt>
+member function, and the first argument of a <tt>Y</tt> member function
+(provided automatically by the compiler) must be a <tt>Y*</tt>.&nbsp; This
+means there must be a mechanism to perform the <tt>X2*</tt> to <tt>Y*</tt>
+adjustment automatically whenever it's needed for virtual function calls.
+<p>Cfront solution: A vtbl is no longer a table of addresses, but a table
+of pairs: address and offset.&nbsp; The vtbl for the <tt>Y</tt> itself
+and for its <tt>X1</tt> subobjects are no longer the same.&nbsp; They contain
+the same function addresses, but different offsets.&nbsp; Note that we
+now have two vtbls for <tt>Y</tt> rather than 1, and that each one is twice
+as large.
+<p>Sun solution: Thunks.&nbsp; A vtbl entry can be a stub that performs
+pointer adjustment and then jumps to the appropriate virtual function.&nbsp;&nbsp;
+The multiple vtbls are merged into one; a secondary vtbl is accessed as
+a fixed offset from the start of the primary.&nbsp; One additional optimization:&nbsp;the
+vptr is stored at offset 0 from the beginning of the class, and base class
+subobjects are layed out in declaration order.&nbsp; If the class's leftmost
+immediate base has a vptr, and if it is a non-virtual base class or a virtual
+base class with zero size, then it is allocated at zero offset so that
+the base and derived class can share a vptr.
+<p>IBM and Microsoft also use thunks, with some differences.&nbsp; (Caller/callee
+issues.)&nbsp; Microsoft's thunk mechanism is patented. Thunks, or something
+like them, are needed anyway for another reason.&nbsp; An overriding virtual
+function can sometimes have a different type than the virtual function
+in the base class.&nbsp; ("Covariant return types.")&nbsp; If a derived
+class virtual function is invoked through a base class pointer, there are
+cases where fixup on the return value is necessary.
+<p>Issue:&nbsp;special handling for a class that only uses single inheritance?
+<p>(TO DO: describe pointer-to-member layout.&nbsp; A pointer-to-member
+must be a struct, not just a single address or offset.&nbsp; This is critical
+for ABI&nbsp;compatibility.)
+<br>&nbsp;
+<br>&nbsp;
+<p>
+<hr WIDTH="100%">
+<br>&nbsp;
+<h2>
+Virtual base classes</h2>
+Virtual base classes are very complicated, and implementation techniques
+vary widely. The point of a virtual base class is if class <tt>Y</tt> inherits
+from classes <tt>X1</tt> and <tt>X2</tt>, where <tt>X1</tt> and <tt>X2</tt>
+both have a virtual base class <tt>A</tt>, then <tt>Y</tt> has only one
+<tt>A</tt>
+subobject, not two.&nbsp; This means that we can't use the same class layout
+as we described above: the <tt>X1</tt> and <tt>X2</tt> subobjects can't
+both have <tt>A</tt> subobjects the same way that standalone
+<tt>X1</tt>
+and <tt>X2</tt> objects would.
+<p>The basic idea, which is common to all implementations, is that if a
+class <tt>X1</tt> has a virtual base class <tt>A</tt>, the location of
+the <tt>A</tt> subobject within an <tt>X1</tt> object can vary.&nbsp; (It
+varies depending on whether the <tt>X1</tt> object is a standalone object
+or a subobject.)&nbsp; Somewhere, then, at some fixed location, we need
+to store a pointer or offset so that the <tt>A</tt> subobject&nbsp; can
+be found at runtime.
+<p>Cfront solution:
+<ul>
+<li>
+Virtual base class subobjects go at the end of the derived class object,
+in declaration order.&nbsp; In the example above, a <tt>X1</tt> object
+would consist of <tt>X1</tt>'s own members, followed by an <tt>A </tt>subobject.
+
+<tt>X2</tt> would have similar layout.&nbsp; <tt>Y</tt> would consist
+of an <tt>X1</tt> subobject (without the <tt>A</tt> subobject), followed
+by an <tt>X2</tt> subobject, followed by a shared <tt>A</tt> subobject.</li>
+
+<li>
+Each derived class object contains a pointer to the virtual base class
+subobject.&nbsp; So, for example, <tt>X1</tt> would contain a <tt>__vbc_A</tt>
+pointer of type <tt>A*</tt>.&nbsp; A <tt>Y</tt> object would contain three
+such pointers, one for the Y itself and one for each of the <tt>X1</tt>
+and <tt>X2</tt> subobjects.&nbsp; These pointers are set up in the constructor.</li>
+</ul>
+Sun solution: similar, except that what's stored is offsets instead of
+pointers.&nbsp; That makes it possible for this information to be pulled
+out of the objects themselves and put into the vtbl.&nbsp; Objects are
+thus smaller than in the cfront model, and constructors don't have to initialize
+any vbv pointers.&nbsp; In Sun's implementation, virtual member functions
+have positive indices in the vtbl and virtual base class offsets have negative
+indices.&nbsp; That may just be for backward compatibility with their old
+ABI; the solution would be essentially the same if the entries were instead
+interleaved.
+<p>Issue:&nbsp;is there any reason to have special handling for an empty
+virtual base class?
+<p>(TO DO: describe pointer-to-member layout.&nbsp; Converting a pointer-to-data-member
+in a virtual base class into a pointer-to-data-member of a derived class
+requires runtime fixup.)
+<br>&nbsp;
+<br>&nbsp;
+
+<hr>
+
+<a href=issues-C++-layout-ex.txt>
+<h2> Virtual Function Layout Examples </h2>
+
+</body>
+</html>
