@@ -3998,15 +3998,15 @@ mangling.
 Names of objects nested in namespaces or classes are identified as a
 delimited sequence of names identifying the enclosing scopes.
 In addition, when naming a class member function,
-CV-qualifiers may be prefixed to the compound name,
+CV-qualifiers and ref-qualifiers may be prefixed to the compound name,
 encoding the <code>this</code> attributes.
-Note that if member function CV-qualifiers are required,
+Note that if member function CV-qualifiers or a ref-qualifier are required,
 the delimited form must be used even if the remainder of the name is
 a single substitution.
 
 <pre><code><font color=blue>
-    &lt;nested-name> ::= N [&lt;CV-qualifiers>] &lt;prefix> &lt;unqualified-name> E
-		  ::= N [&lt;CV-qualifiers>] &lt;template-prefix> &lt;template-args> E
+    &lt;nested-name&gt; ::= N [&lt;CV-qualifiers&gt;] [&lt;ref-qualifier&gt;] &lt;prefix&gt; &lt;unqualified-name&gt; E
+		  ::= N [&lt;CV-qualifiers&gt;] [&lt;ref-qualifier&gt;] &lt;template-prefix&gt; &lt;template-args&gt; E
 
     &lt;prefix> ::= &lt;prefix> &lt;unqualified-name>
 	     ::= &lt;template-prefix> &lt;template-args>
@@ -4257,6 +4257,8 @@ cv-qualifiers and/or pointer, reference, complex, or imaginary types:
 	 ::= U &lt;source-name&gt; &lt;type&gt;	# vendor extended type qualifier
 
   &lt;CV-qualifiers&gt; ::= [r] [V] [K] 	# restrict (C99), volatile, const
+  &lt;ref-qualifier&gt; ::= R                   # & ref-qualifier
+  &lt;ref-qualifier&gt; ::= O                   # && ref-qualifier
 </pre></font></code>
 
 <p>
@@ -4395,19 +4397,34 @@ Member functions do not encode the types of
 implicit parameters, either <code>this</code> or the VTT parameter.
 
 <p>
-A "Y" prefix for the bare function type encodes extern "C".
-If there are any cv-qualifiers of <code>this</code>,
-they are encoded at the beginning of the &lt;qualified-name>
-as described above.
-This affects only type mangling,
-since extern "C" function objects have unmangled names.
+The mangling of CV-qualifiers and ref-qualifiers on a function type
+differs according to context. When mangling the name of a non-static
+member function, the CV-qualifiers and ref-qualifiers of that function
+are encoded at the beginning of the &lt;nested-name&rt; as
+described above. Otherwise, they are encoded as part of the function
+type as described below.
+</p>
+
+<p>
+A "Y" prefix for the bare function type encodes extern "C" in
+implementations which distinguish between function types with "C" and
+"C++" language linkage. This affects only type mangling, since extern
+"C" function objects have unmangled names.
+</p>
 
 <pre><font color=blue><code>
-  &lt;function-type> ::= F [Y] &lt;bare-function-type> E
-  &lt;bare-function-type> ::= &lt;<i>signature</i> type>+
+  &lt;function-type&gt; ::= [&lt;CV-qualifiers&gt;] F [Y] &lt;bare-function-type&gt; [&lt;ref-qualifier&gt;] E
+  &lt;bare-function-type&gt; ::= &lt;<i>signature</i> type&gt;+
 	# types are possible return type, then parameter types
 
 </pre></font></code>
+
+<p>
+For the purposes of substitution, the CV-qualifiers and ref-qualifier
+of a function type are an indivisible part of the type; that is, when
+mangling <code>void () const</code>, <code>void ()</code> is not a
+substitution candidate.
+</p>
 
 <p>
 When a function parameter is a C++0x function parameter pack, its type
@@ -4521,8 +4538,8 @@ Pointer-to-member types encode the class and member types.
 
 </pre></font></code>
 <p>
-Note that for a pointer to cv-qualified member function, the qualifiers are
-attached to the function type, so
+Note that for a pointer to CV-qualified or ref-qualified member
+function, the qualifiers are attached to the function type, so
 <pre><code>
     struct A;
     void f (void (A::*)() const) {}
@@ -5254,7 +5271,7 @@ The abbreviation St is always an initial qualifier,
 i.e. appearing as the first element of a compound name.
 It does not require N...E delimiters unless
 either followed by more than one additional composite name component,
-or preceded by CV-qualifiers for a member function.
+or preceded by CV-qualifiers or a ref-qualifier for a member function.
 This adds the case:
 <pre><font color=blue><code>
    &lt;name> ::= St &lt;unqualified-name> # ::std::
