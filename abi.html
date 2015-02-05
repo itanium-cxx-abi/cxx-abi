@@ -1990,16 +1990,16 @@ Given the above, the following is pseudocode for processing
 If a function-scope static variable or a static data member with vague
 linkage (i.e., a static data member of a class template) is
 dynamically initialized, then there is an associated guard variable
-which is used to guarantee that construction occurs only once.  The
-guard variables name is mangled based on the mangling of the guarded
-object name.  Thus, for function-scope static variables, if multiple
-instances of the function body are emitted (e.g., due to inlining),
-each function uses the same guard variable to ensure that the
-function-scope static is initialized only once.  Similarly, if a
-static data member is instantiated in multiple object files, the
-initialization code in each object file will use the same guard
-variable to ensure that the static data member is initialized only
-once.
+which is used to guarantee that construction occurs only once.  The <a
+href="#mangling-special-guards">guard variable's name</a> is mangled
+based on the mangling of the guarded object name.  Thus, for
+function-scope static variables, if multiple instances of the function
+body are emitted (e.g., due to inlining), each function uses the same
+guard variable to ensure that the function-scope static is initialized
+only once.  Similarly, if a static data member is instantiated in
+multiple object files, the initialization code in each object file
+will use the same guard variable to ensure that the static data member
+is initialized only once.
 
 <p>
 The size of the guard variable is 64 bits.
@@ -4038,6 +4038,8 @@ expressed in the template (i.e., one likely involving template
 parameters).
 The type is omitted for variables and static data members.
 
+<h5><a name="mangle.anonymous"> Anonymous entities </a></h5>
+
 <p>
 For the purposes of mangling, the name of an anonymous union is
 considered to be the name of the first named data member found by a
@@ -4059,8 +4061,10 @@ are considered to have the name <code>i</code> for the purposes of
 mangling.
 </p>
 
+<h5><a name="mangle.name"> Names </a></h5>
+
 <pre><font color=blue><code>
-    &lt;<a name="mangle.name">name</a>&gt; ::= &lt;<a href="#mangle.nested-name">nested-name</a>&gt;
+    &lt;name&gt; ::= &lt;<a href="#mangle.nested-name">nested-name</a>&gt;
 	   ::= &lt;<a href="#mangle.unscoped-name">unscoped-name</a>&gt;
 	   ::= &lt;<a href="#mangle.unscoped-template-name">unscoped-template-name</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt;
 	   ::= &lt;<a href="#mangle.local-name">local-name</a>&gt;	# See <a href=#mangling-scope>Scope Encoding</a> below
@@ -4102,10 +4106,22 @@ a single substitution.
                        ::= &lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt;   
 
     &lt;<a name="mangle.source-name">source-name</a>&gt; ::= &lt;<i>positive length</i> <a href="#mangle.number">number</a>&gt; &lt;<a href="#mangle.identifier">identifier</a>&gt;
-    &lt;<a name="mangle.number">number</a>&gt; ::= [n] &lt;<i>non-negative decimal integer</i>>
     &lt;<a name="mangle.identifier">identifier</a>&gt; ::= &lt;<i>unqualified source code identifier</i>>
 
 </pre></code></font>
+
+<p>
+&lt;<a href="#mangle.identifier">identifier</a>&gt; is a pseudo-terminal representing the characters in the unqualified identifier for the entity in the source code.  This ABI does not yet specify a mangling for identifiers containing characters outside of <code>_A-Za-z0-9</code>.
+
+<p>
+Note that &lt;<a href="#mangle.source-name">source-name</a>&gt; in the productions for &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
+may be either a function or data object name when derived from &lt;<a href="#mangle.name">name</a>&gt;,
+or a class or enum name when derived from &lt;<a href="#mangle.type">type</a>&gt;.
+
+<h5><a name="mangle.number"> Numbers </a></h5>
+
+<pre><code><font color=blue>    &lt;<a name="mangle.number">number</a>&gt; ::= [n] &lt;<i>non-negative decimal integer</i>>
+</font></code></pre>
 
 <p>
 &lt;<a href="#mangle.number">number</a>&gt; is a pseudo-terminal representing a decimal integer,
@@ -4114,16 +4130,17 @@ It is used in &lt;<a href="#mangle.source-name">source-name</a>&gt; to provide t
 length of the following identifier.
 &lt;<a href="#mangle.number">number</a>&gt;s appearing in mangled names never have leading zeroes,
 except for the value zero, represented as '0'.
-&lt;<a href="#mangle.identifier">identifier</a>&gt; is a pseudo-terminal representing the unqualified
-identifier for the entity in the source code.
 
-<p>
-Note that &lt;<a href="#mangle.source-name">source-name</a>&gt; in the productions for &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
-may be either a function or data object name when derived from &lt;<a href="#mangle.name">name</a>&gt;,
-or a class or enum name when derived from &lt;<a href="#mangle.type">type</a>&gt;.
+<h5><a name="mangle.seq-id"> Sequence numbers </a></h5>
 
-<p>
-<a name="mangling-operator">
+<pre><code><font color=blue>    &lt;seq-id&gt; ::= &lt;<i>0-9A-Z</i>&gt;+
+</font></code></pre>
+
+<p>A &lt;<a href="#mangle.seq-id">seq-id</a>&gt; is a sequence number in base 36, using digits and upper case letters.  Generally, wherever &lt;<a href="#mangle.seq-id">seq-id</a>&gt; appears, the first element is encoded by the absence of a number, and the remainder of the sequence is encoded starting at 0.  As with &lt;<a href="#mangle.number">number</a>&gt;, a &lt;<a href="#mangle.seq-id">seq-id</a>&gt; has a leading zero only if that is the only digit.
+
+<p>For example, <a href="#mangle.compression">substitutions</a> are mangled as <code><font color=blue>S [&lt;<a href="#mangle.seq-id">seq-id</a>&gt;] _</font></code>.  The first substitutable entity is encoded as <code>S_</code>, i.e. with no number.  The second is encoded as <code>S0_</code>, the third as <code>S1_</code>, the twelfth as <code>SA_</code>, the thirty-eighth as <code>S10_</code>, etc.
+
+<p><a name="mangling-operator">
 <h4><a href="#mangling-operator"> 5.1.3 Operator Encodings </a></h4>
 
 <p>
@@ -4207,6 +4224,10 @@ references in the result type to the template parameters.
 <h4><a href="#mangling-special"> 5.1.4 Other Special Functions and Entities </a></h4>
 
 <p>
+<a name="mangling-special-vtables">
+<h5><a href="#mangling-special-vtables"> 5.1.4.1 Virtual Tables and RTTI </a></h5>
+
+<p>
 Associated with a virtual table are several entities with mangled
 external names: the virtual table itself, the VTT for construction,
 the typeinfo structure, and the name it references.
@@ -4221,16 +4242,8 @@ prefixed to the type encoding for the class to which it applies.
 </pre></font></code>
 
 <p>
-Initialization of certain objects with static storage duration requires
-a guard variable to prevent multiple initialization.  The mangled name
-of a guard variable is the name of the guarded variable prefixed with
-<code>GV</code>.
-
-<pre><font color=blue><code>
-  &lt;<a name="mangle.special-name">special-name</a>&gt; ::= GV &lt;<i>object</i> <a href="#mangle.name">name</a>&gt;	# Guard variable for one-time initialization
-			# No &lt;<a href="#mangle.type">type</a>&gt;
-
-</pre></font></code>
+<a name="mangling-special-thunks">
+<h5><a href="#mangling-special-thunks"> 5.1.4.2 Virtual Override Thunks </a></h5>
 
 <p>
 Virtual function override thunks come in two forms.
@@ -4285,6 +4298,10 @@ either of which may be either virtual or non-virtual.
 </pre></font></code>
 
 <p>
+<a name="mangling-special-ctor-dtor">
+<h5><a href="#mangling-special-ctor-dtor"> 5.1.4.3 Constructors and Destructors </a></h5>
+
+<p>
 Constructors and destructors are simply special cases of
 &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;,
 where the final &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; of a nested name
@@ -4300,6 +4317,21 @@ is replaced by one of the following:
 
 </pre></font></code>
 
+<p>
+<a name="mangling-special-guards">
+<h5><a href="#mangling-special-guards"> 5.1.4.4 Guard Variables </a></h5>
+
+<p>
+Initialization of certain objects with static storage duration
+requires a <a href="#guards">guard variable</a> to prevent multiple
+initialization.  The mangled name of a guard variable is the name of
+the guarded variable prefixed with <code>GV</code>.
+
+<pre><font color=blue><code>
+  &lt;<a name="mangle.special-name">special-name</a>&gt; ::= GV &lt;<i>object</i> <a href="#mangle.name">name</a>&gt;	# Guard variable for one-time initialization
+			# No &lt;<a href="#mangle.type">type</a>&gt;
+
+</pre></font></code>
 
 <p>
 <a name="mangling-type">
@@ -5344,7 +5376,7 @@ substitutions.
 </i></p>
 
 <p>
-Substitution is according to the production:
+Substitutions are mangled using the usual rules for &lt;<a href="#mangle.seq-id">seq-id</a>&gt;:
 
 <pre><font color=blue><code>
   &lt;<a name="mangle.substitution">substitution</a>&gt; ::= S &lt;<a href="#mangle.seq-id">seq-id</a>&gt; _
@@ -5352,23 +5384,10 @@ Substitution is according to the production:
 
 </pre></font></code>
 
-The &lt;<a name="mangle.seq-id">seq-id</a>&gt; is a sequence number in base 36,
-using digits and upper case letters,
-and identifies the &lt;<a href="#mangle.seq-id">seq-id</a>&gt;-th
-encoded component,
-in left-to-right order,
-starting at "0".
-As a special case,
-the first substitutable entity is encoded as "S_",
-i.e. with no number,
-so the numbered entities are the second one as "S0_",
-the third as "S1_", the twelfth as "SA_", the thirty-eighth as "S10_",
-etc.
-All substitutable components are so numbered,
-except those that have already been numbered for substitution.
-A component is earlier in the substitution dictionary
-than the structure of which it is a part.
-For example:
+<p>Substitutable components are numbered left-to-right.  A component
+is earlier in the substitution dictionary than the structure of which
+it is a part.  All substitutable components are numbered, except those
+that have already been numbered for substitution.  For example:
 
 <code><pre>
    "_ZN1N1TIiiE2mfES0_IddE": Ret? N::T&lt;int, int&gt;::mf(N::T&lt;double, double&gt;)
