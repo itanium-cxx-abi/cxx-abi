@@ -4060,13 +4060,30 @@ are considered to have the name <code>i</code> for the purposes of
 mangling.
 </p>
 
-<h5><a name="mangle.name"> Names </a></h5>
+<h5><a name="mangle.name">Names</a></h5>
+
+<p>In general, the mangling of an entity's name depends on where it is
+declared.  Entities declared at global scope, or in namespace
+<code>std</code>, are mangled as unscoped names.  Entities declared
+within a function, including members of local classes, are mangled
+with &lt;<a href="#mangle.local-name">local-name</a>&gt;.  Entities
+declared in a namespace or class scope are mangled with
+&lt;<a href="#mangle.nested-name">nested-name</a>&gt;.  When the actual
+entity is not known statically, as can occur in a dependent function
+template signature, the name is mangled with
+&lt;<a href="#mangle.unresolved-name">unresolved-name</a>&gt;.
+
+<p>The manglings of template specializations and non-template entities
+closely overlap, but they can generally be disambiguated by whether
+the name is followed by the <code><font color="blue">I</font></code>
+which starts a &lt;<a href="#mangle.template-args">template-args</a>&gt;
+production.
 
 <pre><font color=blue><code>
     &lt;name&gt; ::= &lt;<a href="#mangle.nested-name">nested-name</a>&gt;
 	   ::= &lt;<a href="#mangle.unscoped-name">unscoped-name</a>&gt;
 	   ::= &lt;<a href="#mangle.unscoped-template-name">unscoped-template-name</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt;
-	   ::= &lt;<a href="#mangle.local-name">local-name</a>&gt;	# See <a href=#mangling-scope>Scope Encoding</a> below
+	   ::= &lt;<a href="#mangle.local-name">local-name</a>&gt;	# See <a href="#mangling-scope">Scope Encoding</a> below
 
     &lt;<a name="mangle.unscoped-name">unscoped-name</a>&gt; ::= &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
 		    ::= St &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;   # ::std::
@@ -4075,30 +4092,42 @@ mangling.
 			     ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 </pre></font></code>
 
-Names of objects nested in namespaces or classes are identified as a
-delimited sequence of names identifying the enclosing scopes.
-In addition, when naming a class member function,
-CV-qualifiers and ref-qualifiers may be prefixed to the compound name,
-encoding the <code>this</code> attributes.
-Note that if member function CV-qualifiers or a ref-qualifier are required,
-the delimited form must be used even if the remainder of the name is
-a single substitution.
+<p>A &lt;<a href="#mangle.nested-name">nested-name</a>&gt; recursively
+breaks down the enclosing scope until the global scope is reached.  A
+&lt;<a href="#mangle.prefix">prefix</a>&gt; refers to a scope;
+confusingly, a &lt;<a href="#mangle.template-prefix">template-prefix</a>&gt;
+actually refers to a template name (without template arguments).
+
+<p>Class and namespace members are always mangled with a
+&lt;<a href="#mangle.nested-name">nested-name</a>&gt;, even if they are
+template specializations and there is an existing substitution for the
+template (and therefore the name could in principle be mangled as if
+it were a &lt;<a href="#mangle.unscoped-template-name">unscoped-template-name</a>&gt;).
+
+<p>When a &lt;<a href="#mangle.nested-name">nested-name</a>&gt; refers
+to a non-static class member function, the CV-qualifiers and
+ref-qualifiers of the function are prefixed to the compound name.
+This prefix is required even when the member function is a
+specialization of a substituted template and therefore those
+qualifiers could be inferred from the substitution target.
 
 <pre><code><font color=blue>
     &lt;<a name="mangle.nested-name">nested-name</a>&gt; ::= N [&lt;<a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt;] [&lt;<a href="#mangle.ref-qualifier">ref-qualifier</a>&gt;] &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; E
 		  ::= N [&lt;<a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt;] [&lt;<a href="#mangle.ref-qualifier">ref-qualifier</a>&gt;] &lt;<a href="#mangle.template-prefix">template-prefix</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt; E
 
-    &lt;<a name="mangle.prefix">prefix</a>&gt; ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
-	     ::= &lt;<a href="#mangle.template-prefix">template-prefix</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt;
-             ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
-             ::= &lt;<a href="#mangle.decltype">decltype</a>&gt;
-	     ::= # empty
+    &lt;<a name="mangle.prefix">prefix</a>&gt; ::= &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;                 # global class or namespace
+             ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;        # nested class or namespace
+	     ::= &lt;<a href="#mangle.template-prefix">template-prefix</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt;  # class template specialization
+             ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;                   # template type parameter
+             ::= &lt;<a href="#mangle.decltype">decltype</a>&gt;                         # decltype qualifier
+             ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.data-member-prefix">data-member-prefix</a>&gt;      # initializer of a data member
 	     ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
-             ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.data-member-prefix">data-member-prefix</a>&gt;
 
-    &lt;<a name="mangle.template-prefix">template-prefix</a>&gt; ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<i>template</i> <a href="#mangle.unqualified-name">unqualified-name</a>&gt;
-                      ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
+    &lt;<a name="mangle.template-prefix">template-prefix</a>&gt; ::= &lt;<i>template</i> <a href="#mangle.unqualified-name">unqualified-name</a>&gt;           # global template
+                      ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<i>template</i> <a href="#mangle.unqualified-name">unqualified-name</a>&gt;  # nested template
+                      ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;                      # template template parameter
                       ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
+
     &lt;<a name="mangle.unqualified-name">unqualified-name</a>&gt; ::= &lt;<a href="#mangle.operator-name">operator-name</a>&gt;
                        ::= &lt;<a href="#mangle.ctor-dtor-name">ctor-dtor-name</a>&gt;  
                        ::= &lt;<a href="#mangle.source-name">source-name</a>&gt;   
@@ -5079,22 +5108,21 @@ For example:
 <a name="mangling-scope">
 <h4><a href="#mangling-scope"> 5.1.6 Scope Encoding </a></h4>
 
-<p>
-A nonlocal scope is encoded as the qualifier of a qualified name:
-it can be the top-level name qualification or it can appear inside
-&lt;<a href="#mangle.type">type</a>&gt; to denote dependent types or bind specific names as arguments.
-Qualified names are encoded as:
-<code><pre>
-   N &lt;qual 1> ... &lt;qual N> &lt;unqual name> E
-</pre></code>
-where each &lt;qual K> is the encoding of a namespace name or a class name
-(with the latter possibly including a template argument list).
+<p>Entities declared in non-global scopes must include their scope in
+their mangled name.  For entities declared outside of function
+definitions, this is dictated by the rules laid out for &lt;<a
+href="#mangle.name">name</a>&gt;.  Entities declared within function
+definitions usually do not require a well-defined mangling because
+only one translation unit has access to the entity.  However,
+different translation units must agree about the address of entities
+declared within inline functions, including template specializations.
+Therefore this ABI defines a mangling for even local entities.
 
-<p>
-Occasionally entities in local scopes must be mangled too
-(e.g. because inlining or template compilation causes
-multiple translation units to require access to that entity).
-The encoding for such entities is as follows:
+<p>The mangling of a local entity is composed of three elements: the
+mangling of the enclosing function, the mangling of the entity
+relative to the function, and an optional discriminator within the
+function:
+
 <code><pre><font color=blue>  &lt;<a name="mangle.local-name">local-name</a>&gt; := Z &lt;<i>function</i> <a href="#mangle.encoding">encoding</a>&gt; E &lt;<i>entity</i> <a href="#mangle.name">name</a>&gt; [&lt;<a href="#mangle.discriminator">discriminator</a>&gt;]
                := Z &lt;<i>function</i> <a href="#mangle.encoding">encoding</a>&gt; E s [&lt;<a href="#mangle.discriminator">discriminator</a>&gt;]
 
@@ -5102,36 +5130,48 @@ The encoding for such entities is as follows:
                   := __ &lt;<i>non-negative</i> <a href="#mangle.number">number</a>&gt; _   # when number >= 10
 </font></pre></code>
 
-<p>
-The first production in &lt;<a href="#mangle.local-name">local-name</a>&gt; is used for named local static objects and classes,
-which are identified by their "names" as encoded relative to the closest
-enclosing function.  In case of unnamed local types (excluding unnamed
-types that have acquired a "name for linkage purposes"), the "name" the
-unqualified name is encoded as an &lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt; of
+<p>The enclosing function is the closest function enclosing the
+entity.  That is, when an entity <i>E</i> is declared within a
+function that is itself local to another function, the
+&lt;<a href="#mangle.encoding">encoding</a>&gt; beginning the
+mangling of <i>E</i> will itself be a
+&lt;<a href="#mangle.local-name">local-name</a>&gt;,
+perhaps recursively.
+
+<p>The name of a declared local entity is mangled with the rules for
+&lt;<a href="#mangle.name">name</a>&gt; as if the function were the
+global scope.  That is, an entity declared directly within the
+function (e.g. a local type or <code>static</code> local variable) is
+mangled using an unscoped name, whereas a member of a local type will
+be mangled with a &lt;<a href="#mangle.nested-name">nested-name</a>&gt;.
+
+<p>It is possible to declare multiple entities with the same name
+within a function if they are declared in different scopes.  In this
+case, a discriminator must be added to the
+&lt;<a href="#mangle.local-name">local-name</a>&gt;.  Entities with
+the same "top-level" name are numbered in lexical order within
+the function definition.  A discriminator is added only for the second
+and later occurrences of the same name, and so the
+&lt;<a href="#mangle.number">number</a>&gt; in the discriminator
+is actually <i>n-2</i> for the <i>n</i>th occurrence.  "Top-level"
+here means the name declared directly in the local scope; e.g.,
+if there are three classes named <code>X</code> in a given function
+<code>g</code>, and only the third has a member function <code>f</code>,
+the name of <code>X::f</code> in <code>g</code> will still include
+the discriminator <font color="blue"><code>_1</code></font> (because
+<i>3 - 2 == 1</i>).
+
+<p>For unnamed local types (excluding types with a name for linkage
+purposes), the "name" is encoded as an
+&lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt; of
 the form
-<pre><code><font color=blue>  &lt;<a name="mangle.unnamed-type-name">unnamed-type-name</a>&gt; ::= Ut [ &lt;<i>nonnegative</i> <a href="#mangle.number">number</a>&gt; ] _
+
+<pre><code><font color=blue> &lt;<a name="mangle.unnamed-type-name">unnamed-type-name</a>&gt; ::= Ut [&lt;<i>nonnegative</i> <a href="#mangle.number">number</a>&gt; ] _
 </pre></font></code>
-where the number is  is omitted for the first unnamed type in the
-function, and n-2 for the nth unnamed type (in lexical order) otherwise.
-The &lt;<i>entity</i> <a href="#mangle.name">name</a>&gt; may itself be a compound name,
-but it is relative to the closest enclosing function,
-i.e. none of the components of the function encoding appear in the
-entity name.
-It is possible to have nested function scopes,
-e.g. when dealing with a member function in a local class.
-In such cases, the function encoding will itself have &lt;<a href="#mangle.local-name">local-name</a>&gt;
-structure.
-<p>
-The discriminator is used only for the
-second and later occurrences of the same "top-level" name within a single
-function (since "unnamed types" are distinctly numbered, they never
-include a discriminator).
-In this case &lt;<a href="#mangle.number">number</a>&gt; is n - 2,
-if this is the nth occurrence, in lexical order, of the given name.
-"top-level" here means that if there are e.g. three classes
-named X in a given function g, and only the third has a member function
-f, the encoding of S::f in g will still include a discriminator of the
-form "<code>_1</code>" (n-2 == 1).
+
+where the number is is omitted for the first unnamed type in the
+function, and <i>n</i>-2 for the <i>n</i>th unnamed type (in lexical
+order) otherwise.
 
 <p>
 For example:
@@ -5159,40 +5199,35 @@ For example:
 
 
 <p>
-The second production in &lt;<a href="#mangle.local-name">local-name</a>&gt; is used for string literals.
-The discriminator is used only if there is more than one,
-for the second and subsequent ones.
-In this case &lt;<a href="#mangle.number">number</a>&gt; is n - 2,
-if this is the nth distinct string literal, in lexical order,
-appearing in the function.
-Multiple references to the same string literal produce one string
-object with one name in the sequence.
-<i>
-Note that this assumes that the same string literal occurring twice
-in a given function in fact represents a single entity,
-i.e. has a unique address.
-</i>
+The second production in &lt;<a href="#mangle.local-name">local-name</a>&gt;
+is used for string literals.  The discriminator is used only if there
+is more than one, for the second and subsequent ones.  In this case
+again &lt;<a href="#mangle.number">number</a>&gt; is <i>n</i>-2 for
+the <i>n</i>th distinct string literal, in lexical order, appearing in
+the function.  Multiple references to the same string literal produce
+one string object with one name in the sequence.  <i>Note that this
+assumes that the same string literal occurring twice in a given
+function in fact represents a single entity, i.e. has a unique
+address.</i>
 
 <p>
-In all cases
-the numbering order is strictly lexical order based on the original
-token sequence.
-All entities occurring in that sequence are to be numbered,
-even if subsequent optimization makes some of them unnecessary.
-The ordering of literals appearing in a mem-initializer-list shall be
-the order that the literals appear in the source, which may be
-different from the order in which the initializers will be executed
-when the program runs. 
-It is expected that this will be the 'natural' order in most compilers.
-In any case, conflicts would arise only if different compilation units
-including the same code were compiled by different compilers.
-</p>
+In all cases, the numbering order is strictly lexical order based on
+the original token sequence.  All entities occurring in that sequence
+are to be numbered, even if subsequent optimization makes some of them
+unnecessary.  The ordering of literals appearing in a
+mem-initializer-list shall be the order that the literals appear in
+the source, which may be different from the order in which the
+initializers will be executed when the program runs.  It is expected
+that this will be the 'natural' order in most compilers.  In any case,
+conflicts would arise only if different compilation units including
+the same code were compiled by different compilers.
 
 <p>
-For entities in constructors and destructors,
-the mangling of the complete object constructor or destructor is used
-as the base function name, i.e. the C1 or D1 version.
-This yields mangled names that are consistent across the versions.
+For entities in constructors and destructors, the mangling of the
+complete object constructor or destructor is used as the base function
+name, i.e. the <font color="blue"><code>C1</code></font> or <font
+color="blue"><code>D1</code></font> version.  This yields mangled
+names that are consistent across the versions.
 
 <p>
 Example:
@@ -5312,11 +5347,11 @@ not affect its encoding.
 </pre></code>
 
 
-<p>
+<a name="mangle.data-member-prefix"><p>
 Finally, if the context of a closure type is an initializer for a class
 member (static or nonstatic), it is encoded in a qualified name with a
 final <code>&lt;<a href="#mangle.prefix">prefix</a>&gt;</code> of the form:
-<code><pre><font color=blue>  &lt;<a href="#mangle.data-member-prefix">data-member-prefix</a>&gt; := &lt;<i>member</i> <a href="#mangle.source-name">source-name</a>&gt; M
+<code><pre><font color=blue>  &lt;data-member-prefix&gt; := &lt;<i>member</i> <a href="#mangle.source-name">source-name</a>&gt; M
 </font></pre></code>
 For example:
 <code><pre>
@@ -5703,6 +5738,10 @@ unwind table location.
 
 <h2><a name="revisions">Appendix R: Revision History</a></h2>
 <p> <hr>
+
+<p class="revision"><span class="date">[150502]</span>
+  Clarify mangling of nested and local names and correct
+  an ambiguity in prefix mangling.</p>
 
 <p class="revision"><span class="date">[150204]</span>
   Fix alignment calculation for empty proper base classes.</p>
