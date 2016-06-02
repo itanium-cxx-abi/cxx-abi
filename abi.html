@@ -4160,7 +4160,7 @@ qualifiers could be inferred from the substitution target.
                       ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;                      # template template parameter
                       ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 
-    &lt;<a name="mangle.unqualified-name">unqualified-name</a>&gt; ::= &lt;<a href="#mangle.operator-name">operator-name</a>&gt;
+    &lt;<a name="mangle.unqualified-name">unqualified-name</a>&gt; ::= &lt;<a href="#mangle.operator-name">operator-name</a>&gt; [&lt;<a href="#mangle.abi-tags">abi-tags</a>&gt;]
                        ::= &lt;<a href="#mangle.ctor-dtor-name">ctor-dtor-name</a>&gt;  
                        ::= &lt;<a href="#mangle.source-name">source-name</a>&gt;   
                        ::= &lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt;   
@@ -4178,6 +4178,93 @@ qualifiers could be inferred from the substitution target.
 Note that &lt;<a href="#mangle.source-name">source-name</a>&gt; in the productions for &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
 may be either a function or data object name when derived from &lt;<a href="#mangle.name">name</a>&gt;,
 or a class or enum name when derived from &lt;<a href="#mangle.type">type</a>&gt;.
+
+<h5>ABI tags</h5>
+
+<p>The GNU <code>abi_tag</code> attribute can be applied to a variable,
+function, inline namespace, class, or enumeration.  The
+&lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; for a tagged
+variable, function, or type includes a representation of the tags on that
+entity, in alphabetical order:
+<pre><code><font color=blue>
+    &lt;<a name="mangle.abi-tags">abi-tags</a>&gt; ::= &lt;<a href="#mangle.abi-tag">abi-tag</a>&gt; [&lt;<a href="#mangle.abi-tags">abi-tags</a>&gt;]
+    &lt;<a name="mangle.abi-tag">abi-tag</a>&gt; ::= B &lt;<a href="#mangle.source-name">source-name</a>&gt;
+</font></code></pre>
+
+For example:
+<pre>
+  struct [[gnu::abi_tag ("foo","bar")]] A { }; // mangles as 1AB3barB3foo
+</pre>
+
+If a name that would use a built-in
+&lt;<a href="#mangle.substitution">substitution</a>&gt; has ABI tags, the tags
+are appended to the substitution; the result is a substitutable component.
+
+<pre>
+  namespace std
+  {
+    template &lt;class T> struct char_traits { /* ... */ };
+    template &lt;class T> struct allocator { /* ... */ };
+    template &lt;class T, class R = char_traits&lt;T>, class A = allocator&lt;T>>
+      struct [[gnu::abi_tag ("X")]] basic_string { /* ... */ };
+    using string = basic_string&lt;char>;
+  }
+
+  void f(std::string, std::string) { } // mangles as _Z1fSsB1XS_
+</pre>
+
+If part of a declaration's type is not represented in the mangling, i.e. the
+type of a variable or a return type that is not represented in the mangling of
+a function, any ABI tags on that type (or components of a compound type) that
+are not also present in a mangled part of the type are applied to the name of
+the declaration.  Note that there is no similar tag propagation from members or
+bases to a class type, as that would be impossible for incomplete types.
+
+<p>Note that for member functions of a class template that are not member
+templates, the type in question is that of the instantiation, so tags that
+appear only in the template do not affect mangling:
+
+<pre>
+  struct [[gnu::abi_tag ("foo")]] A
+  {
+    template &lt;class T> static T f();
+    template &lt;class T> static A g();
+  };
+
+  template &lt;class T> struct B
+  {
+    static decltype(A::f&lt;T>()) fa(decltype(A::f&lt;T>()));
+    static decltype(A::f&lt;T>()) fv();
+    static decltype(A::g&lt;T>()) ga(decltype(A::g&lt;T>()));
+    static decltype(A::g&lt;T>()) gv();
+  };
+
+  int main()
+  {
+    // decltype(A::f&lt;T>()) resolves to int
+    B&lt;int>::fa(0);   // _ZN1BIiE2faEi
+    B&lt;int>::fv();    // _ZN1BIiE2fvEv
+    // decltype(A::g&lt;T>()) resolves to A, which has a tag
+    B&lt;int>::ga(A()); // _ZN1BIiE2gaE1AB3foo
+    B&lt;int>::gv();    // _ZN1BIiE2gvB3fooEv
+  }
+</pre>
+
+<p>If no arguments are specified for the attribute on an inline namespace, the
+namespace has its own name as a tag.  Tags on an inline namespace are not
+represented in the mangled name of the namespace, but they are subject to the
+above tag propagation.  For example:
+
+<pre>
+  inline namespace [[gnu::abi_tag]] Foo {
+    struct A {};
+    A f() { } // mangles as _ZN3Foo1fEv
+  }
+  template &lt;class T> struct B { };
+  typedef void (*fp)(B&lt;A>);
+  fp p;      // mangles as _Z1pB3Foo
+  A g(A) { } // mangles as _Z1gN3Foo1AE
+</pre>
 
 <h5><a name="mangle.number"> Numbers </a></h5>
 
@@ -5796,6 +5883,8 @@ unwind table location.
 
 <h2><a name="revisions">Appendix R: Revision History</a></h2>
 <p> <hr>
+<p class="revision"><span class="date">[160602]</span>
+  Describe <code>abi_tag</code> mangling.</p>
 
 <p class="revision"><span class="date">[160907]</span>
   Introduce layout restrictions on virtual table pointers stored in objects and VTTs.</p>
