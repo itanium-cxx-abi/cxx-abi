@@ -1,0 +1,495 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+   <TITLE>RTTI Implementation In ABI2</TITLE>
+</HEAD>
+<BODY>
+
+<i>Note (Michael Lam 12 August 1999):</i>
+Sun is filing a patent on the algorithms described here.
+
+<hr>
+<p>
+
+<H1 ALIGN=CENTER>RTTI Implementation in ABI2</H1>
+
+<p>The typeinfo object is implemented as:
+<PRE>
+    class type_info {
+	// public interface ignored
+    private:
+	static_type_info* static_data;
+    };
+</PRE
+
+<P>The static_type_info objects are shared with the exception implementation.
+The static data has the following format.  In this description we
+make heavy use of self-relative pointers for position independence.
+We denote self-relative pointers by "$" instead of "*".  They are
+represented in the structures as lvalues of type ptr_diff_t.
+For example, we might have a field:
+<PRE>
+    base_block$ bases;	// base information.
+</PRE>
+<P>These are converted to real pointers using the following template.
+<PRE>
+    template <class T> to_real_ptr(ptr_diff_t& p)
+    {
+	return (T)((char*)p + *p);
+    }
+</PRE>
+<P>Thus a self-relative pointer to a "base_block" is accessed by
+<PRE>
+    *to_rel_ptr<base_block*>(ti->bases);
+
+    struct static_type_info {
+	const char$ ty_name;		// print name for the type
+	ptr_diff_t reserved;   		// Can be filled as described below
+	class_base_descr$ base_table;	// base class information for cast
+	uint32 type_hash[4];		// unique identifier
+	uint32 flags;			// notes on the type
+	uint32 cv_qualifiers;		// const-vol qualifiers
+	uint32 pointer_count() const;	// pointer level count;
+	uint32 voidstar_flag() const;	// non-zero if void*
+	uint32 dotdotdot_flag() const;	// non-zero if "..." 
+
+    };
+
+    struct class_base_descr {
+	uint32 type_hash[4];		// unique identifier
+	size_t offset;			// offset in most-derived
+    };
+</PRE>
+<DL>
+<DT>ty_name:	<DD>Pointer to a null-terminated name for the type.
+		In general this name should be a utf8 value
+
+<DT>reserved:	<DD>A tool for extending the typeinfo object in an
+		orthogonal direction. For example, this could be a
+		self-relative pointer to a Java data block.  For C++ types,
+		extension should probably be by derivation.
+
+<DT>base_table:	<DD>For all classes this is a self-relative pointer to an array
+		of class_base_descr entries.  Each entry contains the
+		hash for that class and the offset of that class within
+		the most derived class.  The most significant two bits
+		of the offset are used as flags. The msb is set to 
+		indicate the last entry in the array, and the next
+		msb is set to indicate that the path from most derived
+		to the entry is private.  The entries are in depth-first
+		left-to-right order based on the inheritance dag, except
+		that each subobject is represented exactly once.  The 
+		most derived class is the last entry.  Its offset entry 
+		will always have only the sign bit set, since it has a
+		zero offset, and is never private or ambiguous.
+		Pointers to classes will share the same base_table as
+		the class itself.
+
+<DT>type_hash:	<DD>A hash function representing the type.  This is
+		obtained by applying the NIST Secure Hash Algorithm (SHA)
+		to the mangled name for the representative type.  The
+		representative type is chosen to make exception type
+		matching easy, and is determined as follows:
+		<UL>
+		<LI>For pointers to class, the class.
+		<LI>For all other pointers to objects, the pointer with
+		    cv-qualification removed at all levels.
+		<LI>For other types, the type itself
+		<LI>For "..." the mangled name is the empty string
+		</UL>
+
+<DT>flags:	<DD>This contains bitflags used to describe a type.  If
+		the type is not a pointer to an object, this word contains
+		zero.  There are two flag values.
+		<UL>
+		    <TABLE>
+		    <TR><TD>void*			<TD>0x80000000
+		    <TR><TD>any type (...)		<TD>0x40000000
+		    </TABLE>
+		</UL>
+		the value is 
+		    <number of pointer levels> + flags.
+
+		There are no references, as they are irrelevent in
+		all contexts in which these objects are used.
+
+<DT>cv_qualifiers:  <DD>A bitmask representing the cv qualifications for any
+		pointer levels.  The number of pointer levels is part
+		of the pointer_flags field.  Two bits are used for each
+		level of pointers. 0x2 implies that the level points to
+		constant, while 0x1 implies that it points to volatile.
+		These bits are built up with the outermost pointer to
+		the left, and the entire set is right justified.  For
+		example 
+		<UL>
+		<TABLE>
+			<TR><TD>const char*		<TD>-> 0x2<TD>(10)
+			<TR><TD>const char**		<TD>-> 0x8<TD>(1000)
+			<TR><TD>const char*const*	<TD>-> 0xA<TD>(1010)
+			<TR><TD>const char*volatile*	<TD>-> 0x9<TD>(1001)
+		</TABLE>
+		</UL>
+		This can only represent 16 levels of pointer, but IR
+		can only represent 13, so this works.  If desired,
+		with a more reasonable IR, we can extend this field
+		by replacing it with a self-relative pointer to multiple
+		words.  This would be triggered by the pointer_levels
+		value in "flags".  It is not currently used.  
+
+<DT>pointer_count() const:	<DD> The pointer level count.
+		This returns the lower 16 bits of the flags
+
+<DT>voidstar_flag() const:	<DD> Nonzero if thisis void*.  This just
+		masks off the flag, it doesn't convert it to bool.
+
+<DT>dotdotdot_flag() const;	<DD> non-zero if this is "...".  This just
+		masks off the flag, it doesn't convert it to bool.
+</DL>
+
+<H3>Issues with RTTI blocks still open to change.</H3>
+
+<P>Polymorphic classes have references to static_type_info blocks in their
+virtual tables.  Virtual table entries are of type
+<PRE>
+    union vtab_entry { 
+	void (*f)();	// function pointer
+	ptr_diff_t o;	// offset adjustment
+    };
+</PRE>
+If the virtual pointer in a class is denoted by "virt_ptr", then
+<PRE>
+    virt_ptr[0].o
+</PRE>
+is a self-relative pointer to static type data for the most-derived class,
+and
+<PRE>
+    virt_ptr[1].o
+</PRE>
+is the offset of the subobject with the virtual pointer in the entire
+class object.
+
+<H3>Dynamic Casts</H3>
+
+<P>Dynamic casts are divided into cases at compile time, and each case
+generates different code.
+
+<DL>
+<DT><P><B>Up cast to a base class:</B>
+
+<DD><P>Handled as a normal static cast.  No dynamic code is generated
+
+<DT><P><B>Cast to void*</B>
+
+<DD><P>This is defined as returning a pointer to the start of the entire
+    object.  Code is generated inline.
+<UL>
+<PRE>
+static_type* temp;
+(temp = opnd,
+(temp != NULL)
+    ? (void*)(((char*)temp) - temp->virtualsym[1].o)
+    : (void*) temp
+) 
+</PRE>
+</UL>
+<DT><P><B>Source class is a unique non-virtual base class of destination class</B>
+
+<DD> This generates a call to the function
+<PRE>
+<UL>
+void* __Crun::simple_down_cast(
+	    void* opnd,			// original pointer
+	    static_type_info* sclass,	// source class
+	    static_type_info* dclass);	// destination class
+</UL>
+</PRE>
+    In this case there can be only one subobject of the static source
+    type, and the only piece of information needed is the offset within
+    the entire object, which the routine picks up from the virtual table.
+
+<P>    The algorithm is:
+<OL>
+<LI>	If the opnd is NULL, return NULL.
+
+<LI>	Search the base class table looking for an entry with the proper
+	static class at the offset of the static class.
+
+<LI>	Search the base table from that point looking for a match
+	with the destination class
+	
+<LI>	If the destination class is not found the cast fails, return NULL
+
+<LI>	Otherwise, the cast succeeds, since other conditions have
+	been checked statically.  Adjust the pointer using the two
+	offsets. and return it.
+</OL>
+<DT><P><B>Source is a public base class of dest, but there is some virtual
+    inheritance involved so that there could be more than one class
+    derived from this subobject.</B>
+
+<DD> This generates a call to the function
+<UL>
+<PRE>
+void* __Crun::down_cast(
+	    void* opnd,			// Original pointer
+	    static_type_info* sclass,	// source class
+	    static_type_info* dclass);	// destination class
+</PRE>
+</UL>
+    In this case the dynamic table is searched to find subobjects of type
+    "sclass" at the offset obtained from the virtual table.  Then the
+    cast to "dclass" proceeds from that object.
+
+<P>The algorithm is:
+<OL>
+<LI>	If the opnd is NULL, return NULL.
+
+<LI>	Search the base table from first to last, looking for a match
+	with the source class that has the same offset as the original
+	subobject.
+
+<LI>	If this search fails, we have an internal error.
+
+<LI>	If the "private" bit is set in this base entry, the cast fails,
+	return NULL
+
+<LI>	From that point, search the base table toward the last, looking
+	for a match with the destination class.
+	
+<LI>	If the destination class is not found, or if the "private" bit
+	is set, the cast fails, return NULL
+
+<LI>	Continue searching for the destination class.  If it is found,
+	the cast fails, return NULL
+
+<LI>	Otherwise, the cast succeeds, and the pointer is adjusted using
+	the offset from the vtable and the offset of the destination
+	class entry.
+</OL>
+
+<DT><P><B>There is no relationship between the types, so the cast must cross the
+    hierarchy in the most-derived class</B>
+<DD>
+<UL>
+<PRE>
+void* __Crun::cross_cast(
+	    void* opnd,			// original pointer
+	    static_type_info* sclass,	// source class
+	    static_type_info* dclass);	// destination class
+</PRE>
+</UL>
+<P>    The algorithm is:
+<oL>
+<LI>	If the opnd is NULL, return NULL.
+
+<LI>	Search the base table from first to last, looking for a match
+	with the source class that has the same offset as the original
+	subobject.
+
+<LI>	If this search fails, we have an internal error.
+
+<LI>	If the "private" bit is set in this base entry, the cast fails,
+	return NULL
+
+<LI>	Beginning again from the start, search the base table toward
+	the last, looking for a match with the destination class.
+	
+<LI>	If the destination class is not found, or if the "private" bit
+	is set, the cast fails, return NULL
+
+<LI>	Continue searching for the destination class.  If it is found,
+	the cast fails, return NULL
+
+<LI>	Otherwise, the cast succeeds, and the pointer is adjusted using
+	the offset from the vtable and the offset of the destination
+	class entry.
+</OL>
+</DL>
+<P>The reference casts are identical, except that they throw an exception
+instead of returning NULL.  The corresponding functions are:
+<UL>
+<PRE>
+void* __Crun::ref_simple_down_cast(
+	    void* opnd,			// original pointer
+	    static_type_info* dclass);	// destination class
+
+void* __Crun::ref_down_cast(
+	    void* opnd,			// Original pointer
+	    static_type_info* sclass,	// source class
+	    static_type_info* dclass);	// destination class
+
+void* __Crun::ref_cross_cast(
+	    void* opnd,			// original pointer
+	    static_type_info* sclass,	// source class
+	    static_type_info* dclass);	// destination class
+</PRE>
+</UL>
+<H3>Typeid</H3>
+
+<P>Objects of type "type_info" are required to be polymorphic, which means
+that they have vtable pointers, and these pointers are not self-relative
+or position-independent.  The practical consequence of this is that 
+type_info objects cannot be allocated in readonly memory.  They could
+be statically allocated, but this has the disadvantage that they then
+go into global data, expanding that area and forcing the program toward
+big PIC code, with attendent overheads.
+
+<P>Since the use of type_info objects is probably going to be rare, and
+in many cases will be associated with expensive operations like IO,
+it seems better to allocate them dynamically as needed.
+<PRE>
+    class type_info {
+    public:
+	// Operators ignored
+
+    private:
+	const static_type_info* data;
+    };
+</PRE>
+Type_info objects then will consist of two pointers, on to the virtual
+table and one to the corresponding static_type_info object generated
+by the compiler. There is no need for the objects to be unique, as all
+comparisons are done on the type hash and pointer data.  It would probably
+be well to allocate space in groups, and to use a small hash table based
+on the address of the static information to keep allocation down.
+
+<P>"typeid" can be applied either statically or dynamically.
+<OL>
+<LI>  Dynamic determination, must be a polymorphic class
+
+    <P>Calls the function
+<PRE>
+	const type_info& __Crun::get_typeid(
+		    void* opnd);		// The object pointer
+</PRE>
+    This function extracts the static_type_info from the virtual table
+    and creates a type_info object.  If "opnd" is void it throws an
+    exception.
+
+<LI>  Static determination, could be any type
+
+    <P>Calls the function
+<PRE>
+	const type_info& __Crun::make_typeid(
+		    static_type_info* data);	// static data
+</PRE>
+    This function creates a type_info object with the supplied static data.
+</OL>
+<H3>Exception Interface</H3>
+The exception matching and casting rules are not the same as dynamic cast,
+so we need an interface to provide RTTI services for exceptions.
+<DL>
+<DT>
+<pre>
+bool __Cimpl::exception_matches(
+		const __Crun::static_type_info* src,
+		const __Crun::static_type_info* dest);
+</pre>
+<DD>True if the catch type represented by "dest" is a valid match for the
+static exception type, represented by "src".
+<DT>
+<pre>
+void* __Cimpl::exception_adjust(
+		const __Crun::static_type_info* src,
+		const __Crun::static_type_info* dest,
+		void* obj);
+</pre>
+<DD>Assuming that we have found an exception match, make any necessary
+offset adjustment required to cast from the source type to the
+destination type.  This always casts up the hierarchy, doing the
+equivalent of a static_cast.  Note when using this that if the
+thrown type is a pointer this adjustment should be applied to the
+thrown value itself, rather than to the pointer to the thrown object.
+<DT>
+<PRE>
+bool __Cimpl::is_bad_exception(const __Crun::static_type_info* src);
+</pre>
+<DD> True if the argument is the static type info object for the
+"bad_exception" type.  This is needed while handling unexpected() calls
+</DL>
+
+<H3>Generation Strategy</H3>
+
+<P>Static type info blocks have a name formed by appending the mangled
+name for the represented type to "__RTTI__".  The namespace in which
+the blocks are placed will depend on where the block is generated,
+not on the type represented.
+
+<P>There are three algorithms for determining the location of static
+information blocks.
+<OL>
+<LI>For a polymorphic class with a non-inline, non-pure virtual function,
+    the virtual table and static type data for that class are generated
+    as global definitions in the compilation unit containing the definition
+    of that function.  The static type data will be generated in the
+    innermost namespace enclosing the class.
+    In the same compilation unit we will generate
+    the static data for a pointer to the class and a pointer to const
+    class.  These will share a single base class table, which is
+    considered a static member of the class and will also be generated there.
+    That is, for "class ns::foo", we will generate
+<UL>
+<TABLE>
+<TR><TD>	ns::foo::_vtbl		<TD>The virtual table
+<TR><TD>	ns::foo::__BASE_TABLE__	<TD>The base table for foo
+<TR><TD>	ns::__RTTI__&lt;foo>	<TD>foo static data
+<TR><TD>	ns::__RTTI__&lt;foo>	<TD>foo* static data
+<TR><TD>	ns::__RTTI__&lt;const foo*>	<TD>const foo* static data
+</TABLE>
+</UL>
+<LI>  For builtin and very common types the static data will be generated in
+    the support library.  These will be generated in namespace "__Crun".
+    Generation of library type_info data can be enabled with the pragma:
+<PRE>
+	#pragma generate_library(static_type_info)
+</PRE>
+    A tentative list of library type data is:
+<UL>
+<LI>	All builtin types
+<LI>	void*
+<LI>	char*
+<LI>	const char*
+<LI>	wchar_t*
+<LI>	const wchar_t*
+</UL>
+   <P> NOTE:  This is not yet implemented.  Currently, these types are handled
+    as in case 3.
+
+<LI>For all other types, static type information is generated as a weak
+    global variable in any compilation unit in which it is needed.
+    Such blocks are generated in file_scope.  The
+    symbol is made a weak global rather than a static to simplify
+    generation of unique type_info objects.
+</OL>
+<H3>Debugger interface</H3>
+<P>When compiled with debugging enabled, each generated RTTI
+block will have a corresponding RTTI stab to map the type onto the symbol
+name.  The following functions provide a relatively simple interface
+to the rtti functionality
+
+<DL>
+<DT>
+<PRE>
+extern "C" const type_info* __exdbg_get_typeinfo(
+			const static_type_info*); </PRE>
+<DD>
+Obtains a pointer to a type_info object corresponding to the pointer to
+a static_type_info object.  There is no guarantee that there is only
+one type_info object per type.
+<DT>
+<PRE>
+extern "C" void* __exdbg_dynamic_cast(
+			void* obj,
+			const static_type_info* source,
+			const static_type_info* dest); </PRE>
+<DD>
+Given a pointer to a polymorphic object, apply a dynamic cast to that
+object.  "source" is the static_type_info for the static type of the
+object and "dest" is the static_type_info for the desired type.  The
+result will be an appropriately adjusted pointer if the cast succeeds
+or NULL if the cast fails.  A NULL pointer will also return NULL rather
+than throwing an exception
+</DL>
+</BODY>
+</HTML>
+

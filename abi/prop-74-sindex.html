@@ -1,0 +1,353 @@
+<HTML>
+
+<HEAD>
+<title>IA-64 gABI Proposal 74: Section Indexes</title>
+
+<hr>
+
+<font size=6><i><b>
+<p>
+IA-64 gABI Proposal 74:
+<br>
+Section Indexes
+</b></i></font>
+<p>
+<i>Revised 30 March 2000</i>
+
+</center>
+
+</HEAD>
+<BODY TEXT="#000000" LINK="#0000EE" VLINK="#551A8B" ALINK="#FF0000">
+<font size=-1>
+
+<p>
+<hr>
+
+<p>
+<h3> Revisions and Status </h3>
+
+<p>
+[000317 All]
+Use 0 instead of 0xffff for overflow in ELF header fields.
+Specify that reserved section indexes are reserved only in symtab.
+Require that symtab extension indexes be valid if present.
+
+<p>
+[991007 All]
+Change section/flag names, move ELF header extension to section header 0.
+
+<p>
+[991005 SGI]
+Initial version.
+
+<p>
+<h3> Background </h3>
+
+<p>
+SGI has long been concerned about the 64K limitation on the number of
+sections in an object file.
+Although this need not normally be a problem,
+there are purposes for which we would like to place distinct functions,
+and sometimes data items,
+in distinct sections.
+When one takes into account associated sections,
+e.g. relocation, debug information, etc.,
+this leads to a limitation on the order of 16K units,
+and threatens to be a problem for some large compilation units such as
+machine-generated simulators.
+Indeed, Compaq (DEC) reports having seen examples of this problem on
+their Alpha platforms.
+
+<p>
+C++ ABI efforts raise the same issue from another source.
+Various C++ structures are emitted under circumstances
+where the compiler cannot reliably identify a single compilation unit
+in which to emit them.
+Examples include common cases like class virtual tables,
+out-of-line copies of inline functions,
+and template instantiations.
+The favored solution is COMDAT sections,
+i.e. putting the potentially duplicated items in their own sections,
+and allowing the linker to remove the duplicates.
+Once again, though, this threatens to be a problem for very large
+compilation units.
+
+<p>
+The following proposal attempts to remove this limitation.
+Obviously, even if the problem is real,
+it will actually arise in very few compilation units.
+Therefore, the elements of the proposed solution are defined so as to
+leave unchanged object files which do not encounter the problem.
+We consider this compatibility objective as primary --
+much more important than performance or
+clean definitions for the problematic object files --
+particularly as it should allow vendors to merge the solution into
+existing tool chains at convenient times without disrupting existing
+programs.
+
+<p>
+Proposed ABI wording is in normal font; commentary is in italics.
+Section numbers are from the Intel IA-64 psABI.
+
+<p>
+<hr>
+
+<p>
+<h3> Proposed gABI Changes </h3>
+
+<p>
+<h4> General Approach </h4>
+<i>
+
+<p>
+<font color=red>
+The range of section indexes from 0xff00 (SHN_LORESERVE) to 0xffff
+(SHN_HIRESERVE) is reserved for special purposes in the symbol table,
+and the gABI currently forbids real sections with these indexes,
+restricting the valid range to 1..0xfeff.
+Our approach is to deal with situations where the ELF format does not
+have space to compatibly expand section indexes to a full 32 bits
+by using a reserved index as an escape value indicating that the
+actual index will be found elsewhere.
+</font>
+
+</i>
+
+<p>
+<h4> 4.1 Elf Header </h4>
+<i>
+
+<p>
+The ELF header has two relevant 16-bit fields:
+e_shnum contains the section count,
+and e_shtrndx the index of a string section.
+We modify their descriptions to include an overflow indicator,
+and put the actual values in the reserved section header at index 0
+if necessary, as follows:
+</i>
+
+<dl>
+<p>
+<dt> <code>ElfXX_Half e_shnum;</code>
+<dd>
+This member holds the number of entries in the section header table.
+Thus the product of <code>e_shentsize</code> and <code>e_shnum</code>
+gives the section header table's size in bytes.
+If a file has no section header table,
+<code>e_shnum</code> holds the value zero.
+<p>
+<font color=red>
+If the number of sections is greater than or equal to
+<code>SHN_LORESERVE</code> (<code>0xff00</code>),
+this member has the value <code>SHN_UNDEF</code> (<code>0</code>),
+and the actual number of section header table entries is in the member
+<code>sh_size</code> of the section header at index 0.
+(Both entries will be zero if there are no sections.)
+</font>
+</dd>
+
+
+<p>
+<dt> <code>ElfXX_Half e_shstrndx;</code>
+<dd>
+This member holds the section header table index of the entry
+associated with the section name string table.
+If the file has no section name string table,
+this member holds the value <code>SHN_UNDEF</code>.
+See ``Sections'' and ``String Table'' below for more information.
+<p>
+If the section name string table index is greater than
+<code>SHN_LORESERVE</code> (<code>0xff00</code>),
+this member has the value <code>SHN_XINDEX</code> (<code>0xffff</code>),
+and the actual index of the section name string table is in the member
+<code>sh_link</code> of the section header at index 0.
+(Both entries will be zero if there is no section name string table.)
+</dd>
+
+</dl>
+
+<p>
+<h4> 4.2 Sections </h4>
+
+<font color=red>
+<i>
+<p>
+The description of special section indexes needs to change to indicate
+that the reservation applies only in symbol table <code>st_shndx</code>
+fields.  One approach would be to move the list of special section
+indexes to the symbol table section.
+Or, it could be modified to something like:
+</i>
+
+<p>
+Some section header table indexes are reserved in contexts where index
+size is restricted, e.g. in symbol table <code>st_shndx</code> fields.
+In such contexts, an escape value indicates that the actual section
+index is to be found elsewhere in a larger field.
+</font>
+
+<i>
+<p>
+We define a new special section index as an escape value for
+large section indexes in the symbol table:
+</i>
+
+<dl>
+<p>
+<dt> <code>SHN_XINDEX (0xffff)</code>
+<dd>
+This special section index means, conventionally,
+that the actual section index is too large to fit in the field
+where it appears,
+and is to be found in another location
+(specific to the structure where it appears).
+</dd>
+
+</dl>
+
+<p>
+<i>
+We note here that the section header contains two fields commonly used
+to hold section indexes, <code>sh_link</code> and <code>sh_info</code>,
+but they are already defined as ElfXX_Word, and require no change.
+</i>
+
+<p>
+<i>
+A new section type is defined:
+</i>
+
+<dl>
+<p>
+<dt> <code>SHT_SYMTAB_SHNDX (17)</code>
+<dd>
+A section of this type is paired with an SHT_SYMTAB section,
+if any of the symbols in that section reference a section index
+larger than 16 bits.
+It contains a table of 32-bit section indexes,
+one for each symbol in the symbol table section,
+in the same order.
+<font color=red>
+All of these section indexes must be valid if the section is present,
+whether or not the corresponding index in the SHT_SYMTAB section is
+<code>SHN_XINDEX</code> indicating that the actual index is to be
+found in this section.
+</font>
+<p>
+The <code>sh_link</code> field of this section contains the index of the
+associated <code>SHT_SYMTAB</code> section.
+</dd>
+
+</dl>
+
+<p>
+<i>
+A new special section name is defined:
+</i>
+
+<dl>
+<p>
+<dt> <code>.symtab_shndx</code>
+<dd>
+This section holds a section header index table for an associated
+<code>.symtab</code> section,
+and has type <code>SHT_SYMTAB_SHNDX (17)</code>.
+The section's attributes will include the <code>SHF_ALLOC</code> bit
+if the associated <code>.symtab</code> section does;
+otherwise, that bit will be off.
+</dd>
+
+</dl>
+
+<p>
+<i>
+There is no available field to point from the <code>.symtab</code> section
+to its associated <code>.symtab_shndx</code> section,
+so we use the <code>sh_link</code> field in the latter to point back.
+It is recommended (but not required) that implementations place each
+<code>.symtab_shndx</code> section immediately after its associated
+<code>.symtab</code> section (in the section header table)
+to make it easy for the linker to find.
+</i>
+
+<p>
+<h4> 4.x Symbol Table </h4>
+<i>
+
+<p>
+The symbol table is the most problematic.
+It has no convenient location for an expanded section index.
+Therefore, we propose that the escape value imply redirection to a
+separate, parallel table containing full-size section indexes.
+
+<p>
+Modify the definition of <code>st_shndx</code> as follows:
+</i>
+
+<dl>
+<p>
+<dt> <code>st_shndx</code>
+<dd>
+Every symbol table entry is defined in relation to some section.
+This member holds the relevant section header table index.
+<p>
+As the <code>sh_link</code> and <code>sh_info</code> interpretation
+table and the related text describe,
+section indexes in the range 0xff00 to 0xffff indicate special meanings.
+In particular, <code>SHN_XINDEX (0xffff)</code> indicates that the
+real index is too large to fit in this field,
+and must be found in the associated SHT_SYMTAB_SHNDX table (above).
+</dd>
+
+</dl>
+
+<p>
+If any of the <code>st_shndx</code> fields in a symbol table section
+contain the value <code>SHN_XINDEX (0xffff)</code>,
+there must be an associated <code>SHT_SYMTAB_SHNDX</code> section,
+with a <code>sh_link</code> field containing the index of this
+<code>SHT_SYMTAB</code> section.
+That section contains an array of 32-bit section indexes,
+matching the symbol table entries 1-1 in the same order.
+<font color=red>
+All entries,
+whether or not they correspond to <code>SHN_XINDEX (0xffff)</code>
+values of <code>st_shndx</code> in the symbol table,
+must contain the actual section header index to be used.
+</font>
+
+<p>
+<i>
+The .dynsym section in a linked object is completely analogous to a
+.symtab section in a relocatable object,
+and could be handled in the same way with the addition of a dynamic tag
+to locate it.
+We have not specified handling here because we expect the linking process
+to remove most of the section duplication process which causes the problem,
+e.g. leaving only a small number of .text sections.
+
+</i>
+
+
+<p>
+<h4> Compatibility </h4>
+
+<p>
+<i>
+There should be no compatibility impact on existing environments,
+since only very large section counts require object file changes.
+Individual vendors can postpone implementation until convenient,
+with no impact on typical programs.
+
+<p>
+Note, however, that any ELF consumer applications that are currently
+storing section indexes as 16-bit values must change.
+
+</i>
+
+<p>
+<hr>
+
+
+</BODY>
+</HTML>

@@ -1,0 +1,314 @@
+                  CLASS LAYOUT AND VIRTUAL FUNCTIONS
+
+
+----------------------------------------------------------------------
+
+                     NO INHERITANCE, NO VIRTUALS
+
+
+struct B1 {
+  int a;
+  int f(int n) { return a + n; }
+};
+
+
+B1 x;
+x.f(3); /* Equivalent to f(&x, 3) */
+
+
+----------------------------------------------------------------------
+
+                       INHERITANCE, NO VIRTUALS
+
+struct B1 {
+  int a;
+  int f(int n) { return a + n; }
+};
+
+struct B2 {
+  int a;
+  int g(int n) { return a - n; }
+};
+
+struct D : public B1, public B2 {
+  int c;
+  int g() { return a + b + c; }
+};
+
+
+Class layout:
+[
+  [B1 subobject
+    int a;
+    B1 padding 
+  ]
+  [B2 subobject
+    int b;
+    B2 padding
+  ]
+  int c;
+]
+
+
+  D d;
+  B1* bp = &d;   // Compiles to: bp = &d; 
+                 
+  B2* bp = &d;   // Compiles to: bp = &d + B2_offset
+
+  d.g(3);        // g(&d + B2_offset, 3); 
+
+
+ISSUES:
+  - Order in which subobjects are allocated (declaration order)
+  - Padding for subobjects.
+  - Special handling for empty bases.
+
+
+----------------------------------------------------------------------
+
+                         REPEATED INHERITANCE
+
+
+struct A {
+  int x;
+
+  A(int n) : x(n) {}
+  int h() { return x + 1; }
+};
+
+struct B1 : public A {
+  int a;
+
+  B1(int n) : A(n), a(n + 1) {}
+  int f(int n) { return a + n; }
+};
+
+struct B2 : public A {
+  int b;
+  
+  B2(int n) : A(n), b(n + 1) {}
+  int g(int n) { return b - n; }
+};
+
+struct D : public B1, public B2 {
+  int c;
+
+  D(int n1, int n2) : B1(n1), B2(n2), c(n1 + n2) {}
+  int g() { return a + b + c; }
+};
+
+LAYOUT:
+[
+  [B1 subobject
+    [A subobject
+      int x;
+    ]
+    int a;
+  ]
+  [B2 subobject
+    [A subobject
+      int x;
+    ]
+    int b;
+  ]
+  int c;
+]
+
+
+D d(1, 8);
+
+d.h();          // Error, ambiguous.
+d.B1::h();      // Returns 2
+d.B2::h();      // Returns 9
+
+A* ap = &d;     // Error, ambiguous.
+
+B1* b1p = &d;   // OK, assigns address of D object to b1p
+B2* b2p = &d;   // OK, assigns address of B2 subobject to b2p
+A* a1p = b1p;   // OK, assigns address of D object to a1p
+A* a2p = b2p;   // OK, assigns address of second A subobject to b2p
+
+
+----------------------------------------------------------------------
+
+                               VIRTUALS
+
+struct B 
+{
+  B() { f(); }
+  virtual void f() { printf("1\n"); }
+};
+
+struct D1 : public B
+{
+  D1() { f(); }
+  void f() { printf("2\n"); }
+};
+
+struct D2 : public D1
+{
+  D2() { f(); }
+  void f() { printf("3\n"); }
+};
+
+
+B*  bp  = new B;
+B*  bp2 = new D2;
+
+bp->f();                 // Virtual call, prints 1
+bp2->f();                // Virtual call, prints 3
+
+D1 d1;                   // Prints 1, then 2, then 3
+
+d1.f();                  // Direct call, prints 2
+
+
+
+IF WE ONLY HAD SINGLE INHERITANCE:
+  Direct call: same as nonvirtual: f(&d2);
+  Virtual call: (*(bp->__vptr[1]))(bp)
+
+
+Issues:
+  -- Name of vptr, and location within class.
+  -- Do we have three different vptrs in D2, or can we share?
+  -- Setting and resetting vptr(s) during object construction.  When can
+     we optimize?
+  -- Layout of vtbl.
+
+
+----------------------------------------------------------------------
+
+                  VIRTUALS AND MULTIPLE INHERITANCE
+
+Now a more complicated example, involving multiple base classes and
+covariant return types.
+
+
+struct B1 {
+  int a1;
+
+  B1(int a) : a1(a) {}
+  virtual int f1() { return a; }
+};
+
+struct B2 {
+  int a2;
+
+  B2(int a) : a2(a) {}
+  virtual int f2() { return a2; }
+  virtual int g() { return a2 + 1; }
+};
+
+struct B3 {
+  int a3;
+
+  B3(int a) : a3(a) {}
+  virtual int f3() { return a3; }
+  B3* clone() { return new B3; }
+};
+
+struct D : public B1, public B2, public B3
+{
+  D(int b1, int b2, int b3) : B1(b1), B2(b2), B3(b3) {}        
+
+  int f1() { return a1 + 1; }
+  int f2() { return a2 + 1; }
+  int f3() { return a3 + 1; }
+  D* clone() { return new D; }
+};
+
+B2 b2(0);
+B3 b3(7);
+D d(2, 4, 6);
+D* dp = &d;
+
+// Direct calls
+d.f2();                 // f2__d(&d)
+b2.f2();                // f2__b2(&b2)
+D* new_d = d.clone();   // new_d = clone__d(&d)
+
+// Virtual calls
+B2* b2p = &b2;
+
+b2p->f2();              // (*b2p->vptr[2])(b2p)
+dp->f2();               // (*dp->vptr[2])(dp)
+
+b2p = dp;               // b2p = dp + B2_offset
+b2p->f2();              // (*b2p->vptr[2])(b2p - B2_offset)
+
+dp->g();                // (*g->vptr[3])(dp + B2_offset)
+
+
+// Virtual calls with covariant return type
+B3* b3p = &b3;
+b3p->clone();           // (*b3p->vptr[5]))(b3p)
+dp->clone();            // (*dp->vptr[5]))(dp)
+
+b3p = dp;               // b3p = dp + B3_offset
+B3* np = b3p->clone();  // np = (*b3p->vptr[5])(b3p - B3_offset) + B3_offset
+
+Issue:
+  -- Somehow, the virtual function table must contain enough
+     information so that we can perform these offset fixups 
+     at runtime.  This is a hard problem, and solutions vary
+     widely.
+
+
+----------------------------------------------------------------------
+
+                         VIRTUAL BASE CLASSES
+
+struct A {
+  int x;
+  virtual int f() { return 1; }
+};
+
+struct B1 : public virtual A { 
+  int y1;
+};
+
+
+struct B2 : public virtual A { 
+  int y2;
+}
+
+
+struct D : public B1, public B2 { };
+  int f() { return 1; }
+};
+
+D d;
+B1 b1;
+B1* b1p = &d;
+B2* b2p = &d;
+b1p->x = 7;
+printf("%d\n", b2->x);
+
+
+A possible class layout for D:
+[
+  [B1 subobject
+    A* __bptr__A;
+    int y1;
+  ]
+  [B2 subobject
+    A* __bptr__A;
+    int y1;
+  ]  
+  A* __bptr__A;
+  [A subobject
+    int x;
+  ]
+]
+
+b1p->x = 7;             // b1p->__bptr__A->x = 7;
+n = b2p->y;             // n = b2p->__bptr__A->x;
+  
+A* ap = b1p;            // ap = b1p->bptr__A;
+
+ap->f();                // (*pa->__vptr[1])(ap)
+b1p->f();               // (*b1p->__vptr[1])(b1p->__bptr__A)
+b1p = &d;               // b1p = &d + B1_OFFSET
+b1->f();                // (*b1p->__vptr[1])(b1p - B1_OFFSET)
+

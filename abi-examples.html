@@ -1,0 +1,907 @@
+<HTML>
+
+<HEAD>
+<title>C++ ABI for IA-64: Code and Implementation Examples</title>
+
+<link rel=stylesheet href=small-table.css type="text/css">
+<link rel=stylesheet href=code.css type="text/css">
+
+<hr>
+
+<font size=6><i><b>
+<p>
+C++ ABI for IA-64: Code and Implementation Examples
+</b></i></font>
+
+<font size=-1>
+<p>
+<i>Revised 5 September 2000</i>
+
+</center>
+
+</HEAD>
+
+<BODY>
+
+
+<p> <hr> <p>
+<a name=intro>
+<h3> Introduction </h3>
+
+In this document,
+we provide a number of code examples as illustration or tests
+for the ABI specifications.
+
+
+<p> <hr> <p>
+<h3> Contents </h3>
+
+<ul>
+<li> <a href=#bases> Base Class Layout </a>
+<li> <a href=#vcall> Virtual Function Calls </a>
+<li> <a href=#vtable-ctor> Virtual Tables During Object Construction </a>
+<li> <a href=#mangling> External Name Mangling </a>
+<li> <a href=#vague> Vague Linkage </a>
+</ul>
+
+
+
+<p> <hr> <p>
+<a name=bases>
+<h3> Base Class Layout </h3>
+
+<p>
+The following test programs check for correct sharing of the virtual
+pointer with a virtual base class.
+<p><hr width=50%><p>
+<code><pre>
+/*
+Test case for sharing virtual bases.
+In Derived_too,
+the primary base class is NewShareme,
+The bases Base and Shareme share vptr's
+with Derived and are allocated at the
+same offset as Derived.
+Should get:
+60% a.out
+(long)(NewShareme *)dd - (long)dd = 0
+(long)(Derived *)dd - (long)dd = 8
+(long)(Base *)dd - (long)dd = 8
+(long)(Shareme *)dd - (long)dd = 8
+*/
+
+struct Shareme {
+    virtual void foo();
+};
+struct Base : virtual Shareme {
+        virtual void bar();
+};
+struct Derived : virtual Base {
+        virtual void baz();
+};
+
+struct NewShareme {
+        virtual void foo();
+};
+
+struct Derived_too : virtual NewShareme, virtual Derived {
+        virtual void bar();
+};
+
+void Shareme::foo() { }
+void Base::bar() { }
+void Derived::baz() { }
+void NewShareme::foo() { }
+void Derived_too::bar() { }
+
+
+extern "C" int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR " = %d\n", (EXPR) );
+main()
+{
+  Derived_too *dd = new Derived_too;
+  EVAL((long)(NewShareme *)dd - (long)dd);
+  EVAL((long)(Derived *)dd - (long)dd);
+  EVAL((long)(Base *)dd - (long)dd);
+  EVAL((long)(Shareme *)dd - (long)dd);
+}
+</code></pre>
+
+<p><hr width=50%><p>
+
+<code><pre>
+/*
+Test case for sharing virtual bases.
+In Most_Derived,
+the primary base class is Nonvirt1,
+Nonvirt2 and Nonvirt3 share vptrs with
+virtual base Shared_Virt.  Shared_Virt
+should be at the same offset as Nonvirt2.
+Should get:
+67% a.out
+(long)(Nonvirt1 *)dd - (long)dd = 0
+(long)(Nonvirt2 *)dd - (long)dd = 8
+(long)(Nonvirt3 *)dd - (long)dd = 16
+(long)(Shared_Virt *)dd - (long)dd = 8
+*/
+
+struct Shared_Virt {
+    virtual void foo();
+};
+struct Nonvirt2 : virtual Shared_Virt {
+        virtual void bar();
+};
+struct Nonvirt3 : virtual Shared_Virt {
+        virtual void baz();
+};
+struct Nonvirt1 {
+        virtual void foo();
+};
+
+struct Most_Derived : Nonvirt1, Nonvirt2, Nonvirt3 {
+        virtual void bar();
+};
+
+void Shared_Virt::foo() { }
+void Nonvirt2::bar() { }
+void Nonvirt3::baz() { }
+void Nonvirt1::foo() { }
+void Most_Derived::bar() { }
+
+extern "C" int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR " = %d\n", (EXPR) );
+main()
+{
+  Most_Derived *dd = new Most_Derived;
+  EVAL((long)(Nonvirt1 *)dd - (long)dd);
+  EVAL((long)(Nonvirt2 *)dd - (long)dd);
+  EVAL((long)(Nonvirt3 *)dd - (long)dd);
+  EVAL((long)(Shared_Virt *)dd - (long)dd);
+}
+</code></pre>
+
+<p><hr width=50%><p>
+
+<code><pre>
+/*
+Test case for sharing virtual bases.
+In Most_Derived, share the vptr with
+Interface1 but not Interface3, since
+Interface3 is indirectly inherited.
+
+Should get:
+(long)(Interface1 *)dd - (long)dd = 0
+(long)(Interface2 *)dd - (long)dd = 8
+(long)(Interface3 *)dd - (long)dd = 8
+(long)(Concrete1 *)dd - (long)dd = 8
+*/
+
+struct Interface1 {
+    virtual void foo();
+};
+struct Interface2 : virtual Interface1 {
+        virtual void bar();
+};
+struct Interface3 : virtual Interface2 {
+        virtual void baz();
+};
+
+struct Concrete1 : virtual Interface3 {
+        virtual void foo();
+        int i; // important.
+};
+
+struct Most_Derived : virtual Interface1, 
+                      virtual Interface2,
+                      virtual Concrete1 {
+        virtual void bar();
+};
+
+void Interface1::foo() { }
+void Interface2::bar() { }
+void Interface3::baz() { }
+void Concrete1::foo() { }
+void Most_Derived::bar() { }
+
+
+extern "C" int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR " = %d\n", (EXPR) );
+main()
+{
+  Most_Derived *dd = new Most_Derived;
+  EVAL((long)(Interface1 *)dd - (long)dd);
+  EVAL((long)(Interface2 *)dd - (long)dd);
+  EVAL((long)(Interface3 *)dd - (long)dd);
+  EVAL((long)(Concrete1 *)dd - (long)dd);
+}
+</code></pre>
+
+
+<p> <hr> <p>
+<a name=vcall>
+<h3> Virtual Function Calls </h3>
+
+<p>
+The following class definitions are intended to illustrate various cases
+relevant to the entries found in vtables to support virtual functions.
+We define a number of classes, many of which define a virtual function f.
+We are interested only in the vtable contents supporting calls of f;
+other contents of the classes are generally elided,
+except where necessary to emphasize some situation,
+and we do not attempt to describe other contents of the vtables,
+including precise layout.
+
+<p>
+The left column of this table contains the class definitions.
+The right column(s) describe the corresponding vtable contents as they
+are required to support calls to f.
+We use the notation <code>&C::f</code> to mean a vtable entry for the
+instance of f defined in class C,
+in the form defined by the ABI (currently a function pointer/GP pair).
+We use the notation <code>&thunk(A*,C::f)</code> to mean a vtable entry
+for a thunk which converts <code>this</code> from A* to C* and then
+calls C::f.
+We use the notation <code>vcall(A*,C*,f)</code> to mean a vcall offset
+that is added to an A* to produce a C* for use by an f thunk.
+
+<p>
+<table border=1>
+
+<tr>
+<th> Class definition </th>
+<th> Vtable 1 contents </th>
+<th> Vtable 2 contents </th>
+</tr>
+
+<tr class=small>
+<td><code><pre>
+struct X {
+  virtual void u();
+}
+</pre></code></td>
+<td colspan=2 class=tiny>
+Class X is an auxiliary class to be used only to prevent interesting
+classes from being primary bases later.
+</td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct A {
+  virtual void f();
+}
+</pre></code></td>
+<td> <i>Vtable A</i> </td>
+</tr>
+<tr class=small>
+<td> &A::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct B: public A { }
+</pre></code></td>
+<td> <i>Vtable A_in_B</i> </td>
+</tr>
+<tr class=small>
+<td> &A::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct C: public A {
+  virtual void f();
+}
+</pre></code></td>
+<td> <i>Vtable A_in_C (primary)</i> </td>
+</tr>
+<tr class=small>
+<td> &C::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct D:
+  public X, public A
+{ }
+</pre></code></td>
+<td> <i>Vtable A_in_D</i> </td>
+</tr>
+<tr class=small>
+<td> &A::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct E:
+  public X, public A
+{
+  virtual void f();
+}
+</pre></code></td>
+<td> <i>Vtable A_in_E</i> </td>
+<td> <i>Vtable E</i> </td>
+</tr>
+<tr class=small>
+<td> &thunk(A*,E::f) </td>
+<td> &E::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct G:
+  public virtual A
+{ }
+</pre></code></td>
+<td> <i>Vtable A_in_G</i> </td>
+</tr>
+<tr class=small>
+<td> &A::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct H:
+  public X,
+  public virtual A
+{
+  virtual void f();
+}
+</pre></code></td>
+<td> <i>Vtable A_in_H</i> </td>
+<td> <i>Vtable H</i> </td>
+</tr>
+<tr class=small>
+<td> &thunk(A*,H::f)<br>vcall(H::A*,H*,f) </td>
+<td> &H::f </td>
+</tr>
+
+<tr class=small>
+<td rowspan=2><code><pre>
+struct I:
+  public H
+{ int i; }
+</pre></code></td>
+<td> <i>Vtable A_in_I</i> </td>
+<td> <i>Vtable H_in_I</i> </td>
+</tr>
+<tr class=small>
+<td> &thunk(A*,H::f)<br>vcall(I::A*,I::H*,f) </td>
+<td> &H::f </td>
+</tr>
+
+</table>
+
+<p>
+<a name=vcall-impl>
+<h4> Implementation </h4>
+
+<p>
+There are several possible implementations of the thunks given the
+above information.
+Note in the following that we assume that prior to calling any vtable entry,
+the <code>this</code> pointer has been adjusted to point to the
+subobject corresponding to the vtable from which the vptr is fetched.
+
+<ol type=A>
+<p>
+<li>
+Since the offsets are always known at compile time,
+even for virtual bases,
+each thunk could be distinct,
+adding the known offset to <code>this</code> and branching to the
+target function.
+<p>
+This would result in a thunk for each overrider at a distinct offset.
+As a result, a branch mispredict and possibly an instruction cache miss
+would occur each time the actual type changed for a reference at any
+given point in the code.
+
+<p>
+<li>
+In the case of virtual inheritance,
+the offset, although known when the overrider is declared,
+may differ depending on derivations from the overrider's class.
+H and I above are the simplest example.
+H is a primary base for I,
+but the int member of I means that A is at a different offset from H in
+I than it was from a standalone H.
+Because of this, the ABI specifies that the secondary vtable for a
+virtual base A contain a vcall offset to H,
+so that a shared thunk can load the vcall offset,
+adding it to <code>this</code>,
+and branch to the target function H::f.
+<p>
+This would result in fewer thunks,
+since for a inheritance hierarchy where A is a virtual base of H,
+and H::f overrides A::f,
+all instances of H in a larger hierarchy can use the same thunk.
+As a result, these thunks will cause fewer branch mispredictions and
+instruction cache misses.
+The tradeoff is that they must do a load before the offset add.
+Since the offset is smaller than the code for a thunk,
+the load should miss in cache less frequently,
+so better cache miss behavior should produce better results in spite of
+the 2 or more cycles required for the vcall offset load.
+
+<p>
+<li>
+In the case of non-virtual inheritance,
+when an overrider is declared,
+the entire set of associated overriding and overridden functions f is
+known along with their associated vcall offsets,
+and they are all constants.
+Therefore, it is possible to cascade the offset adds as follows.
+Suppose we have A::f, overridden by B::f at offset -16,
+and finally overridden by C::f at offset -32 from B, -48 from A.
+Assuming that <code>this</code> is in register <code>out0</code>,
+the IA-64 code can look like:
+<code><pre>
+    thunk-A-to-C::f :
+	add out0 = -16,out0 ;;
+    thunk-A-to-C::f :
+	add out0 = -32,out0 ;;
+    C::f :
+	# normal entry code...
+</pre></code>
+
+<p>
+This code will leave us with about the same number of branch
+mispredictions for the thunk calls,
+but should eliminate a large proportion of the instruction cache misses,
+and costs one cycle per level in the adjustment sequence.
+Note that there is no particular required order of the thunk entries,
+so the compiler could optimize by putting the most frequent one closest
+to the target function and so on.
+Also, if the sequence gets too long,
+any entry can add its entire offset at once and branch directly to the
+
+</ol>
+
+<p>
+In order to make these implementations practical,
+the ABI must specify:
+<ul>
+<li> where the vcall offsets are allocated in the secondary vtables,
+<li> where the thunks are required to be emitted, and
+<li> the names (mangled) of the thunks for reference elsewhere.
+</ul>
+
+The emission of the thunks is the most relevant issue here --
+the others are independent of this discussion.
+Cascading thunks as in (C) only works if they appear with the
+definition of the overriding function,
+so that seems to be the right answer.
+
+<p>
+Assuming that all of the above optimizations are implemented,
+we note a number of benefits of the design specified.
+
+<ul>
+<p>
+<li>
+In the case of single, non-virtual inheritance,
+calling a virtual function requires no adjustment to the `this' pointer,
+and no vcall offsets.
+This is in keeping with the guiding principle that
+"you shouldn't pay for features you don't use."
+
+<p>
+<li>
+If the static type of an object is the same as its dynamic type,
+then no adjustment to the `this' pointer is required.
+
+<p>
+<li>
+All thunks can be emitted in the same translation unit as the
+overriding function.
+
+<p>
+<li>
+Thunks from classes that are not morally virtual bases do not
+require a branch to the non-adjusting entry point.
+(We say that a subobject X is a "morally virtual" base of Y if X is an
+indirect or direct base class of Y,
+and if X is either a virtual base of Y,
+or the direct or indirect base of a virtual base of Y.)
+
+<p>
+Suppose we have classes M1 and M2, base classes of a third class V.
+Suppose V is a virtual base of C,
+and A2 and A1 are non-virtual bases of C.
+Suppose all of these classes have definitions of virtual function f.
+We suggest the following implementation:
+<code><pre>
+    m2: /* Thunk for morally virtual base M2.  */
+        this += offsetof (V, M1) - offsetof (V, M2)
+    m1: /* Thunk for morally virtual base M1.  */
+        this -= offsetof (V, M1)
+    v:  /* Thunk for virtual base V.  */
+        this += vcall offset stored in V vtable
+        goto f;
+    a2: /* Thunk for non-virtual base A2.  */
+        this += offsetof (B, A1) - offsetof (B, A2)
+        /* Fall through.  */
+    a1: /* Thunk for non-virtual base A1.  */
+        this += offsetof (B, C) - offsetof (B, A1)
+        /* Fall through.  */
+    f:  /* Non-adjusting entry point.  */
+</code></pre>
+<p>
+(Here `offsetof' is a compile-time computable function that gives
+the offset of its second parameter in its first parameter.)
+
+<p>
+(Alternatively the `v' entry point above could be of the form:
+<code><pre>
+    v: /* Thunk for virtual base V.  */
+       this += vcall offset stored in V vtable 
+               - offsetof (B, C) + offsetof (B, A2)
+       /* Fall through.  */
+</code></pre>
+Which alternative is better depends on how many adds follow at this
+point.
+In general, if many adds remain before the non-adjusting entry point,
+it may be better to suffer the consequences of the indirect branch.)
+
+<p>
+In this way, a virtual call through a base A1, A2, etc.,
+that is not a virtual base of C
+(or a direct or indirect base of a virtual base of C),
+does not require an additional branch,
+and is therefore more likely to avoid icache misses.
+Even the thunk for V may avoid severe icache penalties
+since it is located near the non-adjusting entry point for f.
+Furthermore, if there are no non-virtual bases,
+then the sequence can become just:
+<code><pre>
+    v: /* Thunk for virtual base V.  */
+       this += vcall offset stored in V vtable
+    f: /* Non-adjusting entry point.  */
+</code></pre>
+
+</ul>
+
+
+
+<p> <hr> <p>
+<a name=vtable-ctor>
+<h3> Vtables During Object Construction</h3>
+<p>
+Following is a test program from Compaq, that breaks on many compilers.
+
+<code><pre>
+/* 
+This test program should output: 
+
+V1 called 
+V2 called 
+C called 
+C::foo called 7 
+PASSED this == cp 
+D called 
+~C called 
+C::foo called 7 
+PASSED this == cp 
+~V2 called 
+~V1 called 
+Int caught 
+*/ 
+
+extern "C" int printf(const char *,...); 
+struct V1 {
+        int v; 
+        virtual int foo(); 
+        V1(); 
+        ~V1(); 
+}; 
+struct V2 : virtual V1 {
+        int v2; 
+        virtual int foo(); 
+        V2(); 
+        ~V2(); 
+}; 
+struct C : virtual V1, virtual V2 {
+        int c; 
+        virtual int foo(); 
+        C(); 
+        ~C(); 
+}; 
+
+struct B {
+   int b; }; 
+struct D : B, C {
+        int d; 
+        virtual int bar(); 
+        D(); 
+        ~D(); 
+}; 
+extern "C" int printf(const char *,...); 
+main() 
+{
+  try {
+        D *d = new D; 
+        delete d; 
+  } catch (int) {
+        printf("Int caught\n"); 
+  } 
+} 
+
+int V1::foo() {
+   printf("V1::foo called\n"); return 1; } 
+V1::V1() : v(5) {
+   printf("V1 called\n"); } 
+V1::~V1() {
+   printf("~V1 called\n"); } 
+
+int V2::foo() {
+   printf("V2::foo called\n"); return 1; } 
+V2::V2() : v2(6) {
+   printf("V2 called\n"); } 
+V2::~V2() {
+   printf("~V2 called\n"); } 
+
+int C::foo() {
+   printf("C::foo called %d\n", c); return 1; } 
+C::C() : c(7) {
+        printf("C called\n"); 
+        V1 *vv = this; vv->foo(); 
+        C *cp = dynamic_cast&lt;C *>(vv); 
+        if (this == cp) {
+            printf("PASSED this == cp\n"); 
+        } else {
+            printf("FAILED this != cp\n"); 
+        } 
+} 
+C::~C() {
+        printf("~C called\n"); 
+        V1 *vv = this; vv->foo(); 
+        C *cp = dynamic_cast&lt;C *>(vv); 
+        if (this == cp) {
+            printf("PASSED this == cp\n"); 
+        } else {
+            printf("FAILED this != cp\n"); 
+        } 
+} 
+
+int D::bar() {
+   printf("D::bar called\n"); return 1; } 
+D::D() : d(8) {
+   printf("D called\n"); throw 5; } 
+D::~D() {
+   printf("~D called\n"); } 
+</pre></code>
+
+</font>
+
+
+
+<p> <hr> <p>
+<a name=mangling>
+<h3> External Name Mangling</h3>
+
+<p>
+In the table below,
+<code>Ret?</code> in the source name indicates a function for which
+the return type is not part of the mangling.
+<code>Type?</code> indicates a data object
+(for which the type is never part of the mangling).
+Spaces appear in some of the mangled names to assist a human parser --
+they are not part of the actual mangled name, and should be ignored.
+
+<p>
+<table border=1 cellpadding=4>
+<tr><th> Mangled name <br><i>(ignore spaces)</i> </th>
+<th> Source name </th> </tr>
+
+<tr class=small><td> f </td>
+<td> C function or variable "f" or a global namespace variable "f"</td></tr>
+
+<tr class=small><td> _Z1fv </td>
+<td> Ret? f(); <i>or</i> Ret? f(void); </td></tr>
+
+<tr class=small><td> _Z1fi </td>
+<td> Ret? f(int); </td></tr>
+
+<tr class=small><td> _Z3foo3bar </td>
+<td> Ret? foo(bar); </td></tr>
+
+<tr class=small><td> _Zrm1XS_ </td>
+<td> Ret? operator%(X, X); </td></tr>
+
+<tr class=small><td> _ZplR1XS0_ </td>
+<td> Ret? operator+(X&, X&); </td></tr>
+
+<tr class=small><td> _ZlsRK1XS1_ </td>
+<td> Ret? operator&lt;&lt; (X const&, X const&);
+<br> (Note: X is S_, X const is S0_)
+</td></tr>
+
+<tr class=small><td> _ZN3FooIA4_iE3barE </td>
+<td> Type? Foo&lt;int[4]>::bar; </td></tr>
+
+<tr class=small><td> _Z1fIiEvi </td>
+<td> void f&lt;int>(/*nondependent*/int);
+<br> (Note: the return type is always explicitly encoded for template
+functions taking parameters.)</td></tr>
+
+<tr class=small><td> _Z5firstI3DuoEvS0_ </td>
+<td> void first&lt;Duo>(/*nondependent*/Duo);
+<br>
+(Note: first template is S_, Duo is S0_, first<Duo>(Duo) is S1_.
+<br>Since the function parameter is not dependent, don't use T_.)
+</td></tr>
+
+<tr class=small><td> _Z5firstI3DuoEvT_ </td>
+<td> void first&lt;Duo>(/*T1=*/Duo); </td></tr>
+
+<tr class=small><td> _Z3fooIiPFidEiEvv </td>
+<td> void foo&lt;int,int(*)(double),int>();
+<br>(Note: return type encoded for template function.)</td></tr>
+
+<tr class=small><td> _ZN1N1fE </td>
+<td> Type? N::f </td></tr>
+
+<tr class=small><td> _ZN6System5Sound4beepEv </td>
+<td> Ret? System::Sound::beep(); </td></tr>
+
+<tr class=small><td> _ZN5Arena5levelE </td>
+<td> Type? Arena::level; </td></tr>
+
+<tr class=small><td> _ZN5StackIiiE5levelE </td>
+<td> Type? Stack&lt;int, int>::level; </td></tr>
+
+<tr class=small><td> _Z1fI1XE vPV N1AIT_E1TE </td>
+<td> void f&lt;X>(A&lt;/*T1=*/X>::T volatile*); </td></tr>
+
+<tr class=small><td>
+_ZngILi42EE v N1A I XplT_Li2EE E 1TE </td>
+<td> void operator-&lt;/*int J=*/42>(A&lt;J+2>::T); </td></tr>
+
+<tr class=small><td> _Z4makeI7FactoryiE T_IT0_E v </td>
+<td> /*T1=*/Factory&lt;/*T2=*/int> make&lt;Factory, int>();
+<br> (Note: T_ = factory (a template), T0_ = int) </td></tr>
+
+<tr class=small><td> _Z3foo 5Hello5WorldS0_S_ </td>
+<td> Type? foo(Hello,World,World,Hello)
+<br> (Note: Hello is S_, World is S0_, foo(...) is S1_)
+</td></tr>
+
+<tr class=small><td> _Z3fooPM2ABi </td>
+<td> foo(int AB::**)
+<br> // M is a pointer, P adds another level </td></tr>
+
+<tr class=small><td> _ZlsRSoRKSs </td>
+<td> operator&lt;&lt; (std::ostream&,std::string const&) </td></tr>
+
+<tr class=small><td> _ZTI7a_class </td>
+<td>  typeid(class a_class)  </td></tr>
+
+</table>
+
+
+<font color=red>
+<p>
+<a name=mangling-ex>
+<h4> Local Scope Mangling</h4>
+
+<p>
+Following are several examples illustrating local scope mangling,
+all based on the following code snippet:
+<pre><code>
+    class A {
+      void foo (int) {
+        class B { };
+      }
+    };
+
+    void foo () {
+      class C {
+        class D { };
+	void bar () {
+	  struct E {
+	    void baz() { }
+	  };
+	}
+      };
+    }
+</code></pre>
+
+<p>
+First consider the mangling of A::foo::B,
+which is the case of a simple local name (B) in a nested function.
+<pre><code>
+  &lt;encoding> ::- &lt;name>
+             ::- &lt;local-name>
+             ::- Z &lt;function encoding> E &lt;entity name>
+</code></pre>
+where:
+<pre><code>
+  &lt;function encoding> ::- &lt;name> &lt;bare-function-type>
+                      ::- &lt;nested-name> &lt;bare-function-type>
+                      ...
+                      ::- N &lt;unqualified-name> &lt;unqualified-name> E &lt;bare-function-type>
+                      ::- N 1A 3foo E i
+  &lt;entity name> ::- &lt;name>
+                ::- 1B
+</code></pre>
+<p>
+So the final result is "Z N 1A 3foo E i E 1B".
+The next example is foo::C::D, i.e. a nested local name in a simple function:
+<pre><code>
+  &lt;encoding> ::- &lt;name>
+             ::- &lt;local-name>
+             ::- Z &lt;function encoding> E &lt;entity name>
+</code></pre>
+where:
+<pre><code>
+  &lt;function encoding> ::- &lt;name> &lt;bare-function-type>
+                      ::- 3foo v
+  &lt;entity name> ::- &lt;nested-name>
+                ...
+                ::- N &lt;unqualified-name> &lt;unqualified-name> E
+                ::- N 1C 1D E
+</code></pre>
+<p>
+So the final result is "Z 3foo v E N 1C 1D E".
+Finally, as an example of nested local scopes, consider foo::C::bar::E::baz:
+<pre><code>
+  &lt;encoding> ::- &lt;name>
+             ::- &lt;local-name>
+             ::- Z &lt;function encoding> E &lt;entity name>
+</code></pre>
+where:
+<pre><code>
+  &lt;function encoding> ::- &lt;name> &lt;bare-function-type>    (bar)
+                      ::- &lt;local-name> v
+                      ::- Z &lt;function encoding> E &lt;entity name> v
+                      ::- Z &lt;name> &lt;bare-function-type> E &lt;nested-name> v
+                      ...
+                      ::- Z 3foo v E N 1C 3bar E v
+  &lt;entity name> ::- &lt;function name>
+                ::- &lt;function name> &lt;bare-function-type>
+                ::- &lt;nested-name> &lt;bare-function-type>
+                ...
+                ::- N &lt;unqualified-name> &lt;unqualified-name> E &lt;bare-function-type>
+                ::- N 1E 3baz E v
+</code></pre>
+yielding the final result: <pre><code>
+        Z Z 3foo v E N 1C 3bar E v E N 1E 3baz E v
+</code></pre>
+
+
+
+
+<p> <hr> <p>
+<a name=vague>
+<h3> Vague Linkage</h3>
+
+<p>
+COMDAT groups are a new gABI feature specified during the IA-64 ABI
+definition, and may not be implemented by all vendors immediately.
+Pending their availability,
+other implementations may be required for the features specified to use
+COMDAT in the ABI.
+Using weak symbols for the objects requiring weak linkage instead of
+putting them in COMDAT groups will normally work,
+even in interaction with correctly-defined COMDAT group representations,
+although it will not have the space efficiency of COMDAT.
+However,
+weak symbol semantics are not consistent among Unix implementations,
+and implementors should be careful that whenever multiple symbols are
+specified to reside in a single COMDAT, and might interact
+(e.g. thunks falling through to primary function definitions),
+all are generated together as weak symbols as well.
+</font>
+
+
+
+<p>
+<hr>
+
+<p>
+Please send corrections to <a href="mailto:mark@codesourcery.com">Mark
+Mitchell</a>.
+
+</BODY>
+</HTML>
