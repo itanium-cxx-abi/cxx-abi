@@ -242,6 +242,26 @@ Such classes may be primary base classes even if virtual,
 sharing a virtual pointer with the derived class.
 
 <p>
+<a name="non-trivial">
+<dt> <i>non-trivial for the purposes of calls</i><dt>
+<dd>
+<p>A type is considered non-trivial for the purposes of calls if:
+<ul>
+<li>it has a non-trivial copy constructor, move constructor, or destructor, or
+<li>all of its copy and move constructors are deleted.
+</ul>
+</p>
+
+<p>This definition, as applied to class types, is intended to be the
+complement of the definition in [class.temporary]p3 of types for which
+an extra temporary is allowed when passing or returning a type.  A type
+which is trivial for the purposes of the ABI will be passed and returned
+according to the rules of the underlying C ABI, e.g. in registers; often
+this has the effect of performing a trivial copy of the type.
+</p>
+</dd>
+
+<p>
 <a name="POD" />
 <dt> <i>POD for the purpose of layout</i><dt>
 <dd>
@@ -2667,56 +2687,28 @@ There are, however, some special cases.
 <ol type="1">
  <li>
   <p>
-   In the special case where the parameter type has a non-trivial copy or move
-   constructor or destructor, or all copy and move constructors are deleted,
-   the caller must allocate space for a
-   temporary copy, and pass the resulting copy by reference (below).
-   Specifically,
+   If the parameter type is <a href="#non-trivial">non-trivial for the
+   purposes of calls</a>, the caller must allocate space for a temporary
+   and pass that temporary by reference.  Specifically:
   </p>
   <ul>
-   <li>
-    <p>
-     Space is allocated by the caller for the temporary.  If there is
-     no non-trivial copy constructor or destructor, it is in the normal
-     parameter-passing space, i.e. in the parameter registers or on the
-     stack, and the constructor is called if necessary.  Otherwise, it
-     is allocated on the stack or heap.
-    </p>
-   </li>
-
-   <li>
-    <p>
-     The caller constructs the parameter in the space allocated, using
-     a simple copy to the parameter space (parameter registers or
-     stack) if there is no non-trivial copy constructor or destructor.
-    </p>
-   </li>
-
-   <li>
-    <p>
-     The function is called, passing the parameter value (if there is
-     no non-trivial copy constructor or destructor), or its address
-     (if there is one).
-    </p>
-   </li>
-
-   <li>
-    <p>
-     The caller calls any non-trivial destructor for the parameter
-     after returning (at the end of the containing expression).
-    </p>
-   </li>
-
-   <li>
-    <p>
-     If necessary (e.g. if the parameter was allocated on the heap),
+   <li>Space is allocated by the caller in the usual manner for a temporary,
+     typically on the stack.</li>
+   <li>The caller evaluates the argument in the space provided.</li>
+   <li>The function is called, passing the address of the temporary as the
+     appropriate argument.  In the callee, the address passed is used
+     as the address of the parameter variable.</li>
+   <li>If the type has a non-trivial destructor, the caller calls that
+     destructor after control returns to it (including when the caller
+     throws an exception), at the end of enclosing full-expression.
+   <li>If necessary (e.g. if the temporary was allocated on the heap),
      the caller deallocates space after return and destruction.
-    </p>
-   </li>
   </ul>
-  A C-style variadic argument of a type with a non-trivial copy constructor
-  or destructor is passed the same way: the address of the temporary is
-  passed using the normal variadic mechanism, and <code>va_arg</code> in
+
+  <p>
+  A C-style variadic argument of a type that is non-trivial for the
+  purposes of calls is passed the same way: the address of the temporary
+  is passed using the normal variadic mechanism, and <code>va_arg</code> in
   the callee retrieves the address and treats it as a reference to the
   temporary.
  </li>
@@ -2763,12 +2755,12 @@ if the parameter slot is associated with a register.
 
 <p>
 In general, C++ return values are handled just like C return values.
-This includes class type results returned in registers.
-However, if the return value type has a non-trivial copy constructor
-or destructor,
-the caller allocates space for a temporary,
-and passes a pointer to the temporary as an implicit
-first parameter
+This includes class type results returned in registers.</p>
+
+<p>
+However, if the return type is <a href="#non-trivial">non-trivial for
+the purposes of calls</a>, the caller allocates space for a temporary
+and passes a pointer to the temporary as an implicit first parameter
 preceding both the <code>this</code> parameter and user parameters.
 The callee constructs the return value into this temporary.
 </p>
@@ -2801,6 +2793,13 @@ On Itanium, the associated NaT bit must not be set.
 <p>
 Constructors return <code>void</code> results.
 
+
+<p>
+<a name="return-value-dtor">
+<h4><a href="#return-value-dtor"> 3.1.5 Destructor Return Values </a></h4>
+
+<p>
+Destructors return <code>void</code> results.
 
 <p>
 <a name="vcall">
