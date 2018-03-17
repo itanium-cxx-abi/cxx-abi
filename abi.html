@@ -163,9 +163,15 @@ virtual base classes).
 <p>
 <dt> <i>empty class</i> </dt>
 <dd>
-A class with no non-static data members other than zero-width bitfields,
+A class with no non-static data members other than zero-width bitfields
+and empty data members,
 no virtual functions, no virtual base classes,
 and no non-empty non-virtual proper base classes.
+
+<p>
+<dt> <i>empty data member</i> </dt>
+<dd>
+A potentially-overlapping non-static data member of empty class type.
 
 <p>
 <dt> <i>inheritance graph</i> </dt>
@@ -267,12 +273,18 @@ this has the effect of performing a trivial copy of the type.
 <dd>
 <p>
 In general, a type is considered a POD for the purposes of layout if
-it is a POD type (in the sense of ISO C++ [basic.types]).  However, a
-POD-struct or POD-union (in the sense of ISO C++ [class]) with a
+it is a POD type (in the sense of ISO C++ [basic.types]).
+However, a type is not considered to be a POD for the purpose of layout
+if it is:
+<ul>
+<li>a POD-struct or POD-union (in the sense of ISO C++ [class]) with a
 bitfield member whose declared width is wider than the declared type
-of the bitfield is not a POD for the purpose of layout.  Similarly, an
-array type is not a POD for the purpose of layout if the element type
-of the array is not a POD for the purpose of layout.  Where references
+of the bitfield, or
+<li>an array type whose element type is not a POD for the purpose of layout, or
+<li>a POD-struct with one or more potentially-overlapping non-static
+data members.
+</ul>
+Where references
 to the ISO C++ are made in this paragraph, the Technical Corrigendum 1
 version of the standard is intended.
 </p>
@@ -301,6 +313,12 @@ freely allocate objects in the tail padding of any class which would
 not have been POD in C++98.  This ABI is in compliance with that.
 </p>
 </dd>
+
+<p>
+<dt> <i>potentially-overlapping subobject</i> </dt>
+<dd>
+A base class subobject or a non-static data member declared with
+the <tt>[[no_unique_address]]</tt> attribute.
 
 <p>
 <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
@@ -693,7 +711,6 @@ alignment.
 
 (See the description of these terms in
 <a href=#general><b>General</b></a> above.)
-Further, assume for data members that nvsize==size, and nvalign==align.
 Layout (of type C) is done using the following procedure.
 
 <ol type=I>
@@ -832,7 +849,7 @@ order), allocate as follows:
        and update sizeof(C) to max(sizeof(C),dsize(C)).
 
   <p>
-  <li> If D is not an empty base class or D is a data member:
+  <li> If D is not an empty base class and D is not an empty data member:
 
 	<p>
         Start at offset dsize(C),
@@ -856,20 +873,26 @@ order), allocate as follows:
 
 	<p>
 	If D is a base class, update sizeof(C) to max (sizeof(C),
-	offset(D)+nvsize(D)).  Otherwise, if D is a data member, 
+	offset(D)+nvsize(D)).
+	Otherwise, if D is a potentially-overlapping data member,
+	update sizeof(C) to max (sizeof(C), offset(D)+max (nvsize(D), dsize(D))).
+	Otherwise, if D is a data member,
 	update sizeof(C) to max (sizeof(C), offset(D)+sizeof(D)).
 
 	<p>
 	If D is a base class (not empty in this case),
 	update dsize(C) to offset(D)+nvsize(D),
 	and align(C) to max (align(C), nvalign(D)).
-	If D is a data member,
+	If D is a potentially-overlapping data member,
+	update dsize(C) to offset(D)+max (nvsize(D), dsize(D)),
+	align(C) to max (align(C), align(D)).
+	If D is any other data member,
 	update dsize(C) to offset(D)+sizeof(D),
 	align(C) to max (align(C), align(D)).
         </p>
 
   <p>
-  <li> If D is an empty proper base class:
+  <li> If D is an empty proper base class or an empty data member:
 
         <p>
 	Its allocation is similar to case (2) above,
@@ -877,7 +900,7 @@ order), allocate as follows:
 	starting at dsize(C).
 	First, attempt to place D at offset zero.
 	If unsuccessful (due to a component type conflict),
-	proceed with attempts at dsize(C) as for non-empty bases.
+	proceed with attempts at dsize(C) as for non-empty bases and members.
 	As for that case, if there is a type conflict at dsize(C)
 	(with alignment updated as necessary),
 	increment the candidate offset by nvalign(D),
@@ -886,9 +909,9 @@ order), allocate as follows:
 
 	<p>
 	Once offset(D) has been chosen, update sizeof(C) to max (sizeof(C),
-	offset(D)+sizeof(D)) and align(C) to max (alignof(C),
-	nvalign(D)).  Since D is an empty base class, no update of
-	dsize(C) is needed.
+	offset(D)+sizeof(D)), and update align(C) to max (alignof(C),
+	nvalign(D)) for a base class or max (alignof(C), align(D)) for
+	a data member.  Since D is empty, no update of dsize(C) is needed.
 
   </ol>
 
@@ -966,8 +989,19 @@ and the full layout is equivalent to the C struct:
 <p>
 <li> <h5> Finalization </h5>
 <p>
-Round sizeof(C) up to a non-zero multiple of align(C).  If C is a POD,
-but not a POD for the purpose of layout, set nvsize(C) = sizeof(C).
+For each potentially-overlapping non-static data member D of C,
+update sizeof(C) to max (sizeof(C), offset(D)+sizeof(D)). Example:
+
+<pre><code>
+  struct alignas(16) A { ~A(); }; // dsize 0, nvsize 0, size 16
+  struct B : A {}; // dsize 0, nvsize 16, size 16
+  struct X : virtual A, virtual B {}; // dsize 8, nvsize 8, size 32
+  struct Y { [[no_unique_address]] X x; char c; }; // dsize 9, nvsize 9, size 32
+</code></pre>
+
+<p>
+Then, round sizeof(C) up to a non-zero multiple of align(C).  If C is a POD,
+but not a POD for the purpose of layout, set dsize(C) = nvsize(C) = sizeof(C).
 
 </ol>
 
