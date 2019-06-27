@@ -1172,18 +1172,42 @@ which points to such a two-component descriptor,
 a virtual function pointer entry is the descriptor.
 
 <p>
-The order of the virtual function pointers in a virtual table is the order
-of declaration of the corresponding member functions in the class.
-There is an entry for any virtual function declared in a class,
-whether it is a new function or overrides a base class function,
-unless it overrides a function from the primary base,
-and conversion between their return types does not require an adjustment.
-(In the case of this exception,
-the primary base and the derived class share the virtual table,
-and can share the virtual function entry because their 'this' and
-result type adjustments are the same.)
-If a class has an implicitly-defined virtual destructor,
-its entries come after the declared virtual function pointers.
+The order of the virtual function pointers in a virtual table is
+the order of declaration of the corresponding member functions in the class.
+If an implicitly-declared copy assignment operator, move assignment operator,
+or destructor is virtual, it is treated as if it were declared at the end of
+the class, in that order.
+(Implicitly-declared assignment operators may be virtual if
+a base class declares a virtual assignment operator
+taking a reference to a derived class type.)
+
+<p>
+An entry is added for every virtual function in a class,
+including deleted functions, unless:
+<ul>
+<li>the function is <tt>consteval</tt> or
+<li>the function overrides a function from the primary base and
+that override does not require a return-type adjustment.
+</ul>
+
+<p>
+An override requires a return-type adjustment if
+the return types are different and
+have potentially incompatible representations.
+C++ permits an override to differ in return type from the overridden function
+only if both types are pointer-to-class or reference-to-class types and
+the class type <tt>B</tt> in the overridden function is
+an unambiguous base class of the class type <tt>D</tt> in the override.
+For the purposes of vtable layout,
+these types are considered to have potentially incompatible representations if:
+<ul>
+<li>
+<tt>B</tt> is a morally virtual base of <tt>D</tt>
+(even if <tt>D</tt> is <tt>final</tt> and
+the offset of <tt>B</tt> within <tt>D</tt> is known to be zero) or
+<li>
+the (static) offset of <tt>B</tt> within <tt>D</tt> is non-zero.
+</ul>
 
 <p>
 When a derived class and its primary base share a virtual table,
@@ -1288,11 +1312,7 @@ Structure:
 
 <p>
 The virtual table contains offset-to-top and RTTI fields
-followed by virtual function pointers.
-There is one function pointer entry for each
-virtual function declared in the class,
-in declaration order,
-with any implicitly-defined virtual destructor pair last.
+followed by virtual function pointers (as specified above).
 
 <p>
 <h5> Category 2: Non-Virtual Bases Only </h5>
@@ -1335,22 +1355,8 @@ derived class will point to the corresponding base virtual table in this set.
 The primary virtual table for the derived class contains entries for
 each of the functions in the primary base class virtual table,
 replaced by new overriding functions as appropriate.  Following these
-entries, there is an entry for each virtual function declared in the
-derived class (in declaration order) for which one of the following
-two conditions holds:
-<ul>
-<li> The virtual function does not override any function already
-     appearing in the virtual table.
-
-<li> The virtual function overrides a function (or functions) appearing
-     in the virtual table, but the return type of the overrider is
-     substantively different from the return type of the function(s)
-     already present.  If the return types are different, they are
-     both pointer-to-class types, or both reference-to-class types.
-     Let B and D denote the classes, where D is derived from B.  The
-     types are substantively different if B is a morally virtual base of D 
-     or if B is not located at offset zero in D.
-</ul>
+entries, there is an entry for each virtual function pointer for the
+derived class (as specified above).
 
 <p>
 <img src=warning.gif alt="<b>NOTE</b>:">
@@ -1455,18 +1461,11 @@ This virtual table is the primary virtual table of the class
 and is addressed by the virtual table pointer at the top of the object,
 which is not shared
 because there are no nearly empty virtual bases to be primary.
-It holds the following function pointer entries,
-following those of any primary base's virtual table,
-in the virtual functions' declaration order:
-
-<ul>
-<p>
-<li> Entries for virtual functions introduced by this class,
-     i.e. those not declared by any of its bases.
-
-<li> Entries for overridden virtual functions from the base classes,
-     called replicated entries because they are already
-     in the secondary virtual tables of the class.
+It holds the virtual function pointer entries for the class.
+This includes all entries overridden from base classes,
+because there is no primary base class;
+such entries are known as replicated entries
+because they are already in the secondary virtual tables of the class.
 </ul>
 
 <p>
@@ -1508,14 +1507,9 @@ can now have (nearly empty) primary bases:
 
 <p>
 <li> As for the non-virtual base case,
-    virtual function pointer entries from the derived class
-    introductions occur only after the entries from the primary base
+    the virtual function pointer entries from the derived class
+    (specified above) appear after the entries from the primary base
     class.
-    There are entries for overridden virtual functions from the primary
-    base class only if the result types are different (covariant).
-    For purposes of this case,
-    the two types are considered different if one of them is a
-    non-primary or virtual base class of the other.
 
 </ul>
 
@@ -1754,7 +1748,8 @@ to the virtual base class constructors for the complete object.
 <p>
 Each virtual table address in the VTT is the address to be assigned to the
 respective virtual pointer,
-i.e. the address of the first virtual function pointer in the virtual table,
+i.e. the address past the end of the typeinfo pointer
+(the address of the first virtual function pointer, if there are any),
 not of the first vcall offset.
 
 <p>
