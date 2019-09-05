@@ -4990,13 +4990,51 @@ distinct from the type (or other substitutible entity)
 that is the actual parameter.
 </p>
 
+<p>
+Let L be the number of template parameter scopes enclosing the
+template parameter scope in which the parameter is declared,
+excluding any template parameter scopes whose template arguments
+have already been substituted into the type or expression being mangled.
+Typically L will be zero, but can be nonzero when a generic lambda
+occurs within the signature of a function template or when mangling
+a template template parameter declaration. For example:
+
+<pre><code>
+	template&lt;typename&gt; struct A {
+	  // Type of a is TL0_0_, type of b is T_, type of c is TL0__, type of u is TL1__.
+	  template&lt;typename T&gt; void f(decltype([]&lt;typename U, template&lt;U u&gt; typename&gt;(auto a, T b, U c){})) {}
+	};
+</code></pre>
+</p>
+
 <pre><code><font color=blue>
-  &lt;template-param&gt; ::= T_	# first template parameter
-		   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
+  &lt;template-param&gt; ::= T_									# L == 0, first parameter
+		   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _					# L == 0, second and later parameters
+		   ::= TL &lt;<i>L-1 non-negative</i> <a href="#mangle.number">number</a>&gt; __						# L &gt; 0, first parameter
+		   ::= TL &lt;<i>L-1 non-negative</i> <a href="#mangle.number">number</a>&gt; _ &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _	# L &gt; 0, second and later parameters
   &lt;<a name="mangle.template-template-param">template-template-param</a>&gt; ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
 			    ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
-
 </font></code></pre>
+
+<p>
+Within a &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt;,
+explicit template parameter declarations are mangled.
+</p>
+
+<a name="mangle.template-param-decl">
+<pre><code><font color=blue>
+  &lt;template-param-decl&gt; ::= Ty					# template type parameter
+			::= Tn &lt;<a href="#mangle.type">type</a>&gt;				# template non-type parameter
+			::= Tt &lt;<a href="#mangle.template-param-decl">template-param-decl</a>&gt;* E		# template template parameter
+			::= Tp &lt;<i>non-pack</i> <a href="#mangle.template-param-decl">template-param-decl</a>&gt;	# template parameter pack
+</font></code></pre>
+
+<p>
+(Note: the intent is to eventually use these template parameter
+manglings more broadly, to distinguish between function templates
+that are overloaded on template parameters but that are otherwise
+indistinguishable.)
+</p>
 
 <a name="mangle.function-param">
 <h5><a href="#mangle.function-param">5.1.5.9 Function parameter references</a></h5>
@@ -5531,7 +5569,8 @@ the form
   &lt;<a name="mangle.closure-type-name">closure-type-name</a>&gt; ::= Ul &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; E [ &lt;<i>nonnegative</i> <a href="#mangle.number">number</a>&gt; ] _ 
 </pre></font></code>
 with
-<pre><code><font color=blue>  &lt;<a name="mangle.lambda-sig">lambda-sig</a>&gt; ::= &lt;<i>parameter</i> <a href="#mangle.type">type</a>&gt;+  # Parameter types or "v" if the lambda has no parameters
+<pre><code><font color=blue>  &lt;<a name="mangle.lambda-sig">lambda-sig</a>&gt; ::= &lt;<i>explicit</i> <a href="#mangle.template-param-decl">template-param-decl</a>&gt;*	# Excluding template parameters introduced for <code>auto</code> parameters
+                   &lt;<i>parameter</i> <a href="#mangle.type">type</a>&gt;+			# Parameter types or "v" if the lambda has no parameters
 </pre></font></code>
 The number is omitted for the first closure type with a given
 &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; in a given context; it is n-2 for the nth closure
@@ -5611,13 +5650,22 @@ For example:
 <p>
 In a generic lambda, uses of <code>auto</code> in the parameter list
 are mangled as the corresponding artificial template type parameter.
-This is never ambiguous with a lambda parameter whose type is an
-enclosing template type parameter, because lambdas are never mangled
-in a dependent context (they are forbidden from appearing in function
-signatures).  A &lt;<a
-href="#mangle.template-param">template-param</a>&gt; in a &lt;<a
-href="#mangle.lambda-sig">lambda-sig</a>&gt; can only ever refer to a
-template parameter of a generic lambda.
+If a generic lambda appears in a dependent context (for example, in
+the signature of a function template), references to its template
+parameters (including those introduced by uses of <code>auto</code>)
+are encoded as <code>&lt;<a href="#mangle.template-param">template-param</a>&gt;</code>s
+with a non-zero level.
+</p>
+
+<p>
+<img src=warning.gif alt="<b>NOTE</b>:">
+<i>
+A non-member function template whose signature contains a lambda-expression can
+never redeclare a function template declared in a different translation unit.
+Implementations must ensure that such symbols are not linked together across
+translation units, perhaps by giving affected symbols internal linkage.
+</i>
+</p>
 
 <p>
 <a name="mangling-compression">
