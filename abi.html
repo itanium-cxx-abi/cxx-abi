@@ -4914,7 +4914,8 @@ the form
 </pre></font></code>
 
 The number is omitted for the first unnamed type in the class; it is
-n-2 for the nth unnamed type (in lexical order) otherwise.
+n-2 for the nth unnamed type (in <a href="#lexical-ordering">lexical order</a>)
+otherwise.
 <p>
 (The mangling of such unnamed types defined in namespace scope is
 generally unspecified because they do not have to match across
@@ -5391,7 +5392,8 @@ be mangled with a &lt;<a href="#mangle.nested-name">nested-name</a>&gt;.
 within a function if they are declared in different scopes.  In this
 case, a discriminator must be added to the
 &lt;<a href="#mangle.local-name">local-name</a>&gt;.  Entities with
-the same "top-level" name are numbered in lexical order within
+the same "top-level" name are numbered in
+<a href="#lexical-ordering">lexical order</a> within
 the function definition.  A discriminator is added only for the second
 and later occurrences of the same name, and so the
 &lt;<a href="#mangle.number">number</a>&gt; in the discriminator
@@ -5412,8 +5414,8 @@ the form
 </pre></font></code>
 
 where the number is is omitted for the first unnamed type in the
-function, and <i>n</i>-2 for the <i>n</i>th unnamed type (in lexical
-order) otherwise.
+function, and <i>n</i>-2 for the <i>n</i>th unnamed type
+(in <a href="#lexical-ordering">lexical order</a>) otherwise.
 
 <p>
 For example:
@@ -5445,24 +5447,13 @@ The second production in &lt;<a href="#mangle.local-name">local-name</a>&gt;
 is used for string literals.  The discriminator is used only if there
 is more than one, for the second and subsequent ones.  In this case
 again &lt;<a href="#mangle.number">number</a>&gt; is <i>n</i>-2 for
-the <i>n</i>th distinct string literal, in lexical order, appearing in
+the <i>n</i>th distinct string literal, in
+<a href="#lexical-ordering">lexical order</a>, appearing in
 the function.  Multiple references to the same string literal produce
 one string object with one name in the sequence.  <i>Note that this
 assumes that the same string literal occurring twice in a given
 function in fact represents a single entity, i.e. has a unique
 address.</i>
-
-<p>
-In all cases, the numbering order is strictly lexical order based on
-the original token sequence.  All entities occurring in that sequence
-are to be numbered, even if subsequent optimization makes some of them
-unnecessary.  The ordering of literals appearing in a
-mem-initializer-list shall be the order that the literals appear in
-the source, which may be different from the order in which the
-initializers will be executed when the program runs.  It is expected
-that this will be the 'natural' order in most compilers.  In any case,
-conflicts would arise only if different compilation units including
-the same code were compiled by different compilers.
 
 <p>
 For entities in constructors and destructors, the mangling of the
@@ -5536,7 +5527,8 @@ with
 </pre></font></code>
 The number is omitted for the first closure type with a given
 &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; in a given context; it is n-2 for the nth closure
-type (in lexical order) with that same &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; and context.
+type (in <a href="#lexical-ordering">lexical order</a>)
+with that same &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; and context.
 <p>
 
 <p>
@@ -5621,8 +5613,97 @@ href="#mangle.lambda-sig">lambda-sig</a>&gt; can only ever refer to a
 template parameter of a generic lambda.
 
 <p>
+<a name="lexical-ordering">
+<h4><a href="#lexical-ordering">5.1.9 Lexical ordering</a></h4>
+
+<p>
+Lexical ordering is used for numbering local entities (named and unnamed
+local classes and enumerations, closure types, and static local variables)
+when there is no other way of distinguishing them.  Except as described below,
+all local entities are to be numbered, even if subsequent optimization makes
+some of them unnecessary, or no mangled name is actually required for
+some of them.
+
+<p>
+The order of entities is the source order of a key token unique to the
+entity as if:
+
+<ul>
+<li>the discarded sub-statements of <tt>if constexpr</tt> within a
+template did not exist and
+<li>pack expansions were lexically expanded.
+</ul>
+
+<p>In all cases, this is meant to imitate the numbering that would
+be produced by a simple implementation which numbered entities as it
+processed the source and recursively expanded packs.  Since discarded
+substatements of <tt>if constexpr</tt> are still processed in
+non-template code, entities within them are still numbered.
+
+<p>Entities may be lexically nested without being in different
+contexts for the purposes of mangling.  For example, the lambdas in
+<code>[x = []{}]{}</code> are both part of the enclosing context.
+The order of such entities is determined by the source order of a key
+token in the entity.  In general, this token is the first token
+past which the signature of the entity (as is necessary to mangle it)
+is known:
+
+<ul>
+<li>The key token of a class or enum is the end of the
+  <code>enum-head-name</code> (<code>enum-key</code> if unnamed) or
+  <code>class-head-name</code> (<code>class-key</code> if unnamed)
+  in its first declaration.
+<li>The key token of a lambda is its closing brace (<code>}</code>).
+<li>The key token of a static local variable is the last token of its
+  <code>declarator</code> (not its initializer).
+</ul>
+
+<p>
+All entities from one expansion of a pack are considered to occur
+lexically before any entities from the next expansion of the same pack,
+but the ordering is otherwise based on the original token sequence.
+This is expected to match the numbering that would be established for
+the corresponding non-template generated by substitution into the template.
+As a consequence of these rules, the entity instantiated for a particular
+source construct can have a different mangling number in different
+instantiations of the same template.  An entity appearing in the original
+source may also go entirely un-numbered if it appears in a discarded
+sub-statement of <code>if constexpr</code> or in a pack expansion of an
+empty pack.  For example:
+
+<code><pre>
+void g(...);
+template&lt;bool b, typename ...T> void f() {
+  if constexpr(b) { []{}; }
+  g(([]{}, []{ static T n; return &amp;n; }())...);
+}
+
+// The first lambda is discarded and does not receive a number.
+// The variables passed to g are therefore mangled as
+// _ZZZ1fILb0EJiiEEvvENKUlvE0_clEvE1n and
+// _ZZZ1fILb0EJiiEEvvENKUlvE2_clEvE1n.
+template void f&lt;false, int, int>();
+
+// The variable passed to g is mangled as
+// _ZZZ1fILb1EJiEEvvENKUlvE1_clEvE1n and
+template void f&lt;true, int>();
+
+// Both lambdas are numbered; returns _ZZZ1hvENKUlvE0_clEvE1n.
+inline int *h() {
+  if constexpr(false) { []{}; }
+  return []{ static int n; return &amp;n; }();
+}
+</pre></code>
+
+<p>
+Note that the numbering of entities appearing within a
+<code>mem-initializer-list</code> reflects the order that the
+initializers appear in the source, which may be different from the
+order in which the initializers will be executed when the program runs.
+
+<p>
 <a name="mangling-compression">
-<h4><a href="#mangling-compression">5.1.9 Compression</a></h4>
+<h4><a href="#mangling-compression">5.1.10 Compression</a></h4>
 
 <p>
 To minimize the length of external names,
