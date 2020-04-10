@@ -2062,7 +2062,7 @@ the associated variable, and 1 after initialization is complete.
 Usage of the other bytes of the guard variable is implementation-defined.
 
 <p>
-See <a href=#once-ctor>Section 3.3.2</a>
+See <a href=#once-ctor>Section 3.3.3</a>
 for the API for references to this guard variable.
 
 
@@ -3160,10 +3160,11 @@ destruction of objects.
 This includes:
 <ul>
 <li> <a href=#subobj-ctor> 3.3.1 Subobject Construction and Destruction</a>
-<li> <a href=#once-ctor>   3.3.2 One-time Construction API </a>
-<li> <a href=#array-ctor>  3.3.3 Array Construction and Destruction API </a>
-<li> <a href=#ctor-order>  3.3.4 Controlling Object Construction Order </a>
-<li> <a href=#dso-dtor>    3.3.5 DSO Object Destruction API </a>
+<li> <a href=#inh-ctor>    3.3.2 Construction by Inherited Constructor</a>
+<li> <a href=#once-ctor>   3.3.3 One-time Construction API </a>
+<li> <a href=#array-ctor>  3.3.4 Array Construction and Destruction API </a>
+<li> <a href=#ctor-order>  3.3.5 Controlling Object Construction Order </a>
+<li> <a href=#dso-dtor>    3.3.6 DSO Object Destruction API </a>
 </ul>
 
 
@@ -3272,8 +3273,58 @@ A test program for this can be found in the
 
 
 <p>
+<a name="inh-ctor"></a>
+<h4><a href="#inh-ctor"> 3.3.2 Construction by Inherited Constructor</a></h4>
+
+<p>
+A constructor inherited from a base class can be used to initialize a derived
+class object, if it is explicitly inherited by a <code>using</code>
+declaration.  Formally, such initialization is not performed by a derived class
+constructor, and instead the initialization expression itself directly
+initializes each base class (recursively, if the constructor is inherited from
+an indirect base class) and each non-static data member. To reduce code
+duplication, this ABI permits such initialization to be factored out into an
+<i>inheriting constructor</i> function.
+
+<p>
+An inheriting constructor describes the initialization that would be performed
+when a constructor inherited from a base class is selected to initialize a
+derived class, including the default-initialization of the other base classes
+and the non-static data members of the derived class. If the inheriting
+constructor is a base subobject constructor and the inherited constructor
+constructs a morally virtual base subobject, the inheriting constructor does
+not take any user-declared parameters; otherwise, it takes the same parameters
+as the inherited constructor. In all other respects, an inheriting constructors
+behaves the same as a constructor of the derived class.  For example:
+
+<code><pre>
+struct X { X(); };
+struct A { A(int); };
+struct B : A { using A::A; };
+struct C : virtual B { using B::B; X x; };
+struct D : C { using C::C; };
+C c(0);
+D d(0);
+
+// The initializations of c and d behave as if they call C::C<sub>complete A(int)</sub>(0) and D::D<sub>complete A(int)</sub>(0):
+D::D<sub>complete A(int)</sub>(int n) : B<sub>base A(int)</sub>(n), C<sub>base A(int)</sub>() {}	// _ZN1DCI11AEi
+C::C<sub>complete A(int)</sub>(int n) : B<sub>base A(int)</sub>(n), x() {}      <sub></sub>     	// _ZN1CCI11AEi
+C::C<sub>base A(int)</sub>() : /*no init for vbase B*/ x() {}        <sub></sub><sub></sub>     	// _ZN1CCI21AEi
+B::B<sub>base A(int)</sub>(int n) : A(n) {}                          <sub></sub><sub></sub>     	// _ZN1BCI21AEi
+</pre></code>
+
+<p>
+Inheriting constructors are not permitted to make copies of their parameters
+when passing them to the inherited constructor. If it would not be possible to
+transparently forward all parameters from the inheriting constructor to the
+inherited constructor, an inheriting constructor cannot be used, and a
+different implementation technique (such as emitting the initialization inline)
+must be used instead.
+
+
+<p>
 <a name="once-ctor"></a>
-<h4><a href="#once-ctor"> 3.3.2 One-time Construction API </a></h4>
+<h4><a href="#once-ctor"> 3.3.3 One-time Construction API </a></h4>
 
 <p>
 As described in <a href=#guards>Section 2.8</a>, certain objects with
@@ -3403,7 +3454,7 @@ a more complex lock structure to use.
 
 <p>
 <a name="array-ctor">
-<h4><a href="#array-ctor"> 3.3.3 Array Construction and Destruction API </a></h4>
+<h4><a href="#array-ctor"> 3.3.4 Array Construction and Destruction API </a></h4>
 
 <p>
 An ABI-compliant system shall provide several runtime routines for use
@@ -3649,11 +3700,11 @@ If either is NULL, no action is taken when it would have been called.
 
 <p>
 <a name="ctor-order">
-<h4><a href="#ctor-order"> 3.3.4 Controlling Object Construction Order </a></h4>
+<h4><a href="#ctor-order"> 3.3.5 Controlling Object Construction Order </a></h4>
 
 <p>
 <a name="ctor-order-motivation">
-<h5><a href="#ctor-order-motivation"> 3.3.4.1 Motivation </a></h5>
+<h5><a href="#ctor-order-motivation"> 3.3.5.1 Motivation </a></h5>
 
 <p>
 <i>
@@ -3676,7 +3727,7 @@ initialization ordering specified in the base ABI.
 
 <p>
 <a name="ctor-order-pragma">
-<h5><a href="#ctor-order-pragma"> 3.3.4.2 Source Code API </a></h5>
+<h5><a href="#ctor-order-pragma"> 3.3.5.2 Source Code API </a></h5>
 
 <p>
 A user may specify the construction priority with the pragma:
@@ -3706,7 +3757,7 @@ will be executed in an unspecified order.
 
 <p>
 <a name="ctor-order-object-file">
-<h5><a href="#ctor-order-object-file"> 3.3.4.3 Object File Representation </a></h5>
+<h5><a href="#ctor-order-object-file"> 3.3.5.3 Object File Representation </a></h5>
 
 <p>
 Initialization priority is represented in the object file by elements
@@ -3744,7 +3795,7 @@ preserves the source code order of objects to be initialized.
 
 <p>
 <a name="ctor-order-runtime">
-<h5><a href="#ctor-order-runtime"> 3.3.4.4 Runtime Library Support </a></h5>
+<h5><a href="#ctor-order-runtime"> 3.3.5.4 Runtime Library Support </a></h5>
 
 <p>
 Each implementation supporting priority initialization shall provide
@@ -3760,7 +3811,7 @@ It will be called with the GP of the initialization entries.
 
 <p>
 <a name="ctor-order-linker">
-<h5><a href="#ctor-order-linker"> 3.3.4.5 Linker Processing </a></h5>
+<h5><a href="#ctor-order-linker"> 3.3.5.5 Linker Processing </a></h5>
 
 <p>
 The only required static linker processing is to concatenate the
@@ -3804,11 +3855,11 @@ with no other entries in the <code>DT_INIT_ARRAY</code> section.
 
 <p>
 <a name="dso-dtor">
-<h4><a href="#dso-dtor"> 3.3.5 DSO Object Destruction API </a></h4>
+<h4><a href="#dso-dtor"> 3.3.6 DSO Object Destruction API </a></h4>
 
 <p>
 <a name="dso-dtor-motivation">
-<h5><a href="#dso-dtor-motivation"> 3.3.5.1 Motivation </a></h5>
+<h5><a href="#dso-dtor-motivation"> 3.3.6.1 Motivation </a></h5>
 
 <p>
 The C++ Standard requires that destructors be called for global objects
@@ -3832,7 +3883,7 @@ and reasonable treatment during early DSO unload (e.g. <code>dlclose</code>).
 
 <p>
 <a name="dso-dtor-runtime-data">
-<h5><a href="#dso-dtor-runtime-data"> 3.3.5.2 Runtime Data Structure </a></h5>
+<h5><a href="#dso-dtor-runtime-data"> 3.3.6.2 Runtime Data Structure </a></h5>
 
 <p>
 The runtime library shall maintain a list of termination functions
@@ -3850,7 +3901,7 @@ All references are via the API described below.
 
 <p>
 <a name="dso-dtor-runtime-api">
-<h5><a href="#dso-dtor-runtime-api"> 3.3.5.3 Runtime API </a></h5>
+<h5><a href="#dso-dtor-runtime-api"> 3.3.6.3 Runtime API </a></h5>
 
 <ol type=A>
 <p>
@@ -4510,14 +4561,24 @@ where the final &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; 
 is replaced by one of the following:
 
 <pre><font color=blue><code>
-  &lt;<a name="mangle.ctor-dtor-name">ctor-dtor-name</a>&gt; ::= C1	# complete object constructor
-		   ::= C2	# base object constructor
-		   ::= C3	# complete object allocating constructor
-		   ::= D0	# deleting destructor
-		   ::= D1	# complete object destructor
-		   ::= D2	# base object destructor
-
+  &lt;<a name="mangle.ctor-dtor-name">ctor-dtor-name</a>&gt; ::= C1			# complete object constructor
+		   ::= C2			# base object constructor
+		   ::= C3			# complete object allocating constructor
+		   ::= CI1 &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt;	# complete object <a href="#inh-ctor">inheriting constructor</a>
+		   ::= CI2 &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt;	# base object <a href="#inh-ctor">inheriting constructor</a>
+		   ::= D0			# deleting destructor
+		   ::= D1			# complete object destructor
+		   ::= D2			# base object destructor
 </pre></font></code>
+
+<p>
+The &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt; in an inheriting
+constructor mangling identifies the base class in which the inherited
+constructor was originally declared.
+
+<p>
+Some of the symbols for constructor and destructor variants are <a
+href="#vague-ctor">optional</a>.
 
 <p>
 <a name="mangling-special-guards">
@@ -5912,7 +5973,7 @@ to the symbol for the object it contains, whether inline or out-of-line.
 <p>
 Some objects with static storage duration have associated guard variables
 used to ensure that they are initialized only once
-(see <a href=once-ctor>3.3.2</a>).
+(see <a href=once-ctor>3.3.3</a>).
 If the object is emitted using a COMDAT group,
 the guard variable must be too.
 It is suggested that it be emitted in the same COMDAT group as the
@@ -5996,12 +6057,13 @@ referenced, each in its own COMDAT group identified by the constructor
 or destructor name.
 
 <p>
-This ABI does not require the generation or use of allocating
-constructors or deleting destructors for classes without a virtual
-destructor.  However, if an implementation emits such functions, it
-must use the external names specified in this ABI.  If such a function
-has external linkage, it must be emitted wherever referenced, in a
-COMDAT group whose name is the external name of the function.
+This ABI does not require the generation or use of allocating constructors or
+inheriting constructors, and does not require the generation or use of deleting
+destructors for classes without a virtual destructor.  However, if an
+implementation emits such functions, it must use the external names specified
+in this ABI.  If such a function has external linkage, it must be emitted
+wherever referenced, in a COMDAT group whose name is the external name of the
+function.
 
 <p>
 <a name="vague-itemplate">
@@ -6328,7 +6390,7 @@ unwind table location.
   Note about locating virtual bases statically during
   construction (2.6.1).
   Rename IA-64 to Itanium throughout.
-  Add __cxa_vec_cleanup (3.3.3).</p>
+  Add __cxa_vec_cleanup (3.3.4).</p>
 
 <p class="revision"><span class="date">[000817]</span>
   Updates from 17 August meeting, email.</p>
@@ -6336,24 +6398,24 @@ unwind table location.
 <p class="revision"><span class="date">[000807]</span>
   Added base document section (1.5).
   Further RTTI field name cleanup (2.9.4).
-  Update proposed one-time construction API (3.3.2).
-  Update proposed object construction priority API (3.3.4).
+  Update proposed one-time construction API (3.3.3).
+  Update proposed object construction priority API (3.3.5).
   Removed &lt;name&gt; substitution (5.1.2).
   COMDAT not generally necessary for internal linkage (5.2).
   COMDAT for local static guard variables (5.2.2).</p>
 
 <p class="revision"><span class="date">[000727]</span>
   Updates from 20 July meeting.
-  Added section on controlling object construction order (3.3.4).</p>
+  Added section on controlling object construction order (3.3.5).</p>
 
 <p class="revision"><span class="date">[000707]</span>
   Introduce consistent type_info field names (2.9.4).
   Removed vmi flags for publicly/non-publicly inherited bases (2.9.4).
   Collect all construction/destruction APIs in one section (3.3).
-  Added one-time initialization API (3.3.2).
-  Vector construction/destruction routines are extern "C" (3.3.3).
-  Added routines for vector construction/destruction (3.3.3).
-  Added copy construction runtime API (3.3.3).
+  Added one-time initialization API (3.3.3).
+  Vector construction/destruction routines are extern "C" (3.3.4).
+  Added routines for vector construction/destruction (3.3.4).
+  Added copy construction runtime API (3.3.4).
   Make Alex's changes in mangling grammar (5.1).
   Add &lt;special-name&gt; cases for covariant override thunks (5.1.4).
   Allow expressions as array type dimensions (5.1.5).
