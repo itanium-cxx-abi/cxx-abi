@@ -39,10 +39,10 @@
   <li> <a href=#guards>		2.8 Initialization Guard Variables </a>
   <li> <a href=#rtti>		2.9 Run-Time Type Information (RTTI) </a>
   </ul>
-<li> <a href=#calls> Chapter 3: Function Calling Conventions and APIs </a>
+<li> <a href=#calls> Chapter 3: Code Emission and APIs </a>
   <ul>
-  <li> <a href=#normal-call> 3.1 Non-virtual Function Calling Conventions </a>
-  <li> <a href=#vcall>	     3.2 Virtual Function Calling Conventions </a>
+  <li> <a href=#functions>   3.1 Functions</a>
+  <li> <a href=#vcall>       3.2 Virtual Calls</a>
   <li> <a href=#obj-ctor>    3.3 Construction and Destruction APIs</a>
   <li> <a href=#demangler>   3.4 Demangler API</a>
   </ul>
@@ -61,40 +61,65 @@
 <h2><a href="#acknowledgements"> Acknowledgements</a></h2>
 <p> <hr> <p>
 
-<p>This document was developed jointly by an informal industry
-coalition consisting of (in alphabetical order) CodeSourcery, Compaq,
-EDG, HP, IBM, Intel, Red Hat, and SGI.  Additional contributions were
-provided by a variety of individuals.</p>
+<p>This document was originally developed jointly by an informal
+industry coalition consisting of (in alphabetical order) CodeSourcery,
+Compaq, EDG, HP, IBM, Intel, Red Hat, and SGI.  Additional contributions
+were provided by a variety of individuals.  It is now developed as an
+open-source project with contributions from a variety of individuals
+and companies.</p>
 
 <p> <hr> <p>
 <a name="intro">
 <h2><a href="#intro"> Chapter 1: Introduction </a></h2>
 <p> <hr> <p>
 
-In this document, we specify the Application Binary Interface for
-C++ programs,
-that is, the object code interfaces between user C++ code and the
-implementation-provided system and libraries.
-This includes the memory layout for C++ data objects,
-including both predefined and user-defined data types,
-as well as internal compiler generated objects such as virtual tables.
-It also includes function calling interfaces,
-exception handling interfaces,
-global naming,
-and various object code conventions.
+In this document, we specify the Application Binary Interface (ABI)
+for C++ programs: that is, the object code interfaces between different
+user-provided C++ program fragments and between those fragments and
+the implementation-provided runtime and libraries.  This includes the
+memory layout for C++ data objects, including both predefined and
+user-defined data types, as well as internal compiler generated
+objects such as virtual tables.  It also includes function calling
+interfaces, exception handling interfaces, global naming, and various
+object code conventions.
 
 <p>
-In general, this document is written as a generic specification,
-to be usable by C++ implementations on a variety of architectures.
-However, it does contain processor-specific material for the Itanium
-64-bit ABI, identified as such.
-Where structured data layout is described,
-we generally assume Itanium psABI member sizes.
-An implementation for a 32-bit ABI would typically just change the
-sizes of members as appropriate
-(i.e. pointers and long ints would become 32 bits),
-but sometimes an order change would be required for compactness,
-and we note more substantive changes.
+In general, this document is meant to serve as a generic specification
+which can be used by C++ implementations on a variety of platforms.
+It does this by layering on top of a base platform C ABI, called the
+<i>processor-specific ABI</i>, or psABI for short.  However, it was
+originally written for the Itanium architecture, and some parts still
+directly make Itanium-specific or 64-bit-specific assumptions.  It
+is an ongoing project to restate the entire specification in terms of
+portable C concepts that are defined in the psABI.  In the meantime,
+it is usually straightforward to recognize these unportable assumptions
+and translate them appropriately, e.g. by replacing a 64-bit pointer
+with a 32-bit pointer.
+
+<p>
+This document is not an authoritative definition of the C++ ABI for
+any particular platform.  Platform vendors retain the ultimate power
+to define the C++ ABI for their platform.  Platforms using this ABI
+for C++ should declare that they do so, either unmodified or with a
+certain set of changes.
+
+<p>
+While this ABI has generally stood up well, there are some parts of it
+that are now seen as mistakes.  This document includes several
+recommendations for platforms adopting this ABI with no need to
+interoperate with existing C++ object code.  These recommendations
+appear as follows:
+
+<blockquote>
+  <span class="future-abi">Consider forbidding the use of function
+  templates on your platform so that the ABI can remove these
+  expression-mangling rules.</span>
+</blockquote>
+
+<p>
+Platforms adopting any of these recommendations should describe the
+exact changes they've made in their platform ABI documentation,
+as the set of recommendations in this document may change over time.
 
 <p> <hr> <p>
 <a name="definitions">
@@ -126,6 +151,13 @@ to exclude T itself from the list.
 <dd>
 A function that runs the destructors for non-static data members of T and
 non-virtual direct base classes of T.
+
+<p>
+<dt> <i>basic ABI properties</i> of a type T</dt>
+<dd>
+The psABI-level properties of a type, including its size, its alignment,
+its treatment by calling conventions, and the representation of pointers
+to it.
 
 <p>
 <dt> <i>complete object destructor</i> of a class T</dt>
@@ -630,7 +662,7 @@ without virtual bases.
 
 <p>
 The size and alignment of a type which is a <a href="#POD">POD for the
-purpose of layout<a> is as specified by the base (C) ABI, with the
+purpose of layout<a> is as specified by the base ABI, with the
 following provisos:
 </p>
 
@@ -662,40 +694,110 @@ sometimes permits faster copying of the type.
 <a name="member-pointers"></a>
 <h3><a href="#member-pointers"> 2.3 Member Pointers </a></h3>
 
-<p>
-A pointer to data member is an offset from the base
-address of the class object containing it,
-represented as a <code>ptrdiff_t</code>.
-It has the size and alignment attributes of a <code>ptrdiff_t</code>.
-A NULL pointer is represented as -1.
+<a name="data-member-pointers"></a>
+<h4><a href="#data-member-pointers"> 2.3.1 Data Member Pointers </a></h4>
 
 <p>
-A pointer to member function is a pair <ptr, adj> as follows:
-
-<dl>
-<p>
-<dt> <code>ptr</code>:
-<dd> For a non-virtual function, this field is a simple function pointer.
-     (Under current base Itanium psABI conventions,
-     that is a pointer to a GP/function address pair.)
-     For a virtual function,
-     it is 1 plus the virtual table offset (in bytes) of the function,
-     represented as a <code>ptrdiff_t</code>.
-     The value zero represents a NULL pointer,
-     independent of the adjustment field value below.
+The basic ABI properties of data member pointer types are those
+of <code>ptrdiff_t</code>.
 
 <p>
-<dt> <code>adj</code>:
-<dd> The required adjustment to <i>this</i>,
-     represented as a <code>ptrdiff_t</code>.
-</dl>
+A data member pointer is represented as the data member's offset in bytes
+from the address point of an object of the base type, as a
+<code>ptrdiff_t</code>.
 
 <p>
-It has the size, data size, and alignment
-of a class containing those two members, in that order.
-(For 64-bit Itanium, that will be 16, 16, and 8 bytes respectively.)
+A null data member pointer is represented as an offset of <code>-1</code>.
+Unfortunately, it is possible to generate an data member pointer with an
+offset of <code>-1</code> using explicit derived-to-base conversions.
+If this is done, implementations following this ABI may misbehave.
+<span class="future-abi">Consider using <code>PTRDIFF_MIN</code>
+as the null data member pointer instead.</span>
 
+<p>
+Note that by <code>[dcl.init]</code>, "zero initialization" of a data
+member pointer object stores a null pointer value into it.  Under this
+representation, that value has a non-zero bit representation.  On most
+modern platforms, data member pointers are the only type with this
+property.
 
+<p>
+Base-to-derived and derived-to-base conversions of a non-null data member
+pointer can be performed by adding or subtracting (respectively) the static
+offset of the base within the derived class.  The C++ standard does not
+permit base-to-derived and derived-to-base conversions of member pointers
+to cross a <code>virtual</code> base relationship, and so a static offset
+is always known.
+
+<a name="member-function-pointers"></a>
+<h4><a href="#member-function-pointers"> 2.3.2 Member Function Pointers </a></h4>
+
+<p>
+The basic ABI properties of member function pointer types are those of
+the following class:
+
+<pre>
+  struct {
+    fnptr_t ptr;
+    ptrdiff_t adj;
+  };
+</pre>
+
+where <code>fnptr_t</code> is the appropriate function-pointer type
+for the member type.
+
+<p>
+A member function pointer for a non-virtual function is represented
+with <code>ptr</code> set to a function pointer to the function,
+using the psABI's representation of function pointers.
+
+<p>
+A member function pointer for a virtual function is represented
+with <code>ptr</code> set to 1 plus the virtual table offset of
+the function (in bytes), converted to a function pointer as if by <code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(1 + offset))</code>,
+where <code>uintfnptr_t</code> is an unsigned integer of the same
+size as <code>fnptr_t</code>.
+
+<p>
+In both cases, <code>adj</code> stores the offset (in bytes) which
+must be added to a pointer to the base type before the call can be
+made.  For a virtual member function pointer, the v-table is loaded
+from the adjusted address.
+
+<p>
+The representation of virtual member function pointers requires the
+representation of a function pointer to a non-static member function
+to never have its lowest bit set.  On most platforms, this is either
+always true, or it can be made true at little cost.  (For example,
+on most platforms a function pointer is just the address of the
+first instruction in the function.  Many architectures align all
+instructions to at least 2 bytes; even on architectures where that's
+not true, or where functions aren't byte-addressed, the compiler can
+just increase the alignment of non-static member functions until the
+low bit of the address is always reliably zero.)  However, some platforms
+use the low bit of a function pointer for special purposes, such as to
+distinguish THUMB functions on ARM.  Such platforms must use a slightly
+different representation: the virtual/non-virtual bit is instead stored
+as the lowest bit of <code>adj</code>, and the adjustment value is
+stored left-shifted by 1.
+
+<p>
+A null member function pointer is represented by a null value for
+<code>ptr</code>.  (This assumes that the low bit of a null pointer
+is not 1; platforms with non-zero bit representations for null function
+pointers may need an adjusted rule.)  The value of <code>adj</code>
+is not specified unless the alternative virtual-bit representation
+is being used, in which case the lowest bit of <code>adj</code> must
+also be zero but the remaining bits are still unspecified.
+
+<p>
+Base-to-derived and derived-to-base conversions of a member function
+pointer can be performed by adding or subtracting (respectively) the
+static offset of the base within the derived class to the value of
+<code>adj</code>.  In the alternative virtual-bit representation,
+the addend must be shifted by one.  Because the adjustment does not
+factor into whether a member function pointer is null, this can be
+done unconditionally when performing a conversion.
 
 <p> <hr> <p>
 <a name="class-types">
@@ -2055,17 +2157,16 @@ will use the same guard variable to ensure that the static data member
 is initialized only once.
 
 <p>
-The size of the guard variable is 64 bits.
+The size and alignment of the guard variable is that of a
+<code>uintptr_t</code>.
 The first byte (i.e. the byte at the address of the full variable)
 shall contain the value 0 prior to initialization of
 the associated variable, and 1 after initialization is complete.
 Usage of the other bytes of the guard variable is implementation-defined.
 
 <p>
-See <a href=#once-ctor>Section 3.3.3</a>
-for the API for references to this guard variable.
-
-
+See <a href=#once-ctor>the section on one-time construction</a>
+for the procedures for using this guard variable.
 
 <p> <hr> <p>
 <a name="rtti">
@@ -2692,15 +2793,11 @@ no interfaces need to be specified in this document
 
 <p> <hr> <p>
 <a name="calls">
-<h2><a href="#calls"> Chapter 3: Function Calling Conventions and APIs </a></h2>
-<p> <hr> <p>
+<h2><a href="#calls"> Chapter 3: Code Emission and APIs </a></h2>
+<p> <hr>
 
 <p>
-In general, the calling conventions for C++ in this ABI
-follow those specified by the underlying processor-specific ABI for C,
-whenever there is an analogous construct in C.
-This chapter specifies exceptions required by C++-specific semantics,
-or by features without analogues in C.
+This chapter describes how to define and call functions.
 It also specifies the APIs of a variety of runtime utility routines
 required to be part of the support library of an ABI-conforming
 implementation for use by compiled code.
@@ -2709,96 +2806,145 @@ In addition, reference is made to the separate description of
 which defines a large number of runtime utility routine APIs.
 
 <p>
-<a name="normal-call">
-<h3><a href="#normal-call"> 3.1 Non-Virtual Function Calling Conventions </a></h3>
+<a name="functions">
+<h3><a href="#functions">3.1 Functions</a></h3>
 </a>
 
 <p>
-<a name="value-parameter">
-<h4><a href="#value-parameter"> 3.1.1 Value Parameters </a></h4>
+In general, the calling conventions and rules for defining C++
+functions in this ABI follow those specified for functions of
+the corresponding type in the base C ABI.  The corresponding type
+is mostly determined by translating C++ constructs to their
+obvious C analogues.  This section specifies the behavior of
+of features without analogues in C, as well as some exceptions
+and extra rules required by C++-specific semantics.
 
 <p>
-In general, C++ value parameters are handled just like C parameters.
-This includes class type parameters passed wholly or partially in registers.
-There are, however, some special cases.
-</p>
-<ol type="1">
- <li>
-  <p>
-   If the parameter type is <a href="#non-trivial">non-trivial for the
-   purposes of calls</a>, the caller must allocate space for a temporary
-   and pass that temporary by reference.  Specifically:
-  </p>
-  <ul>
-   <li>Space is allocated by the caller in the usual manner for a temporary,
-     typically on the stack.</li>
-   <li>The caller evaluates the argument in the space provided.</li>
-   <li>The function is called, passing the address of the temporary as the
-     appropriate argument.  In the callee, the address passed is used
-     as the address of the parameter variable.</li>
-   <li>If the type has a non-trivial destructor, the caller calls that
-     destructor after control returns to it (including when the caller
-     throws an exception), at the end of enclosing full-expression.
-   <li>If necessary (e.g. if the temporary was allocated on the heap),
-     the caller deallocates space after return and destruction.
-  </ul>
-
-  <p>
-  A C-style variadic argument of a type that is non-trivial for the
-  purposes of calls is passed the same way: the address of the temporary
-  is passed using the normal variadic mechanism, and <code>va_arg</code> in
-  the callee retrieves the address and treats it as a reference to the
-  temporary.
- </li>
- <li>
-  <p>
-   In the case where the parameter type is class
-   <code>std::decimal::decimal32</code>,
-   <code>std::decimal::decimal64</code>, or
-   <code>std::decimal::decimal128</code> as defined in TR 24733, the
-   parameter is passed the same as the corresponding native decimal
-   floating-point scalar type.
-  </p>
- </li>
-</ol>
+<a name="function-defs">
+<h4><a href="#function-defs">3.1.1 Function Definitions</a></h4>
 
 <p>
-<a name="reference-parameter">
-<h4><a href="#reference-parameter"> 3.1.2 Reference Parameters </a></h4>
+For the most part, non-static member functions, including constructors
+and destructors, are defined as if they were ordinary functions except
+for the addition of the implicit parameters to the prototype as
+described in the <a href="#parameters">section on parameters</a>.
+
+<p>
+The rules for <a href="#member-function-pointers">member function
+pointers</a> may require aligning the first instruction of ordinary
+non-static member functions (i.e. not constructors or destructors)
+to a higher value than the platform would normally require.
+
+<a name="parameters">
+<h4><a href="#parameters">3.1.2 Parameters</a></h4>
+</a>
+
+<p>
+<a name="this-parameters">
+<h5><a href="#this-parameters">3.1.2.1 <code>this</code> Parameters</a></h5>
+
+<p>
+Non-static member functions, including constructors and destructors,
+take an implicit <code>this</code> parameter of pointer type.  It is
+passed as if it were the first parameter in the function prototype,
+except as modified for <a href="#non-trivial-return-values">non-trivial
+return values</a>.
+
+<p>
+<a name="vtt-parameters">
+<h5><a href="#vtt-parameters">3.1.2.2 <code>VTT</code> Parameters</a></h5>
+
+<p>
+Base-subobject constructors and destructors for classes with virtual
+bases take an implicit <a href="#vtable-ctor"><code>VTT</code></a>
+parameter of pointer type.  It is passed as if it were the second
+parameter in the function prototype, immediately following the
+<code>this</code> parameter, except as modified for
+<a href="#non-trivial-return-values">non-trivial return values</a>.
+
+<p>
+<a name="non-trivial-parameters">
+<h5><a href="#non-trivial-parameters">3.1.2.3 Non-Trivial Parameters</a></h5>
+
+<p>
+If a parameter type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>, the
+caller must allocate space for a temporary and pass that temporary by
+reference.  Specifically:
+
+<ul>
+ <li>Space is allocated by the caller in the usual manner for a temporary,
+   typically on the stack.</li>
+ <li>The caller evaluates the argument in the space provided.</li>
+ <li>The function is called, passing the address of the temporary as the
+   appropriate argument.  In the callee, the address passed is used
+   as the address of the parameter variable.</li>
+ <li>If the type has a non-trivial destructor, the caller calls that
+   destructor after control returns to it (including when the caller
+   throws an exception).
+ <li>If necessary (e.g. if the temporary was allocated on the heap),
+   the caller deallocates space after return and destruction.
+</ul>
+
+<p>
+A C-style variadic argument of a type that is non-trivial for the
+purposes of calls is passed the same way: the address of the temporary
+is passed using the normal variadic mechanism, and <code>va_arg</code> in
+the callee retrieves the address and treats it as a reference to the
+temporary.
+
+<a name="special-class-parameters">
+<h5><a href="#special-class-parameters">3.1.2.4 Parameters of Special Class Type</a></h5>
+
+<p>
+An argument of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733
+is passed the same as the corresponding native decimal
+floating-point scalar type.
+
+<p>
+<a name="reference-parameters">
+<h5><a href="#reference-parameters">3.1.2.5 Reference Parameters</a></h5>
 
 <p>
 Reference parameters are handled by passing a pointer to the object
 bound to the reference.
 
 <p>
-<a name="empty-parameter">
-<h4><a href="#empty-parameter"> 3.1.3 Empty Parameters </a></h4>
+<a name="empty-parameters">
+<h5><a href="#empty-parameters">3.1.2.6 Empty Parameters</a></h5>
 
 <p>
-Empty classes will be passed no differently from ordinary classes.  If
-passed in registers the NaT bit must not be set on all registers that
-make up the class.
-</p>
+If the base ABI specifies rules for passing an empty C <code>struct</code>,
+those rules apply when passing empty classes.  Otherwise, empty
+classes are passed as if they were a corresponding C <code>struct</code>
+with the correct alignment and containing a number of <code>char</code>
+fields equal to the size of the type.  The contents of any registers
+or memory associated with the argument are unspecified, and functions
+must not rely on receiving any particular value.  On Itanium, the NaT
+bit must not be set on all registers associated with the argument.
 
 <p>
-The contents of the single byte parameter slot are unspecified,
-and the callee may not depend on any particular value.
-On Itanium, the associated NaT bit must not be set
-if the parameter slot is associated with a register.
-
-
-<p>
-<a name="return-value">
-<h4><a href="#return-value"> 3.1.4 Return Values </a></h4>
+<span class="future-abi">psABIs should ignore empty types when they are
+passed as arguments rather than allocating them empty registers or stack
+slots.  It is best to address this at the psABI level in order to ensure
+compatibility with C extensions permitting empty types.</span>
 
 <p>
-In general, C++ return values are handled just like C return values.
-This includes class type results returned in registers.</p>
+<a name="return-values">
+<h4><a href="#return-values">3.1.3 Return Values</a></h4>
 
 <p>
-However, if the return type is <a href="#non-trivial">non-trivial for
-the purposes of calls</a>, the caller passes an address as an implicit
-parameter.  The callee then constructs the return value into this address.
+<a name="non-trivial-return-values">
+<h5><a href="#non-trivial-return-values">3.1.3.1 Non-trivial Return Values</a></h5>
+
+<p>
+If the return type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>,
+the caller passes an address as an implicit parameter.
+The callee then constructs the return value into this address.
 If the return type has a non-trivial destructor, the caller is responsible
 for destroying the temporary when control is returned to it <i>normally</i>.
 If an exception is thrown out of the callee after the return value is
@@ -2807,61 +2953,93 @@ throwing destructor, it is the callee's responsibility to destroy the
 return value before propagating the exception to the caller.  Thus,
 in general, the caller is responsible for destroying the return value
 after, and only after, the callee returns control to the caller normally.
-</p>
 
 <p>
 The address passed need not be of temporary memory; copy elision may
 cause it to point anywhere, including to global or heap-allocated memory.
-<p>
 
 <p>
-If the C ABI uses a special rule for "indirect" return values, e.g. when
-the return type is too large to fit in registers, that rule is used to
-pass the pointer.  Otherwise the pointer is passed as the first parameter,
-preceding all other parameters (including the <code>this</code> and
-<code>VTT</code> parameters).
-</p>
+C ABIs usually provide treatment for "indirect" return values, e.g. when
+returning a large aggregate that cannot fit in registers.  In some cases,
+this treatment may not be suitable for non-trivial C++ return values, such
+as if the convention requires implicit copying or does not permit the
+return value to be constructed at an arbitrary address.  If the treatment
+exists and is suitable, it is used for non-trivial return values.
+Otherwise, the pointer is passed as if it were the first parameter in
+the function prototype, preceding all other parameters, including the
+<code>this</code> and <code>VTT</code> parameters.
 
 <p>
-Reference return values are returned as if pointers to the object bound
-to the reference.
-</p>
+<a name="special-class-return-values">
+<h5><a href="#special-class-return-values">3.1.3.2 Return Values of Special Class Type</a></h5>
 
 <p>
- Another exception is that a return value type of class
- <code>std::decimal::decimal32</code>,
- <code>std::decimal::decimal64</code>, or
- <code>std::decimal::decimal128</code> as defined in TR 24733 is
- returned the same as the corresponding native decimal floating-point
- scalar type.
-</p>
+A return value of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733 is
+returned the same as the corresponding native decimal floating-point
+scalar type.
 
 <p>
-A result of an empty class type will be returned as though it were
-a struct containing a single char,
-i.e. <code>struct S { char c; };</code>.
-The actual content of the return register is unspecified.
-On Itanium, the associated NaT bit must not be set.
+<a name="reference-return-values">
+<h5><a href="#reference-return-values">3.1.3.3 Reference Return Values</a></h5>
 
+<p>
+A return value of reference type is returned as a pointer to the object
+bound to the reference.
+
+<p>
+<a name="empty-return-values">
+<h5><a href="#emptty-return-values">3.1.3.4 Empty Return Values</a></h5>
+
+<p>
+If the base ABI specifies rules for returning an empty C <code>struct</code>,
+those rules apply when returning an empty class.  Otherwise empty classes
+are returned as if returning the corresponding C <code>struct</code> as
+described above for <a href="#empty-parameters">empty parameters</a>.
+The contents of any registers or memory associated with the return value
+are unspecified, and callers must not rely on receiving any particular
+value.  On Itanium, the NaT bit must not be set on all registers
+associated with the return value.
+
+<p>
+<span class="future-abi">psABIs should treat empty return types like
+they would a <code>void</code> return type.  It is best to address
+this at the psABI level in order to ensure compatibility with C
+extensions permitting empty types.</span>
 
 <p>
 <a name="return-value-ctor">
-<h4><a href="#return-value-ctor"> 3.1.5 Constructor Return Values </a></h4>
+<h5><a href="#return-value-ctor">3.1.3.5 Constructor Return Values</a></h5>
 
 <p>
 Constructors return <code>void</code> results.
 
+<p>
+Some platforms are known to modify this rule to specify that constructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.
 
 <p>
 <a name="return-value-dtor">
-<h4><a href="#return-value-dtor"> 3.1.5 Destructor Return Values </a></h4>
+<h5><a href="#return-value-dtor">3.1.3.6 Destructor Return Values</a></h5>
 
 <p>
 Destructors return <code>void</code> results.
 
 <p>
+Some platforms are known to modify this rule to specify that destructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.  This modified rule does not apply to
+deleting destructors.  It also does not apply when making a virtual call
+to a complete-object destructor, so that
+<a href="#vtable-components"><code>this</code>-adjustment thunks</a>
+do not need to adjust the return value after the call.
+
+<p>
 <a name="vcall">
-<h3><a href="#vcall"> 3.2 Virtual Function Calling Conventions </a></h3>
+<h3><a href="#vcall">3.2 Virtual Calls</a></h3>
 </a>
 
 <p>
@@ -2917,7 +3095,7 @@ that its `this' pointer points to a C object.
 
 <p>
 <a name="vcall.vtable">
-<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a>x</h4>
+<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a></h4>
 
 <p>
 For each virtual function declared in a class C,
