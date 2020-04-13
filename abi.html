@@ -39,10 +39,10 @@
   <li> <a href=#guards>		2.8 Initialization Guard Variables </a>
   <li> <a href=#rtti>		2.9 Run-Time Type Information (RTTI) </a>
   </ul>
-<li> <a href=#calls> Chapter 3: Function Calling Conventions and APIs </a>
+<li> <a href=#calls> Chapter 3: Code Emission and APIs </a>
   <ul>
-  <li> <a href=#normal-call> 3.1 Non-virtual Function Calling Conventions </a>
-  <li> <a href=#vcall>	     3.2 Virtual Function Calling Conventions </a>
+  <li> <a href=#functions>   3.1 Functions</a>
+  <li> <a href=#vcall>       3.2 Virtual Calls</a>
   <li> <a href=#obj-ctor>    3.3 Construction and Destruction APIs</a>
   <li> <a href=#demangler>   3.4 Demangler API</a>
   </ul>
@@ -2793,15 +2793,11 @@ no interfaces need to be specified in this document
 
 <p> <hr> <p>
 <a name="calls">
-<h2><a href="#calls"> Chapter 3: Function Calling Conventions and APIs </a></h2>
-<p> <hr> <p>
+<h2><a href="#calls"> Chapter 3: Code Emission and APIs </a></h2>
+<p> <hr>
 
 <p>
-In general, the calling conventions for C++ in this ABI
-follow those specified by the underlying processor-specific ABI for C,
-whenever there is an analogous construct in C.
-This chapter specifies exceptions required by C++-specific semantics,
-or by features without analogues in C.
+This chapter describes how to define and call functions.
 It also specifies the APIs of a variety of runtime utility routines
 required to be part of the support library of an ABI-conforming
 implementation for use by compiled code.
@@ -2810,96 +2806,137 @@ In addition, reference is made to the separate description of
 which defines a large number of runtime utility routine APIs.
 
 <p>
-<a name="normal-call">
-<h3><a href="#normal-call"> 3.1 Non-Virtual Function Calling Conventions </a></h3>
+<a name="functions">
+<h3><a href="#functions">3.1 Functions</a></h3>
 </a>
 
 <p>
-<a name="value-parameter">
-<h4><a href="#value-parameter"> 3.1.1 Value Parameters </a></h4>
+In general, the calling conventions and rules for defining C++
+functions in this ABI follow those specified for functions of
+the corresponding type in the base C ABI.  The corresponding type
+is mostly determined by translating C++ constructs to their
+obvious C analogues.  This section specifies the behavior of
+of features without analogues in C, as well as some exceptions
+and extra rules required by C++-specific semantics.
 
 <p>
-In general, C++ value parameters are handled just like C parameters.
-This includes class type parameters passed wholly or partially in registers.
-There are, however, some special cases.
-</p>
-<ol type="1">
- <li>
-  <p>
-   If the parameter type is <a href="#non-trivial">non-trivial for the
-   purposes of calls</a>, the caller must allocate space for a temporary
-   and pass that temporary by reference.  Specifically:
-  </p>
-  <ul>
-   <li>Space is allocated by the caller in the usual manner for a temporary,
-     typically on the stack.</li>
-   <li>The caller evaluates the argument in the space provided.</li>
-   <li>The function is called, passing the address of the temporary as the
-     appropriate argument.  In the callee, the address passed is used
-     as the address of the parameter variable.</li>
-   <li>If the type has a non-trivial destructor, the caller calls that
-     destructor after control returns to it (including when the caller
-     throws an exception), at the end of enclosing full-expression.
-   <li>If necessary (e.g. if the temporary was allocated on the heap),
-     the caller deallocates space after return and destruction.
-  </ul>
-
-  <p>
-  A C-style variadic argument of a type that is non-trivial for the
-  purposes of calls is passed the same way: the address of the temporary
-  is passed using the normal variadic mechanism, and <code>va_arg</code> in
-  the callee retrieves the address and treats it as a reference to the
-  temporary.
- </li>
- <li>
-  <p>
-   In the case where the parameter type is class
-   <code>std::decimal::decimal32</code>,
-   <code>std::decimal::decimal64</code>, or
-   <code>std::decimal::decimal128</code> as defined in TR 24733, the
-   parameter is passed the same as the corresponding native decimal
-   floating-point scalar type.
-  </p>
- </li>
-</ol>
+<a name="function-defs">
+<h4><a href="#function-defs">3.1.1 Function Definitions</a></h4>
 
 <p>
-<a name="reference-parameter">
-<h4><a href="#reference-parameter"> 3.1.2 Reference Parameters </a></h4>
+For the most part, non-static member functions, including constructors
+and destructors, are defined as if they were ordinary functions except
+for the addition of the implicit parameters to the prototype as
+described in the <a href="#parameters">section on parameters</a>.
+
+<p>
+The rules for <a href="#member-function-pointers">member function
+pointers</a> may require aligning the first instruction of ordinary
+non-static member functions (i.e. not constructors or destructors)
+to a higher value than the platform would normally require.
+
+<a name="parameters">
+<h4><a href="#parameters">3.1.2 Parameters</a></h4>
+</a>
+
+<p>
+<a name="this-parameters">
+<h5><a href="#this-parameters">3.1.2.1 <code>this</code> Parameters</a></h5>
+
+<p>
+Non-static member functions, including constructors and destructors,
+take an implicit <code>this</code> parameter of pointer type.  It is
+passed as if it were the first parameter in the function prototype,
+except as modified for <a href="#non-trivial-return-values">non-trivial
+return values</a>.
+
+<p>
+<a name="vtt-parameters">
+<h5><a href="#vtt-parameters">3.1.2.2 <code>VTT</code> Parameters</a></h5>
+
+<p>
+Base-subobject constructors and destructors for classes with virtual
+bases take an implicit <a href="#vtable-ctor"><code>VTT</code></a>
+parameter of pointer type.  It is passed as if it were the second
+parameter in the function prototype, immediately following the
+<code>this</code> parameter, except as modified for
+<a href="#non-trivial-return-values">non-trivial return values</a>.
+
+<p>
+<a name="non-trivial-parameters">
+<h5><a href="#non-trivial-parameters">3.1.2.3 Non-Trivial Parameters</a></h5>
+
+<p>
+If a parameter type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>, the
+caller must allocate space for a temporary and pass that temporary by
+reference.  Specifically:
+
+<ul>
+ <li>Space is allocated by the caller in the usual manner for a temporary,
+   typically on the stack.</li>
+ <li>The caller evaluates the argument in the space provided.</li>
+ <li>The function is called, passing the address of the temporary as the
+   appropriate argument.  In the callee, the address passed is used
+   as the address of the parameter variable.</li>
+ <li>If the type has a non-trivial destructor, the caller calls that
+   destructor after control returns to it (including when the caller
+   throws an exception).
+ <li>If necessary (e.g. if the temporary was allocated on the heap),
+   the caller deallocates space after return and destruction.
+</ul>
+
+<p>
+A C-style variadic argument of a type that is non-trivial for the
+purposes of calls is passed the same way: the address of the temporary
+is passed using the normal variadic mechanism, and <code>va_arg</code> in
+the callee retrieves the address and treats it as a reference to the
+temporary.
+
+<a name="special-class-parameters">
+<h5><a href="#special-class-parameters">3.1.2.4 Parameters of Special Class Type</a></h5>
+
+<p>
+An argument of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733
+is passed the same as the corresponding native decimal
+floating-point scalar type.
+
+<p>
+<a name="reference-parameters">
+<h5><a href="#reference-parameters">3.1.2.5 Reference Parameters</a></h5>
 
 <p>
 Reference parameters are handled by passing a pointer to the object
 bound to the reference.
 
 <p>
-<a name="empty-parameter">
-<h4><a href="#empty-parameter"> 3.1.3 Empty Parameters </a></h4>
+<a name="empty-parameters">
+<h5><a href="#empty-parameters">3.1.2.6 Empty Parameters</a></h5>
 
 <p>
-Empty classes will be passed no differently from ordinary classes.  If
-passed in registers the NaT bit must not be set on all registers that
-make up the class.
-</p>
+Arguments of empty class types that are not non-trivial for the purposes
+of calls are passed no differently from ordinary classes.
 
 <p>
-The contents of the single byte parameter slot are unspecified,
-and the callee may not depend on any particular value.
-On Itanium, the associated NaT bit must not be set
-if the parameter slot is associated with a register.
-
+On Itanium, the NaT bit must be set on all registers that are associated
+with the argument.
 
 <p>
-<a name="return-value">
-<h4><a href="#return-value"> 3.1.4 Return Values </a></h4>
+<a name="return-values">
+<h4><a href="#return-values">3.1.3 Return Values</a></h4>
 
 <p>
-In general, C++ return values are handled just like C return values.
-This includes class type results returned in registers.</p>
+<a name="non-trivial-return-values">
+<h5><a href="#non-trivial-return-values">3.1.3.1 Non-trivial Return Values</a></h5>
 
 <p>
-However, if the return type is <a href="#non-trivial">non-trivial for
-the purposes of calls</a>, the caller passes an address as an implicit
-parameter.  The callee then constructs the return value into this address.
+If the return type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>,
+the caller passes an address as an implicit parameter.
+The callee then constructs the return value into this address.
 If the return type has a non-trivial destructor, the caller is responsible
 for destroying the temporary when control is returned to it <i>normally</i>.
 If an exception is thrown out of the callee after the return value is
@@ -2908,61 +2945,88 @@ throwing destructor, it is the callee's responsibility to destroy the
 return value before propagating the exception to the caller.  Thus,
 in general, the caller is responsible for destroying the return value
 after, and only after, the callee returns control to the caller normally.
-</p>
 
 <p>
 The address passed need not be of temporary memory; copy elision may
 cause it to point anywhere, including to global or heap-allocated memory.
-<p>
 
 <p>
-If the C ABI uses a special rule for "indirect" return values, e.g. when
-the return type is too large to fit in registers, that rule is used to
-pass the pointer.  Otherwise the pointer is passed as the first parameter,
-preceding all other parameters (including the <code>this</code> and
-<code>VTT</code> parameters).
-</p>
+C ABIs usually provide treatment for "indirect" return values, e.g. when
+returning a large aggregate that cannot fit in registers.  In some cases,
+this treatment may not be suitable for non-trivial C++ return values, such
+as if the convention requires implicit copying or does not permit the
+return value to be constructed at an arbitrary address.  If the treatment
+exists and is suitable, it is used for non-trivial return values.
+Otherwise, the pointer is passed as if it were the first parameter in
+the function prototype, preceding all other parameters, including the
+<code>this</code> and <code>VTT</code> parameters.
 
 <p>
-Reference return values are returned as if pointers to the object bound
-to the reference.
-</p>
+<a name="special-class-return-values">
+<h5><a href="#special-class-return-values">3.1.3.2 Return Values of Special Class Type</a></h5>
 
 <p>
- Another exception is that a return value type of class
- <code>std::decimal::decimal32</code>,
- <code>std::decimal::decimal64</code>, or
- <code>std::decimal::decimal128</code> as defined in TR 24733 is
- returned the same as the corresponding native decimal floating-point
- scalar type.
-</p>
+A return value of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733 is
+returned the same as the corresponding native decimal floating-point
+scalar type.
 
 <p>
-A result of an empty class type will be returned as though it were
-a struct containing a single char,
-i.e. <code>struct S { char c; };</code>.
-The actual content of the return register is unspecified.
-On Itanium, the associated NaT bit must not be set.
+<a name="reference-return-values">
+<h5><a href="#reference-return-values">3.1.3.3 Reference Return Values</a></h5>
 
+<p>
+A return value of reference type is returned as a pointer to the object
+bound to the reference.
+
+<p>
+<a name="empty-return-values">
+<h5><a href="#emptty-return-values">3.1.3.4 Empty Return Values</a></h5>
+
+<p>
+A return value of an empty class type that is not non-trivial for
+the purposes of calls will be returned as though it were the
+following C type:
+
+<pre>struct { char c; };</pre>
+
+<p>
+On Itanium, the NaT bit must not be set for any register associated with
+this return value.
 
 <p>
 <a name="return-value-ctor">
-<h4><a href="#return-value-ctor"> 3.1.5 Constructor Return Values </a></h4>
+<h5><a href="#return-value-ctor">3.1.3.5 Constructor Return Values</a></h5>
 
 <p>
 Constructors return <code>void</code> results.
 
+<p>
+Some platforms are known to modify this rule to specify that constructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.
 
 <p>
 <a name="return-value-dtor">
-<h4><a href="#return-value-dtor"> 3.1.5 Destructor Return Values </a></h4>
+<h5><a href="#return-value-dtor">3.1.3.6 Destructor Return Values</a></h5>
 
 <p>
 Destructors return <code>void</code> results.
 
 <p>
+Some platforms are known to modify this rule to specify that destructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.  This modified rule does not apply to
+deleting destructors.  It also does not apply when making a virtual call
+to a complete-object destructor, so that
+<a href="#vtable-components"><code>this</code>-adjustment thunks</a>
+do not need to adjust the return value after the call.
+
+<p>
 <a name="vcall">
-<h3><a href="#vcall"> 3.2 Virtual Function Calling Conventions </a></h3>
+<h3><a href="#vcall">3.2 Virtual Calls</a></h3>
 </a>
 
 <p>
@@ -3018,7 +3082,7 @@ that its `this' pointer points to a C object.
 
 <p>
 <a name="vcall.vtable">
-<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a>x</h4>
+<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a></h4>
 
 <p>
 For each virtual function declared in a class C,
