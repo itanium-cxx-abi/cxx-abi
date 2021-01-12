@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Run-time array checking
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3C57B967CE-6115-4F6E-A0ED-A1FE3CFDCE58%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002453.html">
+   <LINK REL="Next"  HREF="002455.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Run-time array checking</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3C57B967CE-6115-4F6E-A0ED-A1FE3CFDCE58%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Run-time array checking">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Sep  7 00:41:35 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002453.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+        <LI>Next message: <A HREF="002455.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2454">[ date ]</a>
+              <a href="thread.html#2454">[ thread ]</a>
+              <a href="subject.html#2454">[ subject ]</a>
+              <a href="author.html#2454">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sep 6, 2012, at 4:35 PM, Dennis Handly wrote:
+&gt;&gt;<i> From: Mike Herrick &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mjh at edg.com</A>&gt;
+</I>&gt;&gt;<i> On Sep 6, 2012, at 1:52 PM, John McCall wrote:
+</I>&gt;&gt;&gt;<i> For what it's worth, clang has always done this overflow checking
+</I>&gt;&gt;&gt;<i> (counting negative counts as an overflow in the signed-&gt;unsigned
+</I>&gt;&gt;&gt;<i> computation),
+</I>&gt;<i> 
+</I>&gt;<i> Do you handle large unsigned?  Or you don't have 32 bit?  Or you can't
+</I>&gt;<i> allocate 2Gb there?
+</I>
+Clang handles large unsigned.  This is compiler-generated code, so
+we do know whether the value has signed type.  We currently do not
+take advantage of the __cxa_vec_new routines.
+
+&gt;&gt;&gt;&gt;<i> 2) Have the runtime libraries do the checking and throw
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Well, if we can use (size_t) -1 as a signal value, we don't need any
+</I>&gt;&gt;&gt;<i> new entrypoints.  That would be safe on any platform where there are
+</I>&gt;&gt;&gt;<i> values of size_t which cannot possibly be allocated
+</I>&gt;<i> 
+</I>&gt;<i> Right, for 32 bit, you have to have some bytes for instructions.  ;-)
+</I>&gt;<i> And for 64 bit, the hardware may not support all bits.
+</I>
+Yeah, the assumption that SIZE_MAX is invalid to allocate is valid on
+basically every flat-addressed platform;  it's just not guaranteed by the
+standard.  But you can imagine a platform where individual allocations
+can't exceed some size that's significantly smaller than a pointer &#8212;
+for example, on an architecture with segmented or distributed memory,
+or on a 64-bit platform that uses a 32-bit size_t because it doesn't care
+about supporting &gt;4GB allocations.  It's not a possibility we should
+blithely assume away just because it's not true of common platforms.
+
+&gt;&gt;&gt;<i> Don't get me wrong, adding new entrypoints is definitely cleaner.  The
+</I>&gt;&gt;&gt;<i> main problem with adding and using new entrypoints is that it means that
+</I>&gt;&gt;&gt;<i> old, C++98-compliant code being recompiled will suddenly require new
+</I>&gt;&gt;&gt;<i> things from the runtime, which introduces deployment problems.
+</I>&gt;<i> 
+</I>&gt;<i> Don't you have that for the new Standard, anyway?
+</I>
+Not that I know of; we've been quite careful.  In fact, I know of one area
+where the Itanium ABI will probably have to forgo C++11 correctness in
+pursuit of our compatibility goals (because of the expansion of the POD
+definition).
+
+&gt;&gt;&gt;&gt;<i> 3) A new routine, say __cxa_vec_new_check, that takes a signed
+</I>&gt;&gt;&gt;&gt;&gt;<i> element_count
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> It would also need to know how much cookie to add.  The cookie causing
+</I>&gt;&gt;&gt;<i> an overflow would certainly be an example of &quot;the value of that
+</I>&gt;&gt;&gt;<i> expression is ...  such that the size of the allocated object would
+</I>&gt;&gt;&gt;<i> exceed the implementation-defined limit&quot;.
+</I>&gt;<i> 
+</I>&gt;<i> There is a problem with &quot;implementation-defined limit&quot;.  For HP-UX there
+</I>&gt;<i> are secret hardware limits that the compiler doesn't want to know about.
+</I>&gt;<i> There are system config values that limit data allocation.  (Or is the latter
+</I>&gt;<i> just the same as bad_alloc and not the new bad_array_new_length?)
+</I>
+Good question.  I guess you could make an abstract argument that an
+array allocation which could have succeeded with a different bound
+should always produce std::bad_array_new_length, but that would be
+a very difficult (and expensive!) guarantee to make in practice.
+
+You could make a serious argument that the only allocations which
+*must* throw std::bad_array_new_length rather than just std::bad_alloc
+are the cases where you can't call the allocator because the size_t
+argument would be negative or otherwise mathematically wrong.
+Certainly that would be preferable &#8212; if we're creating a new,
+constant-sized array of PODs, we should just be able to call the
+allocator instead of calling some entrypoint that will check the
+length against some implementation limit just so that we can throw
+the perfect exception type.
+
+John.
+</PRE>
+
+
+
+
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002453.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+	<LI>Next message: <A HREF="002455.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2454">[ date ]</a>
+              <a href="thread.html#2454">[ thread ]</a>
+              <a href="subject.html#2454">[ subject ]</a>
+              <a href="author.html#2454">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

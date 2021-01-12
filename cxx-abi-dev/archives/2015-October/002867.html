@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] unresolved-names starting with substitutable	namespaces
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20unresolved-names%20starting%20with%20substitutable%0A%09namespaces&In-Reply-To=%3C76B8975B-679D-42F0-9D57-6D0F6089BE21%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002866.html">
+   <LINK REL="Next"  HREF="002868.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] unresolved-names starting with substitutable	namespaces</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20unresolved-names%20starting%20with%20substitutable%0A%09namespaces&In-Reply-To=%3C76B8975B-679D-42F0-9D57-6D0F6089BE21%40apple.com%3E"
+       TITLE="[cxx-abi-dev] unresolved-names starting with substitutable	namespaces">rjmccall at apple.com
+       </A><BR>
+    <I>Mon Oct 19 21:04:47 UTC 2015</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002866.html">[cxx-abi-dev] Mangling &quot;transaction-safe function&quot;
+</A></li>
+        <LI>Next message: <A HREF="002868.html">[cxx-abi-dev] coroutines proposal, operator co_await
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2867">[ date ]</a>
+              <a href="thread.html#2867">[ thread ]</a>
+              <a href="subject.html#2867">[ subject ]</a>
+              <a href="author.html#2867">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>A bug was filed against Clang claiming that we mangle a particular symbol differently from GCC:
+  <A HREF="https://llvm.org/bugs/show_bug.cgi?id=24794">https://llvm.org/bugs/show_bug.cgi?id=24794</A>
+
+Basically, it comes down to this:
+
+namespace foo {
+  class V {};
+}
+
+namespace baz {
+  template &lt;class _Ty&gt;
+  struct is_enum {
+    static const bool value = __is_enum(_Ty);
+  };
+
+  template&lt;bool _Test, class _Ty = void&gt;
+  struct enable_if {
+  };
+
+  template&lt;class _Ty&gt;
+  struct enable_if &lt; true, _Ty &gt; {
+    typedef _Ty type;
+  };
+
+  template &lt;class T&gt;
+  typename enable_if&lt; !is_enum&lt; T &gt;::value, void&gt;::type
+  Conv(T &amp;x, int *v);
+}
+
+int main() {
+  int v;
+  int i;
+  baz::Conv(v, &amp;i);
+}
+
+Clang mangles this template specialization as:
+  _ZN3baz4ConvIiEENS_9enable_ifIXntsr7is_enumIT_EE5valueEvE4typeERS2_Pi
+GCC mangles it as:
+  _ZN3baz4ConvIiEENS_9enable_ifIXntsrNS_7is_enumIT_EE5valueEvE4typeERS3_Pi
+
+The key question for this list is the mangling of
+  is_enum&lt; T &gt;::value
+as either (Clang):
+  sr7is_enumIT_EE5valueE
+or (GCC, and perhaps EDG):
+  srNS_7is_enumIT_EE5valueE
+
+This expression is an unresolved-name.  In the current spec, we have:
+
+  &lt;unresolved-name&gt; ::= [gs] &lt;base-unresolved-name&gt;                     # Production #1: x or (with &quot;gs&quot;) ::x
+                    ::= sr &lt;unresolved-type&gt; &lt;base-unresolved-name&gt;     # Production #2: T::x / decltype(p)::x
+                    ::= srN &lt;unresolved-type&gt; &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+                                                                        # Production #3: T::N::x /decltype(p)::N::x
+                    ::= [gs] sr &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;  
+                                                                        # Production #4: A::x, N::y, A&lt;T&gt;::z; &quot;gs&quot; means leading &quot;::&quot;
+
+  &lt;unresolved-type&gt; ::= &lt;template-param&gt;
+                    ::= &lt;decltype&gt;
+                    ::= &lt;substitution&gt;
+
+  &lt;unresolved-qualifier-level&gt; ::= &lt;simple-id&gt;
+  &lt;base-unresolved-name&gt; ::= &lt;simple-id&gt;
+  &lt;simple-id&gt; ::= &lt;source-name&gt; [ &lt;template-args&gt; ]
+
+Clang is looking at this and saying that it&#8217;s not rooted in a template-param or a decltype, so it&#8217;s not rooted in an unresolved-type, so it has to be mangled using the fourth production of unresolved-name.  GCC appears to be looking at it and saying that it has a substitution for something in the prefix, namely the (implicit) &#8220;baz::&#8221;, so the unresolved-type should be mangled using one of the second or third productions; since there&#8217;s another level of prefix (&#8220;is_enum&lt;T&gt;::&#8221;) before the final base-unresolved-name, it has to use the third production, srN.
+
+When reasoning about this to myself, it occurred to me that I was arguing based on something that&#8217;s not actually spelled out in the spec.  Specifically, it seems right to me that the general intent of &lt;substitution&gt; is that it only ever shortens something that *could* otherwise be mangled by the current production.  For most cases of &lt;substitution&gt;, this is a distinction without a difference, because the production is only used in specific places that limit what entities can appear there, and all those entities can be mangled there; for example, that&#8217;s true of all the places where &lt;prefix&gt; is used.  But &lt;unresolved-type&gt; is different, because there are many possible unresolvable prefixes that are substitution candidates but neither a template-parameter or a decltype.  In our example, &#8220;baz::&#8221; isn&#8217;t even a type; and if this conversion function didn&#8217;t happen to be written in that namespace, there wouldn&#8217;t be an existing substitution for it, and the only legal mangling would use production #4.
+
+Now, if I were designing this mangling from scratch today, I&#8217;d probably say that any resolvable entities in the prefix should actually be mangled as normal entities, instead of textually, and of course that would also make them substitution candidates.  That is, &#8220;baz&quot;, &quot;baz::is_enum&#8221;, and &#8220;baz::is_enum&lt;T&gt;&#8221; would all be legit substitutions here, and if they weren&#8217;t substituted they&#8217;d at least be mangled as properly-resolved entities, so that (e.g.) a function where is_enum resolved to be an entity in a different namespace would actually be mangled differently.  But that&#8217;s not how I read the specification.
+
+Unfortunately, this might be a serious compatibility problem.  What do other compilers do?  What&#8217;s the general feeling about this?
+
+John.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002866.html">[cxx-abi-dev] Mangling &quot;transaction-safe function&quot;
+</A></li>
+	<LI>Next message: <A HREF="002868.html">[cxx-abi-dev] coroutines proposal, operator co_await
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2867">[ date ]</a>
+              <a href="thread.html#2867">[ thread ]</a>
+              <a href="subject.html#2867">[ subject ]</a>
+              <a href="author.html#2867">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

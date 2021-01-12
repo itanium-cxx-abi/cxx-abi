@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> vtable layout
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3Cu9k8qb4ucp.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000226.html">
+   <LINK REL="Next"  HREF="000230.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>vtable layout</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3Cu9k8qb4ucp.fsf%40yorick.cygnus.com%3E"
+       TITLE="vtable layout">jason at cygnus.com
+       </A><BR>
+    <I>Tue Aug 31 19:34:46 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000226.html">vtable layout
+</A></li>
+        <LI>Next message: <A HREF="000230.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#227">[ date ]</a>
+              <a href="thread.html#227">[ thread ]</a>
+              <a href="subject.html#227">[ subject ]</a>
+              <a href="author.html#227">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt; writes:
+</I>
+ &gt; You always require the thunk _generation_. All I am saying is that  
+ &gt; as long as you use any of the non-virtual bases vtables, I think that  
+ &gt; you don't need to go through the thunk. In other words, you pay the  
+ &gt; thunk run-time penalty only when you call the virtual function  
+ &gt; through the virtual base's vtable (you always pay the space penalty).
+
+Hmm?  Where do you do the adjustment from a non-virtual base, if not in the
+thunk?
+
+ &gt; In the diamond case where the actually called functions are on each  
+ &gt; side of the diamond, you can't in general generate an adjustment  
+ &gt; thunk that is close to the target, whichever method you chose. But  
+ &gt; maybe I missed something in your discussion. Did you find a trick I  
+ &gt; did not understand?
+
+Brian's proposal was to allocate, in a virtual base's vtable, base
+adjustment slots for all the virtual functions provided by that base.  This
+prevents us from ever having to generate a third-party thunk, at the cost
+of doubling the size of virtual base secondary vtables.  This is clearly a
+tradeoff.
+
+ &gt; Also note Jim's idea of predicating the adjustment, using the low  
+ &gt; bit of the function pointer. This would mean that the adjustment  
+ &gt; would probably cost much less than 3 cycles, with an extra cost at  
+ &gt; call site that we did not analyze yet.
+
+I still don't see how call-site adjustment can work under this model; we
+don't know how to find the adjustment at the call site.
+
+ &gt; 1/ Misprediction penalty
+
+ &gt; All I can say is that the hypothesis that the penalty is 2 cycles or  
+ &gt; less is way too optimistic (by at least a factor of an odd prime  
+ &gt; number, and even more on the first implementation. What? No, I did  
+ &gt; not say it!). But, as I said earlier, I don't think that's the major  
+ &gt; factor.
+
+Is there a term for the case when the branch predictor correctly predicts a
+branch but the pipeline stalls because the prefetcher assumed no branch?
+That's what I read from Brian's message.  I would expect the penalty for
+that to be lower, especially since the pipeline hasn't had a chance to fill
+after the indirect branch.  But I'll admit I don't know much about these
+issues.
+
+ &gt; Regarding whether the second branch would be correctly predicted or  
+ &gt; not... The documentation I have is quite difficult to decipher, so  
+ &gt; I'm not too sure. My impression is that at least on one  
+ &gt; implementation, the branch would predict correctly and not cause an  
+ &gt; additional penalty.
+
+What would be the excuse for mispredicting an unconditional forward
+pc-relative branch?
+
+ &gt; 2/ I-cache
+ 
+ &gt; You considered a D-cache miss in my proposal. Fair enough. Just note  
+ &gt; that the memory access is in the vtable, which is frequently  
+ &gt; accessed. A D-cache miss is &quot;unlikely&quot;, a page fault virtually ( :-)  
+ &gt; impossible. The same line will probably be reused at the next virtual  
+ &gt; call to a function of the same class.
+
+Will it matter that the offset will be located before the function pointer
+in the vtable?  In other words, does a load cause the cache to load data
+from both sides of the requested address or does it only load forward?
+
+ &gt; On the other hand, an I-cache miss with a thunk model is very  
+ &gt; likely. The thunk is used for a single (class, member) combination  
+ &gt; (as opposed to the offset that depends on the class alone). What is  
+ &gt; close are probably thunks for the same member and different type,  
+ &gt; which would be reused only if I called the same member function with  
+ &gt; a different dynamic type.
+
+ &gt; Last comment on the subject: you _really_ don't want a cache miss,  
+ &gt; and the I-cache is _really_ small.
+
+I assume you are referring here to an I-cache miss on the branch to the
+main function?  If so, that's a question of...
+
+ &gt; 3/ Locality
+
+ &gt; In my proposal, the secondary entry point immediately precedes the  
+ &gt; function. Page faults, cache load and prefetching all benefit from  
+ &gt; this locality. Locality also exists for the data accesses, which are  
+ &gt; close to a location immediately accessed (the vtable).
+
+ &gt; For thunks, this can only be guaranteed to some extent at the  
+ &gt; page-fault level. A cache line is probably too small for a cache load  
+ &gt; at the thunk address to also load any code for the function.
+
+A typical thunk consists of
+
+  add 4 to %rthis
+  branch to function
+
+16 bytes, as you say.  Are cache lines really so small that several of
+these won't fit?
+
+ &gt; 4/ Memory usage
+
+ &gt; The memory usage is different. I think for small number of thunks,  
+ &gt; my proposal is worse (since it uses 48 bytes for the secondary entry  
+ &gt; point). On the other hand, as the number of adjustments grow, it gets  
+ &gt; better, since it uses 4 bytes per adjustment rather than 16.
+
+I assume you mean 8 bytes (64 bits).  And it uses more than that; in cases
+where we use extra thunks, you have to pad out the vtable so that the
+offsets line up.
+
+ &gt; 5/ Summarizing the cost
+
+ &gt; Zeroing out what is common (the indirect branch and the possible  
+ &gt; I-cache miss on the target code), the penalties are something like:
+
+ &gt; - P1 * A + P2 * B + C for my proposal.
+
+ &gt; - P3 * A + P4 * B + P5 * D + E for thunks
+
+For thunks after the first, that is.  The first one will have no penalty.
+
+ &gt; - P1, P2 are the probabilities that a L0 or L1 data cache miss  
+ &gt; occurs in my proposal (either at the time the load is made, or later,  
+ &gt; because of additional cache pressure)
+
+ &gt; - P3, P4 are the probabilities that an L0 or L1  I-cache miss occurs  
+ &gt; for the thunk (or later, as above)
+
+ &gt; I know for a fact that A and B are much larger than C, D and E. I  
+ &gt; also assume that P3 &gt; P1 and P4 &gt; P2, given both the cache locality  
+ &gt; and memory size.
+
+I'm not so sure about that.  Cache locality in your proposal depends on the
+size of the D vtable (and any others between it and the vptr we're using),
+and whether the cache loads backwards.  With thunks, cache locality depends
+on the number of thunks generated; in other words, the number of times the
+same function appears in distinct non-virtual bases.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000226.html">vtable layout
+</A></li>
+	<LI>Next message: <A HREF="000230.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#227">[ date ]</a>
+              <a href="thread.html#227">[ thread ]</a>
+              <a href="subject.html#227">[ subject ]</a>
+              <a href="author.html#227">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

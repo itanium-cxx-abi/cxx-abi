@@ -1,0 +1,235 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] gcc unwind ABI change for forced unwind
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20gcc%20unwind%20ABI%20change%20for%20forced%20unwind&In-Reply-To=%3C3ECE31F3.4000501%40hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001729.html">
+   <LINK REL="Next"  HREF="001725.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] gcc unwind ABI change for forced unwind</H1>
+    <B>Dave Butenhof</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20gcc%20unwind%20ABI%20change%20for%20forced%20unwind&In-Reply-To=%3C3ECE31F3.4000501%40hp.com%3E"
+       TITLE="[cxx-abi-dev] gcc unwind ABI change for forced unwind">David.Butenhof at hp.com
+       </A><BR>
+    <I>Fri May 23 14:36:35 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001729.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind
+</A></li>
+        <LI>Next message: <A HREF="001725.html">[cxx-abi-dev] PATCH: Define &quot;POD for the purpose of layout&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1734">[ date ]</a>
+              <a href="thread.html#1734">[ thread ]</a>
+              <a href="subject.html#1734">[ subject ]</a>
+              <a href="author.html#1734">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Cary Coutant wrote:
+
+&gt;&gt;<i> Personally, I dislike the attempt to separate &quot;cleanup&quot; from 
+</I>&gt;&gt;<i> &quot;finalization&quot; (handle/catch). I don't like the idea of an exception 
+</I>&gt;&gt;<i> that can't be finalized, because it reduces the application's ability 
+</I>&gt;&gt;<i> to control behavior.
+</I>&gt;<i>
+</I>&gt;<i> I didn't mean to imply that I liked this either, but it seemed a 
+</I>&gt;<i> useful compromise given the unlikelihood that C++ will ever add 
+</I>&gt;<i> try/finally.
+</I>
+Having just jumped into this particular discussion, I really didn't mean 
+to imply that I thought anybody was implying anything. ;-)
+
+Whether or not C++ ought to add finally is an interesting question on 
+its own, though probably not relevant here. It'd be nice, in a way, 
+because it more clearly specifies INTENT than the current catch(...) 
+{throw;} syntax, and that's always nice. On the other hand, C++ cleanup 
+is supposed to be done in destructors, whereas try/catch ought to be for 
+finalization. (And I realize I'm trapping myself in terminology here, 
+since the traditional &quot;finally&quot; keyword sounds like it ought to be 
+associated with the generic term &quot;finalization&quot; whereas it's really 
+non-finalizing cleanup. Oh well. Anyone who can handle signal and signal 
+should be able to handle finalization and finally. ;-) )
+
+And, on yet another hand, if C++ really didn't want anyone to be able to 
+do cleanup in try/catch, the [re]throw syntax shouldn't exist. That it 
+exists means C++ does explicitly and specifically support cleanup in 
+try/catch, just with ugly syntax that obscures the intent.
+
+&gt;<i> I'm still not entirely comfortable with the idea of thread 
+</I>&gt;<i> cancellation (and other forced unwinds) being a normal (catchable) C++ 
+</I>&gt;<i> exception, but if consensus has been reached outside this list, and 
+</I>&gt;<i> those on this list generally agree, I don't want to drag the 
+</I>&gt;<i> discussion out any more. 
+</I>
+I always tell people not to finalize a cancel or exit. I figure if they 
+really know what they're doing, they'll ignore me; and if they're not 
+sufficiently confident in their goal and implementation to ignore me, 
+they shouldn't be playing with that stuff anyway. ;-)
+
+So if the ABI wants to specify that there's something special about 
+&quot;forced unwind&quot; exceptions, I won't really be too inclined to wander 
+around mumbling about how it got all screwed up. Still, there ARE 
+applications where the ability to take full control over unwind is 
+important, and I don't like the idea of locking them out. As I said, one 
+compromise would be to let forced unwind exceptions (individually and, 
+ideally, also as a [super]class) be caught only BY NAME. Naive coders 
+won't accidentally be finalizing someone else's cancel or 
+longjmp_unwind, but someone who really needs to do it will be able to.
+
+I don't think there's any real evidence of a broad industry consensus 
+for this. POSIX doesn't have exceptions, and cleanup handlers are 
+limited and inflexible. While I think I got everyone in the Austin IA64 
+ABI work to pretty much agree in principle that cancel and exit ought to 
+be exceptions, we never got into this level of detail so I can't guess 
+what the reaction would have been.
+
+I'm speaking mostly out of long experience with the OpenVMS condition 
+handling facility and Tru64 UNIX libexc (which being originally based on 
+code from MIPS CO ought to have some analogy somewhere else in the 
+industry... perhaps IRIX?) They're basic calling standard and runtime 
+library packages to support general stack unwind and handler searches. 
+They're fundamentally DETACHED handlers (associating a handler routine 
+with a procedure descriptor or stack frame rather than dispatching to 
+code within the procedure), which are called without unwinding the 
+stack... but of course can also be used to UNWIND to ATTACHED handlers 
+as in our C &quot;SEH&quot; extension, and C++ or Ada catch clauses.
+
+Both are fundamentally 2-phase exception mechanisms; a &quot;virtual unwind&quot; 
+scan is made to find active exception handlers in the call stack, and 
+the detached handlers are called to determine what should be done. The 
+scan may eventually terminate with no handlers expressing interest, in 
+which case the process is generally terminated with an unhandled 
+exception. Or a handler may tell the unwinder to RESUME execution at the 
+point of the exception (it hasn't been unwound at that point). Or some 
+handler may choose to UNWIND to some point. That begins the second 
+phase, as the stack is unwound frame by frame, and each handler (where 
+any exists) is called again with special exception context indicating 
+that the unwind is in progress. A semi-formalized (but unenforced and 
+usually ignored) convention on OpenVMS is that cleanup should occur only 
+on unwind. In principle, this gives the advantage that when a process 
+dies with an unhandled exception the &quot;core file&quot; represents what 
+happened up to the point of the exception -- which can be a big help in 
+diagnosing the problem. Once cleanup (including unwind) has happened, 
+the original problem is obscured.
+
+Of course the C++ runtime need not provide the ability to continue from 
+exceptions (most languages don't), or to run application code on the 
+search phase (normally the runtime simply determines whether to start an 
+unwind to call the application's handlers in the unwind phase). But in 
+the context of an ABI discussion, I'd like to define a model for a 
+&quot;common exception library&quot; (CEL) that's flexible enough to allow all that.
+
+&gt;<i> What changes are needed in the C++ ABI document? Do we need to add 
+</I>&gt;<i> anything in the base (C) ABI to cover thread cancellation and exit so 
+</I>&gt;<i> that cleanups can be properly interleaved?
+</I>
+I'd like to see a full exception library ABI that supports enough 
+flexibility to do all this, and to experiment and build other languages 
+with different semantics.
+
+I'd like to see some form of exception syntax in the C language, whether 
+it's a full try/catch/finally, a C++-style try/catch/[re]throw, or a 
+basic enabling syntax like the MS SEH syntax that our compiler borrowed 
+(try/except, where the except clause just provides an expression, 
+usually a routine call, to be evaluated to determine whether to continue 
+the search or resume execution; or of course that routine can call 
+'unwind' to begin the unwind phase). The pthread_cleanup_push() and 
+pthread_cleanup_pop() macros can easily be written in terms of any of 
+the alternatives. The important point is simply that C source code has 
+some way to tap into the common exception library's unwind and handler 
+mechanisms.
+
+Like this C &quot;SEH&quot; extension, C++ destructors and try/catch, Ada, Java, 
+and so forth ought also to be built on top of the CEL. The CEL will then 
+simply see a chain of call frames, some of which have handler routines 
+-- it doesn't need to know the language of any frame, so it doesn't 
+matter how they're interleaved.
+
+Cancel and thread exit are just exceptions. &quot;By convention&quot;, nobody 
+should do anything to these on the search phase, and should do only 
+cleanup on the unwind phase. But the CEL wouldn't care, and everything 
+will work consistently if someone does. Each language's handler will 
+need to decide how to handle various exceptions though. The C++ handler 
+could simply ignore some or all of these on search phase, and run only 
+object destructors on unwind phase. The C runtime's 'except' clause 
+exception handler might decide not to even evaluate the 'except' 
+expression, and so forth. However, I would strongly prefer that there be 
+some way to finalize at least cancel and exit in both C and C++. It 
+allows for a modularization of cancel, where cancel really means &quot;cancel 
+this function&quot; without terminating the thread, which might be a generic 
+serial server thread fully capable of continuing to service other functions.
+
+I'm not at all sure whether longjmp_unwind is a separate case. I just 
+checked, and on Tru64 longjmp_unwind (exc_longjmp) skips the search 
+phase (and therefore normal frame-based capture/continue/search 
+decisions) entirely. I guess that makes sense, since it starts out with 
+a target frame and knows the intent is to unwind. So it just calls 
+exc_unwind(). However, frame handlers will still be called for UNWIND 
+disposition, with the exception name EXC_LONGJMP_UNWIND, so the handlers 
+can do cleanup. On OpenVMS, I believe that an unwind phase handler could 
+actually raise a new exception or start a nested unwind -- I'm not 
+convinced that the Tru64 package supports that much flexibility; the 
+code is convoluted and I've never had occasion to experiment.
+
+Anyway, this seems like a clear basis for distinction. Forced unwind 
+only does the unwind phase, not search phase, and therefore cannot 
+generally be finalized by normal language facilities. If C++ catch(...) 
+triggers only on search phase, it won't even see these. Destructors 
+would fire on unwind phase, and would run &quot;transparently&quot; on a forced 
+unwind. If desired, the runtime could make a concession for forced 
+unwind exceptions to run catch(...) {throw;} blocks, for example, or 
+anything else determined to be a &quot;finally&quot; type construct, even though 
+we skipped the search phase. (Though I'd be inclined to argue against 
+it, I think.)
+
+Armed with all this terminology and context, one could argue that cancel 
+and exit, like longjmp, should skip the search phase entirely, making 
+themselves immune to finalization. As I've said, I don't like this -- 
+but it does avoid the risk of fools breaking the application with 
+unprotected catch(...) blocks. If the runtime's handler routine made 
+special cases to detect specific exception names during unwind phase, it 
+could make 'catch (cancel)', or 'catch(longjmp)', or even 
+'catch(all_forced_unwinds)' fire in the unwind phase to handle 
+applications that really want to finalize.
+
+-- 
+/--------------------[ <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">David.Butenhof at hp.com</A> ]--------------------\
+|<i> Hewlett-Packard Company       Tru64 UNIX &amp; VMS Thread Architect |
+</I>|<i>     My book: <A HREF="http://www.awl.com/cseng/titles/0-201-63392-2/">http://www.awl.com/cseng/titles/0-201-63392-2/</A>     |
+</I>\----[ <A HREF="http://homepage.mac.com/dbutenhof/Threads/Threads.html">http://homepage.mac.com/dbutenhof/Threads/Threads.html</A> ]---/
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001729.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind
+</A></li>
+	<LI>Next message: <A HREF="001725.html">[cxx-abi-dev] PATCH: Define &quot;POD for the purpose of layout&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1734">[ date ]</a>
+              <a href="thread.html#1734">[ thread ]</a>
+              <a href="subject.html#1734">[ subject ]</a>
+              <a href="author.html#1734">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Run-time array checking
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CFE6879B8-B769-4DAA-BDB2-6BB9BBF4C089%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002455.html">
+   <LINK REL="Next"  HREF="002457.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Run-time array checking</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CFE6879B8-B769-4DAA-BDB2-6BB9BBF4C089%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Run-time array checking">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Sep  7 06:43:51 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002455.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+        <LI>Next message: <A HREF="002457.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sep 6, 2012, at 7:40 PM, Dennis Handly wrote:
+&gt;&gt;<i> From: John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;
+</I>&gt;&gt;<i> Clang handles large unsigned.  This is compiler-generated code, so
+</I>&gt;&gt;<i> we do know whether the value has signed type.
+</I>&gt;<i> 
+</I>&gt;<i> It seems strange that the code for signed is different than unsigned but
+</I>&gt;<i> the Standard says that signed could overflow and implementation defined.
+</I>
+This conversation is about how to handle various possible values that the
+first size expression in an array-new expression might take.  That expression
+must be of integer type, but it's permitted to have signed integer type, and
+so therefore can be negative.  In this case, C++11 demands that we throw
+an exception of a certain type, std::bad_array_new_length.
+
+This is unrelated to the semantics of overflow in signed arithmetic.
+
+&gt;&gt;<i> Yeah, the assumption that SIZE_MAX is invalid to allocate is valid on
+</I>&gt;&gt;<i> basically every flat-addressed platform;  it's just not guaranteed by the
+</I>&gt;&gt;<i> standard.  But you can imagine a platform where individual allocations
+</I>&gt;&gt;<i> can't exceed some size that's significantly smaller than a pointer &#732;
+</I>&gt;<i> 
+</I>&gt;<i> I thought you got that backwards but if sizeof(size_t) is &lt; sizeof(uintmax),
+</I>&gt;<i> then that would truncate that -1 to a much smaller.
+</I>&gt;<i> 
+</I>&gt;<i> But do we care?  For that architecture, the implementation-defined limit
+</I>&gt;<i> can be set to &lt; SIZE_MAX.
+</I>
+I'm not totally comfortable with the ABI making that decision;  it seems like
+a decision that platform owners should make.  On a platform where
+size_t is as large as the address space, sure.  On a platform with an
+intentionally constrained size_t, maybe not.
+
+&gt;&gt;<i> I guess you could make an abstract argument that an
+</I>&gt;&gt;<i> array allocation which could have succeeded with a different bound
+</I>&gt;&gt;<i> should always produce std::bad_array_new_length
+</I>&gt;<i> 
+</I>&gt;<i> But isn't that what bad_alloc also says, not enough memory, you greedy
+</I>&gt;<i> pig?
+</I>
+The point is that if the spec says &quot;throw a std::bad_array_new_length&quot;,
+we can't just throw a normal std::bad_alloc, because that's not compliant.
+A normal std::bad_alloc means &quot;we couldn't allocate that for some reason&quot;;
+std::bad_array_new_length is basically a clarification that the failure was
+inherent and cannot possibly succeed.
+
+&gt;<i> Or is this the difference between &quot;new []&quot; and operator new/operator new[]?
+</I>&gt;<i> The latter two know nothing about &quot;bounds&quot;.
+</I>
+It's part of the semantics of new[], yes.  operator new[] is not required to
+throw this specific exception type.  Also, as I read it, the standard implies
+that we shouldn't even be calling operator new[] if we have an invalid
+size, so we can't handle this by just having operator new[] always
+throw the more specific exception.
+
+&gt;&gt;<i> You could make a serious argument that the only allocations which
+</I>&gt;&gt;<i> *must* throw std::bad_array_new_length rather than just std::bad_alloc
+</I>&gt;&gt;<i> are the cases where you can't call the allocator because the size_t
+</I>&gt;&gt;<i> argument would be negative or otherwise mathematically wrong.
+</I>&gt;<i> 
+</I>&gt;<i> Which means you have to be careful for overflows in the evaluation.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> if we're creating a new, constant-sized array of PODs,
+</I>&gt;<i> 
+</I>&gt;<i> (Compile time constant?)
+</I>
+Possibly only constant after optimization, but yes, that's what I meant.
+
+John.
+</PRE>
+
+
+
+
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002455.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+	<LI>Next message: <A HREF="002457.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

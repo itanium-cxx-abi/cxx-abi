@@ -1,0 +1,97 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] std::type_info::hash_code/before
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20std%3A%3Atype_info%3A%3Ahash_code/before&In-Reply-To=%3C1D16C6B7-B531-426F-B372-010DC7B0FB97%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002967.html">
+   <LINK REL="Next"  HREF="002969.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] std::type_info::hash_code/before</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20std%3A%3Atype_info%3A%3Ahash_code/before&In-Reply-To=%3C1D16C6B7-B531-426F-B372-010DC7B0FB97%40apple.com%3E"
+       TITLE="[cxx-abi-dev] std::type_info::hash_code/before">rjmccall at apple.com
+       </A><BR>
+    <I>Tue Oct  4 21:54:18 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002967.html">[cxx-abi-dev] std::type_info::hash_code/before
+</A></li>
+        <LI>Next message: <A HREF="002969.html">[cxx-abi-dev] std::type_info::hash_code/before
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2968">[ date ]</a>
+              <a href="thread.html#2968">[ thread ]</a>
+              <a href="subject.html#2968">[ subject ]</a>
+              <a href="author.html#2968">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+&gt;<i> On Oct 4, 2016, at 2:11 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;<i> On 4 October 2016 at 13:22, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt; On Oct 4, 2016, at 4:25 AM, David Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt; Shouldn't the ABI document specify how type_info entries are collated and hashed with their before() and hash_code() members?
+</I>&gt;<i> 
+</I>&gt;<i> Yes, that seems reasonable.  It's only necessary for interoperation of multiple standard libraries on a platform, but that's a thing.
+</I>&gt;<i> 
+</I>&gt;<i> Since the ABI only formally guarantees that the names are uniqued, I think the obviously correct way of implementing these is to compare name pointers in before() and reinterpret the name pointer as the result of hash_code().  That is what libc++ seems to do.  I don't have a recent libstdc++ header around; the ancient one I do have uses that rule for before() and doesn't implement hash_code(), but IIRC these days libstdc++ uses a variant ABI for type_info anyway.
+</I>&gt;<i> 
+</I>&gt;<i> libstdc++ has two modes: in one mode, it guarantees typeinfo name uniqueness across the program, uses the pointer for before(), and reinterprets the pointer as a hash for hash_code. In the other mode (where they try to merge types from a .so even if it was dlopen'd RTLD_LOCAL [1]), some names are unique and others are not; hash_code computes a hash of the name, and before ... well, before is broken, and doesn't produce a strict weak order.
+</I>
+Is this set by environment variable or by #define?  I suppose the latter would technically work if done consistently enough in program code to paper over the ODR problems, since the parts of the ABI library that do type_info comparisons (for dynamic_cast and exceptions) are unlikely to use either before() or hash_code().
+
+&gt;<i>  [1]: It would seem reasonable for the ABI document to say something about what happens in this case. If I understand correctly, the issue is that a .so that's dlopen'd RTLD_LOCAL can contain a weak definition of the type_info for a type that's logically part of another library, and if it's loaded before that other library is, the type_info name doesn't get merged despite there being some intent that it's the same type.
+</I>
+I suppose I can't just say that that's an ELF problem. :)
+
+What we did for ARM64 seems like the right basic approach: the type_info object records whether it's unique or non-unique, and non-unique RTTI just falls back on string-based comparisons / hashes.  The type_info is unique if and only if it's for a fundamental type in the ABI library or a polymorphic class with a key function.
+
+John.
+
+&gt;<i> 
+</I>&gt;<i> Darwin ARM64 uses a variant ABI that does not guarantee that names are uniqued, and so we need a different rule there to handle that; in particular, it does actually have to fall back on string comparisons and string hashes for non-unique type info.
+</I>&gt;<i> 
+</I>&gt;<i> John.
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>&gt;
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A> &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>&gt;
+</I>&gt;<i> 
+</I>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161004/8b154a33/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161004/8b154a33/attachment-0001.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002967.html">[cxx-abi-dev] std::type_info::hash_code/before
+</A></li>
+	<LI>Next message: <A HREF="002969.html">[cxx-abi-dev] std::type_info::hash_code/before
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2968">[ date ]</a>
+              <a href="thread.html#2968">[ thread ]</a>
+              <a href="subject.html#2968">[ subject ]</a>
+              <a href="author.html#2968">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

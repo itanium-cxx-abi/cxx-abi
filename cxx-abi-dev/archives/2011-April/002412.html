@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] namespace-qualified unresolved-names
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20namespace-qualified%20unresolved-names&In-Reply-To=%3C19E0FBCA-4690-4E61-9899-A001D558A04F%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002408.html">
+   <LINK REL="Next"  HREF="002405.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] namespace-qualified unresolved-names</H1>
+    <B>David Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20namespace-qualified%20unresolved-names&In-Reply-To=%3C19E0FBCA-4690-4E61-9899-A001D558A04F%40edg.com%3E"
+       TITLE="[cxx-abi-dev] namespace-qualified unresolved-names">daveed at edg.com
+       </A><BR>
+    <I>Fri Apr 29 21:41:23 UTC 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002408.html">[cxx-abi-dev] namespace-qualified unresolved-names
+</A></li>
+        <LI>Next message: <A HREF="002405.html">mangling parenthesized vs. non-parenthesized calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2412">[ date ]</a>
+              <a href="thread.html#2412">[ thread ]</a>
+              <a href="subject.html#2412">[ subject ]</a>
+              <a href="author.html#2412">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Apr 24, 2011, at 2:22 AM, John McCall wrote:
+
+&gt;<i> Consider the following:
+</I>&gt;<i> 
+</I>&gt;<i>  namespace ns {
+</I>&gt;<i>    int foo(int);
+</I>&gt;<i>    short foo(short);
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i>  template &lt;typename T&gt; auto forward_foo(T t) -&gt; decltype(ns::foo(t)) {
+</I>&gt;<i>    return ns::foo(t);
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i>  short test(short x) { return forward_foo(x); }
+</I>&gt;<i> 
+</I>&gt;<i> gcc-4.6 mangles forward_foo&lt;short&gt; as:
+</I>&gt;<i>  _Z11forward_fooIsEDTcl3foofp_EET_
+</I>&gt;<i> 
+</I>&gt;<i> This seems obviously wrong:  the qualifier has completely disappeared,
+</I>&gt;<i> and this now looks like an unqualified call.  I believe the correct
+</I>&gt;<i> mangling falls under the fourth production for &lt;unresolved-name&gt;:
+</I>&gt;<i>  &lt;unresolved-name&gt; ::= [gs] sr &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+</I>&gt;<i> In that case, the mangling should be:
+</I>&gt;<i>  _Z11forward_fooIsEDTclsr2nsE3foofp_EET_
+</I>&gt;<i> 
+</I>&gt;<i> Right?
+</I>
+
+Yes.  (That's what we produce.)
+
+&gt;<i>  I just want to verify that, because I have some follow-ups. :)
+</I>&gt;<i> 
+</I>&gt;<i> 1. When mangling a namespace qualifier for an unresolved-name,
+</I>&gt;<i> should we mangle the full namespace path or just what was written?
+</I>&gt;<i>  namespace outer {
+</I>&gt;<i>    namespace ns { ... }
+</I>&gt;<i>    template &lt;typename T&gt; auto forward_foo(T t) -&gt; decltype(ns::foo(t));
+</I>&gt;<i>    // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i> The 'gs' does not seem to be useful in the case of a non-member
+</I>&gt;<i> unresolved-name with a qualifier.
+</I>
+
+
+Generally speaking, I think the encoding should reflect the source form.  So here that argues for sr2nsE3foo.
+
+(I agree with James' arguments here.)
+
+
+&gt;<i> 
+</I>&gt;<i> 2. Should we look through template aliases?
+</I>&gt;<i>  namespace alias = ns;
+</I>&gt;<i>  template &lt;typename T&gt; auto forward_foo(T t) -&gt; decltype(alias::foo(t));
+</I>&gt;<i>  // sr2nsE3foo or sr5aliasE3foo ?
+</I>
+
+Good question.  Our current implementation reflects the source form: sr5aliasE3foo.  However we do &quot;look through&quot; typedefs; so perhaps looking through namespace aliases would make more sense.
+
+
+&gt;<i> 
+</I>&gt;<i> 2a. If we look through template aliases, what happens to prefix
+</I>&gt;<i> nested name specifiers?
+</I>&gt;<i>  namespace nsx { namespace alias = ns; }
+</I>&gt;<i>  template &lt;typename T&gt; auto forward_foo(T t) -&gt; decltype(nsx::alias::foo(t));
+</I>&gt;<i>  // sr2nsE3foo ?
+</I>
+
+
+We produce sr3nsx5aliasE3foo.
+
+
+&gt;<i> 
+</I>&gt;<i> 2b. Specifically, what about global prefixes?
+</I>&gt;<i>  template &lt;typename T&gt; auto forward_foo(T t) -&gt; decltype(::alias::foo(t));
+</I>&gt;<i>  // sr2nsE3foo or gssr2nsE3foo ?
+</I>
+
+We produce gssr5aliasE3foo.
+
+	Daveed
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002408.html">[cxx-abi-dev] namespace-qualified unresolved-names
+</A></li>
+	<LI>Next message: <A HREF="002405.html">mangling parenthesized vs. non-parenthesized calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2412">[ date ]</a>
+              <a href="thread.html#2412">[ thread ]</a>
+              <a href="subject.html#2412">[ subject ]</a>
+              <a href="author.html#2412">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Ooooops (Virtual functions)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Ooooops%20%28Virtual%20functions%29&In-Reply-To=%3C38B58D67.E1B189B4%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000638.html">
+   <LINK REL="Next"  HREF="000649.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Ooooops (Virtual functions)</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Ooooops%20%28Virtual%20functions%29&In-Reply-To=%3C38B58D67.E1B189B4%40cup.hp.com%3E"
+       TITLE="Ooooops (Virtual functions)">ddd at cup.hp.com
+       </A><BR>
+    <I>Thu Feb 24 19:58:31 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000638.html">Virtual function call stuff, again
+</A></li>
+        <LI>Next message: <A HREF="000649.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#652">[ date ]</a>
+              <a href="thread.html#652">[ thread ]</a>
+              <a href="subject.html#652">[ subject ]</a>
+              <a href="author.html#652">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Folks,
+
+
+After discussing with Jason, I definitely made a mistake in reading his writeup.
+We killed my virtual call proposal without me noticing...
+
+So, let me re-state the rationale and proposed implementation, and I'll try to
+illustrate all cases with pseudo-code. Mark will be our sanity-checker by
+implementing on his spare time, OK, Mark? ;-)
+
+
+METHOD 1: THUNKS
+
+A virtual function call going through a thunk will have the following code
+trail:
+
+		br	b0=(b6)
+	thunk:	addi	r32=r32,this_delta
+		br	target
+	target:	// function body
+
+We can assume reasonably that:
+1/ The (b6) target is mispredicted always
+2/ The thunk is not in the I-cache, because it depends on the (function, class)
+pair, so it is rather infrequently called
+3/ The thunk is more than 64-bytes or 128-bytes away from the target (with
+16-bytes per bundle, this becomes true as soon as you have more than 4 thunks)
+4/ The target code may or not be in the I-cache
+
+For obvious reasons, I will subtract the cost of the first branch misprediction
+in all the costs below, since this cost is shared between all implementations.
+
+I'm trying to be vague enough and not disclose proprietary information. Let's
+make the hypothetical hypothesis that, maybe, the cost of this sequence would be
+between 5 and 20 cycles, with a 'typical' value at, say, 9 cycles. That's not
+cheap.
+
+
+METHOD 2: Add sequences
+
+My proposal was to try to keep the thunks close to the 'target' label, and avoid
+branches, so that we can consider for instance:
+
+		br	b0=(b6)
+	thunk3:	addi	r32=r32,this_delta1;;
+	thunk2:	addi	r32=r32,this_delta2-this_delta1;;
+	thunk1:	addi	r32=r32,this_delta3-this_delta2;;
+	target:	// function body
+
+This case would have an hypothetical cost which between 0+N/M and 9+N/M, where N
+is the index of the thunk and M is the number of bundles executed per cycle. For
+small N values and/or large M values, this becomes significantly better. One
+important factor is that if there is an I-cache miss, at least, the prefetch
+will start loading the body of the function. So the typical value this time
+would be 9+N/M, where I assume that the function and the thunks are indeed in
+the I-cache.
+
+
+METHOD 3: Adjusting entry point
+
+If the number of thunks created this way becomes too large for N/M to be really
+smaller than 5, I proposed the following alternative:
+
+		br	b0=(b6)
+	common_thunk:
+		add	r9=vptr,offset;;
+		ld8	r9=[r9];;
+		add	r32=r9,r32
+	target:	// Function body		
+
+This sequence would read the 'this_delta' value from the secondary vtable
+corresponding to the type of the pointer being used. In the secondary vtable
+B-in-C of any non-primary base B of class C, there would be a single such
+'this_delta' converting from a B* to a C*. The constraint is that all such
+values be stored at a fixed offset relative to their secondary vtable pointer.
+See at end.
+
+&gt;<i>From a cache perspective, it is important to note that the value loaded from the
+</I>secondary vtable is shared among virtual functions. That is, whether you call
+ptr-&gt;f() or ptr-&gt;g(), you read the same value, as long as f() and g() are
+overriden in the same class. Because of that, I believe that the likelihood of
+D-cache miss for the load is significantly smaller than the likelihood of an
+I-cache miss in the original sequence. I'll add below the cases with and without
+D-cache miss.
+
+Without D-cache miss, the cost of that sequence is anywhere between 3 and 12
+cycles, with a sweet spot around 3 in the absence of I-cache miss. With D-cache
+miss, it can be anywhere between 8 and 21 cycles, again, the sweet spot being
+closer to 8 than from 21.
+
+
+To summarize:
+			Best	Typical	Worst
+	Thunks		5	9	20
+	AddAddAdd	0+N/M	0+N/M	9+N/M
+	Adjust		3	3	18
+	Adjust/D-miss	8	8	21
+
+You notice that in the absence of D-cache miss, which I think we can justify,
+this sequence is significantly better. I may get slightly worse than the thunk,
+though, if you are really unlucky (that is, you manage to get a worst-case
+D-cache miss and a worst-case I-cache miss in a row)
+
+All this is, of course, purely hypothetical.
+
+
+So the really good question is: can we allocate the 'this_delta' entries in the
+secondary vtable so that they are at a constant offset in each secondary vtable?
+My initial proposal was to allocate them at negative offsets from the secondary
+vptr (where we also allocate the virtual base offsets), and to just take min(all
+existing offsets) - 4. This has the obvious drawback that it introduces padding,
+but it should work. Alternatively, we can just extend the vcall offsets to the
+non-virtual inheritance case.
+
+
+Regards
+Christophe
+
+
+Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt; writes:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; Now, Jim, I just realized that for some reason, in the writeup, the
+</I>&gt;<i>  &gt; vcall offsets are restricted for &quot;virtual bases&quot; cases. I am unable to
+</I>&gt;<i>  &gt; implement the &quot;single adjusting entry point&quot; optimization if this is the
+</I>&gt;<i>  &gt; case. I fixed it in the attached writeup, but I may be wrong.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; Jason's writeup to B-1 says that you have to implement the vcall offsets
+</I>&gt;<i>  &gt; even if you don't use them. I don't think we agreed to get rid of them
+</I>&gt;<i>  &gt; (or is this something else important I missed?)
+</I>&gt;<i> 
+</I>&gt;<i> Apparently so.  Your earlier response to Mark reflects your original
+</I>&gt;<i> proposal, but what we eventually decided on was significantly different.
+</I>&gt;<i> The vcall offsets are allocated in the secondary vtable for a virtual base,
+</I>&gt;<i> one for each virtual function.  Converting from a nonvirtual base uses an
+</I>&gt;<i> additional entry point.
+</I>&gt;<i> 
+</I>&gt;<i> &gt;From my writeup in the issues list:
+</I>&gt;<i> 
+</I>&gt;<i> We have decided that for virtual functions not inherited from a virtual
+</I>&gt;<i> base, regular thunks will work fine, since we can emit them immediately
+</I>&gt;<i> before the function to avoid the indirect branch penalty; we will use
+</I>&gt;<i> offsets in the vtable for functions that come from a virtual base, because
+</I>&gt;<i> it is impossible to predict what the offset between the current class and
+</I>&gt;<i> its virtual base will be in classes derived from the current class.
+</I>&gt;<i> 
+</I>&gt;<i> According to the issues list, we accepted my design at the 12/2 meeting.
+</I>&gt;<i> 
+</I>&gt;<i> Jason
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000638.html">Virtual function call stuff, again
+</A></li>
+	<LI>Next message: <A HREF="000649.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#652">[ date ]</a>
+              <a href="thread.html#652">[ thread ]</a>
+              <a href="subject.html#652">[ subject ]</a>
+              <a href="author.html#652">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

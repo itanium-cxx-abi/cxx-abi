@@ -1,0 +1,363 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call stuff, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000222122118G.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000627.html">
+   <LINK REL="Next"  HREF="000636.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call stuff, again</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000222122118G.mitchell%40codesourcery.com%3E"
+       TITLE="Virtual function call stuff, again">mark at codesourcery.com
+       </A><BR>
+    <I>Tue Feb 22 20:21:18 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000627.html">Virtual function call stuff, again
+</A></li>
+        <LI>Next message: <A HREF="000636.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#633">[ date ]</a>
+              <a href="thread.html#633">[ thread ]</a>
+              <a href="subject.html#633">[ subject ]</a>
+              <a href="author.html#633">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Christophe&quot; == Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt; writes:
+</I>
+Thanks for helping me with this.
+
+    Christophe&gt; Mark, I did not find anything containing &quot;Virtual
+    Christophe&gt; Function Calling Convention&quot; in the
+    Christophe&gt; documentation. Could you specify an URL and quote the
+    Christophe&gt; original text, it would help me locating it...
+
+<A HREF="http://reality.sgi.com/dehnert_engr/cxx/abi-layout.html#vtable">http://reality.sgi.com/dehnert_engr/cxx/abi-layout.html#vtable</A>
+
+There doesn't appear to be a tag for the &quot;VFCC&quot; section, but it's down
+just a bit from the URL I gave.
+
+    &gt;&gt; Here's an attempted rewrite.  Let's see if it's what y'all
+    &gt;&gt; meant.
+
+    &gt;&gt;  o Suppose a class `A' defines a virtual function `A::f'.  The
+    &gt;&gt; primary vtable for `A' contains a pointer to an entry point
+    &gt;&gt; that performs no adjustment.
+    &gt;&gt; 
+    &gt;&gt; o Suppose that a class `A' declares a virtual function `A::f',
+    &gt;&gt; and suppose that `A' is a base class in a hierarchy dominated
+    &gt;&gt; by another class `B'.  Suppose that the unique final overrider
+    &gt;&gt; for `A::f' in `B' is `C::f'.  We must determine what entry
+    &gt;&gt; point is used for `f' in the `A-in-B' secondary vtable.  Here
+    &gt;&gt; is the algorithm:
+    &gt;&gt; 
+    &gt;&gt; - Find any path from `B' to `C' in the inheritance graph for
+    &gt;&gt; `B'.
+    &gt;&gt; 
+    &gt;&gt; - If there is no virtual base along the path, then create an
+    &gt;&gt; entry point which adjusts the `this' pointer from `A' to `C'.
+    &gt;&gt; This value can be computed statically when the `A-in-B' vtable
+    &gt;&gt; is created.  Then transfer control to the non-adjusting entry
+    &gt;&gt; point for `C::f'.
+
+    Christophe&gt; Yes. What's more, in that case, the offset is stored
+    Christophe&gt; in the vtable at a (possibly large) constant negative
+    Christophe&gt; offset from the vptr. We called this offset
+    Christophe&gt; 'convert_to_C', and it is used only when the final
+    Christophe&gt; overrider is a C. The A-in-B vtable contains a
+    Christophe&gt; 'convert_to_C' value that converts from an A* to a
+    Christophe&gt; C*. The benefits are explained in
+    Christophe&gt; <A HREF="http://reality.sgi.com/dehnert_engr/cxx/cxx-closed.html,">http://reality.sgi.com/dehnert_engr/cxx/cxx-closed.html,</A>
+    Christophe&gt; section B-1.
+
+I understand the high-level points of that discussion: what I don't
+understand is exactly what goes where, when.  I'm not really trying to
+reopen any issue -- I'm trying to force the committe to write down
+what it decided.  At this point, the decision is not, quite frankly,
+written in a form that anyone not on the committee is likely to
+decipher.  (Well, at least I've tried hard, I'm not an idiot, I know
+about this application domain, and I still can't figure it out.)
+
+    &gt;&gt; - If there is a virtual base along this path, let `V' be the
+    &gt;&gt; virtual base nearest to `C' along the path.  (In fact, `V' will
+    &gt;&gt; be `C' itself if `C' is a virtual base.)
+
+    Christophe&gt; You are considering a path between B and C, so V would
+    Christophe&gt; be the closest between B and C. In which case I do not
+    Christophe&gt; understand the adjustment below (&quot;Adjustment from 'A'
+    Christophe&gt; to 'V'&quot;). Either you are considering that V is between
+    Christophe&gt; A and C, in which case you need to adjust from A to V,
+    Christophe&gt; or you are considering that V is between C and B, in
+    Christophe&gt; which case if you see it at call site, you would have
+    Christophe&gt; to adjust from B to V. Did I misunderstand?
+
+You won't in general see `V' at the call site, if it's between C and
+B, because you might have `A*' when you're making the call.  (If you
+had a `B*', or a `C*', then `C::f' would be the unique final overrider
+-- by hypothesis -- so you would have converted your pointer to a
+`C*', and you be looking at the C-in-B vtable, rather than the A-in-B
+vtable, which is what my discussion was talking about.)
+
+I'm not sure where you're supposed to adjust `A' to.  That's what I'm
+trying to find out.  It may not be the V that I suggested -- I'm not
+sure.  I'm hoping that my words could serve as the model for whatever
+the right answer is.  They're in the form of an algorithm that
+explains exactly what to put in the vtable, in the general case, and
+that's a good thing, since that's what an implementor needs to know.
+
+    Christophe&gt; So, starting with your example again. Sorry for the
+    Christophe&gt; verbiage...
+
+    Christophe&gt; Case 1 is: V is between A and C.
+
+THere's no discussion of these two different cases in the current
+writeup.  So, I'm already lost.  What you write below seems reasonably
+logical -- but I'm not sure it's the same thing as in the document.
+
+In general, &quot;between A and C&quot; doesn't make sense; they may be
+unrelated. The picture I had in mind was:
+
+              B
+             / \
+            A   C
+
+In other words, B is the most derived class, C contains the final
+overrider, we're looking at the vtable for A.  That's the general case
+-- all other cases are special instances of this one.  But, I guess
+for case 1, we're assuming C is derived from A?
+
+    Christophe&gt; - If you call through an A*, you call through the A
+    Christophe&gt; vtable, which points to a virtual-base-adjustment
+    Christophe&gt; thunk. That thunk reads the C-to-A virtual base
+    Christophe&gt; offset, and adds that to get a C*, and then jumps to
+
+Where is this offset?  There's a vbase offset in C for converting to
+A, if A is a virtual base of C.  But, there's no virtual base offset
+in A, for converting to a C.  Where's V in all this?
+
+    Christophe&gt; the non-adjusting C::f. Of course, the C-to-A virtual
+    Christophe&gt; base offset is not necessarily constant along the
+    Christophe&gt; class hierarchy, so for instance the C-to-A virtual
+    Christophe&gt; base offset in a C is not the same as the C-to-A
+    Christophe&gt; virtual base offset in a B.
+
+I don't understand this.
+
+    Christophe&gt; - If you call through a C*, you call through the C
+    Christophe&gt; vtable. In that case, you don't care if A is a virtual
+    Christophe&gt; base, since C::f expects a C*. Virtual-base adjustment
+    Christophe&gt; to A, if necessary, would be done inside C::f. So the
+    Christophe&gt; C vtable points to the non-adjusting entry point.
+
+That one makes sense.
+
+    Christophe&gt; - If you call through a B*, you call through the C
+    Christophe&gt; vtable (the final overrider for f), and you adjust to
+    Christophe&gt; a C* statically.
+
+That too.
+
+    Christophe&gt; Case 2: V is between C and B:
+
+    Christophe&gt; - If you call through an A*, you call through the A
+    Christophe&gt; vtable. The offset from A to C is constant in the
+    Christophe&gt; class hierarchy, but there may be multiple bases A1,
+    Christophe&gt; A2, A3, with different offsets. The &quot;classical&quot;
+
+Are all these bases of type A?  Or are these just different bases, all
+of which declare the same `f' overridden by `C::f'?
+
+    Christophe&gt; approach is to use multiple thunks that convert from
+    Christophe&gt; A1 to C, from A2 to C, from A3 to C. Because of the
+    Christophe&gt; high cache muss and branch misprediction penalty, I
+    Christophe&gt; proposed that we rather have all vtables A1-in-C,
+    Christophe&gt; A2-in-C, ... contain an offset, call it
+    Christophe&gt; 'Convert_to_C', that adjusts from A1 to C, A2 to C,
+    Christophe&gt; etc. This way, there can be a single adjusting entry
+    Christophe&gt; point that does this adjustment (although you can
+    Christophe&gt; still emit thunks)
+
+Right -- I get that.  And the point is that you can store the
+'convert_to_C' offset at some fixed negative index from the vptr from
+each *unadjusted* `this' pointer? 
+
+    Christophe&gt; - If you call through a C*, you call through the C
+    Christophe&gt; vtable, which points to the non-adjusting entry point
+    Christophe&gt; C::f.
+
+Yes.
+
+    Christophe&gt; - If you call through a B*, you need at call-site to
+    Christophe&gt; convert from B* to C*, which involves a dynamic
+    Christophe&gt; adjustment using the B-to-V virtual base offsets in
+    Christophe&gt; B's vtable, followed by a static adjustment from V to
+    Christophe&gt; C (which is known at compile-time).
+
+Yes.  Note that in my attempted writeup, I wasn't trying to specify
+how to call the function: I was trying to specify what you put in the
+vtable for A.
+
+    Christophe&gt; I'm not sure I clarified anything ;-)
+
+Somewhat. :-)
+
+    Christophe&gt; First, note that the scheme is believed to be
+    Christophe&gt; advantageous whenever there is no virtual inheritance,
+    Christophe&gt; which I think is a frequent case. Cache locality plays
+    Christophe&gt; a big role here.
+
+OK.  It would really help if the ABI document contained some
+non-normative notes explaining some of this, and giving some examples.
+Unfortunately, I can't write these, because I don't know the answers.
+
+    Christophe&gt; Second, in the virtual base case, there is no
+    Christophe&gt; guarantee that the thunk will be right before the
+    Christophe&gt; non-adjusting entry point: as Jason pointed out, you
+    Christophe&gt; cannot find a single offset to use to perform the
+    Christophe&gt; adjustment.
+
+    Christophe&gt; Third, I do not understand in this statement whether
+    Christophe&gt; you are calling through an A*, B* or C*.
+
+An A*: that's the point of figuring out what to put in the A-in-B
+vtable.  (In general, we might be calling through something derived
+from `A' but where `A::f' is the unique final overrider in that
+objects static type.  So, we first convert to `A*' -- then use the
+A-in-B vtable to get to `C::f'.)
+
+    &gt;&gt;  I still can't see why it is a win to use vcall offsets in the
+    &gt;&gt; case where `A' and `V' are not the same class.  You already
+    &gt;&gt; have to do one static adjustment in the entry point -- why not
+    &gt;&gt; just adjust all the way to `B' directly, without bothering to
+    &gt;&gt; look up the vcall offset?
+
+    Christophe&gt; I did not understand this question :-( If you feel a
+
+It seems to me, from:
+
+   For each secondary vtable from a base 'D' which is a non-virtual
+   base of a virtual base 'E', an additional entry point is generated
+   in the secondary vtable for 'E' which first performs the constant
+   adjustment from D* to E*, then the adjustment from E* to A* by
+   adding the vcall offset for f stored in the secondary vtable for E.
+
+(which I admittedly do not understand -- hence this email!) that there
+are some situations where we have an entry point which *both* performs
+a constant adjustment *and* adjustes via a vcall offset.  In other
+words, it does two adjustments.  So the code for that entry point will
+look like:
+
+  entry:
+    adjust by constant to a virtual base
+    jump to vcall-adjusting-entry-point
+
+(Then, elsewhere, we have:
+
+  vcall-adjusting-entry-point:
+    adjust by vcall offset
+  f:
+    /* here's where user code starts */)
+
+Note that `entry' needs a jump at the end -- it can't just
+fall-through (in general) because there may be lots of different such
+double-adjusting things.  So, I'm asking why this is a win over just:
+
+  entry:
+    adjust by constant all the way to the destination
+    jump to f
+
+The point is that if we're going to adjust by a constant and then
+jump, we might as well adjust all the way.
+  
+    Christophe&gt; static thunk is better than a dynamic lookup, then you
+    Christophe&gt; can emit that thunk and point to it through the
+    Christophe&gt; vtable, as Jason pointed out. The ABI allows you to do
+    Christophe&gt; that.
+
+That's unclear.  That may have been the intent, but there's no
+discussion of what's normative and what's not in the ABI.
+
+The ABI says:
+
+    For each secondary vtable from a virtual base class 'C' which
+    defines f, an additional entry point is generated which performs
+    the adjustment from A* to C* by adding the vcall offset for f
+    stored in the secondary vtable for A. 
+
+It doesn't say that you can adjust in some other way, for instance.
+It also says that the caller adjusts to the class containing the
+unique final overrider.  It should just say that the caller locates
+any class containing a virtual function table entry for the function,
+converts `this' to that class, and calls the corresponding entry.
+*Which* class is chosen isn't an ABI issue.  Then, there should be a
+non-normative note that says (Note: it is probably most efficient to
+convert to the class containing the unique final overrider.)
+
+    &gt;&gt; Furthermore, the actual algorithm used to perform the
+    &gt;&gt; adjustments does not seem necessarily to be part of the ABI.
+    &gt;&gt; The layout of the vtables is certainly part of the ABI.  But,
+    &gt;&gt; if one compiler wants to completely ignore the vcall offset
+    &gt;&gt; entries in the vtables, and compute the entire adjustment
+    &gt;&gt; statically, shouldn't that be permitted by the ABI, even though
+    &gt;&gt; it might require one extra branch?  Surely that's just a
+    &gt;&gt; quality-of-implementation issue?
+
+    Christophe&gt; Correct. Again, that seems clear to me from Jason's
+    Christophe&gt; writeup:
+
+    Christophe&gt; Note that the ABI only specifies the multiple entry
+    Christophe&gt; points; how those entry points are provided is
+    Christophe&gt; unspecified. An existing compiler which uses thunks
+    Christophe&gt; could be converted to use this ABI by only adding
+    Christophe&gt; support for the vcall offsets. A more efficient
+
+That's the sentence that's unclear.  It should say something more
+like:
+
+    An existing compiler which uses thunks could be converted to use
+    this ABI by adding vcall offsets in the vtable (as required by the
+    ABI).  (The thunks generated need not be modified.)
+
+I'm not trying to split hairs, or polish prose.  These are places
+where I'm legitimately unsure as to the intent of the words written.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000627.html">Virtual function call stuff, again
+</A></li>
+	<LI>Next message: <A HREF="000636.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#633">[ date ]</a>
+              <a href="thread.html#633">[ thread ]</a>
+              <a href="subject.html#633">[ subject ]</a>
+              <a href="author.html#633">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

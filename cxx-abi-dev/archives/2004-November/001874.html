@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Flaws in spec for __cxa_begin_catch
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Flaws%20in%20spec%20for%20__cxa_begin_catch&In-Reply-To=%3CABAABBBE-3999-11D9-AA19-000D932ACFFC%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001873.html">
+   <LINK REL="Next"  HREF="001875.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Flaws in spec for __cxa_begin_catch</H1>
+    <B>Cary Coutant</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Flaws%20in%20spec%20for%20__cxa_begin_catch&In-Reply-To=%3CABAABBBE-3999-11D9-AA19-000D932ACFFC%40cup.hp.com%3E"
+       TITLE="Flaws in spec for __cxa_begin_catch">cary at cup.hp.com
+       </A><BR>
+    <I>Thu Nov 18 19:40:15 UTC 2004</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001873.html">[cxx-abi-dev] question on the virtual base offset
+</A></li>
+        <LI>Next message: <A HREF="001875.html">[cxx-abi-dev] Flaws in spec for __cxa_begin_catch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1874">[ date ]</a>
+              <a href="thread.html#1874">[ thread ]</a>
+              <a href="subject.html#1874">[ subject ]</a>
+              <a href="author.html#1874">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The attached message from Richard H. in August '03 mentions a problem 
+in the ABI spec regarding __cxa_begin_catch. As Richard says, we also 
+implemented __cxa_begin_catch to return the adjusted pointer to the 
+exception object, as determined by the personality routine. I haven't 
+seen any further conversation on this topic since then.
+
+There's one other problem with __cxa_begin_catch that we ought to 
+address at the same time. This one was raised by Martin Sebor just this 
+past August. When a thrown object has a copy constructor, the exception 
+isn't supposed to be considered caught until the copy constructor has 
+finished. The best we can do as we've implemented the ABI is to run the 
+copy constructor after calling __cxa_begin_catch. Since the exception 
+is marked as caught once __cxa_begin_catch is called, 
+uncaught_exception() will return false while the copy constructor is 
+running. There's a discussion on this topic in the Bugzilla database:
+
+    <A HREF="http://gcc.gnu.org/bugzilla/show_bug.cgi?id=10606">http://gcc.gnu.org/bugzilla/show_bug.cgi?id=10606</A>
+
+It seems to me that the ABI spec for __cxa_begin_catch() may have been 
+OK after all, but we really needed another interface to get the 
+adjusted pointer prior to calling __cxa_begin_catch(). In the Bugzilla 
+discussion, Richard suggests &quot;__cxa_begin_catch_part1&quot; and 
+&quot;__cxa_begin_catch_part2&quot;, but I'd suggest leaving __cxa_begin_catch() 
+as specified (with a void return), and adding a new interface
+
+    void *__cxa_get_exception_ptr(void *exceptionObject);
+
+The generated code can call this interface, run the copy constructor, 
+and then call __cxa_begin_catch().
+
+Perhaps an improvement on this would be to have __cxa_begin_catch() 
+also return the adjusted pointer, so that we can avoid the extra call 
+in cases where we don't have a copy constructor.
+
+-cary
+
+
+Begin forwarded message:
+
+&gt;<i> From: Richard Henderson &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rth at redhat.com</A>&gt;
+</I>&gt;<i> Date: August 25, 2003 3:41:31 PM PDT
+</I>&gt;<i> To: Chris Lattner &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sabre at nondot.org</A>&gt;
+</I>&gt;<i> Cc: Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt;, 
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>, <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">gcc at gcc.gnu.org</A>
+</I>&gt;<i> Subject: [cxx-abi-dev] Re: G++ ABI mismatches
+</I>&gt;<i>
+</I>&gt;<i> On Mon, Aug 25, 2003 at 05:37:42PM -0500, Chris Lattner wrote:
+</I>&gt;&gt;<i> But how does cxa_begin catch know what the requested type is for
+</I>&gt;&gt;<i> the object?  I thought that was the job of the personality routine?
+</I>&gt;<i>
+</I>&gt;<i> It is.  The personality routine computes the transformed pointer
+</I>&gt;<i> as part of the type matching phase.  It stores this pointer in a
+</I>&gt;<i> c++ language private superclass of _Unwind_Exception.  Which is
+</I>&gt;<i> then returned by __cxa_begin_catch.
+</I>&gt;<i>
+</I>&gt;&gt;<i> Regardless, if G++ does not meet the ABI spec,
+</I>&gt;&gt;<i> either G++ or the ABI should be fixed.  Which one? :)
+</I>&gt;<i>
+</I>&gt;<i> The ABI.  IIRC when I implemented this, I talked to one of the
+</I>&gt;<i> HP guys and they do the same thing.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> r~
+</I>&gt;<i>
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001873.html">[cxx-abi-dev] question on the virtual base offset
+</A></li>
+	<LI>Next message: <A HREF="001875.html">[cxx-abi-dev] Flaws in spec for __cxa_begin_catch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1874">[ date ]</a>
+              <a href="thread.html#1874">[ thread ]</a>
+              <a href="subject.html#1874">[ subject ]</a>
+              <a href="author.html#1874">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

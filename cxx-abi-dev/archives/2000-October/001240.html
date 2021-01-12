@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Meeting results 12 October
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Meeting%20results%2012%20October&In-Reply-To=%3C200010130033.RAA84807%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001239.html">
+   <LINK REL="Next"  HREF="001241.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Meeting results 12 October</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Meeting%20results%2012%20October&In-Reply-To=%3C200010130033.RAA84807%40baalbek.engr.sgi.com%3E"
+       TITLE="Meeting results 12 October">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Fri Oct 13 00:33:25 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001239.html">Agenda for tomorrow
+</A></li>
+        <LI>Next message: <A HREF="001241.html">Meeting results 12 October
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1240">[ date ]</a>
+              <a href="thread.html#1240">[ thread ]</a>
+              <a href="subject.html#1240">[ subject ]</a>
+              <a href="author.html#1240">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Turnout was low today.  Following are the results of our discussion.
+I will be out of town next week -- the following week, I will put
+together an issue list (aka agenda) and explicitly call for email
+discussion around the end of the week in lieu of a meeting.  Now would
+be a good time for everyone to go through the documents carefully and
+identify any residual issues that require discussion/clarification or
+just plain better description.
+
+We will meet to clear up any residual questions in four weeks.
+
+There are several subjects that may produce discussion -- please
+reference one issue per message and change the subject line...
+
+Jim
+
+
+----------------
+RTTI portability
+----------------
+
+The issue here, raised originally by Martin, I will open as A-30.
+Implementations will generally need additional virtual functions
+associated with the type_info hierarchy to implement such functionality
+as dynamic cast.  Gcc for instance has functions __is_function_p,
+__do_catch, __pointer_catch, ...
+
+A program that is built from pieces from different compilers, where the
+pieces come from different implementations of the hierarchy, will see
+different structures, at least in the vtables, if we allow this extra
+material to be arbitrary, creating a problem if such programs actually
+make use of parts of the hierarchy.
+
+We worked out the following possible solution:
+
+  First, observe that the vtables for the typeinfo derived classes will
+  be emitted where the key function (the virtual destructor, as
+  defined) is defined.  We require this to be in the implementation's
+  runtime library libcxa.so, so there is exactly one implementation of
+  them on any given target system.
+
+  We allow the implementation to define a collection of pseudo-virtual
+  functions to be associated with each class derived from std::type_info:
+
+	class __cxa_aux_typeinfo {
+	  ... (*__is_function_p) (...);
+	  ...
+	};
+
+  The implementation will create one instance of this class for each of
+  the classes derived from std::type_info, and we will specify a
+  mangled name for it.
+
+  We add the following to the ABI definition of std::type_info:
+
+	class std::type_info {
+	  ...
+	  protected:
+	    __cxa_aux_typeinfo *__aux;
+	    type_info (void) { /* set up __aux */ };
+	};
+
+  Construction of one of the std::type_info derivatives can either call
+  the constructor or use the mangled name to initialize the __aux
+  member.
+
+  Use of __aux is reserved to the runtime implementation.
+
+Now an implementation can add an arbitrary set of functions to
+__cxa_aux_typeinfo, specialized to the derived class like a virtual
+function, without changing the external interface (to the user) of
+the hierarchy.
+
+Does this meet people's needs?
+
+
+---------------------------
+Value parameter destruction
+---------------------------
+
+We decided that it is possible for a program to tell that value
+parameter destruction does not occur in the correct order if it is done
+in the callee, so I will change 3.1.1 to specify that it is done by the
+caller.
+
+
+---------------------------------------
+Exception handler __cxa_throw_type_info
+---------------------------------------
+
+Making this type be a pair (type_info and destructor pointers) makes it
+necessary that a thrower or __cxa_throw construct one so that the
+exception object can point to it.  This can't be done on the stack,
+since it's about to be unwound, and doing it on the heap when the
+exception might be out-of-memory doesn't seem ideal.
+
+We propose that instead, we replace the __cxa_throw_type_info pointer
+in the exception object header by separate std::type_info and
+destructor pointers, and pass them as two parameters to __cxa_throw.
+
+We also noticed that, if the thrown object is an array, the destructor
+passed will need to be a fabricated one which loops over the array
+elements.  The alternative, to store the array bounds explicitly in the
+exception object, seems to be a lot of overhead for a very rare case.
+
+
+--------------
+long long type
+--------------
+
+I have used &quot;long long&quot; in several places in the document; as it is
+non-standard, I will replace it by __int64_t or __uint64_t (unless
+someone has a better idea).
+
+
+-----
+UTF-8
+-----
+
+We didn't discuss this, but I'm prepared to insert a comment.  Would
+someone who cares about it care to suggest wording and placement?
+
+
+-------------------------------
+Thread-safe data initialization
+-------------------------------
+
+We didn't discuss this -- we still haven't heard from Christophe.  This
+is important, as I don't think anyone is delighted with what is
+currently in the document.  What should we do?
+
+-		Jim Dehnert  x3-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001239.html">Agenda for tomorrow
+</A></li>
+	<LI>Next message: <A HREF="001241.html">Meeting results 12 October
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1240">[ date ]</a>
+              <a href="thread.html#1240">[ thread ]</a>
+              <a href="subject.html#1240">[ subject ]</a>
+              <a href="author.html#1240">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

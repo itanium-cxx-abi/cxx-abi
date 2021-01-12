@@ -1,0 +1,2609 @@
+From jls at sco.com  Thu Jul  1 01:09:00 1999
+From: jls at sco.com (Jonathan Schilling)
+Date: Wed, 30 Jun 1999 21:09 EDT
+Subject: thread-safe local static variable initialization
+Message-ID: <199907010110.VAA03053@kauai.newjersey.sco.com>
+
+> From: Hans Boehm <boehm at hoh.engr.sgi.com>
+> Message-Id: <9906101554.ZM3948 at hoh.engr.sgi.com>
+> Date: Thu, 10 Jun 1999 15:54:23 -0700
+> To: cxx-abi at corp.sgi.com
+> Subject: Re: thread-safe local static variable initialization
+> 
+> I'd like to make some claims about function scope static constructor calls in
+> multithreaded environments.  [...]
+> 
+> I believe that these arguments imply that this problem is not important
+> enough to warrant added ABI complexity or overhead for sequential code.
+
+This response is a little tardy, but --
+
+Hans' argument breaks such local statics into two groups:  those that don't
+depend upon the function's parameters, and those that do.  For the latter
+group, he says:
+
+> 6) Static function scope constructor calls which depend on function arguments
+> are likely to involve a race condition anyway, if multiple instances of
+> the function can be invoked concurrently.  Any of the calls might determine
+> the constructor parameters.  Thus these aren't very interesting either.
+> And if they are really needed, they can be replaced with a file scope static
+> constructor call plus an assignment.
+
+I don't agree with these claims.  There are sometimes situations where a group
+of objects is being processed, and you want to arbitrarily pick one of them
+to serve as an identifier or key for all of them.  Consider perhaps a golf 
+course scheduler, which is taking in players and assigning them to foursomes.  
+You want to name each foursome by one of the names of the players (it doesn't 
+matter which one), such as the "Jones group" or the "Smith group".  
+A natural way to program this might be:
+
+	void build_foursome(string golfer) {
+		static string group_name(golfer);
+		// process golfer into group group_name ...
+	}
+
+Now if the golfers being scheduled are coming from four different
+databases, it might be that a thread is running to extract from each
+database.  Thus build_foursome() might be called concurrently.  That's
+fine, and there is no need for application-level locks in either the 
+caller or this function; we don't care which golfer the group is 
+named after.  We just want the 'static' to work correctly; what we
+don't want is a double initialization, with two different group names
+being generated for golfers in the same group, which is possible if
+the guard code isn't thread-safe.
+
+Now one can say that this kind of design isn't wise, or that locks will 
+probably be needed later in this function to do the rest of the processing, 
+or that this can be coded in several other ways.  And that may all be so.
+But I think this usage is *reasonable* in this context, and that as 
+implementors we should get it right.  [Editorial:  Especially with the 
+advent of Java, threaded application programming is becoming more the norm; 
+and language implementations that dodge the challenge and say that thread
+support is solely the job of libraries, may not be looked upon kindly
+by users.]
+
+Jonathan Schilling		SCO, Inc.		jls at sco.com
+
+
+
+From ddd at cup.hp.com  Thu Jul  1 01:45:46 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Wed, 30 Jun 1999 18:45:46 -0700
+Subject: Virtual tables layout
+Message-ID: <199907010145.SAA22281@cllmail.cup.hp.com>
+
+Ooops, I just forgot to send this.
+
+
+Here is a short description of the virtual tables layout. This is
+mostly taken out of the existing Taligent runtime.
+
+
+Virtual tables
+
+Virtual tables (vtables) are used to dispatch virtual functions, to  
+access virtual base class subobjects, and to access information for  
+runtime type identi?cation (RTTI). Each class that has virtual
+member functions or virtual bases has an associated set of vtables.  
+The vtable pointers within all the objects (instances) of a class
+point to the same set of vtables.
+
+
+Vtable layout
+
+Each vtable consists of the following parts, in the order listed.
+All offsets in a vtable are of type ptrdiff_t.
+
+"Virtual base offsets" are used to access the virtual bases of an
+object and to non virtual bases when pointer adjustment is required  
+for some overriden virtual function. Each entry is a displacement to  
+a virtual base subobject from the location within the object of the  
+vtable pointer that addresses this vtable. These entries are only
+necessary if the class directly or indirectly inherits from virtual  
+base classes, or if it overrides a virtual function defined in a base  
+class and if  adjustment from the based to the derived class is
+needed. The values can be positive or negative.
+
+"Offset to top" holds the displacement to the top of the object from  
+the location within the object of the vtable pointer that addresses  
+this vtable. A negative value indicates the vtable pointer is part of  
+an embedded base class subobject; otherwise it is zero. The offset
+provides a way to ?nd the top of the object from any base subobject  
+with a vtable
+pointer. This is necessary for dynamic_cast<void*> in particular.
+The virtual pointer points to the "offset to top" field.
+
+"Typeinfo pointer" points to the typeinfo object used for RTTI. All  
+entries in each of the vtables for a given class point to the same
+typeinfo object.
+
+"Duplicate base information pointer" points to a table used to
+perform runtime disambiguation of duplicate base classes for dynamic  
+casts. The entries in each of the vtables for a given class do not
+all point to the same table of duplicate base information.
+
+Function pointers are used for virtual function dispatch. Each
+pointer holds either the address of a virtual function of the class,  
+or the address of a secondary entry point that performs certain
+adjustments before transferring control to a virtual function. [To be  
+discussed] In the case of shared library builds, [Solution 1] a
+function pointer entry contains the address of a function descriptor,  
+which contains the target GP value and the actual function address
+[Solution 2] a function pointer entry contains two words: the value  
+of the target GP value and the actual function address [Solution 3] a  
+function pointer points to an import table generated by the dynamic  
+loader, which will transfer control to the target function.
+
+The function pointers are grouped so that the entries for all
+virtual functions introduced by a base class are kept together, in
+declaration order. Function pointers from a derived class immediately  
+follow those for the base class. The order of function pointers
+therefore depends on the static type of subobject whose vtable
+pointer points to that virtual table.
+
+A vtable pointer in an object addresses the "offset to top" ?eld
+of a vtable. This location is known as the address point of the
+vtable. Note that the virtual base offsets are at negative
+displacements from the address point.
+
+The typeinfo and duplicate base information are covered in separate  
+discussions.
+
+
+
+Types of vtables
+
+The following categories describe the rules for how vtables of a
+class are constructed from the vtables of its bases.
+
+Category 1
+
+This category is for a class that inherits no base classes. If the
+class declares no virtual functions, then it has no vtable, and its  
+objects have no vtable pointers.
+
+If the class declares virtual functions, then it has a single vtable  
+containing RTTI ?elds followed by function pointer entries. There  
+is one function pointer entry for each virtual function declared in  
+the class. The vtable pointer in an object of the class addresses
+this vtable.
+
+Category 2
+
+This category is for a class that inherits only non-virtual base
+classes, and the non- virtual base classes have no base classes, and  
+there is no adjustment in any of the overriden virtual functions.
+
+If none of the base classes have vtables, a vtable is constructed
+for the class according to the same rules as in Category 1. Otherwise  
+the class has a vtable for each base class that has a vtable. The
+class's vtables are constructed from copies of the base class
+vtables. The entries are the same, except:
+- The RTTI ?elds contain information for the class, rather than
+for the base class.
+- The function pointer entries for virtual functions inherited from  
+the base class and
+overridden by this class are replaced with the addresses of the
+overridden functions
+(or the corresponding adjustor secondary entry points),
+- At negative offsets, offsets to the base classes are generated if  
+used by adjustor secondary entry points.
+
+Informally, each of these vtables has a name in the form
+Base-in-Derived vtable, where Base is a base class and Derived is the  
+derived class. Each vtable pointer in an object addresses one of
+these vtables for the class. The vtable pointer of an A subobject
+within a B object would address the A-in-B vtable.
+
+The vtable copied from the primary base class is also called the
+primary vtable; it is addressed by the vtable pointer at the top of  
+the object. The other vtables of the class are called secondary
+vtables; they are addressed by vtable pointers inside the object.
+
+
+Aside from the function pointer entries that correspond to those of  
+the primary base class, the primary vtable holds the following
+additional entries at its tail:
+- Entries for virtual functions introduced by this class
+- Entries for overridden virtual functions not already in the
+vtable. (These are also called replicated entries because they are
+already in the secondary vtables of the class.) [I wonder if this is  
+actually needed, this seems to be a consequence of RRBC]
+
+The primary vtable, therefore, has the base class functions
+appearing before the derived
+class functions. The primary vtable can be viewed as two vtables
+accessed from a shared
+vtable pointer.
+
+
+Note Another bene?t of replicating virtual function entries is
+that it reduces the number of this pointer adjustments during virtual  
+calls. Without replication, there would be more cases where the this  
+pointer would have to be adjusted to access a secondary vtable prior  
+to the call. These additional cases would be exactly those where the  
+function is overridden in the derived class, implying an additional  
+thunk adjustment back to the original pointer. Thus replication saves  
+two adjustments for each virtual call to an overridden function
+introduced by a non-primary base class.
+
+
+Category 3
+
+This category is for a class that inherits only virtual base
+classes, and the virtual base classes have no base classes.
+
+The class has a vtable for each virtual base class that has a
+vtable. These are all secondary vtables and are constructed from
+copies of the base class vtables according to the same rules as in
+Category 2. The vtable pointers of the virtual base subobjects within  
+the object address these vtables.
+
+The class also has a vtable that is not copied from the virtual base  
+class vtables. This vtable is the primary vtable of the class and
+addressed by the vtable pointer at the top of the object, which is
+not shared. It holds the following function pointer entries:
+- Entries for virtual functions introduced by this class
+- Entries for overridden virtual functions. (These are also called
+replicated entries, because they are already in the secondary vtables  
+of the class)
+
+The primary vtable also has virtual base offset entries to allow
+?nding the virtual base subobjects. There is one virtual base
+offset entry for each virtual base class. For a class that inherits  
+only virtual bases, the entries are in the reverse order in which the  
+virtual bases appear in the class declaration, that is, the entry
+for the leftmost virtual base is
+closest to the address point of the vtable.
+
+
+Category 4
+
+This category is for a class that directly or indirectly inherits
+base classes that are either virtual or non-virtual.
+
+The rules for constructing vtables of the class are a combination of  
+the rules from Categories 2 and 3, and for the most part can be
+determined inductively. However the rules for placing virtual base
+offset entries in the vtables requires elaboration.
+
+The primary vtable has virtual base offset entries for all virtual
+bases directly or indirectly inherited by the class. Each secondary  
+vtable has entries only for virtual bases visible to the
+corresponding base class. The entries in the primary vtable are
+ordered so that entries for virtual bases visible to the primary base  
+class appear below entries for virtual bases only visible to this
+class.
+
+For virtual bases only visible to this class, the entries are in the  
+reverse order in which the virtual bases are encountered in a
+depth-?rst, left-to-right traversal of the inheritance graph formed  
+by the class de?nitions. Note
+that this does not follow the order that virtual bases are placed in  
+the object.
+
+
+
+[To be discussed] Vtables for partially constructed objects
+
+In some situations, a special vtable, called a construction vtable
+is used during the execution of base class constructors and
+destructors. These vtables are for speci?c cases of virtual
+inheritance.
+
+During the construction of a class object, the object assumes the
+type of each of its base classes, as each base class subobject is
+constructed. RTTI queries in the base class constructor will return  
+the type of the base class, and virtual calls will resolve to member  
+functions of the base class rather than the complete class. Normally,  
+this behavior is accomplished by setting, in the base class
+constructor, the object's vtable pointers to the addresses of the
+vtables for the base class.
+
+However, if the base class has direct or indirect virtual bases, the  
+vtable pointers have to be set to the addresses of construction
+vtables. This is because the normal base class vtables may not hold  
+the correct virtual base index values to access the virtual bases of  
+the object under construction, and adjustment addressed by these
+vtables may hold
+the wrong this parameter adjustment if the adjustment is to cast
+from a virtual base to another part of the object. The problem is
+that a complete object of a base class and a complete object of a
+derived class do not have virtual bases at the same offsets.
+
+A construction vtable holds the virtual function addresses and the
+RTTI information associated with the base class and the virtual base  
+indexes and the addresses of adjustor entry points with this
+parameter adjustments associated with objects of the complete class.
+
+To ensure that the vtable pointers are set to the appropriate
+vtables during base class construction, a table of vtable pointers,  
+called the VTT, which holds the addresses of construction and
+non-construction vtables is generated for the complete class. The
+constructor for the complete class passes to each base class
+constructor a pointer to the appropriate place in the VTT where the  
+base class constructor can ?nd its set of vtables. Construction
+vtables are used in a similar way during the execution of base class  
+destructors.
+
+
+
+
+From dehnert at sgi.com  Thu Jul  1 22:52:30 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 01 Jul 1999 15:52:30 -0700
+Subject: Objects in shared memory
+Message-ID: <377BF12E.5EAFDE5C@sgi.com>
+
+Mark,
+  At the ABI meeting today, in discussing B-7, it was mentioned
+that someone believed that IBM provided the ability for users to
+put objects in shared memory.  Can you confirm this, and if so
+describe precisely what is supported and how?
+
+Jim
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From austern at isolde.engr.sgi.com  Thu Jul  1 23:03:01 1999
+From: austern at isolde.engr.sgi.com (Matt Austern)
+Date: Thu, 1 Jul 1999 16:03:01 -0700
+Subject: Objects in shared memory
+In-Reply-To: Jim Dehnert <dehnert@sgi.com>
+        "Objects in shared memory" (Jul  1,  3:52pm)
+References: <377BF12E.5EAFDE5C@sgi.com>
+Message-ID: <9907011603.ZM98721@isolde.engr.sgi.com>
+
+On Jul 1,  3:52pm, Jim Dehnert wrote:
+> Subject: Objects in shared memory
+> Mark,
+>   At the ABI meeting today, in discussing B-7, it was mentioned
+> that someone believed that IBM provided the ability for users to
+> put objects in shared memory.  Can you confirm this, and if so
+> describe precisely what is supported and how?
+
+("Objects", in this context, meaning C++ objects of types that
+have virtual functions or virtual base classes.  The vptr is what
+makes this a hard problem.)
+
+			--Matt
+
+
+
+
+From dehnert at sgi.com  Thu Jul  1 23:40:12 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 01 Jul 1999 16:40:12 -0700
+Subject: Caching vtable elements
+Message-ID: <377BFC5C.2CCDE871@sgi.com>
+
+Mike,
+
+Christophe says you gave him a good description of when vtable
+caching is valid.  Could you please give that to the whole group,
+either by email or at next week's meeting?  Thanks.
+
+Jim
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at sgi.com  Fri Jul  2 01:55:11 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 01 Jul 1999 18:55:11 -0700
+Subject: C++ ABI Summary
+Message-ID: <377C1BFF.9DE166BA@sgi.com>
+
+Attached are updates of the ABI pages, reflecting today's meeting.
+Christophe and I will be on vacation for the next two weeks, and
+Shin Liu will run the meetings in my absence.  Things may be a bit
+light during that time -- please take the opportunity to (a) clear
+up your action items, since several important discussions are
+waiting for them (e.g. exception handling for the Intel disclosure),
+and (b) give some serious consideration to the difficult issues
+that have been raised, and possible solutions, so that we can
+proceed with them.
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990701/a2ac65ac/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990701/a2ac65ac/attachment-0001.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990701/a2ac65ac/attachment-0002.html>
+
+From dehnert at sgi.com  Fri Jul  2 01:57:32 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 01 Jul 1999 18:57:32 -0700
+Subject: C++ ABI Issues Pages
+Message-ID: <377C1C8C.D212353D@sgi.com>
+
+Sorry, I mucked up the attachments on the last mail.
+Here are the open/closed lists.
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990701/702bcbb8/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990701/702bcbb8/attachment-0001.html>
+
+From ddd at cup.hp.com  Fri Jul  2 21:35:01 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Fri, 2 Jul 1999 14:35:01 -0700
+Subject: Report on IA64 C++ ABI
+Message-ID: <199907022135.OAA11745@cllmail.cup.hp.com>
+
+Cary,
+
+
+Thank you for that comment. Do you think of other issues in the  
+issue list that might be covered like this? Can you confirm that  
+makingj a copy in registers (as for C objects) is also in the spirit  
+of the C ABI? In particular, do you agree with the current proposal  
+of passing empty structs with no ctor in zero slots.
+
+
+Thank you
+Christophe
+
+
+Begin forwarded message:
+
+> From: Cary Coutant <cary at cup.hp.com>
+>
+> >- How do we pass arguments that are extensons to C structs, but  
+are not
+> >covered by the C ABI: empty structs, structs with copy constructors, 
+> >structs with a vptr. The agreement seems to be that the copy  
+constructor
+> >is the only real problem. When it's there, we don't use the C ABI  
+at all
+> >but pass a 'this' pointer. When there is none, we just copy the object 
+> >in registers (as we would for a C object) and pass it in  
+registers,even
+> >if there is a vptr. Note that a memory to memory copy would go  
+into the
+> >registers first anyway, so this is always a good idea to pass a struct 
+> >in registers when you want to copy it.
+>
+> This is already addressed in the common conventions document. From  
+> Section 9.6:
+>
+> >Any object that requires a copy constructor must be passed by
+> >copy-reference rather than by value (that is, the compiler must  
+copy it to
+> >a temporary location in memory and pass the address of this  
+location in
+> >the argument list). This guarantees that the object will have a valid  
+> >memory address as required by the copy constructur. The temporary  
+location
+> >should be in the caller's memory stack frame.
+>
+>
+> -cary
+>
+>
+
+
+
+From cary at cup.hp.com  Fri Jul  2 23:35:19 1999
+From: cary at cup.hp.com (Cary Coutant)
+Date: Fri, 2 Jul 1999 16:35:19 -0700
+Subject: Report on IA64 C++ ABI
+Message-ID: <199907022332.QAA17013@cllmail.cup.hp.com>
+
+>Can you confirm that  
+>making a copy in registers (as for C objects) is also in the spirit  
+>of the C ABI? 
+
+Are you speaking here of objects that have no copy constructor? If so, 
+yes, it should be passed according to the C conventions.
+
+Only when there is a copy constructor do we need to pass it by reference. 
+I had one clarification question about your description of this case:
+
+>>The agreement seems to be that the copy constructor is the only real 
+>>problem. When it's there, we don't use the C ABI at all but pass a 'this' 
+>>pointer.
+
+This doesn't make it clear that the caller makes a temporary copy in its 
+own stack frame. Is that what you intended, or did the group discuss 
+something else?
+
+>In particular, do you agree with the current proposal  
+>of passing empty structs with no ctor in zero slots.
+
+Yes, I see no reason to take up space in the parameter list to pass zero 
+information.
+
+-cary
+
+
+
+From daveed at edg.com  Sat Jul  3 00:00:44 1999
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Fri, 02 Jul 1999 17:00:44 -0700
+Subject: C++ ABI Issues Pages
+References: <377C1C8C.D212353D@sgi.com>
+Message-ID: <377D52AC.630D8A04@edg.com>
+
+At yesterday's meeting the issue of optimizing parameter copies came up,
+and some of us recalled that the 1997 London meeting J16/WG21 had restricted
+the scope of [class.copy] 12.8/15 (which deals with eliding calls to the
+copy constructor).
+
+I mentioned that at the 1999 Dublin meeting the issue had been raised
+again and I was to dig up the relevant items from the Core Issues List.
+The relevant items are 6 and (to a lesser extent) 20.  I quote them
+below.
+
+Executive summary: unless a temporary is passed, the observable copy of 
+an object passed by value can not be elided.
+
+	Daveed
+
+
+
+6. Should the optimization that allows a class object to alias another object also allow the
+   case of a parameter in an inline function to alias its argument?
+
+   Section: 12.8 class.copy    Status: extension   Submitter: unknown   Date: unknown
+
+   (Previously numbered 876b.) (See also paper J16/99-0005 = WG21 N1182.) 
+
+   At the London meeting, 12.8 class.copy paragraph 15 was changed to limit the optimization
+   described to only the following cases: 
+
+         the source is a temporary object 
+         the return value optimization 
+
+   One other case was deemed desirable as well: 
+
+           aliasing a parameter in an inline function call to the function call argument. 
+
+   However, there are cases when this aliasing was deemed undesirable and, at the London
+   meeting, the committee was not able to clearly delimit which cases should be allowed and
+   which ones should be prohibited. 
+
+   Can we find an appropriate description for the desired cases? 
+
+   Rationale (04/99): The absence of this optimization does not constitute a defect in the
+   Standard, although the proposed resolution in the paper should be considered when the
+   Standard is revised. 
+
+
+
+20. Some clarifications needed for 12.8 para 15
+
+    Section: 12.8 class.copy    Status: ready   Submitter: unknown   Date: unknown
+
+    (Previously numbered 931.) 
+
+    Issue 1 
+
+    12.8 class.copy (From J16/99-0005 = WG21 N1182, "Proposed Resolutions for Core Language
+                     Issues 6, 14, 20, 40, and 89") 
+
+    There are three related sub-issues in this issue, all dealing with the elision of copy
+    constructors as described in 12.8 class.copy paragraph 15: 
+
+    1. The text should make clear that the requirement that the copy constructor be accessible
+       and unambiguous is not relaxed in cases where a call to a copy constructor is elided. 
+    2. It is not clear from the text that the two optimizations described can be applied
+       transitively, and, if so, the implications for the order of destruction are not spelled
+       out. 
+    3. The text should exclude applying the function-return optimization if the expression 
+       names a static or volatile local object. 
+
+    Analysis 
+
+    After discussion in Santa Cruz, the core group decided that sub-issue #1 required no change;
+    the necessity of an accessible and unambiguous copy constructor is made clear in 12.2 
+    class.temporary paragraph 1 and need not be repeated in this text. The remaining two sub-
+    issues appear to be valid criticisms and should be addressed.
+
+    Proposed Resolution (04/99): The paragraph in question should be rewritten as follows. In
+    addition, references to this section should be added to the index under "temporary, 
+    elimination of," "elimination of temporary," and "copy, constructor elision." 
+
+      When certain criteria are met, an implementation is allowed to omit copying a class
+      object, even if the copy constructor and/or destructor for the object have side
+      effects. In such cases, the implementation treats the source and target of the
+      omitted copy operation as simply two different ways of referring to the same object,
+      and the destruction of that object occurs at the later of the times when the two
+      objects would have been destroyed without the optimization [footnote: Because
+      only one object is destroyed instead of two, and one copy constructor is not
+      executed, there is still one object destroyed for each one constructed.
+      end footnote].
+      This elision of copy operations is permitted in the following circumstances (which
+      may be combined to eliminate multiple copies): 
+        . in a return statement in a function with a class return type, where the
+          expression is the name of a non-volatile automatic object with the same
+          cv-unqualified type as the function return type, the copy operation can
+          be omitted by constructing the automatic object directly into the
+          function's return value 
+
+        . when a temporary class object (12.2 class.temporary ) would be copied to
+          a class object with the same cv-unqualified type, the copy operation can
+          be omitted by constructing the temporary object directly into the target
+          of the omitted copy [Example:
+            class Thing {
+            public:
+               Thing();
+               ~Thing();
+               Thing(const Thing&);
+            };
+           
+            Thing f() {
+               Thing t;
+               return t;
+            }
+
+            Thing t2 = f();
+
+          Here the criteria for elision can be combined to eliminate two calls to
+          the copy constructor of class Thing: the copying of the local automatic
+          object t into the temporary object for the return value of function f()
+          and the copying of that temporary object into object t2. Effectively, the
+          construction of the local object t can be viewed as directly initializing
+          the global object t2, and that object's destruction will occur at program
+          exit. ---end example]
+
+
+
+From mendell at ca.ibm.com  Mon Jul  5 13:48:51 1999
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Mon, 5 Jul 1999 09:48:51 -0400
+Subject: Objects in shared memory
+Message-ID: <852567A5.004C9FBB.00@D51MTA05.pok.ibm.com>
+
+Unfortunately, we don't provide this ability.  I think that there is a way to
+get AIX to put
+shared libraries at the same data/text offsets in each process, and that would
+make it work,
+but there is no general mechanism.
+
+Mark
+
+
+
+
+"Matt Austern" <austern at isolde.engr.sgi.com> on 07/01/99 07:03:01 PM
+
+Please respond to "Matt Austern" <austern at isolde.engr.sgi.com>
+
+To:   Mark Mendell/Toronto/IBM at IBMCA
+cc:   cxx-abi at corp.sgi.com
+Subject:  Re: Objects in shared memory
+
+
+
+
+
+On Jul 1,  3:52pm, Jim Dehnert wrote:
+> Subject: Objects in shared memory
+> Mark,
+>   At the ABI meeting today, in discussing B-7, it was mentioned
+> that someone believed that IBM provided the ability for users to
+> put objects in shared memory.  Can you confirm this, and if so
+> describe precisely what is supported and how?
+
+("Objects", in this context, meaning C++ objects of types that
+have virtual functions or virtual base classes.  The vptr is what
+makes this a hard problem.)
+
+               --Matt
+
+
+
+
+
+
+
+
+From daveed at edg.com  Wed Jul  7 18:03:32 1999
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 07 Jul 1999 11:03:32 -0700
+Subject: Empty bases layout closure
+References: <199907071524.LAA07800@edg1.edg.com> <3783743D.81A7DF1F@edg.com>
+Message-ID: <37839674.17D5EAF@edg.com>
+
+The C++ ABI issues currently contains:
+
+	[990617 All] At offset zero is the Vptr whenever there is one, as well as
+	the primary base class if any (see A-7). Also at offset zero is any number
+	of empty base classes, as long as that does not place multiple subobjects
+	of the same type at the same offset. If there are multiple empty base 
+	classes such that placing two of them at offset zero would violate this
+	constraint, the first is placed there. (First means in declaration order.) 
+
+	All other non-virtual base classes are laid out in declaration order at
+	the beginning of the class. All other virtual base subobjects will be
+	allocated at the end of the class, left-to-right, depth-first. 
+
+	The above ignores issues of padding for alignment, and possible reordering
+	of class members to fit in padding areas. See issue A-9.
+
+I am interested in resolving the issue of what to do with empty bases that cannot
+be located at the object's origin (because of the type conflict).
+
+Empty classes appear in a complete object's layout in one of the following ways:
+	(a) a nonvirtual direct base
+	(b) a virtual base
+	(c) a direct member
+	(d) a nondirect member or nondirect nonvirtual base
+Cases (a-c) can be laid out specifically for the complete object, while (d) is 
+determined by the direct subobject that contains the (d) case.  (d) is none-
+theless important because of the type constraint that two empty subobjects of
+the same type should not be allocated at the same address.  I'm leaving case (b)
+out of this discussion and assume that its resolution as it stands today is fine,
+(but subordinate to prior layout decisions).
+
+An example:
+
+	struct E1 {};
+	struct E2: E1 {};
+	struct E3 {};
+	struct E4: E3 {};
+	struct N1 { E1 n1; }
+
+	struct D: E1, E2, N1, E3, E4 {
+	  E3 e3;
+	};
+
+D could be laid out in many ways. An optimal layout could be:
+	this+0:	base E1, base E3
+	this+1: base E2, member e3
+	this+2: base N1, base E4
+However, an algorithm that would reliably generate such optimal layouts is 
+likely hard to describe.
+
+I also think there is value in decribing the layout in terms of an algorithm
+instead of trying to describe the results of that algorithm.
+
+Here are three general approaches to the empty base layout algorithm:
+
+(1) No reordering at all:
+An empty base can take up zero bytes, but all direct bases and members are 
+allocated in declaration order.  If allocating an element would create a type 
+conflict with a previously allocated empty base, move to the next alignment 
+slot.  This is not compatible with our issues list so far. For the above 
+example, it leads to:
+	this+0:	base E1
+	this+1:	base E2 (shift since conflict)
+	this+2:	base N1 (shift since conflict with E2::E1)
+	this+3:	base E3 (previous was not empty)
+	this+4:	base E4	(shift since conflict)
+	this+5:	member e3 (shift since conflict with E4::E3)
+Not great, but the example is quite artificial.
+
+(2) Reorder only to origin:
+Same as (1) but if an empty base to be allocated can be allocated at offset
+zero with size zero this is done (in declaration order).  This is more or
+less compatible with what the issues list says so far, except it might be
+read to say that if this fails once, it is never reattempted again.  With 
+the latter constraint the layout of the example would be identical to (1).  
+Without that constraint, you get:
+	this+0:	base E1, base E3
+	this+1:	base E2
+	this+2:	base N1
+	this+3:	base E4
+	this+4:	member e4
+
+(3) Layout empty bases in second pass:
+There are various subalternatives in this option: the pass can be inserted
+before or after the layout of direct members; the location granularity can
+be a byte or the boundaries of already allocated subobjects; and there are
+probably other tweaks that can be made.  In our example the granularity
+doesn't matter since no subobject is larger than a byte.  Assuming that the
+pass occurs after direct member layout, you get:
+	this+0:	base N1
+	this+1:	member e3, base E1
+	this+2:	base E2, base E3
+	this+3: base E4
+
+Comments?  Preferences?
+
+My order of preference is:
+	(1) As for other decisions, this option has the merits of being
+	    simple and influencable by the knowledgeable programmer.
+	(3 with no intrasubobject allocation)
+	    I also prefer to have the second pass occur after direct member
+	    layout to increase opportunities (including opportunities that
+	    could not be emulated by the knowledgeable user of scheme (1)).
+	(2) I anticipate the added specification complexity may not be worth
+	    potential gains.
+	(3 with intrasubobject allocation; i.e. byte-granularity)
+	    This is a form of interleaving which I think was already unpopular
+	    when we discussed the allocation of different access-sections.
+
+	Daveed
+
+
+
+From mlam at ha2mpka.eng.sun.com  Wed Jul  7 22:24:18 1999
+From: mlam at ha2mpka.eng.sun.com (Michael Lam)
+Date: Wed, 7 Jul 1999 15:24:18 -0700 (PDT)
+Subject: SUN's ABI on merging vtables
+Message-ID: <199907072225.PAA26988@ha2mpk-mail.eng.sun.com>
+
+This is an item assigned to me last thursday:
+
+About merging (actually concatenating) vtables, I found that our current ABI 
+didn't change on how we generate vtables since the last ABI (what Matt 
+indicated).  So the current ABI document you have is correct in the vtable
+generation aspect.
+
+The reason for generating one name per vtable, regardless of how many parts
+the vtable may have, is to minimize the entries we generate into the GOT 
+(global offset table) section of our PIC object files.
+
+-Michael Lam(of SUN)
+
+
+
+
+From mendell at ca.ibm.com  Thu Jul  8 19:21:36 1999
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Thu, 8 Jul 1999 15:21:36 -0400
+Subject: #pragma priority documentation
+Message-ID: <872567A8.006A6494.00@d53mta04h.boulder.ibm.com>
+
+
+
+This is from our User's Guides.  I hope it looks good when you get it.
+
+   The #pragma priority directive specifies the order in which static objects
+   are to be initialized at run time.
+
+   Note:  This directive is valid for C++ programs only.
+
+   #pragma priority(n)
+
+   Where n is an integer literal in the range of INT_MIN to INT_MAX.  The
+   default value is 0.  A negative value indicates a higher priority; a
+   positive value indicates a lower priority.
+
+   The first 1024 priorities (INT_MIN to INT_MIN + 1023) are reserved for use
+   by the compiler and its libraries.  The priority value specified applies
+   to all runtime static initialization in the current compilation unit.
+
+   Any global object declared before another object in a file is constructed
+   first.  Use #pragma priority to specify the construction order of objects
+   across files.
+
+   To ensure that the objects are always constructed from top to bottom in a
+   file, the compiler enforces the restriction that the priority specified
+   all objects before and all objects after it until the next #pragma is at
+   that priority.
+
+
+There is also a command line option -qpriority=N, which is equivalent to
+#pragma priority (N) as the first statement in the program.
+
+makeC++SharedLib Command
+
+
+This section describes the makeC++SharedLib command and provides an example of
+how to use it to make two shared libraries. It describes how to combine these
+two files in a library using the ar command so that object initialization takes
+place in the specified order.
+
+
+
+
+
+                                               +-----------------+
+                                               V                 |
+>>-- makeC++SharedLib --+--------------------+---+-------------+-+--->
+                        +- -o shared_file.o -+   +- -bOptions -+
+
+
+
+
+
+     +-------------------+     +------------------+
+     V                   |     V                  |
+>------+--------------+--+-------+-------------+--+-- -p priority --->
+       +- -L lib_dir -+          +- -llibrary -+
+
+
+
+
+
+     +-----------------------+       +-----------------------+
+     V                       |       V                       |
+>------+------------------+--+---------+------------------+--+------->
+       +- -I import_list -+            +- -E export_list -+
+
+
+
+
+
+                                     +----------+     +----------+
+                                     V          |     V          |
+>----+-----------+---+-----------+----- file.o -+------- file.a -+--><
+     +- -e file -+   +- -n name -+
+
+
+
+
+
+Options
+|---------------->
+|makeC++SharedLib|
+|---------------->
+  >------------------------------------------------------------------------|
+  |Is the path name for the makeC++SharedLib command that constructs the   |
+  |shared library file.                                                    |
+  >------------------------------------------------------------------------|
+|---------------->
+|-oshared_file.o |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Is the name of the file that will hold the shared file information. The |
+  |default is shr.o.                                                       |
+  >------------------------------------------------------------------------|
+|---------------->
+|-bOptions       |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Uses the -b binder options of the ld command.                           |
+  >------------------------------------------------------------------------|
+|---------------->
+|-Llib_dir       |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Uses the -L option of the ld command to add the directory lib_dir to the|
+  |list of directories to be searched for unresolved symbols. The ld       |
+  |command is described in the AIX Version 4 Commands Reference.           |
+  >------------------------------------------------------------------------|
+|---------------->
+|-llibrary       |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Adds library to the list of libraries to be searched for unresolved     |
+  |symbols.                                                                |
+  >------------------------------------------------------------------------|
+|---------------->
+|-p priority     |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Specifies the priority level for the file. priority may be any number   |
+  |from -214782623 (highest priority-initialized first) to 214783647       |
+  |(lowest priority-initialized last). Numbers from -214783648 to          |
+  |-214782624 are reserved for system use.                                 |
+  >------------------------------------------------------------------------|
+|---------------->
+|-I import_list  |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Uses the -bI option of the ld command to resolve the list of symbols in |
+  |the file import_list that can be resolved by the binder.                |
+  >------------------------------------------------------------------------|
+|---------------->
+|-E export_list  |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Uses the -bE option of the ld command to export the external symbols in |
+  |the export_list file. If you do not specify -E export_list, a list of   |
+  |all global symbols is generated.                                        |
+  >------------------------------------------------------------------------|
+|---------------->
+|-e file         |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Saves in file the list computed by -E export_list.                      |
+  >------------------------------------------------------------------------|
+|---------------->
+|-n name         |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Sets the entry name for the shared executable to name. This is          |
+  |equivalent to using the command ld -e name                              |
+  >------------------------------------------------------------------------|
+|---------------->
+|-X mode         |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Specifies the type of object file makeC++SharedLib should create. The   |
+  |mode must be either 32, which processes only 32-bit object files, or 64,|
+  |which processes only 64-bit object files. The default is to process     |
+  |32-bit object files (ignore 64-bit objects). The mode can also be set   |
+  |with the OBJECT_MODE environment variable. For example, OBJECT_MODE=64  |
+  |causes makeC++SharedLib to process any 64-bit objects and ignore 32-bit |
+  |objects. The -X flag overrides the OBJECT_MODE variable.                |
+  >------------------------------------------------------------------------|
+|---------------->
+|file.o          |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Is an object file to be put into the shared library.                    |
+  >------------------------------------------------------------------------|
+|---------------->
+|file.a          |
+|---------------->
+  >------------------------------------------------------------------------|
+  |Is an archive file to be put into the shared library.                   |
+  >------------------------------------------------------------------------|
+
+
+
+
+
+
+
+
+Example
+
+
+The following example shows how to construct two shared libraries using the
+makeC++SharedLib command, and then use the AIX ar command to combine these
+libraries along with a file that contains the main function so that objects are
+initialized in the specified order.
+
+
+The drawing below shows how the objects in this example are arranged in various
+files.
+|---------+--------------------------------+-+----------->
+|         |                                | |     fish.o|
+|         |                                | |  (priority|
+|         |                                | |       100)|
+|---------+--------------------------------+-+----------->
+  >--------------------------------|
+  |                                |
+  |                                |
+  |                                |
+  |                                |
+  |                                |
+  |                                |
+  |                         fresh.C|
+  |                                |
+  |                                |
+  |                                |
+  |         #pragma priority(-80)  |
+  |              ...               |
+  |            class trout A       |
+  |              ...               |
+  |         #pragma priority(500)  |
+  |              ...               |
+  |            class bass B        |
+  |                                |
+  |                          salt.C|
+  |                                |
+  |                                |
+  |                                |
+  |              ...               |
+  |         #pragma priority(-200) |
+  |              ...               |
+  |            class shark S       |
+  |              ...               |
+  |         #pragma priority(10)   |
+  |              ...               |
+  |            class tuna T        |
+  |                                |
+  |                                |
+  |                                |
+  >--------------------------------|
+|---------+--------------------------------+-+----------->
+|animals.o|                                | |myprogram.C|
+|(priority|                                | |  (priority|
+|40)      |                                | |         0)|
+|         |                                | |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |                         house.C| |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |          #pragma priority(20)  | |           |
+|         |               ...              | |           |
+|         |             class dog D        | |           |
+|         |               ...              | |           |
+|         |          #pragma priority(100) | |           |
+|         |               ...              | |           |
+|         |             class cat C        | |           |
+|         |                                | |           |
+|         |                          farm.C| |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |               ...              | |           |
+|         |            class horse H       | |           |
+|         |               ...              | |           |
+|         |          #pragma priority(500) | |           |
+|         |               ...              | |           |
+|         |             class cow W        | |           |
+|         |                                | |           |
+|         |                           zoo.C| |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |               ...              | |           |
+|         |            class lion L        | |           |
+|         |               ...              | |           |
+|         |          #pragma priority(50)  | |           |
+|         |               ...              | |           |
+|         |            class zebra Z       | |           |
+|         |               ...              | |           |
+|         |                                | |           |
+|         |                                | |           |
+|         |                                | |           |
+|---------+--------------------------------+-+----------->
+  >--------------------------------|
+  |                                |
+  |                                |
+  |                                |
+  |       ...                      |
+  |     main () {                  |
+  |        ...                     |
+  |   class Cage CAGE              |
+  |       ...                      |
+  |                                |
+  |       ...                      |
+  |                                |
+  >--------------------------------|
+
+
+
+
+
+The first part of this example shows how to use makeC++SharedLib along with the
+-qpriority=N option and the #pragma priority(N) directive to specify the
+initialization order for objects in these files.
+
+
+The example shows how to make two shared libraries: animals.o containing object
+files compiled from house.C, farm.C, and zoo.C, and fish.o containing object
+files compiled from fresh.C and salt.C.
+
+
+The example shows how to specify priorities and use the ar command so that all
+the objects in fish.o are initialized before the objects in myprogram.o, and all
+the objects in animals.o are initialized after the objects in myprogram.o.
+Within animals.o, the objects in zoo.C are initialized before the objects in
+house.C and farm.C.
+
+
+To specify this initialization order, follow these steps:
+   1.      Develop an initialization order for the objects in house.C, farm.C,
+     and zoo.C:
+        a.      To ensure that the object lion L in zoo.C is initialized before
+          any other objects in either of the other two files, compile zoo.C
+          using a -qpriority=N option with N less than zero so both objects have
+          a priority number less than any other objects in farm.C and house.C:
+          xlC zoo.C -c -qpriority=-50
+        b.      Compile the house.C and farm.C files without specifying the
+          -qpriority=N option (so N=0) so objects within the files retain the
+          priority numbers specified by their #pragma priority(N) directives:
+          xlC house.C farm.C -c
+        c.      Combine these three files in a shared library. Use
+          makeC++SharedLib to construct a library animals.o with a priority of
+          40:
+          makeC++SharedLib -o animals.o -p 40 house.o farm.o zoo.o
+   2.      Develop an initialization order for the objects in fresh.C, and
+     salt.C:
+        a.      Compile the fresh.C and salt.C files:
+          xlC fresh.C salt.C -c
+        b.      To assure that all objects in fresh.C and salt.C are initialized
+          before any other objects, use makeC++SharedLib to construct a library
+          fish.o with a priority of -100.
+          makeC++SharedLib -o fish.o -p -100 fresh.o salt.o
+
+
+          Because the shared library fish.o has a lower priority number (-100)
+          than animals.o (40), when the files are placed in an archive file with
+          the ar command, their objects are initialized first.
+   3.      Compile myprogram.C that contains the function main to produce an
+     object file myprogram.o. By not specifying a priority, this file is
+     compiled with a default priority of zero, and the objects in main have a
+     priority of zero.
+     xlC myprogram.C -c
+   4.      To create a library that contains the two shared libraries, and the
+     program myprogram.o that contains the function main, so that the objects
+     are initialized in the order you have specified, you use the ar command. To
+     produce an archive file, prio_lib.a, enter the command:
+     ar rv prio_lib.a animals.o fish.o myprogram.o
+
+
+     where:
+|----------->
+|rv         |
+|----------->
+  >----------------------------------------------------------------------------|
+  |Are two ar options. r replaces a named file if it already appears in the    |
+  |library, and v writes to standard output a file-by-file description of the  |
+  |making of the new library.                                                  |
+  >----------------------------------------------------------------------------|
+|----------->
+|prio_lib.a |
+|----------->
+  >----------------------------------------------------------------------------|
+  |Is the name you specified for the archive file that will contain the shared |
+  |library files and their priority levels.                                    |
+  >----------------------------------------------------------------------------|
+|----------->
+|animals.o  |
+|fish.o     |
+|----------->
+  >----------------------------------------------------------------------------|
+  |Are the two shared files you created with makeC++SharedLib.                 |
+  >----------------------------------------------------------------------------|
+|----------->
+|myprogram.o|
+|           |
+|----------->
+  >----------------------------------------------------------------------------|
+  |Is the name of the file that contains the function main.                    |
+  >----------------------------------------------------------------------------|
+
+
+
+
+
+     The order of initialization of the objects is shown in the following table.
+|-----------+--------+---------->
+|           |        |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  |      Order of Initialization of Objects in priolib.a      |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+| File      |  Class | Priority |
+|           | Object |   Value  |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  |                          Comment                          |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           |        |   -100   |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | All objects in "fish.o" are initialized first because they|
+  | are in a library prepared with makeC++SharedLib -p -100   |
+  | (lowest priority number, -p -100, specified for any files |
+  | in this compilation)                                      |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "shark | -100(-200|
+|           |   S"   |     )    |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Initialized first in "fish.o" because within file, #pragma|
+  | priority(-200)                                            |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "trout | -100(-80)|
+|           |   A"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | #pragma priority(-80)                                     |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           |  "tuna | -100(10) |
+|           |   T"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | #pragma priority(10)                                      |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+| "fish.o"  |  "bass | -100(500)|
+|           |   B"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | #pragma priority(500)                                     |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           |        |     0    |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | File generated with no priority specifications; default is|
+  | 0                                                         |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+| "myprog.o"| "CAGE" |   0(0)   |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Object generated in main with no priority specifications; |
+  | default is 0                                              |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           |        |    40    |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | File generated with makeC++SharedLib with -p 40           |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           |  "lion |  40(-50) |
+|           |   L"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Initialized first in file "animals.o" compiled with       |
+  | -qpriority=-50                                            |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "horse |   40(0)  |
+|           |   H"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Follows with priority of 0 (since -qpriority=N not        |
+  | specified at compilation and no #pragma priority(N)       |
+  | directive)                                                |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "dog D"|  40(20)  |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Next priority number (specified by #pragma priority(20))  |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "zebra |  40(50)  |
+|           |   N"   |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Next priority number from #pragma priority(50)            |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+|           | "cat C"|  40(100) |
+|           |        |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Next priority number from #pragma priority(100)           |
+  >-----------------------------------------------------------|
+|-----------+--------+---------->
+| "animals.o| "cow W"|  40(500) |
+| "         |        |          |
+|-----------+--------+---------->
+  >-----------------------------------------------------------|
+  | Next priority number from #pragma priority(500)           |
+  | (Initialized last)                                        |
+  >-----------------------------------------------------------|
+
+
+
+   5.      To produce an executable file, animal_time, so that the objects are
+     initialized in the order you have specified, enter:
+     xlC prio_lib.a -oanimal_time
+
+
+     You can place both nonshared and shared files with different priority
+     levels in the same archive library using the AIX ar command.
+
+
+
+
+
+From austern at isolde.engr.sgi.com  Thu Jul 15 00:15:59 1999
+From: austern at isolde.engr.sgi.com (Matt Austern)
+Date: Wed, 14 Jul 1999 17:15:59 -0700
+Subject: vtable emission, COMDAT, and ELF
+Message-ID: <9907141715.ZM139043@isolde.engr.sgi.com>
+
+We're proposing to use COMDAT sections to remove duplicate vtables,
+and possibly for other purposes.  This will require us to use an
+awful lot of sections.
+
+One of the people here has pointed out a possible problem with that:
+the ELF specification allows only 2^16 sections, and in reality that
+probably means 2^16/4 = 16384 data sections.  We could be in danger
+of running out.
+
+I know that some of you are already using COMDAT sections this
+way.  Have you found this a problem, and, if so, how have you
+dealt with it?
+
+			--Matt
+
+
+
+From cary at cup.hp.com  Thu Jul 15 01:07:11 1999
+From: cary at cup.hp.com (Cary Coutant)
+Date: Wed, 14 Jul 1999 18:07:11 -0700
+Subject: vtable emission, COMDAT, and ELF
+Message-ID: <199907150104.SAA27945@cllmail.cup.hp.com>
+
+>I know that some of you are already using COMDAT sections this
+>way.  Have you found this a problem, and, if so, how have you
+>dealt with it?
+
+We recognize the potential problem, but have not yet hit the limit. We've 
+implemented an experimental solution, using the st_other field to provide 
+eight more bits of symbol index (and using a field in section header 
+number 0 to provide the section count), but that conflicts with the 
+symbol export class added by the IA-64 ABI group (as proposed by SGI).
+
+It's likely that we'll implement a real solution using a parallel symbol 
+table to provide a longer section index.
+
+-cary
+
+
+
+From jason at cygnus.com  Thu Jul 15 08:14:26 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 15 Jul 1999 01:14:26 -0700
+Subject: vtable emission, COMDAT, and ELF
+In-Reply-To: "Matt Austern"'s message of "Wed, 14 Jul 1999 17:15:59 -0700"
+References: <9907141715.ZM139043@isolde.engr.sgi.com>
+Message-ID: <u9so6qtjml.fsf@yorick.cygnus.com>
+
+>>>>> Matt Austern <austern at isolde.engr.sgi.com> writes:
+
+ > I know that some of you are already using COMDAT sections this
+ > way.  Have you found this a problem, and, if so, how have you
+ > dealt with it?
+
+We have not yet found this to be a problem.
+
+Jason
+
+
+
+From jason at cygnus.com  Thu Jul 15 09:20:16 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 15 Jul 1999 02:20:16 -0700
+Subject: vtable heuristic
+Message-ID: <199907150920.CAA10492@yorick.cygnus.com>
+
+The heuristic I suggested in the meeting last week for limiting the
+emission of vtables was to choose as a key the first non-abstract,
+non-inline virtual function in the class, as with the typical heuristic,
+and if that function should be redeclared as inline, just give up and emit
+the vtable everywhere it's used.  But this variant is similarly fragile:
+
+  foo.h:
+  struct A {
+    virtual void f ();
+    virtual void g ();
+  };
+
+  foo.C:
+  #include "foo.h"
+  inline void A::f () { }
+  void someotherfn () { }
+
+  bar.C:
+  #include "foo.h"
+  void A::g () { }
+
+  baz.C:
+  #include "foo.h"
+  int main()
+  {
+    A a;
+  }
+
+Here, both the typical heuristic and my suggested variant will break.  The
+typical heuristic will see that f is now inline and decide to use g
+instead.  But g doesn't know anything about that.  My suggestion breaks
+similarly, because the vtable user in main() doesn't know that f is
+inline.  But this code is ill-formed anyway; [basic.def.odr] says that a
+virtual function is used if it is not pure, and an inline function must be
+defined in every translation unit in which it is used, so A::f must be
+defined in all three translation units for the code to be valid.
+
+So I think the old heuristic is fine.
+
+The problem our customer was having with the old heuristic was as follows:
+They defined a proxy class in a shared library, and didn't export any of the
+symbols of its members or vtable from the shared object.  The client called
+some other API function to get a pointer to one of these objects, and called
+one of its inline member functions.  This broke, because the compiler was
+only emitting the inline functions for the class along with the vtable.  I
+think it makes more sense to emit inlines where they are referenced, which
+might be nowhere.
+
+Jason
+
+
+
+From jason at cygnus.com  Thu Jul 15 10:06:59 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 15 Jul 1999 03:06:59 -0700
+Subject: GNU constructor priority implementation
+Message-ID: <199907151006.DAA10551@yorick.cygnus.com>
+
+g++ uses an attribute to assign a numeric priority to the initialization of
+a particular object; something like
+
+A a (42) __attribute__ ((init_priority (420)));
+
+The normal g++ handling of static constructors is to generate a function
+for the translation unit which runs all of the constructors in order.  In
+the presence of priorities, there is a function for each priority.
+The non-prioritized function goes into .ctors, and the prioritized
+functions go into .ctors.%.5u.  The .ctors* sections are sorted by the
+linker into a single .ctors section for the executable.
+
+Jason
+
+
+
+From jason at cygnus.com  Thu Jul 15 10:58:24 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 15 Jul 1999 03:58:24 -0700
+Subject: g++ EH stack
+Message-ID: <199907151058.DAA10594@yorick.cygnus.com>
+
+The languge-specific part of the EH stack in g++ contains these elements:
+
+void *value; // pointer to the thrown object, or the thrown value itself if
+	     // a pointer
+void *type;  // pointer to the type_info node for the thrown object
+void (*cleanup)(void *, int) // pointer to the destructor for the object
+bool caught; // has this exception been caught since its last throw?
+long handlers; // how many catch handlers are active for this exception
+
+Both 'caught' and 'handlers' are needed to handle rethrowing and catching
+within a catch block.
+
+Language interaction is handled by recording the language of both the
+exception region and the thrown exception.  Each thrown exception also
+includes a pointer to a language-specific matching function which is called
+to compare the types of the exception and handler.
+
+Jason
+
+
+
+From jason at cygnus.com  Thu Jul 15 11:04:57 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 15 Jul 1999 04:04:57 -0700
+Subject: empty base packing strategy
+Message-ID: <199907151104.EAA10807@yorick.cygnus.com>
+
+Say we have an A subobject, AO, followed by a B subobject.  If A ends with
+an empty class subjobject and B begins with an object of the same type, add
+1 to the size of AO for layout purposes.
+
+Jason
+
+
+
+From jason at cygnus.com  Fri Jul 16 20:44:16 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 16 Jul 1999 13:44:16 -0700
+Subject: C++ ABI patents
+Message-ID: <u9lncgqq8v.fsf@yorick.cygnus.com>
+
+Looks like this hasn't appeared on the list yet.
+
+------- Start of forwarded message -------
+Are you folks aware of the various C++ ABI patents out there?  Microsoft
+has a bunch, one of which seems to cover all existing C++ implementations
+(5410705), and IBM has at least one.  Here's what I came up with when I was
+investigating last August; there may be more now.
+
+----------------------
+
+ > 5794041, Law et al., C++ object model alternatives, IBM
+
+Covers sharing a vptr with a virtual base when either the derived or base
+classes have no other data members.  Note that Sun's C++ ABI document talks
+about this optimization.  It was written in 1994, while the IBM patent was
+filed in 1996.
+
+The patent also covers some minor optimizations to avoid adjusting 'this'
+in some cases, by pushing vtable entries down into derived classes.
+
+ > 5754862, Jones et al., Method and system for accessing virtual base
+ > classes, Microsoft
+
+Covers use of a vbase table.
+
+ > 5617569, Gray et al., Method and system for implementing pointers to
+ > members in a compiler for an object-oriented programming language,
+ > Microsoft
+
+Extends 5432936.  Also covers implementing pointers to member functions
+using vbase offsets and calling virtual functions using thunks which check
+the vtable rather than checking the vtable directly.
+
+ > 5603030, Gray et al., Method and system for destruction of objects using
+ > multiple destructor functions in an object-oriented computer system,
+ > Microsoft
+
+Covers using multiple destructors for the different cases (should{,n't}
+delete, should{,n't} destroy vbases, array), a useful optimization.
+
+Sun's ABI also seems to touch on this, but this patent was filed in 1993.
+
+ > 5410705, Jones et al., Method for generating an object data structure
+ > layout for a class in a compiler for an object-oriented programming
+ > language, Microsoft 
+
+This patent claims basic object layout, including sharing a vptr with a
+non-virtual base, like we've been doing all along.  Shows how far they're
+willing to go, and how ignorant the PTO is.
+
+ > 5371891, Gray et al., Method for object construction in a compiler for
+ > an object-oriented programming language, Microsoft
+
+This describes Microsoft's solution for calling virtual functions in
+virtual bases from constructors, by storing the offset in the vbase
+itself.  But claim 59 seems broad enough to cover any solution to this
+problem.
+
+ > 5297284, Jones et al., Method and system for implementing virtual
+ > functions and virtual base classes and setting a this pointer for an
+ > object-oriented programming language, Microsoft
+
+This is the one everyone knows about; it covers the thunk optimization
+(setting up Derived::f to take Base*).
+
+------- End of forwarded message -------
+
+
+
+From jason at cygnus.com  Fri Jul 16 22:18:21 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 16 Jul 1999 15:18:21 -0700
+Subject: Covariant polymorphic returns and when sharing B-D V-pointers
+In-Reply-To: daveed@edg.com's message of "23 Jun 1999 18:26:47 -0700"
+References: <199906240031.RAA04882@cllmail.cup.hp.com> <3771884C.F2E5C689.cygnus.g++.abi@edg.com>
+Message-ID: <u9iu7kqlw2.fsf@yorick.cygnus.com>
+
+The alternative I was talking about yesterday goes something like this:
+
+When we have a non-trivial covariant return situation, we create a new
+entry in the vtable for the new return type.  The caller chooses which
+vtable entry to use based on the type they want.
+
+This could be implemented several ways, at the discretion of the vendor:
+
+1) Multiple entry points to one function, with an internal flag indicating
+   which type to return.
+2) Thunks which intercept the function's return and modify the return
+   value.  Note that unlike the case of calling virtual functions, for
+   covariant returns we always know which adjustments will be needed, so we
+   don't have to pay for a long branch.  We do, however, lose the 1-1
+   correspondence between calls and returns, which apparently affects
+   performance on the Pentium Pro.
+3) Function duplication.
+
+The advantage of this approach to the complex case is that we don't have to
+do a dynamic_cast when faced with multiple levels of virtual derivation.
+It is also strictly simpler; Daveed's model already requires something like
+this in cases of multiple inheritance.
+
+Of course, we can always mix and match; we could choose to only do this in
+cases of virtual inheritance, or use Daveed's proposal and do this only in
+cases of repeated virtual inheritance.  In that case, the multiple returns
+would just be an optimization for the single virtual inheritance case.
+
+Since we don't seem to care about the performance of anything but single
+nonvirtual inheritance, it seems simpler not to bother with multiple
+returns.
+
+The remaining question is how to handle the case of nontrivial nonvirtual
+inheritance: do we use multiple slots or have the caller do the adjustment?
+My inclination is to have the caller adjust.
+
+WRT patents, the idea of having the function return the base-most class and
+having the caller adjust is parallel to the patented Microsoft scheme
+whereby they pass the base-most class as the 'this' argument to virtual
+functions, but the word 'return' does not appear anywhere in the patent, so
+it seems safe.
+
+Jason
+
+
+
+From austern at isolde.engr.sgi.com  Fri Jul 16 23:58:33 1999
+From: austern at isolde.engr.sgi.com (Matt Austern)
+Date: Fri, 16 Jul 1999 16:58:33 -0700
+Subject: Notes from the 14 July meeting
+Message-ID: <9907161658.ZM163935@isolde.engr.sgi.com>
+
+We discussed issues B5 (where to emit vtables), C2 (ordering of
+static constructors), and B2 (covariant return type).
+
+Action items: I agreed to write up a description of a priority
+scheme for C2, and Jason agreed to write up a description of a
+simple scheme for B2, including a proof that the simpler scheme
+would be correct (albeit slow) for some of the ghastly cases that
+Daveed has been considering.
+
+
+B5. WHERE ARE VTABLES EMITTED
+
+Consensus so far: use a heuristic for vtable and typeinfo emission,
+based on the definition of the key function.  (The first virtual
+function that is not declared inline in the class definition.)  The
+vtable must be emitted where the key function is defined, it may also
+be emitted in other translation units as well.  If there is no key
+function then the vtable must be emitted in any translation unit that
+refers to the vtable in any way.
+
+Implication: the linker must be prepared to discard duplicate vtables.
+We want to use COMDAT sections for this (and for other entities with
+vague linkage.)
+
+Open issue: the elf format allows only 16 bits for section identifiers,
+and typically two of those bits are already taken up for other things.
+So we've only got 16k sections available, which is unacceptable if we're
+creating lots of small sections.
+
+Jason - COMDATs disappear into text and data at link time, so the issue
+is really only serious if we've got more than 16k vtables (or template
+instantiations, etc.) in a single translation unit.
+
+Daveed - HP has gotten around this problem by hacking their ELF files
+to steal another 8 bits from somewhere else.
+
+Jack - a new kind of section table could be a viable solution.  However,
+it would break everything if we did it for ia32.  Is a solution that only
+works on ia64 acceptable?  Note also that the elf section table has its own
+string table, which we wouldn't be able to share with the new kind of
+section table.  Index and link fields often point into section table, we
+would have to figure out how to deal with this.  (Jack is not opposed to
+the idea of an alternate section table, he is just pointing out some of the
+issues we will have to resolve.)
+
+Status: issue is still open.
+
+C2. ORDER OF CTORS/DTORS
+
+Cygnus scheme: priorities are 16-bit unsigned integers, lower numbers are
+higher priority.  In each translation unit, there's a single initialization
+function for each priority.  Anything that's prioritized has a higher
+priority than anything that isn't explicitly assigned a priority.  IBM
+scheme: priorities are 32-bit signed integers, higher numbers are higher
+priority.  Something that isn't explicitly assigned a priority effectively
+gets a priority of 0.
+
+Consensus: nobody is sure that negative priorities are very important, but
+also nobody can think of a reason not to allow them.  We accept the idea
+that priorities are 32-bit signed integers.  On a source level Cygnus will
+keep lower numbers as higher priority, but that's a source issue, not an
+ABI issue.
+
+Status: No real technical issues, we have consensus on everything that
+matters.  We need to write up the finicky details.
+
+
+
+B2. COVARIANT RETURN TYPES
+
+Daveed presented his multiple-return-value scheme, including an example
+that involved virtual base classes, return values that are pointers to
+nonpolymorphic classes, and other equally horrible things.
+
+Consensus: we need to get the horrible cases correct, but speed only
+matters in the simple case.  The simple case: class B has a virtual
+function f returning a B1* and class D has a virtual function f
+returning a D1*, where all four classes are polymorphic, B is a primary
+base of D, and B1 is a primary base of D1.  (The really important case
+is where B1 is B and D1 is D, but that simplification doesn't make any
+difference.)
+
+Jason: Would the usual multiple-entry-point scheme work just as well?
+That is, would it be just as fast as Daveed's scheme in the simple
+case, and still preserve enough information for the more complicated
+cases?  It appears so, but we don't have a proof.  Jason will try to
+provide one.
+
+			--Matt
+
+
+
+From jason at cygnus.com  Sat Jul 17 04:41:43 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 16 Jul 1999 21:41:43 -0700
+Subject: Notes from the 14 July meeting
+In-Reply-To: austern@isolde.engr.sgi.com's message of "16 Jul 1999 17:03:09 -0700"
+References: <9907161658.ZM163935.cygnus.g++.abi@isolde.engr.sgi.com>
+Message-ID: <u9908fripk.fsf@yorick.cygnus.com>
+
+>>>>> Matt Austern <austern at isolde.engr.sgi.com> writes:
+
+ > Jason: Would the usual multiple-entry-point scheme work just as well?
+ > That is, would it be just as fast as Daveed's scheme in the simple
+ > case, and still preserve enough information for the more complicated
+ > cases?  It appears so, but we don't have a proof.  Jason will try to
+ > provide one.
+
+Proof?  You always know what types a given override must be able to return,
+and you know how to convert from the return type to those base types.  You
+know from the entry point which type is desired.  Seems pretty
+straightforward to me.
+
+Jason
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Jul 20 05:53:02 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 19 Jul 1999 22:53:02 -0700 (PDT)
+Subject: Empty bases layout closure
+References: <199907071524.LAA07800@edg1.edg.com> <3783743D.81A7DF1F@edg.com>
+Message-ID: <199907200553.WAA95466@baalbek.engr.sgi.com>
+
+Pardon me if this has been discussed in the meetings I missed.  I will
+try to at least describe what I was thinking.
+
+> Date: Wed, 07 Jul 1999 11:03:32 -0700
+> From: Daveed Vandevoorde <daveed at edg.com>
+> 
+> I am interested in resolving the issue of what to do with empty bases that
+> cannot be located at the object's origin (because of the type conflict).
+> 
+> Empty classes appear in a complete object's layout in one of the following
+> ways:
+> 	(a) a nonvirtual direct base
+> 	(b) a virtual base
+> 	(c) a direct member
+> 	(d) a nondirect member or nondirect nonvirtual base
+> Cases (a-c) can be laid out specifically for the complete object, while
+> (d) is  determined by the direct subobject that contains the (d) case.
+> (d) is nonetheless important because of the type constraint that two
+> empty subobjects of the same type should not be allocated at the same
+> address.  I'm leaving case (b) out of this discussion and assume that
+> its resolution as it stands today is fine, (but subordinate to prior
+> layout decisions).
+> 
+> An example:
+> 
+> 	struct E1 {};
+> 	struct E2: E1 {};
+> 	struct E3 {};
+> 	struct E4: E3 {};
+> 	struct N1 { E1 n1; }
+> 
+> 	struct D: E1, E2, N1, E3, E4 {
+> 	  E3 e3;
+> 	};
+> 
+> D could be laid out in many ways. An optimal layout could be:
+> 	this+0:	base E1, base E3
+> 	this+1: base E2, member e3
+> 	this+2: base N1, base E4
+> However, an algorithm that would reliably generate such optimal layouts is 
+> likely hard to describe.
+>
+> I also think there is value in decribing the layout in terms of an algorithm
+> instead of trying to describe the results of that algorithm.
+
+I intended the following process.  Note that I view each subobject as
+having size 1, all tail padding.
+
+ 1) E1 goes at this+0:  it is first empty subobject.
+    This leaves end of data at 0, end of padding at 1.
+ 2) E2 goes at this+1:  it conflicts with E1 and is shifted.
+    This leaves end of (last subobject's) data at 1, end of padding at 2.
+ 3) N1 goes at this+2:  it conflicts with E1 and E2 and is shifted.
+    This leaves end of data at 2, end of padding at 3.
+ 4) E3 goes at this+0:  it does not conflict with E1.
+    This leaves end of data at 2, end of padding at 3.
+ 5) E4 goes at this+2:  it conflicts with E3 at 0, but not with N1 at
+    end of data.  (Note that the intermediate point at 1 is not tried.)
+    This leaves end of data at 2, end of padding at 3.
+ 6) e3 goes at this+3:  it conflicts with E3 at 0, and with E4 at 2.
+    This leaves end of data at 3, end of padding at 4.
+
+The end result is size 4 -- not optimal, but straightforard to
+accomplish by sequential processing.  This doesn't match any of
+Daveed's versions, but matches the size of his case (3).  It simply
+assumes that processing order is (a) non-virtual bases, (b) members,
+and finally (c) virtual bases, and that for an empty one we first
+attempt to put it at 0, and given a conflict we look at end-of-data,
+shifting further if necessary.
+
+(Actually, e3 is different -- not a base -- and our rules didn't
+contemplate considering 0.  Should they?  Further, I've treated
+end-of-data above as at least the beginning of the last object
+deposited.  We could well not increment it when a new empty object is
+laid down past the end.  If we make these two improvements to my
+process, we get the optimal layout with a simple algorithm.  Note that
+I would like the end result here to be treated as all tail padding when
+it becomes a component itself.  This is probably cleaner in conjunction
+with the second improvement.)
+
+> Here are three general approaches to the empty base layout algorithm:
+> 
+> (1) No reordering at all:
+> An empty base can take up zero bytes, but all direct bases and members are 
+> allocated in declaration order.  If allocating an element would create a type 
+> conflict with a previously allocated empty base, move to the next alignment 
+> slot.  This is not compatible with our issues list so far. For the above 
+> example, it leads to:
+> 	this+0:	base E1
+> 	this+1:	base E2 (shift since conflict)
+> 	this+2:	base N1 (shift since conflict with E2::E1)
+> 	this+3:	base E3 (previous was not empty)
+> 	this+4:	base E4	(shift since conflict)
+> 	this+5:	member e3 (shift since conflict with E4::E3)
+> Not great, but the example is quite artificial.
+> 
+> (2) Reorder only to origin:
+> Same as (1) but if an empty base to be allocated can be allocated at offset
+> zero with size zero this is done (in declaration order).  This is more or
+> less compatible with what the issues list says so far, except it might be
+> read to say that if this fails once, it is never reattempted again.  With 
+> the latter constraint the layout of the example would be identical to (1).  
+> Without that constraint, you get:
+> 	this+0:	base E1, base E3
+> 	this+1:	base E2
+> 	this+2:	base N1
+> 	this+3:	base E4
+> 	this+4:	member e4
+> 
+> (3) Layout empty bases in second pass:
+> There are various subalternatives in this option: the pass can be inserted
+> before or after the layout of direct members; the location granularity can
+> be a byte or the boundaries of already allocated subobjects; and there are
+> probably other tweaks that can be made.  In our example the granularity
+> doesn't matter since no subobject is larger than a byte.  Assuming that the
+> pass occurs after direct member layout, you get:
+> 	this+0:	base N1
+> 	this+1:	member e3, base E1
+> 	this+2:	base E2, base E3
+> 	this+3: base E4
+> 
+> Comments?  Preferences?
+> 
+> My order of preference is:
+> 	(1) As for other decisions, this option has the merits of being
+> 	    simple and influencable by the knowledgeable programmer.
+> 	(3 with no intrasubobject allocation)
+> 	    I also prefer to have the second pass occur after direct member
+> 	    layout to increase opportunities (including opportunities that
+> 	    could not be emulated by the knowledgeable user of scheme (1)).
+> 	(2) I anticipate the added specification complexity may not be worth
+> 	    potential gains.
+> 	(3 with intrasubobject allocation; i.e. byte-granularity)
+> 	    This is a form of interleaving which I think was already unpopular
+> 	    when we discussed the allocation of different access-sections.
+> 
+> 	Daveed
+> 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jul 21 00:27:57 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jul 1999 17:27:57 -0700 (PDT)
+Subject: empty base packing strategy
+Message-ID: <199907210027.RAA98099@baalbek.engr.sgi.com>
+
+> Date: Thu, 15 Jul 1999 04:04:57 -0700
+> From: Jason Merrill <jason at cygnus.com>
+> 
+> Say we have an A subobject, AO, followed by a B subobject.  If A ends with
+> an empty class subjobject and B begins with an object of the same type, add
+> 1 to the size of AO for layout purposes.
+
+Perhaps I'm coming into the middle of something with context from the
+meetings I missed, but this seems like a confusing way to look at this.
+First, A should have a well-defined size, and second, it leads to
+questions about how to handle more general cases.  Consider Daveed's
+earlier example:
+
+        struct E1 { };
+        struct E2: E1 { };
+        struct E3 { };
+        struct E4: E3 { };
+        struct N1 { E1 n1; }
+
+        struct D: E1, E2, N1, E3, E4 {
+          E3 e3;
+        };
+
+As we saw, this struct has a "size" somewhere between 3 and 6 bytes
+(depending on your interpretation of the layout rules), assuming that
+any object has a non-zero size (as required by the Standard), and all
+members must be "inside" the containing object.  However, I think we
+can (and should if it's not too difficult) view it all as tail padding.
+
+Now, if this (D) is the A0 subobject of Jason's statement, where do we
+put B?  My interpretation of our decision three weeks ago is that we
+attempt to put it at the beginning of the tail padding, i.e.
+potentially at the beginning of A0.  If that fails because of a
+type-at-same-offset conflict, then you try the next available (based
+on alignment constraints) offset, then the next, etc.  That is, just
+increment the offset you consider for B directly -- don't do it
+implicitly by talking about modifying the size of A.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jul 21 01:23:06 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jul 1999 18:23:06 -0700 (PDT)
+Subject: Exception handling documentation
+Message-ID: <199907210123.SAA98532@baalbek.engr.sgi.com>
+
+HP has released the IA-64 runtime conventions documentation on the web at:
+
+	http://devresource.hp.com/devresource/Docs/Refs/IA64Runtime.pdf
+
+and I have a copy for SGI folks at:
+
+	http://baalbek.engr.sgi.com/dehnert/docs/psABI/IA64Runtime.pdf
+
+Thank you Cary!  This means that we now have the exception handling
+documentation and can discuss it without NDA.  (However, we still do
+not have Intel's promised description of how they intended to use it
+for C++, and those details aren't in the general conventions.)
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jul 21 01:43:57 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jul 1999 18:43:57 -0700 (PDT)
+Subject: Order of CTORs (Notes from the 14 July meeting)
+Message-ID: <199907210143.SAA98602@baalbek.engr.sgi.com>
+
+> C2. ORDER OF CTORS/DTORS
+> 
+> Cygnus scheme: priorities are 16-bit unsigned integers, lower numbers are
+> higher priority.  In each translation unit, there's a single initialization
+> function for each priority.  Anything that's prioritized has a higher
+> priority than anything that isn't explicitly assigned a priority.  IBM
+> scheme: priorities are 32-bit signed integers, higher numbers are higher
+> priority.  Something that isn't explicitly assigned a priority effectively
+> gets a priority of 0.
+> 
+> Consensus: nobody is sure that negative priorities are very important, but
+> also nobody can think of a reason not to allow them.  We accept the idea
+> that priorities are 32-bit signed integers.  On a source level Cygnus will
+> keep lower numbers as higher priority, but that's a source issue, not an
+> ABI issue.
+
+Am I missing something?  If we want to mix objects, consistent
+treatment of the priorities will matter.  I suppose we could agree on
+the binary treatment without agreeing on the source representation,
+but it seems much better to also agree on a source form, even if some
+existing compilers still need to map old forms to the new one.
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jul 21 01:46:45 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jul 1999 18:46:45 -0700 (PDT)
+Subject: Vtable emission (Notes from the 14 July meeting)
+Message-ID: <199907210146.SAA98266@baalbek.engr.sgi.com>
+
+> From owner-cxx-abi-sgi at cthulhu  Fri Jul 16 16:58:43 1999
+> From: "Matt Austern" <austern at isolde>
+> 
+> Open issue: the elf format allows only 16 bits for section identifiers,
+> and typically two of those bits are already taken up for other things.
+> So we've only got 16k sections available, which is unacceptable if we're
+> creating lots of small sections.
+
+I don't understand the comment about two bits being taken up for other
+things.  There are 256 indices reserved for special sections (e.g.
+SHN_COMMON).  And a data/text section typically comes with an
+associated relocation and potentially debug sections.  Is that what
+you're referring to?
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at sgi.com  Wed Jul 21 22:53:25 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Wed, 21 Jul 1999 15:53:25 -0700
+Subject: C++ ABI Summary
+Message-ID: <37964F65.A469393@sgi.com>
+
+Attached are updated issue pages, based on the email and meeting
+reports I've gotten.  I've added several action items, closed a
+couple, and added some of the email commentary to the open issues
+page.
+
+Tomorrow let's try to clarify empty base layout (A-4), and then
+talk about the active issues: ordering/priority of CTORs (C-2),
+covariant returns (B-2), Vtable and inline emission (and COMDAT)
+(B-5), and Vtable layout (B-6).  Given time, we can look at the
+open "A" issues.
+
+Priti (Intel) has told me that she'll get us the Intel C++ exception
+model description early next week, so presumably we'll be able to
+start some serious discussion at that time.
+
+By the way, in looking for things in my email log, it occurs to
+me that it would help if we all tried to put a relevant issue #
+in the subject lines...
+
+See you tomorrow.
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990721/30078262/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990721/30078262/attachment-0001.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990721/30078262/attachment-0002.html>
+
+From dehnert at baalbek.engr.sgi.com  Wed Jul 21 23:04:05 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 21 Jul 1999 16:04:05 -0700 (PDT)
+Subject: B-5 Vtable heuristic
+Message-ID: <199907212304.QAA00659@baalbek.engr.sgi.com>
+
+Let me try to summarize this, to see if I understand the issues and
+status correctly.  Please correct my misunderstandings, or clarify and
+elaborate as needed.
+
+
+1)  Because there are no reliable heuristics for avoiding duplicate
+vtable emission, there is concensus that we need a mechanism that allows
+us to emit duplicates and remove them at link time.  Further, there is
+concensus that we will use a COMDAT-like mechanism, detecting and
+removing duplicate data at section granularity.
+
+This leaves several open questions:
+
+    A.	The precise specification of the COMDAT representation and
+	semantics (must be resolved and submitted to psABI).
+
+    B.	The name of the vtable (must be resolved, but may be handled
+	separately as part of F-1 mangling).
+
+    C.	Using COMDAT sections will increase the section count,
+	perhaps dramatically, and may require a mechanism to avoid the
+	current 16-bit limit on section indices.  (This should be
+	resolved, but is not obviously as urgent.  However, since it
+	will require a psABI change and linker support, solving it
+	consistently earlier is better than later.)
+
+
+2)  Even with COMDAT support, in order to minimize relocatable object
+file sizes, and minimize the (1C) issue above, it remains desirable to
+implement heuristics to avoid as many duplicates as possible.
+
+The traditional heuristic is to emit the vtable in the same object as
+the definition of the first non-inline, non-pure-virtual member
+function of the class -- called the key member function -- or, if no
+such, always emit it.  This fails if the key member function changes,
+namely by declaring it inline in the file where it is defined but not
+elsewhere.  However, this behavior violates the Standard.
+
+My intuition is that the member functions of most classes are defined
+in one or a small number of files, suggesting a modification of this
+heuristic:  Always emit the vtable in a file defining any non-inline,
+non-pure-virtual member function (or in any file where there are no
+such member functions defined for the class).  This will emit it in
+more places, but it might not be much worse in practice, and should
+be absolutely safe.  If the original motivation for the stricter
+traditional heuristic was that there was no COMDAT to take care of
+residual duplicates, perhaps this is good enough once we have COMDAT?
+
+Note that avoiding similar problems in programs linked from objects
+produced by different compilers requires that the compilers all use
+the same heuristic, so either agreement on heuristic or an ABI
+compilation mode which always emits is required.
+
+Outstanding issue:
+
+    D.	What heuristic do we adopt?
+
+
+3)  Emission of out-of-line copies of inline routines is a related
+issue.  They could be emitted in the same file(s) as the Vtable (for
+polymorphic classes).  In fact, if we wanted to take advantage of the
+language requirement that inline declarations be consistent, they could
+all go in the same section(s).  Has this been discussed?
+
+Questions:
+
+    E.	Where do we emit inline routines (G-3)?
+
+    F.  Do we put multiple routines in the same COMDAT section?
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From jason at cygnus.com  Wed Jul 21 23:48:20 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 21 Jul 1999 16:48:20 -0700
+Subject: empty base packing strategy
+In-Reply-To: dehnert@baalbek.engr.sgi.com's message of "Tue, 20 Jul 1999 17:27:57 -0700 (PDT)"
+References: <199907210027.RAA98099@baalbek.engr.sgi.com>
+Message-ID: <u9d7xlh8e3.fsf@yorick.cygnus.com>
+
+>>>>> Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+ >> Date: Thu, 15 Jul 1999 04:04:57 -0700
+ >> From: Jason Merrill <jason at cygnus.com>
+ >> 
+ >> Say we have an A subobject, AO, followed by a B subobject.  If A ends with
+ >> an empty class subjobject and B begins with an object of the same type, add
+ >> 1 to the size of AO for layout purposes.
+
+ > Perhaps I'm coming into the middle of something with context from the
+ > meetings I missed, but this seems like a confusing way to look at this.
+ > First, A should have a well-defined size
+
+A does have a well-defined size.  Actually, it has two well-defined sizes;
+one with padding (i.e. 1) and one without (i.e. 0).  Really, the empty base
+optimization is a corner case of the tail padding optimization, with the
+additional constraint of avoiding overlap.
+
+The g++ implementation is to give a subobject the unpadded size of its type
+unless that would lead to overlap, in which case it gets the padded size
+(1).  But you don't have to set the offsets this way; using field sizes to
+do this just seemed like a clean way to do it in gcc, since the backend
+only knows about C structs.  My understanding is that the SGI compiler also
+uses pseudo-fields for base subobjects.
+
+ > and second, it leads to
+ > questions about how to handle more general cases.  Consider Daveed's
+ > earlier example:
+
+ >         struct E1 { };
+ >         struct E2: E1 { };
+ >         struct E3 { };
+ >         struct E4: E3 { };
+ >         struct N1 { E1 n1; }
+
+ >         struct D: E1, E2, N1, E3, E4 {
+ >           E3 e3;
+ >         };
+
+My algorithm would do this:
+
+E1: offset 0
+E2: offset 1 (E1o has size 1 due to overlap)
+N1: offset 2 (E2o has size 1 due to overlap)
+E3: offset 2 (N1 has size 0)
+E4: offset 3 (E3o has size 1)
+e3: offset 4 (E4o has size 1)
+
+So D has (unpadded) size 5.  Certainly it is possible to do better by
+reordering, as you suggest doing; I don't feel strongly one way or the
+other.  My approach is simpler; yours is more efficient.
+
+If I were to implement your strategy, I would probably keep the current
+code and just reorder the pseudo-fields as necessary.
+
+Jason
+
+
+
+From jason at cygnus.com  Thu Jul 22 00:33:14 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 21 Jul 1999 17:33:14 -0700
+Subject: B-5 Vtable heuristic
+In-Reply-To: dehnert@baalbek.engr.sgi.com's message of "Wed, 21 Jul 1999 16:04:05 -0700 (PDT)"
+References: <199907212304.QAA00659@baalbek.engr.sgi.com>
+Message-ID: <u9aesph6b9.fsf@yorick.cygnus.com>
+
+>>>>> Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+ >     B.	The name of the vtable (must be resolved, but may be handled
+ > 	separately as part of F-1 mangling).
+
+I think it should be part of F-1.
+
+ > The traditional heuristic is to emit the vtable in the same object as
+ > the definition of the first non-inline, non-pure-virtual 
+ > member function of the class
+  ^--virtual
+
+ > My intuition is that the member functions of most classes are defined
+ > in one or a small number of files, suggesting a modification of this
+ > heuristic:  Always emit the vtable in a file defining any non-inline,
+ > non-pure-virtual member function (or in any file where there are no
+ > such member functions defined for the class).
+
+The problem with this is that only (non-pure) virtual functions are
+required to be defined.  I suppose we could get around that problem by
+limiting it to translation units which use at least one of the class'
+non-inline, non-pure-virtual member functions.
+
+However, I don't see a real need to jump through hoops to accommodate
+ill-formed code.  All your suggestion would do for bad code would be to
+make the linker error message more useful, telling them that the key
+function is missing, rather than the vtable.  And that can be done by
+post-processing of the linker errors.
+
+The benefit I see to this approach would be fewer copies of the vtable for
+classes with all virtual functions inline or pure, but at least one
+non-inline, non-virtual member function which is used in most translation
+units which also use inline constructors of the class in question.  How
+often do we think this situation occurs?
+
+I don't think this is worth the added complexity.
+
+ > 3)  Emission of out-of-line copies of inline routines is a related
+ > issue.  They could be emitted in the same file(s) as the Vtable (for
+ > polymorphic classes).
+
+I touched on this in my last email about the heuristic.  I am opposed to
+emitting the inlines with the vtable, for two reasons:
+
+1) One of our users defines a proxy class whose implementation is not
+   exported from the shared library where it is defined; the API for the
+   class consists of virtual functions, accessible through the vtable, and
+   inline functions.  They complained that since g++ currently emits
+   inlines along with the vtable, their code would only link if inlining
+   was enabled.
+2) Often, we will need 0 copies of inline functions.
+
+ >     E.	Where do we emit inline routines (G-3)?
+
+IMO, in translation units where an out-of-line copy is needed.
+
+ >     F.  Do we put multiple routines in the same COMDAT section?
+
+I don't see how we could.  We could put the vtable and type_info node in
+the same section, though.
+
+Jason
+
+
+
+From mlam at ha2mpka.eng.sun.com  Tue Jul 27 17:52:38 1999
+From: mlam at ha2mpka.eng.sun.com (Michael Lam)
+Date: Tue, 27 Jul 1999 10:52:38 -0700 (PDT)
+Subject: A summary on ctor/dtor issues
+Message-ID: <199907271753.KAA24648@ha2mpk-mail.eng.sun.com>
+
+Attached are the 3 scanned pages of the SUN's currently changing ABI document,
+on constructor and destructor implementation.  The summary starts from
+section 3.7 of p1.
+
+-Michael Lam
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: p1
+Type: image/gif
+Size: 20268 bytes
+Desc: p1
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/e9c9b9fe/attachment.gif>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: p2
+Type: image/gif
+Size: 19780 bytes
+Desc: p2
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/e9c9b9fe/attachment-0001.gif>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: p3
+Type: image/gif
+Size: 20181 bytes
+Desc: p3
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/e9c9b9fe/attachment-0002.gif>
+
+From dehnert at sgi.com  Wed Jul 28 01:00:35 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Tue, 27 Jul 1999 18:00:35 -0700
+Subject: C++ ABI Summary
+Message-ID: <379E5633.70D44B90@sgi.com>
+
+Attached are updated documents based on last week's meeting (but
+not yet new material).  Note new room and phone reservations in
+the summary page (the phone # changes after 19 August).
+
+I closed B-2 and C-8 based on meeting decisions.  Please check them.
+
+The fourth attached page is the writeup I promised on object layout.
+I think it's precise now -- please verify that it says what you
+expected.  Note that it lists three choices for the placement of
+empty bases.  Please think about them, and we'll discuss them
+Thursday.
+
+
+Sassan -- you were going to give us a title/author for the Taligent
+book.
+
+Priti -- you were going to send the exception handling writeup.
+
+All -- HP has requested that we stop redistributing the runtime
+conventions document.  They are making changes, and will re-post
+it (soon, I think) and let us know.
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/365cdf8c/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/365cdf8c/attachment-0001.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/365cdf8c/attachment-0002.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990727/365cdf8c/attachment-0003.html>
+
+From sassan at cup.hp.com  Thu Jul 29 01:04:18 1999
+From: sassan at cup.hp.com (Sassan Hazeghi)
+Date: Wed, 28 Jul 1999 18:04:18 -0700 (PDT)
+Subject: C++ ABI Summary
+In-Reply-To: <379E5633.70D44B90@sgi.com>
+References: <379E5633.70D44B90@sgi.com>
+Message-ID: <199907290104.SAA08452@hpcll539.cup.hp.com>
+
+Jim Dehnert writes:
+...
+ > 
+ > Sassan -- you were going to give us a title/author for the Taligent
+ > book.
+...
+Jim: Unfortunately I was wrong on this; the Taligent Runtime
+Specifications book has the same appearance and cover as the other
+Taligent books, but it is marked as "Taligent Confidential" inside.
+So, it looks like we still need to await the result of Cary's 
+trying to clear it with the lawyers.
+
+Sorry about the error,
+Sassan.
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Jul 30 03:55:46 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 29 Jul 1999 20:55:46 -0700 (PDT)
+Subject: Action items from today's meeting
+Message-ID: <199907300355.UAA22194@baalbek.engr.sgi.com>
+
+The following are the actions people agreed to (or were volunteered
+for) at today's meeting.  AI-nn refers to an action item in the
+summary, X-nn refers to the issue with that number.
+
+Christophe
+----------
+
+AI-7, B-1:  We'd like to proceed with the virtual function call protocol,
+      but need a write-up of what Christophe discussed last month.
+
+Daveed
+------
+
+AI-13:  Describe RTTI representation.
+
+Jim
+---
+
+A-9:  Reflect empty base class allocation decision in layout document.
+
+B-6:  Rewrite Christophe's Vtable layout description as an exercise
+      to identify any holes.
+
+AI-15, C-2:  Do careful writeup of object file init priority representation.
+
+Jason
+-----
+
+B-4/7:  Think carefully about the issues involved in putting Vtables
+	(and therefore potentially objects that reference them) in
+	shared memory.
+
+Matt
+----
+
+C-7:  Write careful description of when parameter copy constructors
+      may be elided.
+
+Mike Ball
+---------
+
+B-3:  You apparently have a good characterization of when Vtable
+      caching is safe/legal.  Can you please describe it for us?
+
+Priti
+-----
+
+AI-12:  Describe the Intel C++ exception handling model.
+AI-5:   Set up N-way NDA if necessary to discuss it.
+
+All
+---
+
+A-11:  Describe your representation for pointers to member functions.
+
+B-6:  Describe your RTTI representation.
+
+F-x:  In anticipation of mangling discussions, please help by (a)
+      identifying what needs to be mangled, and (b) describing any
+      mangling/compression scheme(s) you think we should consider.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Jul 30 03:55:46 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 29 Jul 1999 20:55:46 -0700 (PDT)
+Subject: Action items from today's meeting
+Message-ID: <199907300355.UAA22194@baalbek.engr.sgi.com>
+
+The following are the actions people agreed to (or were volunteered
+for) at today's meeting.  AI-nn refers to an action item in the
+summary, X-nn refers to the issue with that number.
+
+Christophe
+----------
+
+AI-7, B-1:  We'd like to proceed with the virtual function call protocol,
+      but need a write-up of what Christophe discussed last month.
+
+Daveed
+------
+
+AI-13:  Describe RTTI representation.
+
+Jim
+---
+
+A-9:  Reflect empty base class allocation decision in layout document.
+
+B-6:  Rewrite Christophe's Vtable layout description as an exercise
+      to identify any holes.
+
+AI-15, C-2:  Do careful writeup of object file init priority representation.
+
+Jason
+-----
+
+B-4/7:  Think carefully about the issues involved in putting Vtables
+	(and therefore potentially objects that reference them) in
+	shared memory.
+
+Matt
+----
+
+C-7:  Write careful description of when parameter copy constructors
+      may be elided.
+
+Mike Ball
+---------
+
+B-3:  You apparently have a good characterization of when Vtable
+      caching is safe/legal.  Can you please describe it for us?
+
+Priti
+-----
+
+AI-12:  Describe the Intel C++ exception handling model.
+AI-5:   Set up N-way NDA if necessary to discuss it.
+
+All
+---
+
+A-11:  Describe your representation for pointers to member functions.
+
+B-6:  Describe your RTTI representation.
+
+F-x:  In anticipation of mangling discussions, please help by (a)
+      identifying what needs to be mangled, and (b) describing any
+      mangling/compression scheme(s) you think we should consider.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+

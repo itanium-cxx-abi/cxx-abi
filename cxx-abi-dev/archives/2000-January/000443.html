@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual base class offsets in vtables
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20base%20class%20offsets%20in%20vtables&In-Reply-To=%3C200001190311.TAA42360%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000441.html">
+   <LINK REL="Next"  HREF="000454.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual base class offsets in vtables</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20base%20class%20offsets%20in%20vtables&In-Reply-To=%3C200001190311.TAA42360%40baalbek.engr.sgi.com%3E"
+       TITLE="Virtual base class offsets in vtables">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Jan 19 03:11:30 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000441.html">Virtual base class offsets in vtables
+</A></li>
+        <LI>Next message: <A HREF="000454.html">Virtual base class offsets in vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#443">[ date ]</a>
+              <a href="thread.html#443">[ thread ]</a>
+              <a href="subject.html#443">[ subject ]</a>
+              <a href="author.html#443">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mark,
+
+Thanks for continuing to identify sources of confusion.  I've attempted
+to fix the questions related to this thread, and have posted the
+updated abi-layout.html on the web site.  (There will be more changes
+for other issues soon.)  The relevant stuff is in red, and includes
+your example.
+
+&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> Folks --
+</I>&gt;<i> 
+</I>&gt;<i>   o Why do we have two different ways of computing the order in
+</I>&gt;<i>     which vbase offsets are laid out in the vtable?  (Category 3
+</I>&gt;<i>     says left to right in declaration order; Category 4 says 
+</I>&gt;<i>     in left-to-right depth-first order.)
+</I>
+Unintentional.  It's the same now.
+
+&gt;<i>   o Furthermore, it's unclear whether or not offsets for indirect
+</I>&gt;<i>     virtual bases should be stored.  The Category 3 description
+</I>&gt;<i>     seems to indicate that only *direct* bases should be stored;
+</I>&gt;<i>     otherwise left-to-right declaration order isn't really
+</I>&gt;<i>     well-defined.  But, Category 4 clearly says direct or indirect 
+</I>&gt;<i>     bases.
+</I>
+Cleaned up.
+
+&gt;<i>   o The term `visible' used in the Category 4 specification is
+</I>&gt;<i>     undefined.  This is a bad choice of terminolgy; visibility is
+</I>&gt;<i>     used in the C++ standard to contrast with `hidden'.  Here, I
+</I>&gt;<i>     think visible is meant to denote classes in the inheritance
+</I>&gt;<i>     hierarchy dominated by the base.
+</I>
+&quot;visible&quot; is now gone.
+
+
+&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> OK -- I see.  So, to find an indirect virtual base that is not reached
+</I>&gt;<i> through another virtual base, we first convert though non-virtual
+</I>&gt;<i> bases until we reach the point where the virtual base is a direct
+</I>&gt;<i> base; then we use the vbase offset that we can find in the vtable for
+</I>&gt;<i> that base.
+</I>&gt;<i> 
+</I>&gt;<i> What about:
+</I>&gt;<i> 
+</I>&gt;<i>   struct S { };
+</I>&gt;<i>   struct T : virtual public S {};
+</I>&gt;<i>   struct U : virtual public T {};
+</I>&gt;<i>   struct V : public T, virtual public U {};
+</I>&gt;<i> 
+</I>&gt;<i> Do we have a vbase offset in `V' for `S'?  It's reachable by
+</I>&gt;<i> non-virtual inheritance as the direct base of `T', but it is also
+</I>&gt;<i> reachable through a virtual base.  The sentence quoted above would
+</I>&gt;<i> seem to suggest that we do have a vbase offset for it -- but that
+</I>&gt;<i> doesn't make a lot of sense given that we wouldn't were `U' entirely
+</I>&gt;<i> out of the picture.
+</I>
+My proposed rewriting is that if something is accessible either via a
+virtual or a non-virtual base, the first (left-to-right) determines.
+It's arbitrary but clear, I think.
+
+&gt;<i> I'm not sure I think this degree of complexity is a good idea.  The
+</I>&gt;<i> chances of misimplementing the ABI (and thereby making it less
+</I>&gt;<i> valuable) increase with each bit of complexity.  
+</I>&gt;<i> 
+</I>&gt;<i> And, entries in vtables are very cheap -- that's the motivation for
+</I>&gt;<i> putting the vbase entries there in the first place.  Why make it more
+</I>&gt;<i> expensive to convert to an indirect virtual base than a direct virtual
+</I>&gt;<i> base, just to save a few entries in the statically initialized vtable?
+</I>&gt;<i> Or, conversely, why put *any* entries for indirect vbases in the
+</I>&gt;<i> vtable when you could always just walk a path to the vbase, even if
+</I>&gt;<i> doing so required going through several other vbases?  Why is this the
+</I>&gt;<i> right tradeoff?
+</I>
+I believe that the secondary vtables for non-virtual bases are at known
+offsets from the derived class vtable.  At least that was once the
+intent, if we haven't lost it.  In that case, it's not more expensive
+to get at an indirect virtual base -- its offset is always at a known
+point, whether negative (direct virtual) or positive (indirect virtual
+via non-virtual base).
+
+&gt;<i> In any case, such analysis aside, would you mind writing up a more
+</I>&gt;<i> rigorous description of the scheme that's been decided upon?  That
+</I>&gt;<i> description will make it much easier to make sure that we're all
+</I>&gt;<i> getting this stuff right.
+</I>
+Is what's there now better?  Enough?
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000441.html">Virtual base class offsets in vtables
+</A></li>
+	<LI>Next message: <A HREF="000454.html">Virtual base class offsets in vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#443">[ date ]</a>
+              <a href="thread.html#443">[ thread ]</a>
+              <a href="subject.html#443">[ subject ]</a>
+              <a href="author.html#443">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

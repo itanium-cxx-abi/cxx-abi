@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Use of &quot;sr&quot; mangling code
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Use%20of%20%22sr%22%20mangling%20code&In-Reply-To=%3C200210150623.g9F6NfR10079%40localhost.localdomain%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001580.html">
+   <LINK REL="Next"  HREF="001582.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Use of &quot;sr&quot; mangling code</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Use%20of%20%22sr%22%20mangling%20code&In-Reply-To=%3C200210150623.g9F6NfR10079%40localhost.localdomain%3E"
+       TITLE="Use of &quot;sr&quot; mangling code">mark at codesourcery.com
+       </A><BR>
+    <I>Tue Oct 15 06:23:41 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001580.html">[cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+</A></li>
+        <LI>Next message: <A HREF="001582.html">[cxx-abi-dev] Use of &quot;sr&quot; mangling code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1581">[ date ]</a>
+              <a href="thread.html#1581">[ thread ]</a>
+              <a href="subject.html#1581">[ subject ]</a>
+              <a href="author.html#1581">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+It was pointed out to me that the ABI description of the &quot;sr&quot; mangling
+code left a lot to be desired:
+
+(1) The mangling grammar didn't say what the operands to &quot;sr&quot; should
+    be.
+
+(2) It was not as clear as it should have been under what
+    circumstances &quot;sr&quot; should be used.
+
+I've attempted to fix that with this patch.
+
+One particularly tricky issue is the mangling of something like:
+
+  template &lt;typename T&gt; void g (S&lt;&amp;T::operator- &gt;) {}
+
+The key question is whether &quot;operator+&quot; should be treated as unary or
+binary.  There is no way to know, given the template declaration, so
+we just have to pick one arbitrarily.
+
+In the draft patch, I went with binary, for no particular reason.
+
+Here is a complete test case:
+
+  struct A {
+    int operator-();
+  };
+   
+  typedef int (A::*P)();
+  
+  template &lt;P&gt; struct S {};
+  
+  template &lt;typename T&gt; void g (S&lt;&amp;T::operator-&gt;) {}
+  
+  template void g&lt;A&gt; (S&lt;&amp;A::operator-);
+
+G++ doesn't get a vote in this question since it crashed on this test
+case.
+
+Intel, HP -- when you compile this program does the name for g look
+like:
+
+  _Z1gI1AEv1SIXadsrT_miEE
+
+or
+
+  _Z1gI1AEv1SIXadsrT_ngEE
+
+?
+
+Once we resolve that issue, I'll check in this patch, assuming, of
+course that there are no other objections.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.35
+diff -c -5 -p -r1.35 abi.html
+*** abi.html	11 Oct 2002 19:00:33 -0000	1.35
+--- abi.html	15 Oct 2002 06:16:36 -0000
+*************** the first of which is lowercase.
+*** 3953,3975 ****
+  		  ::= cl	# ()            
+  		  ::= ix	# []            
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
+- 		  ::= sr	# scope resolution (::), see below        
+  		  ::= cv &lt;type&gt;	# (cast)        
+  		  ::= v &lt;digit&gt; &lt;source-name&gt;	# vendor extended operator
+  
+  &lt;/pre&gt;&lt;/font&gt;&lt;/code&gt;
+  
+  &lt;p&gt;
+- The scope resolution operator is discussed with expressions below.
+  Vendors who define builtin extended operators (e.g. __alignof)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID&gt; form.
+! 
+  
+  &lt;p&gt;
+  &lt;a name=mangling-special&gt;
+  &lt;h4&gt; 5.1.4 Other Special Functions and Entities &lt;/h4&gt;
+  
+--- 3953,3973 ----
+  		  ::= cl	# ()            
+  		  ::= ix	# []            
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
+  		  ::= cv &lt;type&gt;	# (cast)        
+  		  ::= v &lt;digit&gt; &lt;source-name&gt;	# vendor extended operator
+  
+  &lt;/pre&gt;&lt;/font&gt;&lt;/code&gt;
+  
+  &lt;p&gt;
+  Vendors who define builtin extended operators (e.g. __alignof)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID&gt; form.
+! &lt;/p&gt;
+  
+  &lt;p&gt;
+  &lt;a name=mangling-special&gt;
+  &lt;h4&gt; 5.1.4 Other Special Functions and Entities &lt;/h4&gt;
+  
+*************** it represents the source token stream.
+*** 4392,4423 ****
+    &lt;expression&gt; ::= &lt;&lt;i&gt;unary&lt;/i&gt; operator-name&gt; &lt;expression&gt;
+  	       ::= &lt;&lt;i&gt;binary&lt;/i&gt; operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+  	       ::= &lt;&lt;i&gt;trinary&lt;/i&gt; operator-name&gt; &lt;expression&gt; &lt;expression&gt; &lt;expression&gt;
+                 ::= st &lt;type&gt;
+  	       ::= &lt;expr-primary&gt;
+    &lt;expr-primary&gt; ::= &lt;template-param&gt;
+! 		 ::= L &lt;type&gt; &lt;&lt;i&gt;value&lt;/i&gt; number&gt; E	# literal
+! 		 ::= L &lt;mangled-name&gt; E		# external name
+  
+  &lt;/pre&gt;&lt;/font&gt;&lt;/code&gt;
+  
+  &lt;p&gt;
+- Template arguments that could be pointer-to-member constants are
+- difficult because it is often not possible to distinguish them from
+- pointers to static member functions or data members without doing the
+- substitution.
+- Therefore, the &lt;i&gt;scope resolution&lt;/i&gt; (sr) mangling operator is used
+- if the LHS operand of :: involves a template parameter.
+- Ignoring substitutions, &lt;code&gt;&amp;T::j&lt;/code&gt; as a template argument
+- would be encoded &lt;code&gt;Xadsr1T1jE&lt;/code&gt;.
+- 
+- &lt;p&gt;
+  The encoding for a literal of an enumerated type is the encoding of the
+  type name followed by the encoding of the numeric value of the literal
+  in its base integral type
+  (which deals with values that don't have names declared in the type).
+  
+  
+  &lt;p&gt;
+  &lt;a name=mangling-scope&gt;
+  &lt;h4&gt; 5.1.6 Scope Encoding &lt;/h4&gt;
+  
+--- 4390,4421 ----
+    &lt;expression&gt; ::= &lt;&lt;i&gt;unary&lt;/i&gt; operator-name&gt; &lt;expression&gt;
+  	       ::= &lt;&lt;i&gt;binary&lt;/i&gt; operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+  	       ::= &lt;&lt;i&gt;trinary&lt;/i&gt; operator-name&gt; &lt;expression&gt; &lt;expression&gt; &lt;expression&gt;
+                 ::= st &lt;type&gt;
+  	       ::= &lt;expr-primary&gt;
++ 
+    &lt;expr-primary&gt; ::= &lt;template-param&gt;
+! 		 ::= L &lt;type&gt; &lt;&lt;i&gt;value&lt;/i&gt; number&gt; E	                # literal
+! 		 ::= L &lt;mangled-name&gt; E		                 # external name
+!                  :: sr &lt;type&gt; &lt;unqualified-name&gt;                 # dependent name
+!                  :: sr &lt;type&gt; &lt;unqualified-name&gt; &lt;template-args&gt; # dependent template-id
+  
+  &lt;/pre&gt;&lt;/font&gt;&lt;/code&gt;
+  
+  &lt;p&gt;
+  The encoding for a literal of an enumerated type is the encoding of the
+  type name followed by the encoding of the numeric value of the literal
+  in its base integral type
+  (which deals with values that don't have names declared in the type).
+  
++ &lt;p&gt;
++ If an expression is a qualified-name, and the qualifying scope is a
++ dependent type, one of the &lt;code&gt;sr&lt;/code&gt; productions is used, rather
++ than the &lt;code&gt;&lt;mangled-name&gt;&lt;/code&gt; production.  If the qualified
++ name refers to an operator for which both unary and binary manglings
++ are available, the mangling chosen is the mangling for the binary
++ version.
+  
+  &lt;p&gt;
+  &lt;a name=mangling-scope&gt;
+  &lt;h4&gt; 5.1.6 Scope Encoding &lt;/h4&gt;
+  
+*************** unwind table location.
+*** 4871,4880 ****
+--- 4869,4882 ----
+  
+  &lt;p&gt; &lt;hr&gt; &lt;p&gt;
+  &lt;a name=revisions&gt;
+  &lt;h2&gt; Appendix R: Revision History &lt;/h2&gt;
+  &lt;p&gt; &lt;hr&gt; &lt;p&gt;
++ 
++ &lt;p&gt;
++ &lt;font color=blue&gt;[021014]&lt;/font&gt;
++ Clarify use of &lt;code&gt;sr&lt;/code&gt; in mangling.
+  
+  &lt;p&gt;
+  &lt;font color=blue&gt;[021011]&lt;/font&gt;
+  Add mangling for unary plus.
+  
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001580.html">[cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+</A></li>
+	<LI>Next message: <A HREF="001582.html">[cxx-abi-dev] Use of &quot;sr&quot; mangling code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1581">[ date ]</a>
+              <a href="thread.html#1581">[ thread ]</a>
+              <a href="subject.html#1581">[ subject ]</a>
+              <a href="author.html#1581">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

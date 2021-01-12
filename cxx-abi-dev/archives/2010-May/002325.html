@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Decltype mangling and type dependency
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Decltype%20mangling%20and%20type%20dependency&In-Reply-To=%3C2F237739-F481-47B4-A46B-2CA55232C243%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002324.html">
+   <LINK REL="Next"  HREF="002326.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Decltype mangling and type dependency</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Decltype%20mangling%20and%20type%20dependency&In-Reply-To=%3C2F237739-F481-47B4-A46B-2CA55232C243%40edg.com%3E"
+       TITLE="Decltype mangling and type dependency">mjh at edg.com
+       </A><BR>
+    <I>Tue May 18 00:20:40 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002324.html">[cxx-abi-dev] platform c++ abi additions
+</A></li>
+        <LI>Next message: <A HREF="002326.html">Mangling literals
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2325">[ date ]</a>
+              <a href="thread.html#2325">[ thread ]</a>
+              <a href="subject.html#2325">[ subject ]</a>
+              <a href="author.html#2325">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason has added many new rules to support the mangling of expressions in decltypes, and I'd like to get some clarification on how and when to apply some of these new rules.
+
+Generally speaking, the idea is to provide a mangling for entities that don't have a &quot;describable&quot; type (<A HREF="https://www.codesourcery.com/archives/cxx-abi-dev/msg01984.html">https://www.codesourcery.com/archives/cxx-abi-dev/msg01984.html</A>).  In that vein, rules were added to &lt;expression&gt; to handle cases such as:
+
+  struct A {
+    int m;
+  } *pa;
+  int f(void);
+  template &lt;class T&gt; auto f1(T p1) -&gt; decltype(p1-&gt;m); // _Z2f1IP1AEDtptfp_1mET_
+  template &lt;class T&gt; auto f2(T p1) -&gt; decltype(p1());  // _Z2f2IPFivEEDTclfp_EET_
+  int main() {
+    f1(pa);
+    f2(f);
+  }
+
+As a general rule, expressions (that appear in decltype/sizeof/alignof) with dependent types are mangled in full (using the newly added rules), while expressions with non-dependent types simply use the expression type.
+
+But what about these similar cases:
+
+  struct A {
+    int m;
+  } *pa;
+  int f(void);
+  template &lt;class T&gt; auto f1(T p1) -&gt; decltype(pa-&gt;m); // _Z2f1IP1AEDtptL_Z2paE1mET_ or _Z2f1IP1AEiT_?
+  template &lt;class T&gt; auto f2(T p1) -&gt; decltype(f());   // _Z2f2IPFivEEDTclL_Z1fvEEET_ or _Z2f2IPFivEEiT_?
+  int main() {
+    f1(pa);
+    f2(f);
+  }
+
+Since the types of pa-&gt;m and f are non-dependent, is it required to mangle these with the full decltype expression mangling (as g++ 4.5 currently does)?
+
+Here are some other interesting cases:
+
+  #include &lt;typeinfo&gt;
+  struct A {
+    A();
+    A(int i);
+    int m;
+  } a;
+  int f();
+  template &lt;class T&gt; auto f1(T p1) -&gt; decltype(p1);
+  template &lt;class T&gt; auto f2(T p1) -&gt; decltype(A(p1));
+  template &lt;class T&gt; auto f3(T p1) -&gt; decltype(typeid(p1));
+  template &lt;class T&gt; auto f4(T p1) -&gt; decltype(a.m);
+  template &lt;class T&gt; auto f5(T p1) -&gt; decltype(a.A::m);
+  int main() {
+    f1(0);
+    f2(0);
+    f3(0);
+    f4(0);
+    f5(0);
+  }
+
+We believe f1, f2, and f3 require decltype manglings, while f4 and f5 do not (g++ 4.5 takes the opposite view on each of these).  Even though the typeid expression in f3 above is not type-dependent (always returning an lvalue of const std::type_info regardless of its argument), it can still be used in ways where a distinct mangling is required; for example:
+
+  template &lt;class T&gt; auto f(T p) -&gt; decltype(g(typeid(p))) { ... }
+  template &lt;class T&gt; auto f(T p) -&gt; decltype(g(typeid(*p))) { ... }
+
+Similarly, we believe that constructors can be used in ways that require a full dependent mangling, as shown by this &quot;if it's valid, it always means one thing, but it might not be valid, which means new-style SFINAE could knock it out of the candidate set&quot; example:
+
+  template &lt;class T&gt; auto f(T p) -&gt; decltype(A(p)) { ... }
+  template &lt;class T&gt; auto f(T p) -&gt; decltype(A(p, 5)) { ... }
+
+This seems to argue for a third designation, &quot;partially-dependent&quot;, for cases where the expression type is non-dependent, but because of the new SFINAE rules, it can be distinguished by the programmer and therefore requires a distinct mangling (as though it were dependent).
+
+Mike Herrick
+Edison Design Group
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002324.html">[cxx-abi-dev] platform c++ abi additions
+</A></li>
+	<LI>Next message: <A HREF="002326.html">Mangling literals
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2325">[ date ]</a>
+              <a href="thread.html#2325">[ thread ]</a>
+              <a href="subject.html#2325">[ subject ]</a>
+              <a href="author.html#2325">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

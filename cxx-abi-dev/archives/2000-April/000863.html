@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> incomplete rtti
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C200004032257.PAA36253%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000862.html">
+   <LINK REL="Next"  HREF="000871.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>incomplete rtti</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C200004032257.PAA36253%40baalbek.engr.sgi.com%3E"
+       TITLE="incomplete rtti">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Mon Apr  3 22:57:24 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000862.html">vcall offset description ...
+</A></li>
+        <LI>Next message: <A HREF="000871.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#863">[ date ]</a>
+              <a href="thread.html#863">[ thread ]</a>
+              <a href="subject.html#863">[ subject ]</a>
+              <a href="author.html#863">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt;This assumption is untrue.  The problem is that weak types don't work
+</I>&gt;<i> &gt;like you assume on most systems.  With the exception of Linux and Irix,
+</I>&gt;<i> &gt;most systems do not distinguish between weak and &quot;strong&quot; symbols once
+</I>&gt;<i> &gt;an object is linked.  Therefore, given a weak RTTI in the main
+</I>&gt;<i> &gt;executable and a strong RTTI in a DSO, they would preempt the latter
+</I>&gt;<i> &gt;with the former.  As a result, it is necessary to make our incomplete
+</I>&gt;<i> &gt;class RTTI not just weak, but distinct.  Once it is distinct, the
+</I>&gt;<i> &gt;pointer RTTI referencing it must be distinct from one referencing the
+</I>&gt;<i> &gt;complete version, and so on up the pointer chain, and it is not
+</I>&gt;<i> &gt;possible to compare them at any level.
+</I>&gt;<i> 
+</I>&gt;<i> Ok, thanks for the clarification about that. Let me just see if I
+</I>&gt;<i> understand DSO linking properly. If we have a loaded object file which
+</I>&gt;<i> refered to a non-defined weakly declared symbol, that object file will
+</I>&gt;<i> have resolved the symbol to zero. Loading a DSO which defines that
+</I>&gt;<i> symbol will not affect the already loaded object file, which remains
+</I>&gt;<i> having the value zero. Ok?
+</I>
+That's correct on some of the Unix implementations.  On others (e.g.
+Irix), it will be &quot;fixed&quot; by the DSO.
+
+&gt;<i> &gt;Our solution is to use the ABI-defined external mangled RTTI name only
+</I>&gt;<i> &gt;for complete types.  RTTI generated for pointer-to-incomplete-type must
+</I>&gt;<i> &gt;be different.  We leave it to the implementation to decide how, but two
+</I>&gt;<i> &gt;workable approaches are (a) make it a local static, or (b) mangle it
+</I>&gt;<i> &gt;differently and use COMDAT to remove duplicates; but at least one
+</I>&gt;<i> &gt;incomplete RTTI would remain, and it would not be the same as the
+</I>&gt;<i> &gt;complete one even after preemption.
+</I>&gt;<i> 
+</I>&gt;<i> Ok, this needs more documentation. There are three uses for the rtti
+</I>&gt;<i> information, which we _don't_ have to solve with the same rtti object.
+</I>&gt;<i> We have attempted to use a single type_info for all three uses, but
+</I>&gt;<i> that is not necessary, and in some cases we have separate objects (of
+</I>&gt;<i> the same type, __pointer_type_info) for the same type (T *...*, for
+</I>&gt;<i> incomplete T).
+</I>&gt;<i> 
+</I>&gt;<i> 1) A distinct lvalue for the typeid operator
+</I>&gt;<i> 2) A class heirarchy descriptor for dynamic_cast
+</I>&gt;<i> 3) A class heirarchy and pointer qualification descriptor for catch
+</I>&gt;<i> matching.
+</I>&gt;<i> 
+</I>&gt;<i> Consider a source file `foo' consisting of these snippets
+</I>&gt;<i>         struct A;
+</I>&gt;<i>         typeid (A *); //1
+</I>&gt;<i>         catch (A **); //2
+</I>&gt;<i> 1 would produce a __pointer_type_info of the following shape
+</I>&gt;<i> tf_P1A: comdat  ; call this foo.tf_P1A
+</I>&gt;<i>         name = &quot;P1A&quot;
+</I>&gt;<i>         flags = 0
+</I>&gt;<i>         target = weak tf_1A
+</I>&gt;<i> 
+</I>&gt;<i> The TU would not need to emit the (incomplete) type_info for A itself,
+</I>&gt;<i> but leave a dangling weak reference. That will become zero, unless
+</I>&gt;<i> another TU is linked in which provides it.
+</I>&gt;<i> 
+</I>&gt;<i> 2 must produce information about the entire pointer chain, from the
+</I>&gt;<i> layout doc that would be
+</I>&gt;<i> _tf_PP1A: static
+</I>&gt;<i>         name = &quot;PP1A&quot;
+</I>&gt;<i>         flags = 8
+</I>&gt;<i>         target = _tf_P1A
+</I>&gt;<i> _tf_P1A: static
+</I>&gt;<i>         name = &quot;P1A&quot;
+</I>&gt;<i>         flags = 8
+</I>&gt;<i>         target = _tf_1A
+</I>&gt;<i> _tf_1A: static
+</I>&gt;<i>         name = &quot;1A&quot;
+</I>&gt;<i> 
+</I>&gt;<i> Ok?
+</I>&gt;<i> 
+</I>&gt;<i> Now, if we another source `baz' with a definition of A,
+</I>&gt;<i>         struct B {};
+</I>&gt;<i>         struct A : B {};
+</I>&gt;<i>         typeid (A *); //1a
+</I>&gt;<i>         catch (A **); //2a
+</I>&gt;<i>         throw (A *)NULL;  //3a
+</I>&gt;<i> 
+</I>&gt;<i> 1a would produce the same __pointer_type_info as before, but this time
+</I>&gt;<i> we would emit comdat typeinfo for the catch clause 2a, and throw 3a is
+</I>&gt;<i> also permitted.
+</I>&gt;<i> tf_PP1A: comdat
+</I>&gt;<i>         name = &quot;PP1A&quot;
+</I>&gt;<i>         flags = 0
+</I>&gt;<i>         target = tf_P1A
+</I>&gt;<i> tf_P1A: comdat  ; call this baz.tf_P1A
+</I>&gt;<i>         name = &quot;P1A&quot;
+</I>&gt;<i>         flags = 0
+</I>&gt;<i>         target = tf_1A
+</I>&gt;<i> tf_1A: comdat
+</I>&gt;<i>         name = &quot;1A&quot;
+</I>&gt;<i>         base = tf_1B
+</I>&gt;<i> tf_1B: comdat
+</I>&gt;<i>         name = &quot;1B&quot;
+</I>&gt;<i> 
+</I>&gt;<i> of course tf_P1A is the same object that 1a forced us to emit.
+</I>&gt;<i> 
+</I>&gt;<i> Now the $BIGNUM dollar question. What if `foo' is our executable and
+</I>&gt;<i> `baz' is the DSO? foo.tf_P1A will be the `active' definition of tf_P1A,
+</I>&gt;<i> and it will have a NULL target value. Therefore baz.tf_P1A is not
+</I>&gt;<i> selected and baz.tf_PP1A's target will resolve to foo.tf_P1A. Also the
+</I>&gt;<i> throw 3a will refer to tf_P1A, which will be resolved by foo.tf_P1A.
+</I>&gt;<i> That has an incomplete target type, so 3a won't have information about
+</I>&gt;<i> A being derived from B, and thus won't match a catch (B *) clause.
+</I>
+Right, which is why foo can't emit a global comdat for P1A with the
+ABI mangled name and a weak pointer to nothing.  It must behave like
+the low levels of your PP1a chain -- static, pointing to an
+incomplete-type class_type_info, and it should have the incomplete
+target flag set.  I think the rule in the document is clear:
+
+    If the target type of the pointer is an incomplete class type,
+    directly or indirectly,
+    a dummy class RTTI is generated for the incomplete type
+    that will not resolve to the final complete class RTTI
+    (because the latter need not exist),
+    possibly by making it a local static object,
+    and the incomplete target type flag is set
+    in each pointer RTTI that references it directly or indirectly.
+
+&gt;<i> Perhaps I'm being dense, and there's still something about comdat
+</I>&gt;<i> linkage I don't understand. But to my understanding the previous
+</I>&gt;<i> paragraph is the same problem with DSO's I originally raised before
+</I>&gt;<i> this incomplete type info was addressed.
+</I>
+It is.  That's why we are NOT depending on weak linkage.  Only
+complete-type RTTI are specified to have the defined mangled global
+names, and everything else (i.e. the pointers to incomplete class types
+and the target types themselves) is specified to be static or otherwise
+conflict-free.  Such things are always accessed via pointers with the
+incomplete-target flag set, which is the signal to do comparisons using
+the mangled names in the ultimate target RTTI instead of comparing
+addresses.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000862.html">vcall offset description ...
+</A></li>
+	<LI>Next message: <A HREF="000871.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#863">[ date ]</a>
+              <a href="thread.html#863">[ thread ]</a>
+              <a href="subject.html#863">[ subject ]</a>
+              <a href="author.html#863">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

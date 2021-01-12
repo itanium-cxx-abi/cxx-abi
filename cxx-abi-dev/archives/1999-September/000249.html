@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> problems with empty base layout algorithm
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problems%20with%20empty%20base%20layout%20algorithm&In-Reply-To=%3C199909090546.WAA07629%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000248.html">
+   <LINK REL="Next"  HREF="000250.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>problems with empty base layout algorithm</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problems%20with%20empty%20base%20layout%20algorithm&In-Reply-To=%3C199909090546.WAA07629%40baalbek.engr.sgi.com%3E"
+       TITLE="problems with empty base layout algorithm">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Thu Sep  9 05:46:08 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000248.html">longjmp question
+</A></li>
+        <LI>Next message: <A HREF="000250.html">longjmp question
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#249">[ date ]</a>
+              <a href="thread.html#249">[ thread ]</a>
+              <a href="subject.html#249">[ subject ]</a>
+              <a href="author.html#249">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Date: Wed, 8 Sep 1999 16:51:02 -0400
+</I>&gt;<i> Reply-To: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">allen.chan at ca.ibm.com</A>
+</I>&gt;<i> 
+</I>&gt;<i> Looking at the non-virtual-base allocation procedure as outlined in the Data
+</I>&gt;<i> Layout document, I noticed a couple of problems with the empty base layout
+</I>&gt;<i> algorithm.
+</I>&gt;<i> 
+</I>&gt;<i> Consider the following scenario:
+</I>&gt;<i> 
+</I>&gt;<i> struct A {};
+</I>&gt;<i> struct B : public A {};
+</I>&gt;<i> struct C : public A {};
+</I>&gt;<i> struct D : public A {};
+</I>&gt;<i> struct E { int e; }
+</I>&gt;<i> struct F : public B, public C, public D, public E { };
+</I>&gt;<i> 
+</I>&gt;<i> For the most derived class F, base classes B, C and D are empty bases. To map
+</I>&gt;<i> class F, we firsts have to allocate all base classes of F in declaration order.
+</I>&gt;<i> If we were to follow the described procedure, this is what we will get:
+</I>&gt;<i> 
+</I>&gt;<i> 1. The empty base B will be allocated at offset zero.
+</I>&gt;<i> 2. The empty base C (which has a type conflict with B, since they have the same
+</I>&gt;<i> non-virtual base A), will be allocated at dsize(F), which is zero.
+</I>
+This isn't the intent (nor what's written, though perhaps not
+clearly).  We attempt offset zero, which doesn't work because of the
+type conflict with B.  Then we &quot;proceed with attempts at dsize(C) as
+for non-empty bases.&quot;  Such attempts, &quot;[if] a component type conflict
+occurs, increment the candidate offset by align(type(D)), and try again,
+repeating until success occurs...&quot;
+
+So, when dsize(C) doesn't work (it's zero, and it still doesn't work),
+we try dsize(C)+1, dsize(C)+2, ..., until one of them does work.
+No subobject is placed without first verifying absence of type
+conflicts.
+
+&gt;<i> 3. The empty base D (which has a type conflict with B and C), will be allocated
+</I>&gt;<i> at dsize(F), which is zero.
+</I>&gt;<i> 4. The base E will be allocated at dsize(F), which is zero.
+</I>&gt;<i> 5. sizeof(F) = 4.
+</I>&gt;<i> 
+</I>&gt;<i> So, even though B, C and D conflict with each other, they are all allocated at
+</I>&gt;<i> offset zero.
+</I>&gt;<i> 
+</I>&gt;<i> To solve the problems, I am proposing the following changes to the
+</I>&gt;<i> algorithm for lying out empty bases:
+</I>&gt;<i> 
+</I>&gt;<i> 1. Maintain an index, ebase(C), which denotes the current offset for
+</I>&gt;<i> allocation of empty bases. In the beginning, ebase(C) = 0.
+</I>&gt;<i> 2. For each empty base class D in C,
+</I>&gt;<i>      2a. If D and all its non-virtual base classes have not been allocated
+</I>&gt;<i> before, place D at offset zero.
+</I>&gt;<i>      2b. If D or any of its non-virtual base classes have been allocated before,
+</I>&gt;<i> place D at ebase(C) + 1. Update ebase(C) = ebase(C) + 1.
+</I>
+There's no reason to update ebase(C) unless the _next_ empty base
+conflicts in type.  In addition, updating it doesn't guarantee that the
+next empty base class won't conflict, since it (or a subclass) may
+conflict with some part of an earlier-allocated base class.
+
+&gt;<i> 3. After all components (virtual and non-virtual components) of C have been laid
+</I>&gt;<i> out, update sizeof(C) to max(sizeof(C), ebase(C)).
+</I>
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000248.html">longjmp question
+</A></li>
+	<LI>Next message: <A HREF="000250.html">longjmp question
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#249">[ date ]</a>
+              <a href="thread.html#249">[ thread ]</a>
+              <a href="subject.html#249">[ subject ]</a>
+              <a href="author.html#249">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI modification for exception propagation
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483D2BE0.9080004%40getdesigned.at%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001987.html">
+   <LINK REL="Next"  HREF="001990.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI modification for exception propagation</H1>
+    <B>Sebastian Redl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483D2BE0.9080004%40getdesigned.at%3E"
+       TITLE="[cxx-abi-dev] ABI modification for exception propagation">sebastian.redl at getdesigned.at
+       </A><BR>
+    <I>Wed May 28 09:54:40 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001987.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+        <LI>Next message: <A HREF="001990.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1988">[ date ]</a>
+              <a href="thread.html#1988">[ thread ]</a>
+              <a href="subject.html#1988">[ subject ]</a>
+              <a href="author.html#1988">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Dennis Handly wrote:
+&gt;&gt;<i> From: Sebastian Redl &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sebastian.redl at getdesigned.at</A>&gt;
+</I>&gt;&gt;<i> I experimentally implemented N2197 &quot;Exception Propagation&quot; in GCC and 
+</I>&gt;&gt;<i> came to the conclusion that the current exception handling ABI 
+</I>&gt;&gt;<i> specification is insufficient.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Any reason we don't reject N2197 out of hand then?
+</I>&gt;<i>   
+</I>Exception propagation is very important. C++ got away with it so far 
+most because, IMO, threading already had an unnatural feel in C++. Now 
+that it has become part of the language, not being able to transfer 
+exceptions would be a very sore point.
+Also, the API is good and minimal. I don't think we'd be able to find a 
+better alternative within reasonable time.
+&gt;&gt;<i> It describes a model where exceptions are bound to a single thread and
+</I>&gt;&gt;<i> cannot be copied.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Yes, for HP-UX, each thread has a TLS state.
+</I>&gt;<i>   
+</I>In GCC, the __cxa_eh_globals struct is thread-local. Is there anything 
+else in HP-UX that's also thread-local?
+&gt;&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;&gt;<i> It looks like your proposal is not backwards-compatible with the current 
+</I>&gt;&gt;<i> ABI.  I think we should try very hard to avoid breaking compatibility. 
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> The only reason to break it is if the C++0x requires a new incompatible
+</I>&gt;<i> C++ Standard Library.
+</I>&gt;<i>   
+</I>I've done my best to avoid breaking the ABI this time around.
+&gt;&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;&gt;<i> Is the issue that current_exception may need additional information in 
+</I>&gt;&gt;<i> order to locate the copy constructor for the thrown object.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Any way we can say that current_exception doesn't work if a copy constructor
+</I>&gt;<i> is needed?
+</I>&gt;<i>   
+</I>No. std::exception requires a copy constructor (to initialize the vptr, 
+if nothing else). std::runtime_error needs it even more. We'd be 
+rejecting the entire C++ exception hierarchy, and probably every other 
+hierarchy too. In fact, because we'd have to transfer values somehow, 
+we'd be bound to use memcpy, which would mean that current_exception 
+could only be used when throwing PODs.
+&gt;&gt;<i> From: Sebastian Redl &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sebastian.redl at getdesigned.at</A>&gt;
+</I>&gt;&gt;<i> The reason is that in static links, there would be 
+</I>&gt;&gt;<i> multiple emergency memory pools. An exception allocated in the emergency 
+</I>&gt;&gt;<i> pool of one module and caught in a different module would then be 
+</I>&gt;&gt;<i> incorrectly passed to free() for deletion
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> You don't make the emergency memory pools global and exported so it is
+</I>&gt;<i> all the same one?
+</I>&gt;<i> We only hide symbols in our shared lib.
+</I>&gt;<i>   
+</I>In GCC's source, the emergency pool is unconditionally a static global. 
+So no, they won't get merged. But I might have been wrong about the 
+wrong one being used. Since destruction is done via 
+_Unwind_DeleteException, the call goes back to the library that 
+allocated the exception.
+
+Sebastian
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001987.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+	<LI>Next message: <A HREF="001990.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1988">[ date ]</a>
+              <a href="thread.html#1988">[ thread ]</a>
+              <a href="subject.html#1988">[ subject ]</a>
+              <a href="author.html#1988">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

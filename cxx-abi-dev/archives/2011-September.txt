@@ -1,0 +1,401 @@
+From mjh at edg.com  Mon Sep 19 17:45:31 2011
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 19 Sep 2011 13:45:31 -0400
+Subject: [Cxx-abi-dev] [cxx-abi-dev] Mangling 'this' in
+	trailing-return-type
+In-Reply-To: <4E11CEE6.8020406@redhat.com>
+References: <4E0E9414.5050108@redhat.com> <4E11CEE6.8020406@redhat.com>
+Message-ID: <5E1B23B1-5F67-4D15-9DE6-3D9B0052000A@edg.com>
+
+
+On Jul 4, 2011, at 10:32 AM, Jason Merrill wrote:
+
+> On 07/01/2011 11:44 PM, Jason Merrill wrote:
+>> Since DR 1207, we need to have a representation for uses of 'this' in a
+>> trailing-return-type. Perhaps "fpT"?
+> 
+> So,
+> 
+> struct B
+> {
+>  template <class U> U f();
+> };
+> 
+> struct A
+> {
+>  B b;
+>  // implicitly rewritten to (*this).b.f<U>()
+>  // _ZN1A1fIiEEDTcldtdtdefpT1b1fIT_EEEv
+>  template <class U> auto f() -> decltype (b.f<U>());
+>  // _ZN1A1gIiEEDTcldtptfpT1b1fIT_EEEv
+>  template <class U> auto g() -> decltype (this->b.f<U>());
+> };
+> 
+> int main()
+> {
+>  A a;
+>  a.f<int>();
+>  a.g<int>();
+> }
+
+[Apologies for not responding to this earlier.]
+
+"fpT" seems fine for explicit use of "this" in a trailing-return-type.
+
+We're wondering about the implicit case.  Generally, our mangling mantra for SFINAE has been to make the mangled name match the source as closely as possible, so we produce _ZN1A1fIiEEDTcldt1b1fIT_EEEv (which demangles as "decltype(((b.f<T1>)())) A::f<int>()") as a mangled name for the first case above.  [EDG happens to use "this->" internally rather than "(*this).".]
+
+Irrespective of the choice of mangling for the implicit case, what are your thoughts on a case like this:
+
+// file 1:
+struct B {
+  template <class U> U f();
+};
+struct A {
+  B b;
+  template <class U> auto f() -> decltype (b.f<U>()) { return 0; }
+};
+A a;
+auto x = a.f<int>();
+
+// file 2:
+struct B {
+  template <class U> U f();
+};
+struct A {
+  B b;
+  template <class U> auto f() -> decltype (this->b.f<U>());
+};
+extern A a;
+int main() {
+  a.f<int>();
+}
+
+We think the implicit and explicit cases should have different manglings even if, from a SFINAE standpoint, they're treated the same, and have a preference for the "mangled as written" implicit mangling.
+
+Mike.
+
+
+
+From mjh at edg.com  Tue Sep 20 12:35:16 2011
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 20 Sep 2011 08:35:16 -0400
+Subject: [Cxx-abi-dev] [cxx-abi-dev] Mangling 'this' in
+	trailing-return-type
+In-Reply-To: <4E11CEE6.8020406@redhat.com>
+References: <4E0E9414.5050108@redhat.com> <4E11CEE6.8020406@redhat.com>
+Message-ID: <15ACBBBF-DB9D-4990-B486-8BB564F896CE@edg.com>
+
+[Re-post due to issues during the CodeSourcery->Mentor migration.]
+
+On Jul 4, 2011, at 10:32 AM, Jason Merrill wrote:
+
+> On 07/01/2011 11:44 PM, Jason Merrill wrote:
+>> Since DR 1207, we need to have a representation for uses of 'this' in a
+>> trailing-return-type. Perhaps "fpT"?
+> 
+> So,
+> 
+> struct B
+> {
+>  template <class U> U f();
+> };
+> 
+> struct A
+> {
+>  B b;
+>  // implicitly rewritten to (*this).b.f<U>()
+>  // _ZN1A1fIiEEDTcldtdtdefpT1b1fIT_EEEv
+>  template <class U> auto f() -> decltype (b.f<U>());
+>  // _ZN1A1gIiEEDTcldtptfpT1b1fIT_EEEv
+>  template <class U> auto g() -> decltype (this->b.f<U>());
+> };
+> 
+> int main()
+> {
+>  A a;
+>  a.f<int>();
+>  a.g<int>();
+> }
+
+[Apologies for not responding to this earlier.]
+
+"fpT" seems fine for explicit use of "this" in a trailing-return-type.
+
+We're wondering about the implicit case.  Generally, our mangling mantra for SFINAE has been to make the mangled name match the source as closely as possible, so we produce _ZN1A1fIiEEDTcldt1b1fIT_EEEv (which demangles as "decltype(((b.f<T1>)())) A::f<int>()") as a mangled name for the first case above.  [EDG happens to use "this->" internally rather than "(*this).".]
+
+Irrespective of the choice of mangling for the implicit case, what are your thoughts on a case like this:
+
+// file 1:
+struct B {
+ template <class U> U f();
+};
+struct A {
+ B b;
+ template <class U> auto f() -> decltype (b.f<U>()) { return 0; }
+};
+A a;
+auto x = a.f<int>();
+
+// file 2:
+struct B {
+ template <class U> U f();
+};
+struct A {
+ B b;
+ template <class U> auto f() -> decltype (this->b.f<U>());
+};
+extern A a;
+int main() {
+ a.f<int>();
+}
+
+We think the implicit and explicit cases should have different manglings even if, from a SFINAE standpoint, they're treated the same, and have a preference for the "mangled as written" implicit mangling.
+
+Mike Herrick
+Edison Design Group
+
+From daveed at edg.com  Tue Sep 20 13:51:21 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 20 Sep 2011 09:51:21 -0400
+Subject: [Cxx-abi-dev] Overlong bit fields and 128-bit integers
+Message-ID: <51935390-A24D-4552-89B2-0E06FE1FABC2@edg.com>
+
+(Re-posting after a couple of weeks due to mailing list transition issues.)
+
+As you can tell from the subject line keywords we're well in "odd corner case" territory here, but we received an ABI compatibility problem report in this area.
+
+Consider:
+
+	struct S {
+	  int i;
+	  long long x: 130;
+	  int j;
+	};
+
+What's the offset of j?
+
+Here is what the IA-64 C++ ABI has to say wrt. bit field allocation (2.4.II/1):
+
+> If D is a (possibly unnamed) bitfield whose declared type is T and whose declared width is n bits:
+> There are two cases depending on sizeof(T) and n:
+> 
+> 	? If sizeof(T)*8 >= n, the bitfield is allocated as required by the underlying C psABI, subject to the constraint that a bitfield is never placed in the tail padding of a base class of C.
+> If dsize(C) > 0, and the byte at offset dsize(C) - 1 is partially filled by a bitfield, and that bitfield is also a data member declared in C (but not in one of C's proper base classes), the next available bits are the unfilled bits at offset dsize(C) - 1. Otherwise, the next available bits are at offset dsize(C).
+> 
+> Update align(C) to max (align(C), align(T)).
+> 
+> 	? If sizeof(T)*8 < n, let T' be the largest integral POD type with sizeof(T')*8 <= n. The bitfield is allocated starting at the next offset aligned appropriately for T', with length n bits. The first sizeof(T)*8 bits are used to hold the value of the bitfield, followed by n - sizeof(T)*8 bits of padding.
+> Update align(C) to max (align(C), align(T')).
+> 
+> In either case, update dsize(C) to include the last byte containing (part of) the bitfield, and update sizeof(C) to max(sizeof(C),dsize(C)).
+
+
+
+Here we're dealing with the second bullet because sizeof(long long)*8 < 130 (long long is 8 bytes). We emulate GCC modes that permit 128-bit integral types, and in those modes, T' is __int128, a 16-byte aligned type.  That means that the addition of __int128 has changed the layout of a structure that doesn't involve __int128 at all!
+
+GCC keeps the alignment of the bit field at an 8-byte boundary in this case, and that makes sense to me, but for:
+
+	struct S2 {
+	  int i;
+	  __int128 x: 130;
+	  int j;
+	};
+
+it does the same, which does not make sense to me: If I used a __int128 type for the field, I presumably want the associated alignment used.
+
+I'd like to therefore propose changing this such that:
+
+	- for standard C++11 integral types use the existing rule
+	- for integral types not defined in C++11, limit T' to the standard C++11 types and the declared bit field container type
+
+What do you all think?
+
+	Daveed
+
+
+From rjmccall at apple.com  Tue Sep 20 16:36:26 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 20 Sep 2011 09:36:26 -0700
+Subject: [Cxx-abi-dev] [cxx-abi-dev] Mangling 'this'
+	in	trailing-return-type
+In-Reply-To: <15ACBBBF-DB9D-4990-B486-8BB564F896CE@edg.com>
+References: <4E0E9414.5050108@redhat.com> <4E11CEE6.8020406@redhat.com>
+	<15ACBBBF-DB9D-4990-B486-8BB564F896CE@edg.com>
+Message-ID: <FFEB2B7B-3DF5-4516-BD1A-1B7AF9F43F5C@apple.com>
+
+On Sep 20, 2011, at 5:35 AM, Mike Herrick wrote:
+> We think the implicit and explicit cases should have different manglings even if, from a SFINAE standpoint, they're treated the same, and have a preference for the "mangled as written" implicit mangling.
+
+I agree.  Technically, this means that lookups that find class members and those that don't will be mangled the same, despite the impact on ADL, but the mangled-as-written mantra already causes us to gloss over stuff like that, and I can't think of a situation where it's a problem with valid code.
+
+John.
+
+
+From dhandly at cup.hp.com  Fri Sep 23 04:34:14 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 22 Sep 2011 21:34:14 -0700 (PDT)
+Subject: [Cxx-abi-dev] Overlong bit fields and 128-bit integers
+Message-ID: <201109230434.p8N4YEV00625@adlwrk05.cce.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>As you can tell from the subject line keywords we're well in "odd corner
+>case" territory here, but we received an ABI compatibility problem
+>report in this area.
+
+Yes, we found this using Code Sourcery's ABI test suite.
+
+Consider:
+	struct S {
+	  int i;
+	  long long x: 130;
+	  int j;
+	};
+
+What's the offset of j?
+
+>Here we're dealing with the second bullet because sizeof(long long)*8 <
+>130 (long long is 8 bytes).  We emulate GCC modes that permit 128-bit
+integral types, and in those modes, T' is __int128, a 16-byte aligned
+>type.  That means that the addition of __int128 has changed the layout
+>of a structure that doesn't involve __int128 at all!
+
+Yes, that was most discouraging.  And not forward compatible, by just adding
+wider types.
+
+>GCC keeps the alignment of the bit field at an 8-byte boundary in this
+>case, and that makes sense to me, but for:
+	struct S2 {
+	  int i;
+	  __int128 x: 130;
+	  int j;
+	};
+
+>it does the same, which does not make sense to me:  If I used a __int128
+>type for the field, I presumably want the associated alignment used.
+
+Right.
+
+>I'd like to therefore propose changing this such that:
+>- for standard C++11 integral types use the existing rule
+> - for integral types not defined in C++11, limit T' to the standard
+>C++11 types and the declared bit field container type
+
+>What do you all think?
+	Daveed
+
+Sounds good.  Do we know who will be broken after this change?
+gcc is the above broken case of __int128?
+
+
+From dhandly at cup.hp.com  Fri Sep 23 04:34:14 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 22 Sep 2011 21:34:14 -0700 (PDT)
+Subject: [Cxx-abi-dev] Overlong bit fields and 128-bit integers
+Message-ID: <201109230434.p8N4YEV00625@adlwrk05.cce.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>As you can tell from the subject line keywords we're well in "odd corner
+>case" territory here, but we received an ABI compatibility problem
+>report in this area.
+
+Yes, we found this using Code Sourcery's ABI test suite.
+
+Consider:
+	struct S {
+	  int i;
+	  long long x: 130;
+	  int j;
+	};
+
+What's the offset of j?
+
+>Here we're dealing with the second bullet because sizeof(long long)*8 <
+>130 (long long is 8 bytes).  We emulate GCC modes that permit 128-bit
+integral types, and in those modes, T' is __int128, a 16-byte aligned
+>type.  That means that the addition of __int128 has changed the layout
+>of a structure that doesn't involve __int128 at all!
+
+Yes, that was most discouraging.  And not forward compatible, by just adding
+wider types.
+
+>GCC keeps the alignment of the bit field at an 8-byte boundary in this
+>case, and that makes sense to me, but for:
+	struct S2 {
+	  int i;
+	  __int128 x: 130;
+	  int j;
+	};
+
+>it does the same, which does not make sense to me:  If I used a __int128
+>type for the field, I presumably want the associated alignment used.
+
+Right.
+
+>I'd like to therefore propose changing this such that:
+>- for standard C++11 integral types use the existing rule
+> - for integral types not defined in C++11, limit T' to the standard
+>C++11 types and the declared bit field container type
+
+>What do you all think?
+	Daveed
+
+Sounds good.  Do we know who will be broken after this change?
+gcc is the above broken case of __int128?
+
+
+From dhandly at cup.hp.com  Fri Sep 23 04:34:19 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 23 Sep 2011 04:34:19 -0000
+Subject: [Cxx-abi-dev] Overlong bit fields and 128-bit integers
+Message-ID: <201109230434.p8N4YEV00625@adlwrk05.cce.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>As you can tell from the subject line keywords we're well in "odd corner
+>case" territory here, but we received an ABI compatibility problem
+>report in this area.
+
+Yes, we found this using Code Sourcery's ABI test suite.
+
+Consider:
+	struct S {
+	  int i;
+	  long long x: 130;
+	  int j;
+	};
+
+What's the offset of j?
+
+>Here we're dealing with the second bullet because sizeof(long long)*8 <
+>130 (long long is 8 bytes).  We emulate GCC modes that permit 128-bit
+integral types, and in those modes, T' is __int128, a 16-byte aligned
+>type.  That means that the addition of __int128 has changed the layout
+>of a structure that doesn't involve __int128 at all!
+
+Yes, that was most discouraging.  And not forward compatible, by just adding
+wider types.
+
+>GCC keeps the alignment of the bit field at an 8-byte boundary in this
+>case, and that makes sense to me, but for:
+	struct S2 {
+	  int i;
+	  __int128 x: 130;
+	  int j;
+	};
+
+>it does the same, which does not make sense to me:  If I used a __int128
+>type for the field, I presumably want the associated alignment used.
+
+Right.
+
+>I'd like to therefore propose changing this such that:
+>- for standard C++11 integral types use the existing rule
+> - for integral types not defined in C++11, limit T' to the standard
+>C++11 types and the declared bit field container type
+
+>What do you all think?
+	Daveed
+
+Sounds good.  Do we know who will be broken after this change?
+gcc is the above broken case of __int128?
+
+

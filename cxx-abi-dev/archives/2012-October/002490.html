@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] thread_local summary
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20thread_local%20summary&In-Reply-To=%3C506A4D3B.7020904%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002493.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] thread_local summary</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20thread_local%20summary&In-Reply-To=%3C506A4D3B.7020904%40redhat.com%3E"
+       TITLE="[cxx-abi-dev] thread_local summary">jason at redhat.com
+       </A><BR>
+    <I>Tue Oct  2 02:11:07 UTC 2012</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002493.html">[cxx-abi-dev] thread_local summary
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2490">[ date ]</a>
+              <a href="thread.html#2490">[ thread ]</a>
+              <a href="subject.html#2490">[ subject ]</a>
+              <a href="author.html#2490">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>OK, I have an initial implementation working now, along the lines that I 
+discussed before.
+
+For dynamic initialization of non-function-local thread_local variables, 
+I replace odr-uses of such variables with calls to an inline wrapper, i.e.
+
+extern thread_local int i;
+extern void i_init() __attribute__ ((weak));
+inline i&amp; i_wrapper() __attribute__ ((visibility (&quot;internal&quot;)))
+{
+   if (i_init) i_init();
+   return i;
+}
+
+The wrapper has internal visibility so that calls in PIC code resolve 
+locally.  The compiler can avoid some of this when it can see the 
+definition of i.
+
+I'm currently mangling the init and wrapper functions as normal 
+functions with a function name of _TH &lt;object name&gt; or _TW &lt;object 
+name&gt;, respectively.  I've thought about dropping the function type from 
+the mangling, but don't have a strong opinion.
+
+Registration of destructors is done via
+
+   __cxa_thread_atexit (void(*)(void *), void *);
+
+which arranges to call the specified destructor for the specified object 
+when the thread exits.  The destructors for the current thread are also 
+run on std::exit.
+
+The standard specifies that these destructors should run before 
+destructors for objects with static storage duration, and my current 
+implementation doesn't get that right; I think it will be necessary to 
+change std::exit to guarantee this.
+
+Dennis suggested that we still include the DSO handle in the parameters 
+to this function.  Since there's really no way to run destructors in all 
+threads on dlclose, I don't really see the need; instead, an 
+implementation can use internal mechanisms to improve semantics and/or 
+diagnostics for dlclosing a shared object with pending thread_local 
+destructors.
+
+Dennis also suggested renaming the function to __cxa_atexit_thread.  I 
+don't have a strong preference.
+
+Any opinions on the name, or the mangling of the init/wrapper functions? 
+  Any other issues?
+
+Jason
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002493.html">[cxx-abi-dev] thread_local summary
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2490">[ date ]</a>
+              <a href="thread.html#2490">[ thread ]</a>
+              <a href="subject.html#2490">[ subject ]</a>
+              <a href="author.html#2490">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

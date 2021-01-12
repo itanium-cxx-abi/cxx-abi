@@ -1,0 +1,2076 @@
+From richardsmith at google.com  Wed Feb  3 01:18:06 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 2 Feb 2016 17:18:06 -0800
+Subject: [cxx-abi-dev] __int128 RTTI emitted in ABI library?
+Message-ID: <CAGL0aWfVNrHoMu0Lx_2mxZE3Q+13AZx4HQL_jgKbw-QavO-X-Q@mail.gmail.com>
+
+According to
+
+  http://mentorembedded.github.io/cxx-abi/abi.html#rtti-emission
+
+the RTTI information for a whole bunch of fundamental types is emitted in
+the C++ ABI library. However, this list excludes:
+
+  __int128 and unsigned __int128: GCC embeds RTTI for these, Clang does not
+(but expects it to be there!)
+  __float128: GCC does not appear to embed RTTI for this
+
+In both cases, we specify a mangling for the type, so it would not be
+unprecedented for the ABI to acknowledge their existence.
+
+I'm going to change Clang to embed RTTI information for __int128 and
+unsigned __int128, to match GCC (and its own expectations). Presumably the
+ABI document should specify that such RTTI information is present in the
+ABI library. We should also consider whether the RTTI for __float128 should
+be included, for types that support __float128.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160202/36718291/attachment.html>
+
+From dhandly at cup.hp.com  Wed Feb  3 02:42:26 2016
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 2 Feb 2016 18:42:26 -0800
+Subject: [cxx-abi-dev] __int128 RTTI emitted in ABI library?
+Message-ID: <201602030242.u132gQP03498@adlwrk06.us.rdlabs.hpecorp.net>
+
+>From: Richard Smith <richardsmith at google.com>
+>the RTTI information for a whole bunch of fundamental types is emitted in
+>the C++ ABI library. However, this list excludes:
+>  __int128 and unsigned __int128: GCC embeds RTTI for these, Clang does not
+>(but expects it to be there!)
+
+>In both cases, we specify a mangling for the type, so it would not be
+>unprecedented for the ABI to acknowledge their existence.
+
+For aC++, we support __float128 as long real.  With __float80 as another type.
+I believe we had to have C++ ABI library export them long ago.
+With the three decimal floating points, most recently.
+(But never got around to __int128.)
+
+>Presumably the ABI document should specify that such RTTI information is
+>present in the ABI library.  We should also consider whether the RTTI
+>for __float128 should be included, for types that support __float128.
+
+Yes it should to both points.  Better to do it before there are any uses of
+them.
+
+From richardsmith at google.com  Wed Feb 10 21:23:49 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 10 Feb 2016 13:23:49 -0800
+Subject: [cxx-abi-dev] Should __cxa_exception, __cxa_eh_globals,
+ __cxa_get_globals be exposed by <cxxabi.h>?
+Message-ID: <CAGL0aWcrOhycNc5K9r0H73w-D0bcvfR2y1uVbo83ufkov2H=og@mail.gmail.com>
+
+Per http://mentorembedded.github.io/cxx-abi/abi.html#namespace, "The
+reference header file included with this ABI definition shall be the
+authoritative definition of the APIs." That reference header file is here:
+http://mentorembedded.github.io/cxx-abi/gcc-cxxabi.h and it does not
+declare __cxa_exception, __cxa_eh_globals, nor __cxa_get_globals.
+
+Implementations vary:
+
+libc++abi does not declare any of these in its cxxabi.h.
+libstdc++ declares them but does not define them.
+libcxxrt defines the classes and declares __cxa_get_globals.
+
+Should we be exposing these? There doesn't seem much point in requiring and
+documenting their existence if we don't. People are apparently working
+around this by copy-pasting the definitions:
+
+https://gerrit.libreoffice.org/gitweb?p=core.git;a=blob;f=bridges/source/cpp_uno/gcc3_linux_x86-64/share.hxx;h=96ddfc0be0b3e0644a63fdc6478d546c68e5ea89;hb=HEAD
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160210/faeeb313/attachment.html>
+
+From daveed at edg.com  Thu Feb 11 15:43:01 2016
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 11 Feb 2016 10:43:01 -0500
+Subject: [cxx-abi-dev] Operator co_await
+Message-ID: <3E593C33-2B5B-4779-962D-29DDDFCEA199@edg.com>
+
+A proposal for coroutine support is making its way through the C++ committee.  Here is the latest public document:
+
+	http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r1.pdf
+
+It includes a new ?operator co_await? that will require mangling when supported.
+
+How about reserving the operator code ?aw? for it?
+
+I.e., once standardized or TS'd, we?d add a production to <operator-name>:
+
+	<operator-name> ::= nw	       # new
+	                ...
+	                ::= aw         # co_await (unary)
+	                ...
+
+
+	Daveed
+
+
+
+From richardsmith at googlers.com  Thu Feb 11 19:06:01 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 11 Feb 2016 11:06:01 -0800
+Subject: [cxx-abi-dev] Operator co_await
+In-Reply-To: <3E593C33-2B5B-4779-962D-29DDDFCEA199@edg.com>
+References: <3E593C33-2B5B-4779-962D-29DDDFCEA199@edg.com>
+Message-ID: <CAGL0aWdEnS2U_tP50s8esZtz7JwPW8-SXXYUt-U5zbXH6EY27g@mail.gmail.com>
+
+On 11 February 2016 at 07:43, David Vandevoorde <daveed at edg.com> wrote:
+
+> A proposal for coroutine support is making its way through the C++
+> committee.  Here is the latest public document:
+>
+>
+> http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r1.pdf
+>
+> It includes a new ?operator co_await? that will require mangling when
+> supported.
+>
+> How about reserving the operator code ?aw? for it?
+>
+> I.e., once standardized or TS'd, we?d add a production to <operator-name>:
+>
+>         <operator-name> ::= nw         # new
+>                         ...
+>                         ::= aw         # co_await (unary)
+>                         ...
+
+
+I agree, see
+http://sourcerytools.com/pipermail/cxx-abi-dev/2015-October/002868.html =)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160211/ad9e7fff/attachment.html>
+
+From richardsmith at googlers.com  Thu Feb 11 19:10:23 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 11 Feb 2016 11:10:23 -0800
+Subject: [cxx-abi-dev] Operator co_await
+In-Reply-To: <CAGL0aWdEnS2U_tP50s8esZtz7JwPW8-SXXYUt-U5zbXH6EY27g@mail.gmail.com>
+References: <3E593C33-2B5B-4779-962D-29DDDFCEA199@edg.com>
+	<CAGL0aWdEnS2U_tP50s8esZtz7JwPW8-SXXYUt-U5zbXH6EY27g@mail.gmail.com>
+Message-ID: <CAGL0aWcsftauQwkjbrURC6ciQ1r4MeEakoDaXyr+teNG6oFLug@mail.gmail.com>
+
+We should also specify a representation for coroutine_handle<>.
+
+On 11 February 2016 at 11:06, Richard Smith <richardsmith at googlers.com>
+wrote:
+
+> On 11 February 2016 at 07:43, David Vandevoorde <daveed at edg.com> wrote:
+>
+>> A proposal for coroutine support is making its way through the C++
+>> committee.  Here is the latest public document:
+>>
+>>
+>> http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r1.pdf
+>>
+>> It includes a new ?operator co_await? that will require mangling when
+>> supported.
+>>
+>> How about reserving the operator code ?aw? for it?
+>>
+>> I.e., once standardized or TS'd, we?d add a production to <operator-name>:
+>>
+>>         <operator-name> ::= nw         # new
+>>                         ...
+>>                         ::= aw         # co_await (unary)
+>>                         ...
+>
+>
+> I agree, see
+> http://sourcerytools.com/pipermail/cxx-abi-dev/2015-October/002868.html
+> =)
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160211/73cefc97/attachment.html>
+
+From daveed at edg.com  Thu Feb 11 21:36:26 2016
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 11 Feb 2016 16:36:26 -0500
+Subject: [cxx-abi-dev] Operator co_await
+In-Reply-To: <CAGL0aWdEnS2U_tP50s8esZtz7JwPW8-SXXYUt-U5zbXH6EY27g@mail.gmail.com>
+References: <3E593C33-2B5B-4779-962D-29DDDFCEA199@edg.com>
+	<CAGL0aWdEnS2U_tP50s8esZtz7JwPW8-SXXYUt-U5zbXH6EY27g@mail.gmail.com>
+Message-ID: <61598C8C-A2B0-421C-9511-F4C2B819891B@edg.com>
+
+
+> On Feb 11, 2016, at 2:06 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 11 February 2016 at 07:43, David Vandevoorde <daveed at edg.com <mailto:daveed at edg.com>> wrote:
+> A proposal for coroutine support is making its way through the C++ committee.  Here is the latest public document:
+> 
+>         http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r1.pdf <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r1.pdf>
+> 
+> It includes a new ?operator co_await? that will require mangling when supported.
+> 
+> How about reserving the operator code ?aw? for it?
+> 
+> I.e., once standardized or TS'd, we?d add a production to <operator-name>:
+> 
+>         <operator-name> ::= nw         # new
+>                         ...
+>                         ::= aw         # co_await (unary)
+>                         ...
+> 
+> I agree, see http://sourcerytools.com/pipermail/cxx-abi-dev/2015-October/002868.html <http://sourcerytools.com/pipermail/cxx-abi-dev/2015-October/002868.html> =) 
+
+
+Ha! I apparently filed that away without reading it :-P  Sorry.
+
+	Daveed
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160211/20afe097/attachment-0001.html>
+
+From marc.glisse at inria.fr  Wed Feb 24 10:51:41 2016
+From: marc.glisse at inria.fr (Marc Glisse)
+Date: Wed, 24 Feb 2016 11:51:41 +0100
+Subject: [cxx-abi-dev] Non-trivial move constructor
+Message-ID: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+
+Hello,
+
+in 3.1.1, we use "In the special case where the parameter type has a 
+non-trivial copy constructor or destructor" to force passing by reference. 
+It seems that for C++11, this should also include move constructors, for 
+the same reasons.
+
+Currently, clang and gcc disagree on where to find 'a' in the following:
+
+struct Tuple { int a; Tuple(Tuple&&); };
+int f(Tuple t){
+     return t.a;
+}
+
+( http://stackoverflow.com/q/35586332/1918193 )
+
+(I have trouble getting anything but time-outs from llvm's bugzilla)
+
+-- 
+Marc Glisse
+
+From jason at redhat.com  Wed Feb 24 13:54:48 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 24 Feb 2016 08:54:48 -0500
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+Message-ID: <56CDB628.8000302@redhat.com>
+
+On 02/24/2016 05:51 AM, Marc Glisse wrote:
+> in 3.1.1, we use "In the special case where the parameter type has a
+> non-trivial copy constructor or destructor" to force passing by
+> reference. It seems that for C++11, this should also include move
+> constructors, for the same reasons.
+
+We talked about adding move constructors to that sentence years ago. 
+Did it never make it into the spec?
+
+Jason
+
+
+From richardsmith at googlers.com  Wed Feb 24 19:43:10 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Wed, 24 Feb 2016 11:43:10 -0800
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <56CDB628.8000302@redhat.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+Message-ID: <CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+
+On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>
+>> in 3.1.1, we use "In the special case where the parameter type has a
+>> non-trivial copy constructor or destructor" to force passing by
+>> reference. It seems that for C++11, this should also include move
+>> constructors, for the same reasons.
+>
+>
+> We talked about adding move constructors to that sentence years ago. Did it
+> never make it into the spec?
+
+Looks like it didn't. The rule we ended up with was:
+
+"[Pass an object of class type by value if] every copy constructor and
+move constructor is deleted or trivial and at least one of them is not
+deleted, and the destructor is trivial.?
+
+
+However, this seems overly-cautious to me; it would seem sufficient
+for there to be at least one copy or move constructor that is trivial
+and not deleted, and a trivial destructor. It's not really
+particularly plausible for there to be a trivial copy and a
+non-trivial move or vice versa, but it *is* plausible for there to be
+two non-deleted copy constructors -- a trivial one, and one that takes
+a const volatile reference -- and in that case, passing through
+registers seems completely reasonable. How about changing the rule in
+3.1.1 bullet 1 to:
+
+"In the special case where the parameter type does not have both a
+trivial destructor and at least one trivial copy or move constructor
+that is not deleted, the caller must allocate space for a temporary
+copy, and pass the resulting copy by reference (below). Specifically
+[...]"
+
+From rjmccall at apple.com  Wed Feb 24 20:56:51 2016
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 24 Feb 2016 12:56:51 -0800
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+Message-ID: <F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+
+> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>> 
+>>> in 3.1.1, we use "In the special case where the parameter type has a
+>>> non-trivial copy constructor or destructor" to force passing by
+>>> reference. It seems that for C++11, this should also include move
+>>> constructors, for the same reasons.
+>> 
+>> 
+>> We talked about adding move constructors to that sentence years ago. Did it
+>> never make it into the spec?
+> 
+> Looks like it didn't. The rule we ended up with was:
+> 
+> "[Pass an object of class type by value if] every copy constructor and
+> move constructor is deleted or trivial and at least one of them is not
+> deleted, and the destructor is trivial.?
+> 
+> 
+> However, this seems overly-cautious to me; it would seem sufficient
+> for there to be at least one copy or move constructor that is trivial
+> and not deleted, and a trivial destructor. It's not really
+> particularly plausible for there to be a trivial copy and a
+> non-trivial move or vice versa, but it *is* plausible for there to be
+> two non-deleted copy constructors -- a trivial one, and one that takes
+> a const volatile reference -- and in that case, passing through
+> registers seems completely reasonable. How about changing the rule in
+> 3.1.1 bullet 1 to:
+> 
+> "In the special case where the parameter type does not have both a
+> trivial destructor and at least one trivial copy or move constructor
+> that is not deleted, the caller must allocate space for a temporary
+> copy, and pass the resulting copy by reference (below). Specifically
+> [?]"
+
+I agree with your proposal in theory, but I?m concerned about changing
+the ABI at this point.  We *are* talking about the language standard that was
+released six years ago, and an area of that standard that was theoretically
+fully implemented by compilers several years before that.
+
+Do we understand the scope of the ABI disagreement between GCC and Clang here?
+What do other compilers do?
+
+John.
+
+From rjmccall at apple.com  Wed Feb 24 20:57:22 2016
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 24 Feb 2016 12:57:22 -0800
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+Message-ID: <4C9B0255-55B6-4F44-8155-719C73EB905D@apple.com>
+
+> On Feb 24, 2016, at 12:56 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com> wrote:
+>> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>>> 
+>>>> in 3.1.1, we use "In the special case where the parameter type has a
+>>>> non-trivial copy constructor or destructor" to force passing by
+>>>> reference. It seems that for C++11, this should also include move
+>>>> constructors, for the same reasons.
+>>> 
+>>> 
+>>> We talked about adding move constructors to that sentence years ago. Did it
+>>> never make it into the spec?
+>> 
+>> Looks like it didn't. The rule we ended up with was:
+>> 
+>> "[Pass an object of class type by value if] every copy constructor and
+>> move constructor is deleted or trivial and at least one of them is not
+>> deleted, and the destructor is trivial.?
+>> 
+>> 
+>> However, this seems overly-cautious to me; it would seem sufficient
+>> for there to be at least one copy or move constructor that is trivial
+>> and not deleted, and a trivial destructor. It's not really
+>> particularly plausible for there to be a trivial copy and a
+>> non-trivial move or vice versa, but it *is* plausible for there to be
+>> two non-deleted copy constructors -- a trivial one, and one that takes
+>> a const volatile reference -- and in that case, passing through
+>> registers seems completely reasonable. How about changing the rule in
+>> 3.1.1 bullet 1 to:
+>> 
+>> "In the special case where the parameter type does not have both a
+>> trivial destructor and at least one trivial copy or move constructor
+>> that is not deleted, the caller must allocate space for a temporary
+>> copy, and pass the resulting copy by reference (below). Specifically
+>> [?]"
+> 
+> I agree with your proposal in theory, but I?m concerned about changing
+> the ABI at this point.  We *are* talking about the language standard that was
+> released six years ago,
+
+Er.  Five, obviously.
+
+John.
+
+
+From jason at redhat.com  Wed Feb 24 21:12:11 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 24 Feb 2016 16:12:11 -0500
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+Message-ID: <56CE1CAB.5070203@redhat.com>
+
+On 02/24/2016 03:56 PM, John McCall wrote:
+> I agree with your proposal in theory, but I?m concerned about changing
+> the ABI at this point.  We *are* talking about the language standard that was
+> released six years ago, and an area of that standard that was theoretically
+> fully implemented by compilers several years before that.
+
+Agreed.
+
+Jason
+
+
+From richardsmith at googlers.com  Wed Feb 24 21:14:24 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Wed, 24 Feb 2016 13:14:24 -0800
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+Message-ID: <CAGL0aWcnAT=7H5=h+UOOqVzb6yQS0W-ah8KhQ1Sghp5BJZPgvg@mail.gmail.com>
+
+On 24 February 2016 at 12:56, John McCall <rjmccall at apple.com> wrote:
+>> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com> wrote:
+>> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>>>
+>>>> in 3.1.1, we use "In the special case where the parameter type has a
+>>>> non-trivial copy constructor or destructor" to force passing by
+>>>> reference. It seems that for C++11, this should also include move
+>>>> constructors, for the same reasons.
+>>>
+>>>
+>>> We talked about adding move constructors to that sentence years ago. Did it
+>>> never make it into the spec?
+>>
+>> Looks like it didn't. The rule we ended up with was:
+>>
+>> "[Pass an object of class type by value if] every copy constructor and
+>> move constructor is deleted or trivial and at least one of them is not
+>> deleted, and the destructor is trivial.?
+>>
+>>
+>> However, this seems overly-cautious to me; it would seem sufficient
+>> for there to be at least one copy or move constructor that is trivial
+>> and not deleted, and a trivial destructor. It's not really
+>> particularly plausible for there to be a trivial copy and a
+>> non-trivial move or vice versa, but it *is* plausible for there to be
+>> two non-deleted copy constructors -- a trivial one, and one that takes
+>> a const volatile reference -- and in that case, passing through
+>> registers seems completely reasonable. How about changing the rule in
+>> 3.1.1 bullet 1 to:
+>>
+>> "In the special case where the parameter type does not have both a
+>> trivial destructor and at least one trivial copy or move constructor
+>> that is not deleted, the caller must allocate space for a temporary
+>> copy, and pass the resulting copy by reference (below). Specifically
+>> [?]"
+>
+> I agree with your proposal in theory, but I?m concerned about changing
+> the ABI at this point.  We *are* talking about the language standard that was
+> released six years ago, and an area of that standard that was theoretically
+> fully implemented by compilers several years before that.
+>
+> Do we understand the scope of the ABI disagreement between GCC and Clang here?
+> What do other compilers do?
+
+Clang's rule is the one in the ABI: a class is passed indirectly if it
+has a non-trivial destructor or a non-trivial copy constructor. This
+rule definitely needs some adjustment, because it's not meaningful to
+ask whether an implicitly-deleted function is trivial.
+
+From rjmccall at apple.com  Thu Feb 25 06:41:06 2016
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 24 Feb 2016 22:41:06 -0800
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <CAGL0aWcnAT=7H5=h+UOOqVzb6yQS0W-ah8KhQ1Sghp5BJZPgvg@mail.gmail.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+	<CAGL0aWcnAT=7H5=h+UOOqVzb6yQS0W-ah8KhQ1Sghp5BJZPgvg@mail.gmail.com>
+Message-ID: <225867D4-033A-4AA5-8BD7-0741E22743DF@apple.com>
+
+> On Feb 24, 2016, at 1:14 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 24 February 2016 at 12:56, John McCall <rjmccall at apple.com> wrote:
+>>> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com> wrote:
+>>> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>>>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>>>> 
+>>>>> in 3.1.1, we use "In the special case where the parameter type has a
+>>>>> non-trivial copy constructor or destructor" to force passing by
+>>>>> reference. It seems that for C++11, this should also include move
+>>>>> constructors, for the same reasons.
+>>>> 
+>>>> 
+>>>> We talked about adding move constructors to that sentence years ago. Did it
+>>>> never make it into the spec?
+>>> 
+>>> Looks like it didn't. The rule we ended up with was:
+>>> 
+>>> "[Pass an object of class type by value if] every copy constructor and
+>>> move constructor is deleted or trivial and at least one of them is not
+>>> deleted, and the destructor is trivial.?
+>>> 
+>>> 
+>>> However, this seems overly-cautious to me; it would seem sufficient
+>>> for there to be at least one copy or move constructor that is trivial
+>>> and not deleted, and a trivial destructor. It's not really
+>>> particularly plausible for there to be a trivial copy and a
+>>> non-trivial move or vice versa, but it *is* plausible for there to be
+>>> two non-deleted copy constructors -- a trivial one, and one that takes
+>>> a const volatile reference -- and in that case, passing through
+>>> registers seems completely reasonable. How about changing the rule in
+>>> 3.1.1 bullet 1 to:
+>>> 
+>>> "In the special case where the parameter type does not have both a
+>>> trivial destructor and at least one trivial copy or move constructor
+>>> that is not deleted, the caller must allocate space for a temporary
+>>> copy, and pass the resulting copy by reference (below). Specifically
+>>> [?]"
+>> 
+>> I agree with your proposal in theory, but I?m concerned about changing
+>> the ABI at this point.  We *are* talking about the language standard that was
+>> released six years ago, and an area of that standard that was theoretically
+>> fully implemented by compilers several years before that.
+>> 
+>> Do we understand the scope of the ABI disagreement between GCC and Clang here?
+>> What do other compilers do?
+> 
+> Clang's rule is the one in the ABI: a class is passed indirectly if it
+> has a non-trivial destructor or a non-trivial copy constructor. This
+> rule definitely needs some adjustment, because it's not meaningful to
+> ask whether an implicitly-deleted function is trivial.
+
+That sounds like it?s on us to fix.  Do GCC and other compilers correctly
+implement the rule that we agreed on?  If so, I?ll go ahead and apply
+the change to the ABI document, and we should fix this in clang.
+
+John.
+
+From jason at redhat.com  Sat Feb 27 04:01:38 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 26 Feb 2016 23:01:38 -0500
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <566B1803.8070201@redhat.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com>
+Message-ID: <56D11FA2.3010408@redhat.com>
+
+On 12/11/2015 01:37 PM, Jason Merrill wrote:
+> On 12/10/2015 07:32 PM, Richard Smith wrote:
+>> On 10 December 2015 at 16:15, John McCall <rjmccall at apple.com> wrote:
+>>
+>>>> On Dec 10, 2015, at 4:11 PM, Nelson, Clark <clark.nelson at intel.com>
+>>> wrote:
+>>>>
+>>>> It has come to my attention that GCC and clang generate incompatible
+>>>> code
+>>>> for passing an argument of an empty class type.
+>>>>
+>>>> clang seems to completely ignore arguments and parameters of empty
+>>>> class
+>>>> type -- which seems to make a certain amount of sense.
+>>>>
+>>>> OTOH, as far as I understand it, GCC effectively treats an empty class
+>>>> equivalently to a class containing a single member with some character
+>>>> type -- which also seems pretty reasonable.
+>>>>
+>>>> Should the C++ ABI come down on one side or the other of this question?
+>>>>
+>>>> This is really the sort of question a psABI should settle. But of
+>>>> course
+>>>> the C language doesn't actually support a structure with no members, so
+>>>> it's not too surprising if a psABI doesn't nail down what should happen
+>>>> for this.
+>>>
+>>> It?s valid as a C extension in GCC.  If there are platforms where we
+>>> use a
+>>> different rule from GCC, we should come to some understanding with them.
+>>>
+>>> Because of the GCC extension, C++ can?t really use different rules
+>>> from C.
+>>
+>>
+>> (For x86_64:) GCC uses different rules for C and C++. In C, they do not
+>> pass anything. In C++, they pass a 1-byte object on the stack. Clang uses
+>> the same rules for C and C++, passing nothing in both cases.
+>>
+>> A careful reading of the x86_64 psABI suggests that clang is right in
+>> both
+>> cases; the eightbyte corresponding to the 1-byte empty struct
+>> parameter is
+>> never classified (at all), so should occupy neither a register nor
+>> memory,
+>> but it's not really especially clear.
+>>
+>> In any case, I think GCC should be the one to change here, because its C
+>> and C++ ABIs don't match.
+>
+> Agreed.
+
+On further discussion, it came up that the C and C++ ABIs really can't 
+match.  In GNU C, an empty struct has size 0; in C++ it has size 1.  We 
+could finesse this difference for argument passing, as suggested here, 
+but we really can't paper over the difference in general.  What if you 
+have a class containing an empty class?  GNU C still says that has size 
+0, but it's less clear that this makes sense for C++.  Significantly, 
+this does not fit the ABI definition of an empty class.
+
+I also notice that the ABI says "If the base ABI does not specify rules 
+for empty classes, then an empty class has size and alignment 1."
+
+Jason
+
+
+From gdr at integrable-solutions.net  Sat Feb 27 07:57:01 2016
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Fri, 26 Feb 2016 23:57:01 -0800
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <56D11FA2.3010408@redhat.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com> <56D11FA2.3010408@redhat.com>
+Message-ID: <CAAiZkiBFMhHfYuALkwvnPHmhWQbjMB3QCrB2JWq5X_vkRLZ8gQ@mail.gmail.com>
+
+On Fri, Feb 26, 2016 at 8:01 PM, Jason Merrill <jason at redhat.com> wrote:
+
+> On 12/11/2015 01:37 PM, Jason Merrill wrote:
+>
+>> On 12/10/2015 07:32 PM, Richard Smith wrote:
+>>
+>>> On 10 December 2015 at 16:15, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>> On Dec 10, 2015, at 4:11 PM, Nelson, Clark <clark.nelson at intel.com>
+>>>>>
+>>>> wrote:
+>>>>
+>>>>>
+>>>>> It has come to my attention that GCC and clang generate incompatible
+>>>>> code
+>>>>> for passing an argument of an empty class type.
+>>>>>
+>>>>> clang seems to completely ignore arguments and parameters of empty
+>>>>> class
+>>>>> type -- which seems to make a certain amount of sense.
+>>>>>
+>>>>> OTOH, as far as I understand it, GCC effectively treats an empty class
+>>>>> equivalently to a class containing a single member with some character
+>>>>> type -- which also seems pretty reasonable.
+>>>>>
+>>>>> Should the C++ ABI come down on one side or the other of this question?
+>>>>>
+>>>>> This is really the sort of question a psABI should settle. But of
+>>>>> course
+>>>>> the C language doesn't actually support a structure with no members, so
+>>>>> it's not too surprising if a psABI doesn't nail down what should happen
+>>>>> for this.
+>>>>>
+>>>>
+>>>> It?s valid as a C extension in GCC.  If there are platforms where we
+>>>> use a
+>>>> different rule from GCC, we should come to some understanding with them.
+>>>>
+>>>> Because of the GCC extension, C++ can?t really use different rules
+>>>> from C.
+>>>>
+>>>
+>>>
+>>> (For x86_64:) GCC uses different rules for C and C++. In C, they do not
+>>> pass anything. In C++, they pass a 1-byte object on the stack. Clang uses
+>>> the same rules for C and C++, passing nothing in both cases.
+>>>
+>>> A careful reading of the x86_64 psABI suggests that clang is right in
+>>> both
+>>> cases; the eightbyte corresponding to the 1-byte empty struct
+>>> parameter is
+>>> never classified (at all), so should occupy neither a register nor
+>>> memory,
+>>> but it's not really especially clear.
+>>>
+>>> In any case, I think GCC should be the one to change here, because its C
+>>> and C++ ABIs don't match.
+>>>
+>>
+>> Agreed.
+>>
+>
+> On further discussion, it came up that the C and C++ ABIs really can't
+> match.  In GNU C, an empty struct has size 0; in C++ it has size 1.  We
+> could finesse this difference for argument passing, as suggested here, but
+> we really can't paper over the difference in general.  What if you have a
+> class containing an empty class?  GNU C still says that has size 0, but
+> it's less clear that this makes sense for C++.  Significantly, this does
+> not fit the ABI definition of an empty class.
+>
+
+Five years ago, we determined that it would make sense (read: provably
+safe) to optimize that case too -- even for arrays.  See section 6.2 of
+      http://www.axiomatics.org/~gdr/formal-cxx/layout-popl11.pdf
+for the "layman" summary.
+
+
+>
+> I also notice that the ABI says "If the base ABI does not specify rules
+> for empty classes, then an empty class has size and alignment 1."
+
+
+-- Gaby
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160226/e23fec69/attachment.html>
+
+From douglas_yung at playstation.sony.com  Thu Feb  4 01:06:23 2016
+From: douglas_yung at playstation.sony.com (Yung, Douglas)
+Date: Thu, 04 Feb 2016 01:06:23 -0000
+Subject: [cxx-abi-dev] Mangling for OpenCL and GCC vectors
+Message-ID: <6EB9D9327A3314498A112A8A91D381D99CC9ADF5@USCULXMSG03.am.sony.com>
+
+Hi,
+
+Recently in our testing we encountered an abi issue that we were hoping to get clarified. Specifically, this concerns the mangling of OpenCL and GCC vectors which seems to be identical when comparing the results of GCC vectors compiled by GCC5 and OpenCL vectors when mangled according to the SPIR 1.2 spec.
+
+First a little background. Clang supports using both OpenCL and GCC vectors in a program. When used, clang permits certain operations to be performed on each as detailed in the table found at http://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors. From the differences there, it seems the compiler treats the types as unique which makes sense as they support different operations.
+
+The problem we found arises when you try to use both in the same program. Consider the following example:
+
+template <typename alpha>
+static void foo() {}
+
+void bar() {
+  foo<float __attribute__((__vector_size__(16)))>();
+  foo<float __attribute__((ext_vector_type(4)))>();
+}
+
+In this example, the compiler creates two copies of the function foo, once using a GCC vector, and once using an OpenCL vector. These functions mangle to the same string " _ZL3fooIDv4_fEvv" which the compiler detects and issues an error. Is the fact that the two vectors mangle identically by design or just a coincidence? If it is by coincidence, should the compiler merge the two type definitions when it encounters them, or was there some other intention here that we are unaware of?
+
+Thoughts?
+
+Douglas Yung
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160204/b2cde339/attachment-0001.html>
+
+From yunzhong_gao at playstation.sony.com  Wed Feb 24 03:48:58 2016
+From: yunzhong_gao at playstation.sony.com (Gao, Yunzhong)
+Date: Wed, 24 Feb 2016 03:48:58 +0000
+Subject: [cxx-abi-dev] Mangling for OpenCL and GCC vectors
+In-Reply-To: <CAOfiQqm1D=6wOQwGnfBOZ6UOvDTCHxXUVOb4XAMU4AdyNbM4pA@mail.gmail.com>
+References: <6EB9D9327A3314498A112A8A91D381D99CC9ADF5@USCULXMSG03.am.sony.com>
+	<56DF389A-D57F-4BEA-A796-5ED0CECB139C@playstation.sony.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4D93D@USCULXMSG01.am.sony.com>
+	<CAOfiQqnq308Oz3rOExajfv8TA7mHQbDriPWqHjyVhNSqBNtQqw@mail.gmail.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4DA4E@USCULXMSG01.am.sony.com>
+	<CAOfiQqm1D=6wOQwGnfBOZ6UOvDTCHxXUVOb4XAMU4AdyNbM4pA@mail.gmail.com>
+Message-ID: <7266CA7691ED9C4ABF6BECC94C7EB9FCFEC54B5E@USCULXMSG01.am.sony.com>
+
+GCC 4.8.2 follows an older version of GNU ABI, so given,
+  typedef float float4 __attribute__((__vector_size__(16)));
+  void foo(float4 f) { }
+G++ mangles a <4 x float> vector into U8_floatf. And a <2 x double> vector is mangled into U8_floatd.
+I do not have GCC 5.2 or 5.3 but presumably they changed their mangling scheme there.
+
+Clang has always mangled these types into Dv4_f and Dv2_d respectively.
+
+If I use the ext_vector_size attribute instead, which is for OpenCL compatibility,
+  typedef float float4 __attribute__((__ext_vector_size__(4)));
+  void foo(float4 f) { }
+GCC 4.8.2 does not support this attribute.
+Clang always mangles this type into Dv4_f.
+
+I thought about whether the delicate mechanism of swapping mangling would work as you
+described, and I think it depends on whether anyone would want to link OpenCL program
+and C++ programs together, and if so, you may want the OpenCL vector types to have
+matching mangled names. Maybe.
+
+- Gao
+
+
+> -----Original Message-----
+> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+> Richard Smith
+> Sent: Friday, February 19, 2016 6:21 PM
+> To: Gao, Yunzhong
+> Cc: rjmccall at apple.com
+> Subject: Re: Mangling for OpenCL and GCC vectors
+> 
+> On Fri, Feb 19, 2016 at 5:48 PM, Gao, Yunzhong
+> <yunzhong_gao at playstation.sony.com> wrote:
+> > Hey Richard,
+> > Thanks! My understanding is that the GCC vector type is being mangled
+> > according to the Itanium ABI
+> 
+> The Itanium C++ ABI does not appear to specify any mangling for vector
+> types. This Dv <number> _ <type> mangling is a GNU extension.
+> 
+> > and the OpenCL vector type is being mangled according to the SPIR 1.2
+> > spec.
+> 
+> SPIR presumably inherited their mangling from whatever Clang did at the
+> time. :-(
+> 
+> > So does your answer imply that one of the ABIs need be modified to
+> > reflect a different mangling?
+> 
+> There's an alternative: we can do the same dance we do for similar messes,
+> like long double vs __float128 on PPC (the Itanium ABI has both a long double
+> mangling, e, and a __float128 mangling, g, but because of Reasons, the
+> mangling 'g' is used for long double and the mangling u10__float128 is used
+> for __float128, sometimes).
+> 
+> So, when targeting SPIR, we'd mangle ext_vector_type as Dv... and mangle
+> vector_size as something else.
+> When targeting anything else, we'd mangle vector_size as Dv... and mangle
+> ext_vector_type as something else.
+> 
+> > Any advice on how
+> > to initiate a discussion to change either of the ABIs?
+> > - Gao
+> >
+> >
+> >> -----Original Message-----
+> >> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+> >> Richard Smith
+> >> Sent: Friday, February 19, 2016 5:29 PM
+> >> To: Gao, Yunzhong
+> >> Cc: rjmccall at apple.com
+> >> Subject: Re: Mangling for OpenCL and GCC vectors
+> >>
+> >> I'm not seeing it show up on the list either. FWIW, I think these
+> >> types should have different manglings.
+> >>
+> >> On Fri, Feb 19, 2016 at 4:47 PM, Gao, Yunzhong
+> >> <yunzhong_gao at playstation.sony.com> wrote:
+> >> > Ping?
+> >> >
+> >> > Hmm, still not seeing the mail on the mailing list after two weeks.
+> >> > It?s strange.
+> >> >
+> >> >
+> >> >
+> >> >
+> >> >
+> >> > From: Gao, Yunzhong
+> >> > Sent: Monday, February 08, 2016 9:55 PM
+> >> > To: Richard Smith; rjmccall at apple.com
+> >> > Subject: Fwd: Mangling for OpenCL and GCC vectors
+> >> >
+> >> >
+> >> >
+> >> > Hi John, Richard,
+> >> >
+> >> > I did not see the following email appear on the online cxx-abi-dev
+> >> > archive after the weekend, so I thought to just forward it to you
+> >> > directly. Sorry for the spam.
+> >> >
+> >> >
+> >> >
+> >> > The core issue is that we have two types which clang would consider
+> >> > distinct but which are mangled the same. In this case one could
+> >> > argue that since the linker cannot tell the two types apart (if
+> >> > they came from different translation units) based on their
+> >> > mangling, then the compiler should also treat them the same coming
+> >> > from the same translation unit. But one could also argue that if
+> >> > they are meant to be distinct types, they should have different
+> >> > mangling, and the ABIs need be changed. We cannot decide which is
+> >> > the intention in giving them the same mangling in the first place.
+> >> > Are there any precedent cases with conflicting symbol mangling? How
+> were they resolved?
+> >> >
+> >> > - Gao
+> >> >
+> >> >
+> >> > Sent from my iPhone
+> >> >
+> >> >
+> >> > Begin forwarded message:
+> >> >
+> >> > From: "Yung, Douglas" <douglas_yung at playstation.sony.com>
+> >> > Date: February 3, 2016 at 5:06:15 PM PST
+> >> > To: "cxx-abi-dev at codesourcery.com" <cxx-abi-
+> dev at codesourcery.com>
+> >> > Cc: "Robinson, Paul" <Paul_Robinson at playstation.sony.com>, "Gao,
+> >> Yunzhong"
+> >> > <yunzhong_gao at playstation.sony.com>
+> >> > Subject: Mangling for OpenCL and GCC vectors
+> >> >
+> >> > Hi,
+> >> >
+> >> >
+> >> >
+> >> > Recently in our testing we encountered an abi issue that we were
+> >> > hoping to get clarified. Specifically, this concerns the mangling
+> >> > of OpenCL and GCC vectors which seems to be identical when
+> >> > comparing the results of GCC vectors compiled by GCC5 and OpenCL
+> >> > vectors when mangled according to the SPIR 1.2 spec.
+> >> >
+> >> >
+> >> >
+> >> > First a little background. Clang supports using both OpenCL and GCC
+> >> > vectors in a program. When used, clang permits certain operations
+> >> > to be performed on each as detailed in the table found at
+> >> > http://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-
+> >> extended-vectors.
+> >> > From the differences there, it seems the compiler treats the types
+> >> > as unique which makes sense as they support different operations.
+> >> >
+> >> >
+> >> >
+> >> > The problem we found arises when you try to use both in the same
+> >> program.
+> >> > Consider the following example:
+> >> >
+> >> >
+> >> >
+> >> > template <typename alpha>
+> >> >
+> >> > static void foo() {}
+> >> >
+> >> >
+> >> >
+> >> > void bar() {
+> >> >
+> >> >   foo<float __attribute__((__vector_size__(16)))>();
+> >> >
+> >> >   foo<float __attribute__((ext_vector_type(4)))>();
+> >> >
+> >> > }
+> >> >
+> >> >
+> >> >
+> >> > In this example, the compiler creates two copies of the function
+> >> > foo, once using a GCC vector, and once using an OpenCL vector.
+> >> > These functions mangle to the same string ? _ZL3fooIDv4_fEvv? which
+> >> > the compiler detects and issues an error. Is the fact that the two
+> >> > vectors mangle identically by design or just a coincidence? If it
+> >> > is by coincidence, should the compiler merge the two type
+> >> > definitions when it encounters them, or was there some other
+> >> > intention here that we are
+> >> unaware of?
+> >> >
+> >> >
+> >> >
+> >> > Thoughts?
+> >> >
+> >> >
+> >> >
+> >> > Douglas Yung
+
+From yunzhong_gao at playstation.sony.com  Wed Feb 24 04:39:16 2016
+From: yunzhong_gao at playstation.sony.com (Gao, Yunzhong)
+Date: Wed, 24 Feb 2016 04:39:16 +0000
+Subject: [cxx-abi-dev] Mangling for OpenCL and GCC vectors
+In-Reply-To: <7266CA7691ED9C4ABF6BECC94C7EB9FCFEC54B5E@USCULXMSG01.am.sony.com>
+References: <6EB9D9327A3314498A112A8A91D381D99CC9ADF5@USCULXMSG03.am.sony.com>
+	<56DF389A-D57F-4BEA-A796-5ED0CECB139C@playstation.sony.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4D93D@USCULXMSG01.am.sony.com>
+	<CAOfiQqnq308Oz3rOExajfv8TA7mHQbDriPWqHjyVhNSqBNtQqw@mail.gmail.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4DA4E@USCULXMSG01.am.sony.com>
+	<CAOfiQqm1D=6wOQwGnfBOZ6UOvDTCHxXUVOb4XAMU4AdyNbM4pA@mail.gmail.com>,
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC54B5E@USCULXMSG01.am.sony.com>
+Message-ID: <DD37C255-4354-4B64-92A4-AF7CB545F1C1@playstation.sony.com>
+
+Actually, I might have been confused with how SPIR works. I thought OpenCL can target CPU codes, so when compiling an OpenCL program and when compiling a C++ program, they could be targeting the same CPU architecture, so linking is possible. But looking at github.com/KhronosGroup/SPIR, they talk about the SPIR triples as spir-unknown-unknown or spir64-unknown-unknown. So SPIR is being treated as a virtual backend architecture.
+
+Sent from my iPhone
+
+> On Feb 23, 2016, at 7:48 PM, Gao, Yunzhong <yunzhong_gao at playstation.sony.com> wrote:
+> 
+> GCC 4.8.2 follows an older version of GNU ABI, so given,
+>  typedef float float4 __attribute__((__vector_size__(16)));
+>  void foo(float4 f) { }
+> G++ mangles a <4 x float> vector into U8_floatf. And a <2 x double> vector is mangled into U8_floatd.
+> I do not have GCC 5.2 or 5.3 but presumably they changed their mangling scheme there.
+> 
+> Clang has always mangled these types into Dv4_f and Dv2_d respectively.
+> 
+> If I use the ext_vector_size attribute instead, which is for OpenCL compatibility,
+>  typedef float float4 __attribute__((__ext_vector_size__(4)));
+>  void foo(float4 f) { }
+> GCC 4.8.2 does not support this attribute.
+> Clang always mangles this type into Dv4_f.
+> 
+> I thought about whether the delicate mechanism of swapping mangling would work as you
+> described, and I think it depends on whether anyone would want to link OpenCL program
+> and C++ programs together, and if so, you may want the OpenCL vector types to have
+> matching mangled names. Maybe.
+> 
+> - Gao
+> 
+> 
+>> -----Original Message-----
+>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>> Richard Smith
+>> Sent: Friday, February 19, 2016 6:21 PM
+>> To: Gao, Yunzhong
+>> Cc: rjmccall at apple.com
+>> Subject: Re: Mangling for OpenCL and GCC vectors
+>> 
+>> On Fri, Feb 19, 2016 at 5:48 PM, Gao, Yunzhong
+>> <yunzhong_gao at playstation.sony.com> wrote:
+>>> Hey Richard,
+>>> Thanks! My understanding is that the GCC vector type is being mangled
+>>> according to the Itanium ABI
+>> 
+>> The Itanium C++ ABI does not appear to specify any mangling for vector
+>> types. This Dv <number> _ <type> mangling is a GNU extension.
+>> 
+>>> and the OpenCL vector type is being mangled according to the SPIR 1.2
+>>> spec.
+>> 
+>> SPIR presumably inherited their mangling from whatever Clang did at the
+>> time. :-(
+>> 
+>>> So does your answer imply that one of the ABIs need be modified to
+>>> reflect a different mangling?
+>> 
+>> There's an alternative: we can do the same dance we do for similar messes,
+>> like long double vs __float128 on PPC (the Itanium ABI has both a long double
+>> mangling, e, and a __float128 mangling, g, but because of Reasons, the
+>> mangling 'g' is used for long double and the mangling u10__float128 is used
+>> for __float128, sometimes).
+>> 
+>> So, when targeting SPIR, we'd mangle ext_vector_type as Dv... and mangle
+>> vector_size as something else.
+>> When targeting anything else, we'd mangle vector_size as Dv... and mangle
+>> ext_vector_type as something else.
+>> 
+>>> Any advice on how
+>>> to initiate a discussion to change either of the ABIs?
+>>> - Gao
+>>> 
+>>> 
+>>>> -----Original Message-----
+>>>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>>>> Richard Smith
+>>>> Sent: Friday, February 19, 2016 5:29 PM
+>>>> To: Gao, Yunzhong
+>>>> Cc: rjmccall at apple.com
+>>>> Subject: Re: Mangling for OpenCL and GCC vectors
+>>>> 
+>>>> I'm not seeing it show up on the list either. FWIW, I think these
+>>>> types should have different manglings.
+>>>> 
+>>>> On Fri, Feb 19, 2016 at 4:47 PM, Gao, Yunzhong
+>>>> <yunzhong_gao at playstation.sony.com> wrote:
+>>>>> Ping?
+>>>>> 
+>>>>> Hmm, still not seeing the mail on the mailing list after two weeks.
+>>>>> It?s strange.
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> From: Gao, Yunzhong
+>>>>> Sent: Monday, February 08, 2016 9:55 PM
+>>>>> To: Richard Smith; rjmccall at apple.com
+>>>>> Subject: Fwd: Mangling for OpenCL and GCC vectors
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> Hi John, Richard,
+>>>>> 
+>>>>> I did not see the following email appear on the online cxx-abi-dev
+>>>>> archive after the weekend, so I thought to just forward it to you
+>>>>> directly. Sorry for the spam.
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> The core issue is that we have two types which clang would consider
+>>>>> distinct but which are mangled the same. In this case one could
+>>>>> argue that since the linker cannot tell the two types apart (if
+>>>>> they came from different translation units) based on their
+>>>>> mangling, then the compiler should also treat them the same coming
+>>>>> from the same translation unit. But one could also argue that if
+>>>>> they are meant to be distinct types, they should have different
+>>>>> mangling, and the ABIs need be changed. We cannot decide which is
+>>>>> the intention in giving them the same mangling in the first place.
+>>>>> Are there any precedent cases with conflicting symbol mangling? How
+>> were they resolved?
+>>>>> 
+>>>>> - Gao
+>>>>> 
+>>>>> 
+>>>>> Sent from my iPhone
+>>>>> 
+>>>>> 
+>>>>> Begin forwarded message:
+>>>>> 
+>>>>> From: "Yung, Douglas" <douglas_yung at playstation.sony.com>
+>>>>> Date: February 3, 2016 at 5:06:15 PM PST
+>>>>> To: "cxx-abi-dev at codesourcery.com" <cxx-abi-
+>> dev at codesourcery.com>
+>>>>> Cc: "Robinson, Paul" <Paul_Robinson at playstation.sony.com>, "Gao,
+>>>> Yunzhong"
+>>>>> <yunzhong_gao at playstation.sony.com>
+>>>>> Subject: Mangling for OpenCL and GCC vectors
+>>>>> 
+>>>>> Hi,
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> Recently in our testing we encountered an abi issue that we were
+>>>>> hoping to get clarified. Specifically, this concerns the mangling
+>>>>> of OpenCL and GCC vectors which seems to be identical when
+>>>>> comparing the results of GCC vectors compiled by GCC5 and OpenCL
+>>>>> vectors when mangled according to the SPIR 1.2 spec.
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> First a little background. Clang supports using both OpenCL and GCC
+>>>>> vectors in a program. When used, clang permits certain operations
+>>>>> to be performed on each as detailed in the table found at
+>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-
+>>>> extended-vectors.
+>>>>> From the differences there, it seems the compiler treats the types
+>>>>> as unique which makes sense as they support different operations.
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> The problem we found arises when you try to use both in the same
+>>>> program.
+>>>>> Consider the following example:
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> template <typename alpha>
+>>>>> 
+>>>>> static void foo() {}
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> void bar() {
+>>>>> 
+>>>>>  foo<float __attribute__((__vector_size__(16)))>();
+>>>>> 
+>>>>>  foo<float __attribute__((ext_vector_type(4)))>();
+>>>>> 
+>>>>> }
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> In this example, the compiler creates two copies of the function
+>>>>> foo, once using a GCC vector, and once using an OpenCL vector.
+>>>>> These functions mangle to the same string ? _ZL3fooIDv4_fEvv? which
+>>>>> the compiler detects and issues an error. Is the fact that the two
+>>>>> vectors mangle identically by design or just a coincidence? If it
+>>>>> is by coincidence, should the compiler merge the two type
+>>>>> definitions when it encounters them, or was there some other
+>>>>> intention here that we are
+>>>> unaware of?
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> Thoughts?
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> Douglas Yung
+
+From yunzhong_gao at playstation.sony.com  Thu Feb 25 22:45:03 2016
+From: yunzhong_gao at playstation.sony.com (Gao, Yunzhong)
+Date: Thu, 25 Feb 2016 22:45:03 +0000
+Subject: [cxx-abi-dev] Mangling for OpenCL and GCC vectors
+In-Reply-To: <DD37C255-4354-4B64-92A4-AF7CB545F1C1@playstation.sony.com>
+References: <6EB9D9327A3314498A112A8A91D381D99CC9ADF5@USCULXMSG03.am.sony.com>
+	<56DF389A-D57F-4BEA-A796-5ED0CECB139C@playstation.sony.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4D93D@USCULXMSG01.am.sony.com>
+	<CAOfiQqnq308Oz3rOExajfv8TA7mHQbDriPWqHjyVhNSqBNtQqw@mail.gmail.com>
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC4DA4E@USCULXMSG01.am.sony.com>
+	<CAOfiQqm1D=6wOQwGnfBOZ6UOvDTCHxXUVOb4XAMU4AdyNbM4pA@mail.gmail.com>,
+	<7266CA7691ED9C4ABF6BECC94C7EB9FCFEC54B5E@USCULXMSG01.am.sony.com>,
+	<DD37C255-4354-4B64-92A4-AF7CB545F1C1@playstation.sony.com>
+Message-ID: <7266CA7691ED9C4ABF6BECC94C7EB9FCFEC58E4B@USCULXMSG01.am.sony.com>
+
+To recap, the suggestion was:
+  When targeting SPIR, we mangle ext_vector_type as Dv<N>_<T>, where N is
+  the number of elements in the vector, and T is the mangled element type;
+  and we mangle vector_size as something else. This is consistent with
+  SPIR 1.2 and SPIR 2.0 specs.
+
+  When targeting other-than-SPIR, we mangle vector_size as Dv<N>_<T>;
+  and we mangle ext_vector_type as something else. This is consistent with
+  GCC 5.x.
+
+For this something else, I originally thought we could use the GCC 4.x
+mangling, which is U8__vector<T>, where T is the mangled element type, but
+this mangling does not describe the number of elements, and therefore
+creates a problem where a <8 x float> and a <4 x float> would have the
+identical mangling.
+
+Maybe we could use the SPIR 1.0 mangling as described in
+www.khronos.org/registry/cl/specs/spir_spec-1.0-provisional.pdf
+That is,
+  For element size <= 8: use u2v<N><T>
+  For element size > 8: use u3v<N><T>
+Do you think this might be acceptable?
+
+I notice that clang has a notion of DependentSizedExtVectorType. I am not
+sure whether u2v<N><T> or u3v<N><T> would be more appropriate if the number
+of elements is unknown at the time of mangling. On the other hand, I
+thought the number of elements is always known when a template is
+instantiated... is there a use case where a size expression instead of an
+actual size survives into the final assembly?
+
+It feels somewhat awkward that we appear to be inventing a mangling scheme
+in clang. Do you expect other compilers to eventually do the same trick?
+Where should this new mangling scheme be documented?
+
+- Gao
+
+________________________________________
+From: Gao, Yunzhong
+Sent: Tuesday, February 23, 2016 8:39 PM
+To: Gao, Yunzhong
+Cc: Richard Smith; rjmccall at apple.com; cxx-abi-dev at codesourcery.com
+Subject: Re: Mangling for OpenCL and GCC vectors
+
+Actually, I might have been confused with how SPIR works. I thought OpenCL can target CPU codes, so when compiling an OpenCL program and when compiling a C++ program, they could be targeting the same CPU architecture, so linking is possible. But looking at github.com/KhronosGroup/SPIR, they talk about the SPIR triples as spir-unknown-unknown or spir64-unknown-unknown. So SPIR is being treated as a virtual backend architecture.
+
+Sent from my iPhone
+
+> On Feb 23, 2016, at 7:48 PM, Gao, Yunzhong <yunzhong_gao at playstation.sony.com> wrote:
+>
+> GCC 4.8.2 follows an older version of GNU ABI, so given,
+>  typedef float float4 __attribute__((__vector_size__(16)));
+>  void foo(float4 f) { }
+> G++ mangles a <4 x float> vector into U8_floatf. And a <2 x double> vector is mangled into U8_floatd.
+> I do not have GCC 5.2 or 5.3 but presumably they changed their mangling scheme there.
+>
+> Clang has always mangled these types into Dv4_f and Dv2_d respectively.
+>
+> If I use the ext_vector_size attribute instead, which is for OpenCL compatibility,
+>  typedef float float4 __attribute__((__ext_vector_size__(4)));
+>  void foo(float4 f) { }
+> GCC 4.8.2 does not support this attribute.
+> Clang always mangles this type into Dv4_f.
+>
+> I thought about whether the delicate mechanism of swapping mangling would work as you
+> described, and I think it depends on whether anyone would want to link OpenCL program
+> and C++ programs together, and if so, you may want the OpenCL vector types to have
+> matching mangled names. Maybe.
+>
+> - Gao
+>
+>
+>> -----Original Message-----
+>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>> Richard Smith
+>> Sent: Friday, February 19, 2016 6:21 PM
+>> To: Gao, Yunzhong
+>> Cc: rjmccall at apple.com
+>> Subject: Re: Mangling for OpenCL and GCC vectors
+>>
+>> On Fri, Feb 19, 2016 at 5:48 PM, Gao, Yunzhong
+>> <yunzhong_gao at playstation.sony.com> wrote:
+>>> Hey Richard,
+>>> Thanks! My understanding is that the GCC vector type is being mangled
+>>> according to the Itanium ABI
+>>
+>> The Itanium C++ ABI does not appear to specify any mangling for vector
+>> types. This Dv <number> _ <type> mangling is a GNU extension.
+>>
+>>> and the OpenCL vector type is being mangled according to the SPIR 1.2
+>>> spec.
+>>
+>> SPIR presumably inherited their mangling from whatever Clang did at the
+>> time. :-(
+>>
+>>> So does your answer imply that one of the ABIs need be modified to
+>>> reflect a different mangling?
+>>
+>> There's an alternative: we can do the same dance we do for similar messes,
+>> like long double vs __float128 on PPC (the Itanium ABI has both a long double
+>> mangling, e, and a __float128 mangling, g, but because of Reasons, the
+>> mangling 'g' is used for long double and the mangling u10__float128 is used
+>> for __float128, sometimes).
+>>
+>> So, when targeting SPIR, we'd mangle ext_vector_type as Dv... and mangle
+>> vector_size as something else.
+>> When targeting anything else, we'd mangle vector_size as Dv... and mangle
+>> ext_vector_type as something else.
+>>
+>>> Any advice on how
+>>> to initiate a discussion to change either of the ABIs?
+>>> - Gao
+>>>
+>>>
+>>>> -----Original Message-----
+>>>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>>>> Richard Smith
+>>>> Sent: Friday, February 19, 2016 5:29 PM
+>>>> To: Gao, Yunzhong
+>>>> Cc: rjmccall at apple.com
+>>>> Subject: Re: Mangling for OpenCL and GCC vectors
+>>>>
+>>>> I'm not seeing it show up on the list either. FWIW, I think these
+>>>> types should have different manglings.
+>>>>
+>>>> On Fri, Feb 19, 2016 at 4:47 PM, Gao, Yunzhong
+>>>> <yunzhong_gao at playstation.sony.com> wrote:
+>>>>> Ping?
+>>>>>
+>>>>> Hmm, still not seeing the mail on the mailing list after two weeks.
+>>>>> It?s strange.
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>> From: Gao, Yunzhong
+>>>>> Sent: Monday, February 08, 2016 9:55 PM
+>>>>> To: Richard Smith; rjmccall at apple.com
+>>>>> Subject: Fwd: Mangling for OpenCL and GCC vectors
+>>>>>
+>>>>>
+>>>>>
+>>>>> Hi John, Richard,
+>>>>>
+>>>>> I did not see the following email appear on the online cxx-abi-dev
+>>>>> archive after the weekend, so I thought to just forward it to you
+>>>>> directly. Sorry for the spam.
+>>>>>
+>>>>>
+>>>>>
+>>>>> The core issue is that we have two types which clang would consider
+>>>>> distinct but which are mangled the same. In this case one could
+>>>>> argue that since the linker cannot tell the two types apart (if
+>>>>> they came from different translation units) based on their
+>>>>> mangling, then the compiler should also treat them the same coming
+>>>>> from the same translation unit. But one could also argue that if
+>>>>> they are meant to be distinct types, they should have different
+>>>>> mangling, and the ABIs need be changed. We cannot decide which is
+>>>>> the intention in giving them the same mangling in the first place.
+>>>>> Are there any precedent cases with conflicting symbol mangling? How
+>> were they resolved?
+>>>>>
+>>>>> - Gao
+>>>>>
+>>>>>
+>>>>> Sent from my iPhone
+>>>>>
+>>>>>
+>>>>> Begin forwarded message:
+>>>>>
+>>>>> From: "Yung, Douglas" <douglas_yung at playstation.sony.com>
+>>>>> Date: February 3, 2016 at 5:06:15 PM PST
+>>>>> To: "cxx-abi-dev at codesourcery.com" <cxx-abi-
+>> dev at codesourcery.com>
+>>>>> Cc: "Robinson, Paul" <Paul_Robinson at playstation.sony.com>, "Gao,
+>>>> Yunzhong"
+>>>>> <yunzhong_gao at playstation.sony.com>
+>>>>> Subject: Mangling for OpenCL and GCC vectors
+>>>>>
+>>>>> Hi,
+>>>>>
+>>>>>
+>>>>>
+>>>>> Recently in our testing we encountered an abi issue that we were
+>>>>> hoping to get clarified. Specifically, this concerns the mangling
+>>>>> of OpenCL and GCC vectors which seems to be identical when
+>>>>> comparing the results of GCC vectors compiled by GCC5 and OpenCL
+>>>>> vectors when mangled according to the SPIR 1.2 spec.
+>>>>>
+>>>>>
+>>>>>
+>>>>> First a little background. Clang supports using both OpenCL and GCC
+>>>>> vectors in a program. When used, clang permits certain operations
+>>>>> to be performed on each as detailed in the table found at
+>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-
+>>>> extended-vectors.
+>>>>> From the differences there, it seems the compiler treats the types
+>>>>> as unique which makes sense as they support different operations.
+>>>>>
+>>>>>
+>>>>>
+>>>>> The problem we found arises when you try to use both in the same
+>>>> program.
+>>>>> Consider the following example:
+>>>>>
+>>>>>
+>>>>>
+>>>>> template <typename alpha>
+>>>>>
+>>>>> static void foo() {}
+>>>>>
+>>>>>
+>>>>>
+>>>>> void bar() {
+>>>>>
+>>>>>  foo<float __attribute__((__vector_size__(16)))>();
+>>>>>
+>>>>>  foo<float __attribute__((ext_vector_type(4)))>();
+>>>>>
+>>>>> }
+>>>>>
+>>>>>
+>>>>>
+>>>>> In this example, the compiler creates two copies of the function
+>>>>> foo, once using a GCC vector, and once using an OpenCL vector.
+>>>>> These functions mangle to the same string ? _ZL3fooIDv4_fEvv? which
+>>>>> the compiler detects and issues an error. Is the fact that the two
+>>>>> vectors mangle identically by design or just a coincidence? If it
+>>>>> is by coincidence, should the compiler merge the two type
+>>>>> definitions when it encounters them, or was there some other
+>>>>> intention here that we are
+>>>> unaware of?
+>>>>>
+>>>>>
+>>>>>
+>>>>> Thoughts?
+>>>>>
+>>>>>
+>>>>>
+>>>>> Douglas Yung
+
+From yunzhong_gao at playstation.sony.com  Thu Feb 25 22:46:38 2016
+From: yunzhong_gao at playstation.sony.com (Gao, Yunzhong)
+Date: Thu, 25 Feb 2016 22:46:38 +0000
+Subject: [cxx-abi-dev] FW: Name Mangling for OpenCL and GCC vectors
+Message-ID: <7266CA7691ED9C4ABF6BECC94C7EB9FCFEC58E65@USCULXMSG01.am.sony.com>
+
+
+________________________________________
+From: Gao, Yunzhong
+Sent: Thursday, February 25, 2016 2:45 PM
+To: cxx-abi-dev at codesourcery.com
+Cc: Richard Smith; rjmccall at apple.com
+Subject: RE: Mangling for OpenCL and GCC vectors
+
+To recap, the suggestion was:
+  When targeting SPIR, we mangle ext_vector_type as Dv<N>_<T>, where N is
+  the number of elements in the vector, and T is the mangled element type;
+  and we mangle vector_size as something else. This is consistent with
+  SPIR 1.2 and SPIR 2.0 specs.
+
+  When targeting other-than-SPIR, we mangle vector_size as Dv<N>_<T>;
+  and we mangle ext_vector_type as something else. This is consistent with
+  GCC 5.x.
+
+For this something else, I originally thought we could use the GCC 4.x
+mangling, which is U8__vector<T>, where T is the mangled element type, but
+this mangling does not describe the number of elements, and therefore
+creates a problem where a <8 x float> and a <4 x float> would have the
+identical mangling.
+
+Maybe we could use the SPIR 1.0 mangling as described in
+www.khronos.org/registry/cl/specs/spir_spec-1.0-provisional.pdf
+That is,
+  For element size <= 8: use u2v<N><T>
+  For element size > 8: use u3v<N><T>
+Do you think this might be acceptable?
+
+I notice that clang has a notion of DependentSizedExtVectorType. I am not
+sure whether u2v<N><T> or u3v<N><T> would be more appropriate if the number
+of elements is unknown at the time of mangling. On the other hand, I
+thought the number of elements is always known when a template is
+instantiated... is there a use case where a size expression instead of an
+actual size survives into the final assembly?
+
+It feels somewhat awkward that we appear to be inventing a mangling scheme
+in clang. Do you expect other compilers to eventually do the same trick?
+Where should this new mangling scheme be documented?
+
+- Gao
+
+________________________________________
+From: Gao, Yunzhong
+Sent: Tuesday, February 23, 2016 8:39 PM
+To: Gao, Yunzhong
+Cc: Richard Smith; rjmccall at apple.com; cxx-abi-dev at codesourcery.com
+Subject: Re: Mangling for OpenCL and GCC vectors
+
+Actually, I might have been confused with how SPIR works. I thought OpenCL can target CPU codes, so when compiling an OpenCL program and when compiling a C++ program, they could be targeting the same CPU architecture, so linking is possible. But looking at github.com/KhronosGroup/SPIR, they talk about the SPIR triples as spir-unknown-unknown or spir64-unknown-unknown. So SPIR is being treated as a virtual backend architecture.
+
+Sent from my iPhone
+
+> On Feb 23, 2016, at 7:48 PM, Gao, Yunzhong <yunzhong_gao at playstation.sony.com> wrote:
+>
+> GCC 4.8.2 follows an older version of GNU ABI, so given,
+>  typedef float float4 __attribute__((__vector_size__(16)));
+>  void foo(float4 f) { }
+> G++ mangles a <4 x float> vector into U8_floatf. And a <2 x double> vector is mangled into U8_floatd.
+> I do not have GCC 5.2 or 5.3 but presumably they changed their mangling scheme there.
+>
+> Clang has always mangled these types into Dv4_f and Dv2_d respectively.
+>
+> If I use the ext_vector_size attribute instead, which is for OpenCL compatibility,
+>  typedef float float4 __attribute__((__ext_vector_size__(4)));
+>  void foo(float4 f) { }
+> GCC 4.8.2 does not support this attribute.
+> Clang always mangles this type into Dv4_f.
+>
+> I thought about whether the delicate mechanism of swapping mangling would work as you
+> described, and I think it depends on whether anyone would want to link OpenCL program
+> and C++ programs together, and if so, you may want the OpenCL vector types to have
+> matching mangled names. Maybe.
+>
+> - Gao
+>
+>
+>> -----Original Message-----
+>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>> Richard Smith
+>> Sent: Friday, February 19, 2016 6:21 PM
+>> To: Gao, Yunzhong
+>> Cc: rjmccall at apple.com
+>> Subject: Re: Mangling for OpenCL and GCC vectors
+>>
+>> On Fri, Feb 19, 2016 at 5:48 PM, Gao, Yunzhong
+>> <yunzhong_gao at playstation.sony.com> wrote:
+>>> Hey Richard,
+>>> Thanks! My understanding is that the GCC vector type is being mangled
+>>> according to the Itanium ABI
+>>
+>> The Itanium C++ ABI does not appear to specify any mangling for vector
+>> types. This Dv <number> _ <type> mangling is a GNU extension.
+>>
+>>> and the OpenCL vector type is being mangled according to the SPIR 1.2
+>>> spec.
+>>
+>> SPIR presumably inherited their mangling from whatever Clang did at the
+>> time. :-(
+>>
+>>> So does your answer imply that one of the ABIs need be modified to
+>>> reflect a different mangling?
+>>
+>> There's an alternative: we can do the same dance we do for similar messes,
+>> like long double vs __float128 on PPC (the Itanium ABI has both a long double
+>> mangling, e, and a __float128 mangling, g, but because of Reasons, the
+>> mangling 'g' is used for long double and the mangling u10__float128 is used
+>> for __float128, sometimes).
+>>
+>> So, when targeting SPIR, we'd mangle ext_vector_type as Dv... and mangle
+>> vector_size as something else.
+>> When targeting anything else, we'd mangle vector_size as Dv... and mangle
+>> ext_vector_type as something else.
+>>
+>>> Any advice on how
+>>> to initiate a discussion to change either of the ABIs?
+>>> - Gao
+>>>
+>>>
+>>>> -----Original Message-----
+>>>> From: metafoo at gmail.com [mailto:metafoo at gmail.com] On Behalf Of
+>>>> Richard Smith
+>>>> Sent: Friday, February 19, 2016 5:29 PM
+>>>> To: Gao, Yunzhong
+>>>> Cc: rjmccall at apple.com
+>>>> Subject: Re: Mangling for OpenCL and GCC vectors
+>>>>
+>>>> I'm not seeing it show up on the list either. FWIW, I think these
+>>>> types should have different manglings.
+>>>>
+>>>> On Fri, Feb 19, 2016 at 4:47 PM, Gao, Yunzhong
+>>>> <yunzhong_gao at playstation.sony.com> wrote:
+>>>>> Ping?
+>>>>>
+>>>>> Hmm, still not seeing the mail on the mailing list after two weeks.
+>>>>> It?s strange.
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>> From: Gao, Yunzhong
+>>>>> Sent: Monday, February 08, 2016 9:55 PM
+>>>>> To: Richard Smith; rjmccall at apple.com
+>>>>> Subject: Fwd: Mangling for OpenCL and GCC vectors
+>>>>>
+>>>>>
+>>>>>
+>>>>> Hi John, Richard,
+>>>>>
+>>>>> I did not see the following email appear on the online cxx-abi-dev
+>>>>> archive after the weekend, so I thought to just forward it to you
+>>>>> directly. Sorry for the spam.
+>>>>>
+>>>>>
+>>>>>
+>>>>> The core issue is that we have two types which clang would consider
+>>>>> distinct but which are mangled the same. In this case one could
+>>>>> argue that since the linker cannot tell the two types apart (if
+>>>>> they came from different translation units) based on their
+>>>>> mangling, then the compiler should also treat them the same coming
+>>>>> from the same translation unit. But one could also argue that if
+>>>>> they are meant to be distinct types, they should have different
+>>>>> mangling, and the ABIs need be changed. We cannot decide which is
+>>>>> the intention in giving them the same mangling in the first place.
+>>>>> Are there any precedent cases with conflicting symbol mangling? How
+>> were they resolved?
+>>>>>
+>>>>> - Gao
+>>>>>
+>>>>>
+>>>>> Sent from my iPhone
+>>>>>
+>>>>>
+>>>>> Begin forwarded message:
+>>>>>
+>>>>> From: "Yung, Douglas" <douglas_yung at playstation.sony.com>
+>>>>> Date: February 3, 2016 at 5:06:15 PM PST
+>>>>> To: "cxx-abi-dev at codesourcery.com" <cxx-abi-
+>> dev at codesourcery.com>
+>>>>> Cc: "Robinson, Paul" <Paul_Robinson at playstation.sony.com>, "Gao,
+>>>> Yunzhong"
+>>>>> <yunzhong_gao at playstation.sony.com>
+>>>>> Subject: Mangling for OpenCL and GCC vectors
+>>>>>
+>>>>> Hi,
+>>>>>
+>>>>>
+>>>>>
+>>>>> Recently in our testing we encountered an abi issue that we were
+>>>>> hoping to get clarified. Specifically, this concerns the mangling
+>>>>> of OpenCL and GCC vectors which seems to be identical when
+>>>>> comparing the results of GCC vectors compiled by GCC5 and OpenCL
+>>>>> vectors when mangled according to the SPIR 1.2 spec.
+>>>>>
+>>>>>
+>>>>>
+>>>>> First a little background. Clang supports using both OpenCL and GCC
+>>>>> vectors in a program. When used, clang permits certain operations
+>>>>> to be performed on each as detailed in the table found at
+>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-
+>>>> extended-vectors.
+>>>>> From the differences there, it seems the compiler treats the types
+>>>>> as unique which makes sense as they support different operations.
+>>>>>
+>>>>>
+>>>>>
+>>>>> The problem we found arises when you try to use both in the same
+>>>> program.
+>>>>> Consider the following example:
+>>>>>
+>>>>>
+>>>>>
+>>>>> template <typename alpha>
+>>>>>
+>>>>> static void foo() {}
+>>>>>
+>>>>>
+>>>>>
+>>>>> void bar() {
+>>>>>
+>>>>>  foo<float __attribute__((__vector_size__(16)))>();
+>>>>>
+>>>>>  foo<float __attribute__((ext_vector_type(4)))>();
+>>>>>
+>>>>> }
+>>>>>
+>>>>>
+>>>>>
+>>>>> In this example, the compiler creates two copies of the function
+>>>>> foo, once using a GCC vector, and once using an OpenCL vector.
+>>>>> These functions mangle to the same string ? _ZL3fooIDv4_fEvv? which
+>>>>> the compiler detects and issues an error. Is the fact that the two
+>>>>> vectors mangle identically by design or just a coincidence? If it
+>>>>> is by coincidence, should the compiler merge the two type
+>>>>> definitions when it encounters them, or was there some other
+>>>>> intention here that we are
+>>>> unaware of?
+>>>>>
+>>>>>
+>>>>>
+>>>>> Thoughts?
+>>>>>
+>>>>>
+>>>>>
+>>>>> Douglas Yung
+
+From jason at redhat.com  Mon Feb 29 03:26:32 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Sun, 28 Feb 2016 22:26:32 -0500
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <CAAiZkiBFMhHfYuALkwvnPHmhWQbjMB3QCrB2JWq5X_vkRLZ8gQ@mail.gmail.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com> <56D11FA2.3010408@redhat.com>
+	<CAAiZkiBFMhHfYuALkwvnPHmhWQbjMB3QCrB2JWq5X_vkRLZ8gQ@mail.gmail.com>
+Message-ID: <56D3BA68.4070402@redhat.com>
+
+On 02/27/2016 02:57 AM, Gabriel Dos Reis wrote:
+> On Fri, Feb 26, 2016 at 8:01 PM, Jason Merrill <jason at redhat.com> wrote:
+>
+>> On 12/11/2015 01:37 PM, Jason Merrill wrote:
+>>
+>>> On 12/10/2015 07:32 PM, Richard Smith wrote:
+>>>
+>>>> On 10 December 2015 at 16:15, John McCall <rjmccall at apple.com> wrote:
+>>>>
+>>>> On Dec 10, 2015, at 4:11 PM, Nelson, Clark <clark.nelson at intel.com>
+>>>>>>
+>>>>> wrote:
+>>>>>
+>>>>>>
+>>>>>> It has come to my attention that GCC and clang generate incompatible
+>>>>>> code
+>>>>>> for passing an argument of an empty class type.
+>>>>>>
+>>>>>> clang seems to completely ignore arguments and parameters of empty
+>>>>>> class
+>>>>>> type -- which seems to make a certain amount of sense.
+>>>>>>
+>>>>>> OTOH, as far as I understand it, GCC effectively treats an empty class
+>>>>>> equivalently to a class containing a single member with some character
+>>>>>> type -- which also seems pretty reasonable.
+>>>>>>
+>>>>>> Should the C++ ABI come down on one side or the other of this question?
+>>>>>>
+>>>>>> This is really the sort of question a psABI should settle. But of
+>>>>>> course
+>>>>>> the C language doesn't actually support a structure with no members, so
+>>>>>> it's not too surprising if a psABI doesn't nail down what should happen
+>>>>>> for this.
+>>>>>>
+>>>>>
+>>>>> It?s valid as a C extension in GCC.  If there are platforms where we
+>>>>> use a
+>>>>> different rule from GCC, we should come to some understanding with them.
+>>>>>
+>>>>> Because of the GCC extension, C++ can?t really use different rules
+>>>>> from C.
+>>>>>
+>>>>
+>>>>
+>>>> (For x86_64:) GCC uses different rules for C and C++. In C, they do not
+>>>> pass anything. In C++, they pass a 1-byte object on the stack. Clang uses
+>>>> the same rules for C and C++, passing nothing in both cases.
+>>>>
+>>>> A careful reading of the x86_64 psABI suggests that clang is right in
+>>>> both
+>>>> cases; the eightbyte corresponding to the 1-byte empty struct
+>>>> parameter is
+>>>> never classified (at all), so should occupy neither a register nor
+>>>> memory,
+>>>> but it's not really especially clear.
+>>>>
+>>>> In any case, I think GCC should be the one to change here, because its C
+>>>> and C++ ABIs don't match.
+>>>>
+>>>
+>>> Agreed.
+>>>
+>>
+>> On further discussion, it came up that the C and C++ ABIs really can't
+>> match.  In GNU C, an empty struct has size 0; in C++ it has size 1.  We
+>> could finesse this difference for argument passing, as suggested here, but
+>> we really can't paper over the difference in general.  What if you have a
+>> class containing an empty class?  GNU C still says that has size 0, but
+>> it's less clear that this makes sense for C++.  Significantly, this does
+>> not fit the ABI definition of an empty class.
+>
+> Five years ago, we determined that it would make sense (read: provably
+> safe) to optimize that case too -- even for arrays.  See section 6.2 of
+>        http://www.axiomatics.org/~gdr/formal-cxx/layout-popl11.pdf
+> for the "layman" summary.
+
+Sure.  But my point is that this represents a change to the ABI, not a 
+simple implementation bug as I initially thought.  If we want to omit 
+passing some parameters, we need some specification of which parameters 
+qualify, and I'm rather uncomfortable with that level of invention at 
+this point.
+
+>> I also notice that the ABI says "If the base ABI does not specify rules
+>> for empty classes, then an empty class has size and alignment 1."
+
+Jason
+
+
+
+From richardsmith at googlers.com  Mon Feb 29 07:10:37 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Sun, 28 Feb 2016 23:10:37 -0800
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <56D3BA68.4070402@redhat.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com> <56D11FA2.3010408@redhat.com>
+	<CAAiZkiBFMhHfYuALkwvnPHmhWQbjMB3QCrB2JWq5X_vkRLZ8gQ@mail.gmail.com>
+	<56D3BA68.4070402@redhat.com>
+Message-ID: <CAGL0aWe8JrnhWuuzZ30tJg4pF1eA80pmxbi5aF9f76T8EM7AnQ@mail.gmail.com>
+
+On 28 February 2016 at 19:26, Jason Merrill <jason at redhat.com> wrote:
+
+> On 02/27/2016 02:57 AM, Gabriel Dos Reis wrote:
+>
+>> On Fri, Feb 26, 2016 at 8:01 PM, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> On 12/11/2015 01:37 PM, Jason Merrill wrote:
+>>>
+>>> On 12/10/2015 07:32 PM, Richard Smith wrote:
+>>>>
+>>>> On 10 December 2015 at 16:15, John McCall <rjmccall at apple.com> wrote:
+>>>>>
+>>>>> On Dec 10, 2015, at 4:11 PM, Nelson, Clark <clark.nelson at intel.com>
+>>>>>
+>>>>>>
+>>>>>>> wrote:
+>>>>>>
+>>>>>>
+>>>>>>> It has come to my attention that GCC and clang generate incompatible
+>>>>>>> code
+>>>>>>> for passing an argument of an empty class type.
+>>>>>>>
+>>>>>>> clang seems to completely ignore arguments and parameters of empty
+>>>>>>> class
+>>>>>>> type -- which seems to make a certain amount of sense.
+>>>>>>>
+>>>>>>> OTOH, as far as I understand it, GCC effectively treats an empty
+>>>>>>> class
+>>>>>>> equivalently to a class containing a single member with some
+>>>>>>> character
+>>>>>>> type -- which also seems pretty reasonable.
+>>>>>>>
+>>>>>>> Should the C++ ABI come down on one side or the other of this
+>>>>>>> question?
+>>>>>>>
+>>>>>>> This is really the sort of question a psABI should settle. But of
+>>>>>>> course
+>>>>>>> the C language doesn't actually support a structure with no members,
+>>>>>>> so
+>>>>>>> it's not too surprising if a psABI doesn't nail down what should
+>>>>>>> happen
+>>>>>>> for this.
+>>>>>>>
+>>>>>>>
+>>>>>> It?s valid as a C extension in GCC.  If there are platforms where we
+>>>>>> use a
+>>>>>> different rule from GCC, we should come to some understanding with
+>>>>>> them.
+>>>>>>
+>>>>>> Because of the GCC extension, C++ can?t really use different rules
+>>>>>> from C.
+>>>>>>
+>>>>>>
+>>>>>
+>>>>> (For x86_64:) GCC uses different rules for C and C++. In C, they do not
+>>>>> pass anything. In C++, they pass a 1-byte object on the stack. Clang
+>>>>> uses
+>>>>> the same rules for C and C++, passing nothing in both cases.
+>>>>>
+>>>>> A careful reading of the x86_64 psABI suggests that clang is right in
+>>>>> both
+>>>>> cases; the eightbyte corresponding to the 1-byte empty struct
+>>>>> parameter is
+>>>>> never classified (at all), so should occupy neither a register nor
+>>>>> memory,
+>>>>> but it's not really especially clear.
+>>>>>
+>>>>> In any case, I think GCC should be the one to change here, because its
+>>>>> C
+>>>>> and C++ ABIs don't match.
+>>>>>
+>>>>>
+>>>> Agreed.
+>>>>
+>>>>
+>>> On further discussion, it came up that the C and C++ ABIs really can't
+>>> match.  In GNU C, an empty struct has size 0; in C++ it has size 1.  We
+>>> could finesse this difference for argument passing, as suggested here,
+>>> but
+>>> we really can't paper over the difference in general.  What if you have a
+>>> class containing an empty class?  GNU C still says that has size 0, but
+>>> it's less clear that this makes sense for C++.  Significantly, this does
+>>> not fit the ABI definition of an empty class.
+>>>
+>>
+>> Five years ago, we determined that it would make sense (read: provably
+>> safe) to optimize that case too -- even for arrays.  See section 6.2 of
+>>        http://www.axiomatics.org/~gdr/formal-cxx/layout-popl11.pdf
+>> for the "layman" summary.
+>>
+>
+> Sure.  But my point is that this represents a change to the ABI, not a
+> simple implementation bug as I initially thought.  If we want to omit
+> passing some parameters, we need some specification of which parameters
+> qualify, and I'm rather uncomfortable with that level of invention at this
+> point.
+
+
+The x86_64 psABI already classifies an empty struct of size <= 16 as
+NO_CLASS, so it is not passed in registers nor memory. The recent
+discussion on the GCC and LLVM dev lists (subject line "Update Intel386,
+x86-64 and IA MCU psABIs for passing/returning empty struct") concluded by
+adding this rule to the i386, x86-64, and Itanium psABI documents:
+
+"An empty type is a type where it and all of its subobjects (recursively)
+are of class, structure, union, or array type.  No memory slot nor register
+should be used to pass or return an object of empty type."
+
+... which effectively extends that rule to empty types of all sizes.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160228/bc013b2f/attachment-0001.html>
+
+From rjmccall at apple.com  Mon Feb 29 18:06:06 2016
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 29 Feb 2016 10:06:06 -0800
+Subject: [cxx-abi-dev] Long compile times due mangling of return types
+ in function templates
+In-Reply-To: <5540EE83.5060000@cloudius-systems.com>
+References: <5540EE83.5060000@cloudius-systems.com>
+Message-ID: <6E65A2DE-64F4-4E26-9CC4-CEEBACB003D2@apple.com>
+
+> On Apr 29, 2015, at 7:45 AM, Avi Kivity <avi at cloudius-systems.com> wrote:
+> As per the Itanium ABI gcc mangles the return types of function templates, so that we can see mangled names like
+> 
+>   _Z1hIiEDTplcl1fIT_EEcl1gIS0_EEEv
+> 
+> which demangle to
+> 
+>   decltype (((f<int>)())+((g<int>)())) h<int>()
+> 
+> In seastar [1] this causes serious compile-time performance problems.  Replacing complicated template argument dependent return types improves compile time and object size by around 10%.
+> 
+> What is the reason that the ABI mandates mangling the return type into the function name?
+
+The ABI only calls for this for function templates, where it is required because function templates with different dependent signatures are distinct templates; q.v. [temp.over.link].
+
+John.
+
+
+
+
+> 
+> 
+> 
+> The patch below (replacing return types with auto) gave me about 10% compile time improvement:
+> 
+> --- a/core/future.hh
+> +++ b/core/future.hh
+> @@ -460,7 +460,8 @@ private:
+>      }
+>       template <typename Ret, typename Func, typename Param>
+> -    futurize_t<Ret> then(Func&& func, Param&& param) noexcept {
+> +    auto // futurize_t<Ret>
+> +    then(Func&& func, Param&& param) noexcept {
+>          using futurator = futurize<Ret>;
+>          using P = typename futurator::promise_type;
+>          if (state()->available() && (++future_avail_count % 256)) {
+> @@ -526,12 +527,14 @@ public:
+>      }
+>       template <typename Func>
+> -    futurize_t<std::result_of_t<Func(T&&...)>> then(Func&& func) noexcept {
+> +    auto // futurize_t<std::result_of_t<Func(T&&...)>>
+> +    then(Func&& func) noexcept {
+>          return then<std::result_of_t<Func(T&&...)>>(std::forward<Func>(func), [] (future_state<T...>&& state) { return state.get(); });
+>      }
+>       template <typename Func>
+> -    futurize_t<std::result_of_t<Func(future<T...>)>>
+> +    auto
+> +    //futurize_t<std::result_of_t<Func(future<T...>)>>
+>      then_wrapped(Func&& func) noexcept {
+>          return then<std::result_of_t<Func(future<T...>)>>(std::forward<Func>(func), [] (future_state<T...>&& state) { return future(std::move(state)); });
+>      }
+> 
+> 
+> 
+> 
+> [1] https://github.com/cloudius-systems/seastar, specifically future::then() in core/future.hh
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From rjmccall at apple.com  Mon Feb 29 23:28:57 2016
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 29 Feb 2016 15:28:57 -0800
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+Message-ID: <E986164A-85F3-4CAD-B0EC-F09846413591@apple.com>
+
+> On Mar 3, 2015, at 1:12 PM, David Vandevoorde <daveed at vandevoorde.com> wrote:
+> At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+> 
+> Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+>    for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+> 
+> AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.  For example:
+> 
+>  typedef struct { int value; } TypeA;
+>  typedef struct { TypeA volatile value; } TypeB;
+>  typedef struct { TypeA value; } TypeC;
+> 
+>  int foo(TypeB p) { return p.value.value; }
+>  int foo(TypeC p) { return p.value.value; }
+> 
+> Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+
+Hmm.  I?m somewhat surprised by this, at least from Clang; maybe it?s applying union restrictions via some other route.
+
+> If that is right, should the 3.1.1/1 words above be edited to read:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+>    nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+>    and pass the resulting copy by reference (below).  Specifically, ?
+
+I agree that the intended semantics of the ABI here should not change and that we should modify the wording in the ABI to reflect the behavior we want.  Two points, though:
+
+First, technically speaking, we need language cover for this.  Implementations are not allowed to introduce extra copies of types that aren?t trivially copyable.  (IIRC, the rule is narrower than ?trivially copyable?, but I can?t seem to find the exact wording.)
+
+Second, the wording change needs to be more precise: it should use well-defined terms from the standard, and it should cover the recursive cases.  We should introduce a new term to the glossary, maybe ?non-trivially copyable for the purposes of calls?, and define it the way we want, probably something like:
+
+  non-trivially copyable for the purposes of calls
+    A type is considered to be non-trivially copyable for the purposes of calls if it is a class type and:
+    - its destructor is non-trivial, or
+    - all of its copy and move constructors are deleted, or
+    - it has at least one copy or move constructor which is non-trivial for the purposes of calls.
+
+  non-trivial for the purposes of calls
+    A copy or move constructor is considered to be non-trivial for the purposes of calls if it is not deleted and:
+    - it is user-provided or else
+    - it is defaulted and either
+      - the class has virtual functions or virtual bases or
+      - the constructor chosen to initialize one of of subobjects is non-trivial for the purposes of calls.
+
+I believe this is the currently-intended rule (albeit a rule that I haven?t yet standardized in the document).
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160229/79a098f7/attachment.html>
+

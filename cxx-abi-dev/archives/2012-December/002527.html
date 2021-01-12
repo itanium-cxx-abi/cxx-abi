@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%20null%0A%20pointer%20is%20not%20conforming&In-Reply-To=%3C9023C690-33F2-4821-8607-535D8CB6CA82%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002526.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%20null%0A%20pointer%20is%20not%20conforming&In-Reply-To=%3C9023C690-33F2-4821-8607-535D8CB6CA82%40apple.com%3E"
+       TITLE="[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Dec 21 05:24:32 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002526.html">[cxx-abi-dev] pointer-to-data-member representation for null	pointer is not conforming
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2527">[ date ]</a>
+              <a href="thread.html#2527">[ thread ]</a>
+              <a href="subject.html#2527">[ subject ]</a>
+              <a href="author.html#2527">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Dec 20, 2012, at 9:14 PM, Dennis Handly &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dhandly at cup.hp.com</A>&gt; wrote:
+
+&gt;&gt;<i> From: Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;&gt;<i> struct E {};
+</I>&gt;&gt;<i> struct X : E {};
+</I>&gt;&gt;<i> struct C : E, X { char x; };
+</I>&gt;<i> 
+</I>&gt;&gt;<i> char C::*c1 = &amp;C::x;
+</I>&gt;&gt;<i> char X::*x = (char(X::*))c1;
+</I>&gt;&gt;<i> char C::*c2 = x2;
+</I>&gt;<i> 
+</I>&gt;<i> Should this just be &quot;x&quot;?
+</I>&gt;<i> 
+</I>&gt;&gt;<i> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+</I>&gt;&gt;<i> class to a pointer to a member of a base class
+</I>&gt;<i> 
+</I>&gt;<i> Even if that class doesn't have members of that type?
+</I>
+Yes.  There's a note in [expr.static.cast]p12 that makes this pretty clear:
+
+N3376 [expr.static.cast]p12:
+  If class B contains the original member, or is a base or derived class of
+  the class containing the original member, the resulting pointer to member
+  points to the original member. Otherwise, the result of the cast is undefined.
+  [Note: although class B need not contain the original member, the dynamic
+  type of the object on which the pointer to member is dereferenced must
+  contain the original member; see [expr.mptr.oper]. &#8212; end note]
+
+It's one of the laundry list of things that completely dooms any type-specific
+optimization of member pointers.
+
+I would personally have preferred a completely different pointer-to-member
+model where base classes have to be complete types and upcasts are
+undefined unless the member is a member of the base class, but that is
+not the language that the committee has seen fit to bless us with.
+
+&gt;&gt;<i> the conversion from x to c2 preserves the -1 value (conversion of
+</I>&gt;&gt;<i> a null member pointer produces a null member pointer), giving the wrong
+</I>&gt;&gt;<i> value for x2, and resulting in main returning 0, where the standard
+</I>&gt;&gt;<i> requires it to return 1 (likewise, returning x != 0 would produce the wrong
+</I>&gt;&gt;<i> value).
+</I>&gt;<i> 
+</I>&gt;<i> I assume that x and x2 are really the same, typo?
+</I>&gt;<i> 
+</I>&gt;<i> Trying this with g++ (4.2.1), I get the right answer.
+</I>
+I believe there are situations in which g++ doesn't appropriately check for null
+before applying a non-trivial pointer-to-member conversion.  For example,
+given Richard's setup,
+  int X::*x = 0;
+  int C::*c = x; // g++ just adds the offset, making this no longer a null member pointer
+
+&gt;<i> Looking at the assembly, there doesn't seem to be any code to handle NULL
+</I>&gt;<i> being cast back to a derived class.
+</I>
+Yep.
+
+John.
+</PRE>
+
+
+
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002526.html">[cxx-abi-dev] pointer-to-data-member representation for null	pointer is not conforming
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2527">[ date ]</a>
+              <a href="thread.html#2527">[ thread ]</a>
+              <a href="subject.html#2527">[ subject ]</a>
+              <a href="author.html#2527">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

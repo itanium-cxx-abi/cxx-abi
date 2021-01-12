@@ -1,0 +1,248 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+   <meta name="Author" content="Coleen Phillimore">
+   <meta name="GENERATOR" content="Mozilla/4.61 [en] (X11; I; OSF1 V4.0 alpha) [Netscape]">
+</head>
+<body>
+&nbsp;
+<br>Construction vtables continued from
+<p><a href="http://reality.sgi.com/dehnert_engr/cxx/abi-layout.html#vtable-ctor
+">http://reality.sgi.com/dehnert_engr/cxx/abi-layout.html#vtable-ctor</a>
+<br>&nbsp;
+<h3>
+VTT Order</h3>
+An array of vtable addresses, called the VTT, is declared for each class
+type that needs a construction vtable.&nbsp; A class needs a construction
+vtable if it has:
+<ol>
+<li>
+indirect or direct virtual base classes, or</li>
+
+<li>
+a virtual function that is overridden along a virtual path (to provide
+correct vcall offset in most derived object).</li>
+</ol>
+The elements of the VTT&nbsp;array are in this order:
+<ol>
+<li>
+Address of the vtable for the complete object, which includes subobject
+vtables appended to it in the order which the base classes are allocated
+in the complete object,</li>
+
+<li>
+Addresses of construction vtables for each non-virtual subobject that needs
+a construction vtable.</li>
+
+<br>This step is recursive, the addresses of construction vtables for each
+subobject include the addresses in 1 and 2 for each subobject class that
+has non-virtual subobjects that need construction vtables.
+<li>
+Addresses of construction vtables for each virtual subobject in initialization
+(DFS) order.&nbsp; These addresses are as in #2 above, and can be recursive
+for non-virtual bases within the virtual base subobjects.&nbsp; The virtual
+VTT&nbsp;addresses are on the end because they are only passed to the virtual
+base class constructors for the complete object.</li>
+</ol>
+All vtable addresses in the VTT&nbsp;point to the beginning address of
+the vtable, not the address that is assigned to the vptr.
+<h3>
+VTABLE Layout</h3>
+The construction vtables for a complete object are appended to the vtable
+in the order of their appearance in the VTT array.&nbsp;&nbsp; So the vtable
+for a complete object of class C has these components:
+<ol>
+<li>
+vtable that the primary vptr (the offset 0 one) points to</li>
+
+<li>
+base class subobject vtables in order of allocation, including virtual
+base class subobject vtables</li>
+
+<li>
+nonvirtual and virtual construction vtables in order of appearance in the
+VTT</li>
+
+<li>
+VTT&nbsp;array for C</li>
+</ol>
+We could separate the VTT&nbsp;array out of the vtable, and provide a new
+VTT data item.&nbsp; We could also make the VTT static so it has no linkage
+and is created in the modules that define the constructors and destructor
+of a class.&nbsp;&nbsp; I don't think they would take that much space.
+<br>&nbsp;
+<h3>
+Construction VTABLE entries</h3>
+The construction vtables for base class subobject B, has the same entries
+in the same order as the vtable for the complete object, B.&nbsp; The entries
+of the construction vtable have the following values:
+<ol>
+<li>
+Virtual base class offsets relative to the complete object from B</li>
+
+<li>
+VCALL&nbsp;offsets relative to the complete object</li>
+
+<li>
+offset to top of B in B, should be 0.</li>
+
+<li>
+pointer to RTTI&nbsp;for B</li>
+
+<li>
+overridden virtual functions for B.</li>
+</ol>
+Within the construction vtable for a subobject B, the base class subobject
+construction vtable for base class V of B in derived class D, has the following
+entries:
+<ol>
+<li>
+Virtual base class offsets relative to complete object from V to D</li>
+
+<li>
+VCALL&nbsp;offsets relative to a V&nbsp;in B in a complete object D</li>
+
+<li>
+offset to the B base class subobject from V in D (may not be the same as
+offset of B in D)</li>
+
+<li>
+pointer to RTTI&nbsp;for B</li>
+
+<li>
+overridden virtual functions for V</li>
+</ol>
+
+<h3>
+Subobject Construction and Destruction</h3>
+The complete object constructors and destructors call the subobject constructors
+and destructors by passing the address of the subobject entry in the VTT
+as the second parameter.&nbsp; The subobject ctor/dtors use the addresses
+passed to initialize the primary vptr and vptrs that point to the classes
+which either have virtual bases or override virtual functions with a virtual
+step (have vcall offsets needing adjustment).
+<p>Note: The EDG&nbsp;compiler passes the ctorvtbls by assigning them to
+the subobject vptr and the subobject constructors get the array address
+from the vptr.&nbsp; This didn't work when an exception is raised during
+construction and the destructor didn't have the ctorvtbls address anymore.&nbsp;
+There may be a way to make this work with the landing pad model, but I
+haven't worked that out.
+<p>Therefore the code for subobject constructor D which needs a construction
+vtable with one base class subobject B that needs a construction vtable
+would look like the following:
+<blockquote>static vtable *__VTT__1D[3] = {D primary vtable, ctorvtbl for
+B in D};
+<br>D(D *this, vtable **ctorvtbls)
+<br>{
+<br>&nbsp;&nbsp;&nbsp; // Call subobject constructors with ctorvtbls index
+if that base needs it.
+<br>&nbsp;&nbsp;&nbsp; B((B*)this, &amp;ctorvtbls[1]);
+<br>&nbsp;&nbsp;&nbsp; // etc...
+<br>&nbsp;&nbsp;&nbsp; // Initialize vptr with primary ctorvtbls address
+(first element)
+<br>&nbsp;&nbsp;&nbsp; this->vptr = ctorvtbls[0][n];&nbsp; // where n is
+the index of first virtual function in vtbl.
+<br>&nbsp;&nbsp;&nbsp; // Initialize vptrs of subobjects with ctorvtbls
+addresses for the bases
+<br>&nbsp;&nbsp;&nbsp; ((B*)this)->vptr = ctorvtbls[0][m];&nbsp; // where
+m is the index of the first virtual function
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+// for base class subobject B
+<br>&nbsp;&nbsp;&nbsp; // Code for constructor.
+<br>}</blockquote>
+
+<h3>
+The Test Program</h3>
+This is my favorite test program for this, that breaks on other compilers.
+<p>/*
+<br>This test program should output:
+<p>V1 called
+<br>V2 called
+<br>C called
+<br>C::foo called 7
+<br>PASSED this == cp
+<br>D called
+<br>~C called
+<br>C::foo called 7
+<br>PASSED this == cp
+<br>~V2 called
+<br>~V1 called
+<br>Int caught
+<br>*/
+<p>extern "C" int printf(const char *,...);
+<br>struct V1 {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; int v;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; virtual int foo();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; V1();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ~V1();
+<br>};
+<br>struct V2 : virtual V1 {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; int v2;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; virtual int foo();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; V2();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ~V2();
+<br>};
+<br>struct C : virtual V1, virtual V2 {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; int c;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; virtual int foo();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; C();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ~C();
+<br>};
+<p>struct B { int b; };
+<br>struct D : B, C {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; int d;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; virtual int bar();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; D();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ~D();
+<br>};
+<br>extern "C" int printf(const char *,...);
+<br>main()
+<br>{
+<br>&nbsp; try {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; D *d = new D;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; delete d;
+<br>&nbsp; } catch (int) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; printf("Int caught\n");
+<br>&nbsp; }
+<br>}
+<p>int V1::foo() { printf("V1::foo called\n"); return 1; }
+<br>V1::V1() : v(5) { printf("V1 called\n"); }
+<br>V1::~V1() { printf("~V1 called\n"); }
+<p>int V2::foo() { printf("V2::foo called\n"); return 1; }
+<br>V2::V2() : v2(6) { printf("V2 called\n"); }
+<br>V2::~V2() { printf("~V2 called\n"); }
+<p>int C::foo() { printf("C::foo called %d\n", c); return 1; }
+<br>C::C() : c(7) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; printf("C called\n");
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; V1 *vv = this; vv->foo();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; C *cp = dynamic_cast&lt;C
+*>(vv);
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; if (this == cp) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+printf("PASSED this == cp\n");
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; } else {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+printf("FAILED this != cp\n");
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; }
+<br>}
+<br>C::~C() {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; printf("~C called\n");
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; V1 *vv = this; vv->foo();
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; C *cp = dynamic_cast&lt;C
+*>(vv);
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; if (this == cp) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+printf("PASSED this == cp\n");
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; } else {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+printf("FAILED this != cp\n");
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; }
+<br>}
+<p>int D::bar() { printf("D::bar called\n"); return 1; }
+<br>D::D() : d(8) { printf("D called\n"); throw 5; }
+<br>D::~D() { printf("~D called\n"); }
+<br>&nbsp;
+<br>&nbsp;
+</body>
+</html>

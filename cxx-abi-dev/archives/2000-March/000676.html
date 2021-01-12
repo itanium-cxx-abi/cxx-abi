@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Do we need to reopen B1?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C200003010922.BAA36606%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000680.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Do we need to reopen B1?</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C200003010922.BAA36606%40baalbek.engr.sgi.com%3E"
+       TITLE="Do we need to reopen B1?">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Mar  1 09:22:24 UTC 2000</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000680.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#676">[ date ]</a>
+              <a href="thread.html#676">[ thread ]</a>
+              <a href="subject.html#676">[ subject ]</a>
+              <a href="author.html#676">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There are a number of things about the analysis here that are bothering
+me.  Please bear with me while I describe them, and let me know where
+I'm mixed up :).
+
+&gt;<i> From: Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt; If so, I agree that this is a feasible design.  I'm still unconvinced that
+</I>&gt;<i> &gt; it's a big win; since you're allocating the convert_to_foo slots at the
+</I>&gt;<i> &gt; other end of the vtable from the function pointer, I don't see how you can
+</I>&gt;<i> &gt; expect d-cache locality.
+</I>&gt;<i> 
+</I>&gt;<i> I do not expect perfect D-cache locality (which is why I thought useful to
+</I>&gt;<i> specify in a previous e-mail the cost of a D-cache miss). I'm still looking for
+</I>&gt;<i> a better way to allocate it. Getting a better cache locality was the reason I
+</I>&gt;<i> was considering duplicating that (as you do for vcall offsets) and putting it
+</I>&gt;<i> next to the vtable entry.
+</I>&gt;<i> 
+</I>&gt;<i> On the other hand, a frequent case where you do get cache locality is if you
+</I>&gt;<i> call different virtual functions for the same pointer in succession, and if the
+</I>&gt;<i> functions are overriden in the same class. Say:
+</I>&gt;<i> 
+</I>&gt;<i> 	for (i = 0; i &lt; max; i++)
+</I>&gt;<i> 	{
+</I>&gt;<i> 		Shape *shape = shapes[i];
+</I>&gt;<i> 		shape-&gt;SetColor(red);
+</I>&gt;<i> 		shape-&gt;Scale(3.0);
+</I>&gt;<i> 		shape-&gt;Rotate(2.5);
+</I>&gt;<i> 		shape-&gt;Draw();
+</I>&gt;<i> 	}
+</I>&gt;<i> 
+</I>&gt;<i> This code seems fairly reasonable. In that case, you can expect to pay a cache
+</I>&gt;<i> miss only for the first call. Note that this does not apply if g is called
+</I>&gt;<i> through f, since in that case we use the non-adjusting entry-point anyway. On
+</I>&gt;<i> the other hand, on that same code, there a high probability of I-cache miss for
+</I>&gt;<i> each function, and of double I-cache miss for thunks. So thunks go to their
+</I>&gt;<i> worst scenario, whereas adjusting entry points remain in their 'typical, no
+</I>&gt;<i> D-cache miss' scenario. Here, we get 9 vs. 3 &quot;abstract units of time&quot;.
+</I>
+First big problem.  In the case above (which I think of as the typical
+one -- certainly the one relevant to the cost of branch mispredicts),
+what is in common is the class containing the overridden function, i.e.
+the source class Shape for the this pointer.  What varies is the class
+where the final overrider resides, i.e. the target class of the this
+conversion.  If the target class is the same, there will only be I$
+misses the first time; if it varies, we'll get one at least the first
+time for each target class.  That will be true whichever implementation
+we use, since they all use different adjusting entries for different
+overriders.
+
+Furthermore, there's a potential for a D$ miss each time the target
+class changes, since the vcall offset is coming from a different vtbl.
+That doesn't occur for the &quot;AddAddAdd&quot; implementation, though, which
+doesn't load anything from the vtbl.
+
+I think the &quot;3 units of time&quot; is wrong.  An implementation using a
+vcall offset has only a this pointer to work with.  It must load the
+vptr (2 cycles at least on most modern implementations I know of, with
+a cache hit, which it will always get because the caller just used it),
+add a displacement to the vcall offset (1 cycle), load the vcall offset
+(2 cycles plus possible D$ miss), and add the vcall offset (1 cycle).
+So I think we get at least 6 cycles for such an implementation.  If I
+assume that the usual override chain is short and non-virtual (and
+ultimately I think I may be able to use profiling to make it usually
+short), at 1 cycle per chain element the &quot;AddAddAdd&quot; method will be
+hard to beat.
+
+Next, let's think about &quot;no D$ miss.&quot;  In order to have a single
+adjusting entry point, it must be able to always find the vcall offsets
+for a given target class/overrider (NOT for a given source class) at
+the same position relative to the vptr for the source class.  That
+means that all of the base classes of a given class with overriders
+must have the same layout of vcall offsets.  Aside from the
+implications of achieving this (which makes my head hurt), it means in
+particular that they can't be with the function &quot;pointers&quot;, which are
+at different offsets in different bases.  So I don't think &quot;no D$ miss&quot;
+is actually a likely scenario.
+
+&gt;<i> Summary:
+</I>&gt;<i> 
+</I>&gt;<i> + The best case is clearly the 'AddAddAdd' for a limited number of offsets. No
+</I>&gt;<i> argument.
+</I>&gt;<i> 
+</I>&gt;<i> + The second is adjusting entry point with no D-cache miss. This scenario is
+</I>&gt;<i> between 1 and 3 times as bad as the previous one, depending on the number of
+</I>&gt;<i> adds.
+</I>&gt;<i> 
+</I>&gt;<i> + For third position, there is a tie speed-wise between the thunks and the
+</I>&gt;<i> adjusting entry point with D-cache miss, but then I believe the adjusting
+</I>&gt;<i> entry-point wins memory-wise except in pathological cases where padding would
+</I>&gt;<i> dominate. Speed-wise, this scenario is about 3 times as bad as scenario 2.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> As a reminder, the numbers I gave were  the following (I added memory usage):
+</I>&gt;<i> 
+</I>&gt;<i>                         Best    Typical Worst	I-mem	D-mem
+</I>&gt;<i>         Thunks          5       9       20	16*F*C	0
+</I>&gt;<i>         AddAddAdd       0+N/M   0+N/M   9+N/M	16*F*C	0
+</I>&gt;<i>         Adjust          3       3       18	48*F	8*C+Pad
+</I>&gt;<i>         Adjust/D-miss   8       8       21	48*F	8*C+Pad
+</I>&gt;<i> 
+</I>&gt;<i> C: number of secondary bases requiring adjustments. F: Number of virtual
+</I>&gt;<i> functions overriden in current class.
+</I>
+The I-mem case (16*F*C) isn't quite right.  Instead of F*C entries, you
+need what I'll call F', meaning that you count all of the overridden
+instances of f's, leaving out those with the same adjustment for the
+same f.  The point is that just because C requires an adjustment for
+one f, it might not require one for all the others (e.g. because some
+of them don't define all of the overridden functions).
+
+I don't fully understand some of the other entries, but beyond the
+above comment about best case being at least 6, I suspect that they
+don't matter much.  It looks to me like &quot;AddAddAdd&quot; is so much better
+that the alternative isn't worth the complications it introduces.
+But of course I may be misinterpreting things badly -- please comment
+if so.
+
+To answer the question of the Subject:  I haven't reopened issue B-1,
+and think that before doing so we should see both a precise proposal
+for how an alternate implementation would lay out the vcall offsets,
+and a cleaned-up cost analysis based on the new proposal.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000680.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#676">[ date ]</a>
+              <a href="thread.html#676">[ thread ]</a>
+              <a href="subject.html#676">[ subject ]</a>
+              <a href="author.html#676">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

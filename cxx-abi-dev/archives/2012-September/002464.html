@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Run-time array checking
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CD3208673-CD39-4447-9E42-B0DEB3527A8A%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002463.html">
+   <LINK REL="Next"  HREF="002470.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Run-time array checking</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CD3208673-CD39-4447-9E42-B0DEB3527A8A%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Run-time array checking">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Sep 13 03:07:39 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002463.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+        <LI>Next message: <A HREF="002470.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2464">[ date ]</a>
+              <a href="thread.html#2464">[ thread ]</a>
+              <a href="subject.html#2464">[ subject ]</a>
+              <a href="author.html#2464">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sep 12, 2012, at 7:15 PM, Mike Herrick wrote:
+&gt;<i> On Sep 11, 2012, at 8:44 PM, John McCall wrote:
+</I>&gt;&gt;<i> On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+</I>&gt;&gt;&gt;<i> On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+</I>&gt;&gt;&gt;&gt;<i> I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+</I>&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> Would you mind writing up a formal proposal (or even a patch)?
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Not at all (assuming we can figure out what the best course of action is).
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Thanks!
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> At a high level I think the required changes are:
+</I>&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> We agree that having the length argument is desirable from a user's point of view, but it seems rather difficult for the compiler to convey this value to a library routine given that its type may be signed or unsigned and it may or may not be larger than size_t/ptrdiff_t.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I hadn't thought of the wider-than-size_t problem, although amusingly I did
+</I>&gt;&gt;<i> remember that case when writing the bounds checks in clang.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Hmm.  At the risk of prescribing an overly complicated API, I would suggest:
+</I>&gt;&gt;<i> void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+</I>&gt;&gt;<i> where 'flags' is:
+</I>&gt;&gt;<i> (sizeof(size) &lt;&lt; 1) | std::is_signed&lt;decltype(size)&gt;::value
+</I>&gt;&gt;<i> and where sizeData is either:
+</I>&gt;&gt;<i> size, converted to a uintptr_t, if sizeof(size) &lt;= sizeof(uintptr_t), or
+</I>&gt;&gt;<i> &amp;size otherwise (throwing it in some temporary memory).
+</I>&gt;&gt;<i> Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+</I>&gt;<i> 
+</I>&gt;<i> I'm a little leery of passing size (sizeData) in this fashion.  [Also, std::uintptr_t appears to be optional in the standard.]
+</I>
+Well, the simpler alternative is to saturate to a size_t/ssize_t (saturation being unnecessary unless the size is actually of a larger type than size_t) and just pass a flag indicating whether it's signed.  That inherently loses information, of course.
+
+I know there are platforms which don't provide std::uintptr_t, but are there platforms which *can't* support std::uintptr_t?  That is, is this a real limitation or a &quot;some system headers are dumber than others&quot; limitation?
+
+&gt;<i> If we went this route, I'd argue to separate flags above into two separate arguments.
+</I>
+Is there a good reason to, other than to get a slightly prettier-looking API?  I know that minimizing function arguments seems like a micro-optimization, but I'm not sure that's inappropriate in this context;  we certainly already have users that begrudge us the size of array-new, and this entire discussion is about making it larger.  Every instruction helps.
+
+&gt;&gt;<i> If we're not going to add signed/oversized variants &#8212; both reasonable
+</I>&gt;&gt;<i> choices, in my view &#8212; then the compiler can still use __cxa_vec_new*
+</I>&gt;&gt;<i> as long as as it puts an appropriate check in front if either:
+</I>&gt;&gt;<i> - sizeof(size) &gt; sizeof(size_t)
+</I>&gt;&gt;<i> - decltype(size) is signed
+</I>&gt;<i> 
+</I>&gt;<i>  - size &lt; number_of_initialized_elements
+</I>
+Oh, yes, of course.  If it's a nested array allocation, we need to do that
+overflow check outside as well.
+
+&gt;&gt;<i> This check is required if __cxa_throw_bad_array_new_length takes
+</I>&gt;&gt;<i> any information about the size value and type.  I want it to take that
+</I>&gt;&gt;<i> information.  However, if the consensus goes the other way and
+</I>&gt;&gt;<i> __cxa_throw_bad_array_new_length does *not* take any information
+</I>&gt;&gt;<i> about the size value, we can avoid this extra call in the extremely
+</I>&gt;&gt;<i> common case that sizeof(element) &gt; 1, because the overflow check
+</I>&gt;&gt;<i> in __cxa_vec_new* will automatically trigger for negative values.
+</I>&gt;&gt;<i> Thus we can skip all checking relating to &quot;normal&quot; signed size values,
+</I>&gt;&gt;<i> and for &quot;oversized&quot; size values we can simply saturate at -1 or some
+</I>&gt;&gt;<i> other value which is guaranteed to fail to allocate.
+</I>&gt;<i> 
+</I>&gt;<i> Assuming there are no architectures where this doesn't hold true, it sounds good to me.
+</I>
+We'd certainly have a lot more optimization flexibility if we don't try
+to preserve the bad size value.  My worry is that we'd be *forcing* a poor
+debugging experience on programmers &#8212; they'd have to reproduce the
+problem in a debugger in order to have any idea what the bad value was.
+I'll readily grant that this is already true for a large class of other bugs in C++.
+
+Anyway, I've asked Howard Hinnant, Apple's C++ library maintainer, to
+catch up on the discussion and weigh in.
+
+John.
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002463.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+	<LI>Next message: <A HREF="002470.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2464">[ date ]</a>
+              <a href="thread.html#2464">[ thread ]</a>
+              <a href="subject.html#2464">[ subject ]</a>
+              <a href="author.html#2464">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

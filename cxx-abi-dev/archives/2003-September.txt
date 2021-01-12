@@ -1,0 +1,132 @@
+From Grigory_Zagorodnev at stl.sarov.ru  Thu Sep  4 13:40:26 2003
+From: Grigory_Zagorodnev at stl.sarov.ru (Zagorodnev, Grigory)
+Date: Thu, 4 Sep 2003 17:40:26 +0400 
+Subject: Allocator returning null during array construction (?)
+Message-ID: <51524B6C689ED4118D4F0090273ACE320141BAC8@odyssey.stl.sarov.ru>
+
+The C++ Standard [clause 5.3.4, paragraph 13] says:
+"...If the allocation function is declared with an empty
+exception-specification, throw(), it returns null to indicate failure to
+allocate storage and a nonnull pointer otherwise. ] If the allocation
+function returns null, initialization shall not be done, the deallocation
+function shall not be called, and the value of the newexpression shall be
+null. "
+
+The C++ ABI [clause 3.3.3], however, does not specify behaviour of array
+construction functions __cxa_vec_new2 and __cxa_vec_new3 for the case when
+allocator returns null.
+
+Would you clarify this behaviour, please.
+
+
+--------------------------------
+ Grigory Zagorodnev
+ Principal Software Engineer
+ Software Technology Laboratory
+--------------------------------
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/ms-tnef
+Size: 2263 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030904/e926dc44/attachment.bin>
+
+From dhandly at cup.hp.com  Fri Sep  5 00:08:42 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 4 Sep 2003 17:08:42 -0700 (PDT)
+Subject: [cxx-abi-dev] Allocator returning null during array construction (?)
+Message-ID: <200309050008.RAA23309@hpcll183.cup.hp.com>
+
+>The C++ ABI [clause 3.3.3], however, does not specify behaviour of array
+>construction functions __cxa_vec_new2 and __cxa_vec_new3 for the case when
+>allocator returns null.
+>Would you clarify this behaviour, please.
+ Grigory Zagorodnev
+
+Hmm.  In our source, it just falls through, with fatal results.
+It seems in this case we should just return.
+
+I thought at one time I mentioned we don't seem to have a throw spec on
+the definition of these __cxa_vec* routines for the alloc parm?
+
+I assume that's because it wasn't worth the effort or it just wasn't
+needed.
+
+
+From mark at codesourcery.com  Fri Sep  5 22:45:17 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 05 Sep 2003 15:45:17 -0700
+Subject: [cxx-abi-dev] Allocator returning null during array
+	construction (?)
+In-Reply-To: <51524B6C689ED4118D4F0090273ACE320141BAC8@odyssey.stl.sarov.ru>
+References: <51524B6C689ED4118D4F0090273ACE320141BAC8@odyssey.stl.sarov.ru>
+Message-ID: <1062801920.5314.223.camel@doubledemon.codesourcery.com>
+
+On Thu, 2003-09-04 at 06:40, Zagorodnev, Grigory wrote:
+> The C++ Standard [clause 5.3.4, paragraph 13] says:
+> "...If the allocation function is declared with an empty
+> exception-specification, throw(), it returns null to indicate failure to
+> allocate storage and a nonnull pointer otherwise. ] If the allocation
+> function returns null, initialization shall not be done, the deallocation
+> function shall not be called, and the value of the newexpression shall be
+> null. "
+> 
+> The C++ ABI [clause 3.3.3], however, does not specify behaviour of array
+> construction functions __cxa_vec_new2 and __cxa_vec_new3 for the case when
+> allocator returns null.
+
+You are correct; the functions should return NULL in that case.
+
+I've attached a patch for the ABI here.  The web page will be updated
+shortly.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: text/x-patch
+Size: 4318 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030905/e762759c/attachment.bin>
+
+From sabre at nondot.org  Mon Sep 15 18:30:26 2003
+From: sabre at nondot.org (Chris Lattner)
+Date: Mon, 15 Sep 2003 13:30:26 -0500 (CDT)
+Subject: setjmp/longjmp + EH
+Message-ID: <Pine.LNX.4.44.0309151325460.32653-100000@nondot.org>
+
+
+I'm curious if any itanium ABI compilers generate calls to longjmp_unwind,
+or if they all use the traditional register snapshot/restore
+implementation of setjmp & longjmp.  From what I can tell, the GCC
+compiler just calls into the system setjmp/longjmp routines.
+
+Do the HP, Intel, or other compilers use longjmp_unwind?
+
+Thanks,
+
+-Chris
+
+-- 
+http://llvm.cs.uiuc.edu/
+http://www.nondot.org/~sabre/Projects/
+
+
+
+From dhandly at cup.hp.com  Tue Sep 16 00:27:58 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 15 Sep 2003 17:27:58 -0700 (PDT)
+Subject: [cxx-abi-dev] setjmp/longjmp + EH
+Message-ID: <200309160027.RAA08328@hpcll183.cup.hp.com>
+
+>Do the HP, Intel, or other compilers use longjmp_unwind?
+-Chris
+
+HP's aC++ just calls the libc routines.
+And we clearly document the C++ Standard.
+
+

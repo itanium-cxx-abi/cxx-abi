@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> __cxa_finalize and `on_exit'
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912210044.QAA56459%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000398.html">
+   <LINK REL="Next"  HREF="000397.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>__cxa_finalize and `on_exit'</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912210044.QAA56459%40baalbek.engr.sgi.com%3E"
+       TITLE="__cxa_finalize and `on_exit'">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Dec 21 00:44:39 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000398.html">__cxa_finalize and `on_exit'
+</A></li>
+        <LI>Next message: <A HREF="000397.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#399">[ date ]</a>
+              <a href="thread.html#399">[ thread ]</a>
+              <a href="subject.html#399">[ subject ]</a>
+              <a href="author.html#399">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an interesting discussion, but I think the objectives
+characterization has gotten a little confused, so let me an attempt to
+draw it a little differently.
+
+In the elf context assumed by the base IA-64 ABI, I expect that a C++
+program will typically be running with the C run-time library libc.so,
+the C++ runtime library libC.so, likely other system DSOs, and its own
+components.
+
+In this context, achieving an integrated solution could be accomplished
+in a couple of ways.  The obvious one is to replace the routines
+atexit, on_exit, and exit in the C run-time library with routines that
+are cognizant of the C++ __cxa_atexit and __cxa_finalize facilities.
+a less obvious method, but still generally usable, would be to insert
+C++-specific versions of them in the C++ runtime library, and depend on
+preemption to achieve the replacement.  This works as long as libC.so
+precedes libc.so in the library list.
+
+There are other possible non-integrated solutions, but given the
+assumption of the underlying IA-64 ABI, and the fact that the second
+solution above can work without changing the underlying C run-time
+library, it doesn't seem necessary to consider them.
+
+What is an issue, however, is that the application could in theory be
+linked on a different system than the one where it ultimately runs,
+and therefore presumably on a different system than that which built
+the run-time library DSOs.  It is that interface which we need to pin
+down, namely (a) what routines (with what interfaces and semantics)
+must be present in libC.so/libc.so, and (b) what sequences of calls
+the libraries may assume the program will make.
+
+We appear to be agreed on the presence of __cxa_atexit and
+__cxa_finalize in libC.so, on the registration of C++ destructors
+and C atexit cleanup with __cxa_atexit, and on the use of
+__cxa_finalize for destructor execution upon early unloading.
+The open questions are (1) whether (or how) on_exit registration can
+be integrated, and (2) how the final cleanup is invoked.
+
+The original proposal adopted ignored (1) out of ignorance, and
+answered (2) by specifying a call to __cxa_finalize(NULL).  If (1) is
+addressed by calling __cxa_atexit for on_exit with a parameter, and
+passing an additional exit code parameter to __cxa_finalize (and thence
+to all the finalization actions it invokes), this works, i.e. on_exit
+works as currently defined by Sun and is properly integrated into the
+finalization order.  But that assumes that the exit code is available
+for passing to __cxa_finalize, which may imply calling it from exit if
+it's not available to a .fini_array routine (which was what the
+original proposal specified).
+
+Mark points out that it works to just assume that exit does the
+call to __cxa_finalize, or performs the equivalent processing,
+eliminating the need for the explicit __cxa_finalize call in
+.fini_array.  This is slightly simpler in that it doesn't require
+generation of the .fini_array entry, and the library implementation
+can coordinate features like on_exit without exposing the interfaces
+necessary to implement them.  It also probably preserves more
+faithfully the traditional semantics that atexit routines are executed
+before the main program .fini_array, although doing __cxa_finalize
+first in the latter should produce the same effect.
+
+Note that we can't just not choose -- one approach requires the builder
+of the main executable to insert a .fini_array entry, while the other
+doesn't -- unless we want to require the run-time to handle either,
+which doesn't seem useful.
+
+My current preference is to proceed with Mark's proposal, requiring
+that exit handle the __cxa_atexit -registered calls (but _not_
+requiring that anyone explicitly register __cxa_finalize or anything
+else to accomplish that).  Upon re-reading all the mail, this seems
+quite workable.  In any case, I'll re-open the issue and we can discuss
+it next time.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000398.html">__cxa_finalize and `on_exit'
+</A></li>
+	<LI>Next message: <A HREF="000397.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#399">[ date ]</a>
+              <a href="thread.html#399">[ thread ]</a>
+              <a href="subject.html#399">[ subject ]</a>
+              <a href="author.html#399">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

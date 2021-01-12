@@ -1,0 +1,689 @@
+From mjh at edg.com  Thu Aug  1 13:47:25 2013
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 1 Aug 2013 09:47:25 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <506476F0.4010708@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+	<50636D86.2030706@redhat.com> <50644C6C.20405@redhat.com>
+	<20120927132250.GX1787@tucnak.redhat.com>
+	<506476F0.4010708@redhat.com>
+Message-ID: <049AF51A-2ADB-41EB-A449-6EF7A9B79213@edg.com>
+
+I see that none of the thread local storage work that you've done has made its way into the IA-64 ABI reference.  Do you think you could come up with a patch for that?
+
+Thanks,
+
+Mike Herrick
+Edison Design Group
+
+On Sep 27, 2012, at 11:55 AM, Jason Merrill <jason at redhat.com> wrote:
+
+> On 09/27/2012 09:22 AM, Jakub Jelinek wrote:
+>> BTW, there is another problem with the initialization of whole TU TLS.
+>> If some of the TLS vars are exported from a shared library, they might be
+>> overriden by some other definition in another shared library.  At that point
+>> we could initialize one TLS var twice.
+> 
+> This doesn't seem unique to TLS variables; normal variables with static storage duration have the same issue.  We assume that this won't happen unless the variable is comdat, in which case it has its own guard.
+> 
+> Jason
+> 
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From mjh at edg.com  Wed Aug  7 18:49:22 2013
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 7 Aug 2013 14:49:22 -0400
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+Message-ID: <A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+
+
+On Jul 9, 2013, at 4:25 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> On Tue, Jul 9, 2013 at 11:12 AM, Mike Herrick <mjh at edg.com> wrote:
+> Hi,
+> 
+> It appears that this patch for user-defined literals hasn't been applied to the document (though it is used by at least g++ and clang).
+> 
+> On Jun 5, 2011, at 4:11 AM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+> 
+> > Hi,
+> >
+> > I don't know where to find the document to patch against, but I'd like to suggest that the line
+> >
+> >                 ::= li <source-name>  # "" <source-name>
+> >
+> > be added somewhere amongst the productions for <operator-name> in 5.1.3 since it's not yet in the document.
+> 
+> Additionally, how about a case like this:
+> 
+> int operator "" _w(const char*);
+> template <class T> auto f(T p1) -> decltype(123_w, p1);
+> int main() {
+>   f(456_w);
+> }
+> 
+> Clang gives a mangling of _Z1fIiEDTcmclL_Zli2_wPKcELA4_cEEfp_ET_, but g++ aborts on this case.  I don't believe I've seen a discussion of this.
+> 
+> Modeling a UDL as a call to the corresponding literal operator is an accident of Clang's implementation rather than a deliberate choice of mangling, but it seems reasonable to me.
+
+One follow-up related to the example that is given above; our UDL mangling produces a slightly different mangled name for this example: _Z1fIiEDTcmclL_Zli2_wPKcELA4_S0_EEfp_ET_, reflecting a difference in the cv-qualification of the type of the argument that is being passed to the literal operator.  Clang's demangled name reflects the use of "char [4]" as the argument type and we're using "const char [4]":
+
+< decltype(((operator "" _w((char [4])"..."),param#1))) f<int>(T1)
+---
+> decltype(((operator "" _w((const char [4])"..."),param#1))) f<int>(T1)
+
+From a Standards point-of-view, we think "const char [4]" is correct here (the call to a raw literal operator X is defined to be equivalent to operator "" X("n"), and the type of "n" is "array of const char").  Is this a clang bug or the result of some implicit conversion (and if so, should it be reflected in the mangling)?
+
+Thanks,
+
+Mike Herrick
+Edison Design Group
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130807/7101242a/attachment.html>
+
+From richardsmith at google.com  Wed Aug  7 19:26:16 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 7 Aug 2013 12:26:16 -0700
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+Message-ID: <CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+
+On Wed, Aug 7, 2013 at 11:49 AM, Mike Herrick <mjh at edg.com> wrote:
+
+>
+> On Jul 9, 2013, at 4:25 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On Tue, Jul 9, 2013 at 11:12 AM, Mike Herrick <mjh at edg.com> wrote:
+>
+>> Hi,
+>>
+>> It appears that this patch for user-defined literals hasn't been applied
+>> to the document (though it is used by at least g++ and clang).
+>>
+>> On Jun 5, 2011, at 4:11 AM, Sean Hunt <scshunt at csclub.uwaterloo.ca>
+>> wrote:
+>>
+>> > Hi,
+>> >
+>> > I don't know where to find the document to patch against, but I'd like
+>> to suggest that the line
+>> >
+>> >                 ::= li <source-name>  # "" <source-name>
+>> >
+>> > be added somewhere amongst the productions for <operator-name> in 5.1.3
+>> since it's not yet in the document.
+>>
+>> Additionally, how about a case like this:
+>>
+>> int operator "" _w(const char*);
+>> template <class T> auto f(T p1) -> decltype(123_w, p1);
+>> int main() {
+>>   f(456_w);
+>> }
+>>
+>> Clang gives a mangling of _Z1fIiEDTcmclL_Zli2_wPKcELA4_cEEfp_ET_, but g++
+>> aborts on this case.  I don't believe I've seen a discussion of this.
+>
+>
+> Modeling a UDL as a call to the corresponding literal operator is an
+> accident of Clang's implementation rather than a deliberate choice of
+> mangling, but it seems reasonable to me.
+>
+>
+> One follow-up related to the example that is given above; our UDL mangling
+> produces a slightly different mangled name for this
+> example: _Z1fIiEDTcmclL_Zli2_wPKcELA4_S0_EEfp_ET_, reflecting a difference
+> in the cv-qualification of the type of the argument that is being passed to
+> the literal operator.  Clang's demangled name reflects the use of "char
+> [4]" as the argument type and we're using "const char [4]":
+>
+> < decltype(((operator "" _w((char [4])"..."),param#1))) f<int>(T1)
+> ---
+> > decltype(((operator "" _w((const char [4])"..."),param#1))) f<int>(T1)
+>
+> From a Standards point-of-view, we think "const char [4]" is correct here
+> (the call to a raw literal operator X is defined to be equivalent to
+> operator "" X("n"), and the type of "n" is "array of const char").  Is this
+> a clang bug or the result of some implicit conversion (and if so, should it
+> be reflected in the mangling)?
+>
+
+It looks like this was a transient bug -- I agree that your mangling is the
+correct one, and it's also the one that Clang trunk produces.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130807/1c379179/attachment.html>
+
+From mjh at edg.com  Fri Aug  9 15:42:47 2013
+From: mjh at edg.com (Mike Herrick)
+Date: Fri, 9 Aug 2013 11:42:47 -0400
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+	<CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+Message-ID: <060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+
+
+On Aug 7, 2013, at 3:26 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> One follow-up related to the example that is given above; our UDL mangling produces a slightly different mangled name for this example: _Z1fIiEDTcmclL_Zli2_wPKcELA4_S0_EEfp_ET_, reflecting a difference in the cv-qualification of the type of the argument that is being passed to the literal operator.  Clang's demangled name reflects the use of "char [4]" as the argument type and we're using "const char [4]":
+> 
+> < decltype(((operator "" _w((char [4])"..."),param#1))) f<int>(T1)
+> ---
+> > decltype(((operator "" _w((const char [4])"..."),param#1))) f<int>(T1)
+> 
+> From a Standards point-of-view, we think "const char [4]" is correct here (the call to a raw literal operator X is defined to be equivalent to operator "" X("n"), and the type of "n" is "array of const char").  Is this a clang bug or the result of some implicit conversion (and if so, should it be reflected in the mangling)?
+> 
+> It looks like this was a transient bug -- I agree that your mangling is the correct one, and it's also the one that Clang trunk produces. 
+
+Thanks for that confirmation.
+
+Another discrepancy seems to be in the use of <unresolved-name> production.  For example:
+
+  typedef __SIZE_TYPE__ size_t;
+  void *operator "" _s(unsigned long long) {}
+  void *operator new(size_t) {}
+  void *f(unsigned long long) {}
+  template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+  template<typename T> auto f2(T x)->decltype(operator new(x));
+  template<typename T> auto f3(T x)->decltype(f(x));
+  int main() {
+    f1(0);  // neither g++ nor clang use <unresolved-name> for operator "" _s
+            // g++:      _Z2f1IiEDTclli2_sfp_EET_
+            // clang:    _Z2f1IiEDTclli2_sfp_EET_
+            // expected: _Z2f1IiEDTclonli2_sfp_EET_
+    f2(0);  // g++ uses <unresolved-name> for operator new
+            // g++:      _Z2f2IiEDTclonnwfp_EET_
+            // clang:    _Z2f2IiEDTclnwfp_EET_
+            // expected: _Z2f2IiEDTclonnwfp_EET_
+    f3(0);  // g++ and clang use <unresolved-name> for f
+            // g++:      _Z2f3IiEDTcl1ffp_EET_
+            // clang:    _Z2f3IiEDTcl1ffp_EET_
+            // expected: _Z2f3IiEDTcl1ffp_EET_
+  }
+
+[Mangled names are from g++ 4.8.1 and clang 3.3.]   We believe <unresolved-name> should be used for all of these cases.
+
+There's another issue here: demangling the "li" <operator-name>.  Each <operator-name> has an implied number of arguments (except the vendor extended operator where the number is explicitly supplied), but a literal operator can have zero, one or two arguments, so it's not clear which of these applies:
+
+  <expression> ::= <unary operator-name> <expression>
+               ::= <binary operator-name> <expression> <expression>
+
+Though GNU cxxfilt (from binutils 2.23) demangles the two names in this example properly:
+
+  typedef __SIZE_TYPE__ size_t;
+  void operator "" _s(const char *) {}
+  void operator "" _s(const char *, size_t) {}
+  template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+  template<typename T> auto f2(T x)->decltype(operator "" _s(x, 0));
+  int main() {
+    f1("xyz");  // _Z2f1IPKcEDTclli2_sfp_EET_
+    f2("xyz");  // _Z2f2IPKcEDTclli2_sfp_Li0EEET_
+  }
+
+Note that if the <unresolved-name> mangling is used here (i.e., with "clonli" rather than "clli"), there's no issue with the arguments because <unresolved-name> (rather than <unary/binary operator-name>) is used as the first argument to the "cl" and the remaining <expressions> are parsed as arguments to the "cl" (not the "li").  That's also the case with mangled names of the form "clL_Zli2_x..." (where <expr-primary> is used for the first "cl" <expression>").
+
+An observation: because the "li" mangling always involves mangling of the implicit call to the literal operator, and the "cl" mangling already handles a variable number of <expression>s, we need to ensure that the arguments to the literal operator are demangled by the "cl" production, not the "li" production; i.e., either we don't produce mangled names with "clli" (because <unresolved-name> or <expr-primary> should instead be used), or we make a special case for "li" that it effectively takes zero <expression> arguments:
+
+	<expression> ::= <nullary operator-name>	# literal operand (no arguments)
+
+I'd prefer the first of these options (I haven't seen an example where the "clli" mangling makes sense), but I think demanglers need to implement the second option in order to deal with existing practice.
+
+Mike Herrick
+Edison Design Group
+
+From richardsmith at google.com  Sat Aug 10 01:46:15 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 9 Aug 2013 18:46:15 -0700
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+	<CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+	<060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+Message-ID: <CAGL0aWfVfLfrZW7he4gms+XW93JXX3pQ-Bf8C4VyiAXY2HVLyQ@mail.gmail.com>
+
+On Fri, Aug 9, 2013 at 8:42 AM, Mike Herrick <mjh at edg.com> wrote:
+
+>
+> On Aug 7, 2013, at 3:26 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> > One follow-up related to the example that is given above; our UDL
+> mangling produces a slightly different mangled name for this example:
+> _Z1fIiEDTcmclL_Zli2_wPKcELA4_S0_EEfp_ET_, reflecting a difference in the
+> cv-qualification of the type of the argument that is being passed to the
+> literal operator.  Clang's demangled name reflects the use of "char [4]" as
+> the argument type and we're using "const char [4]":
+> >
+> > < decltype(((operator "" _w((char [4])"..."),param#1))) f<int>(T1)
+> > ---
+> > > decltype(((operator "" _w((const char [4])"..."),param#1))) f<int>(T1)
+> >
+> > From a Standards point-of-view, we think "const char [4]" is correct
+> here (the call to a raw literal operator X is defined to be equivalent to
+> operator "" X("n"), and the type of "n" is "array of const char").  Is this
+> a clang bug or the result of some implicit conversion (and if so, should it
+> be reflected in the mangling)?
+> >
+> > It looks like this was a transient bug -- I agree that your mangling is
+> the correct one, and it's also the one that Clang trunk produces.
+>
+> Thanks for that confirmation.
+>
+> Another discrepancy seems to be in the use of <unresolved-name>
+> production.  For example:
+>
+>   typedef __SIZE_TYPE__ size_t;
+>   void *operator "" _s(unsigned long long) {}
+>   void *operator new(size_t) {}
+>   void *f(unsigned long long) {}
+>   template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+>   template<typename T> auto f2(T x)->decltype(operator new(x));
+>   template<typename T> auto f3(T x)->decltype(f(x));
+>   int main() {
+>     f1(0);  // neither g++ nor clang use <unresolved-name> for operator ""
+> _s
+>             // g++:      _Z2f1IiEDTclli2_sfp_EET_
+>             // clang:    _Z2f1IiEDTclli2_sfp_EET_
+>             // expected: _Z2f1IiEDTclonli2_sfp_EET_
+>     f2(0);  // g++ uses <unresolved-name> for operator new
+>             // g++:      _Z2f2IiEDTclonnwfp_EET_
+>             // clang:    _Z2f2IiEDTclnwfp_EET_
+>             // expected: _Z2f2IiEDTclonnwfp_EET_
+>     f3(0);  // g++ and clang use <unresolved-name> for f
+>             // g++:      _Z2f3IiEDTcl1ffp_EET_
+>             // clang:    _Z2f3IiEDTcl1ffp_EET_
+>             // expected: _Z2f3IiEDTcl1ffp_EET_
+>   }
+>
+> [Mangled names are from g++ 4.8.1 and clang 3.3.]   We believe
+> <unresolved-name> should be used for all of these cases.
+>
+> There's another issue here: demangling the "li" <operator-name>.  Each
+> <operator-name> has an implied number of arguments (except the vendor
+> extended operator where the number is explicitly supplied), but a literal
+> operator can have zero, one or two arguments, so it's not clear which of
+> these applies:
+>
+>   <expression> ::= <unary operator-name> <expression>
+>                ::= <binary operator-name> <expression> <expression>
+>
+> Though GNU cxxfilt (from binutils 2.23) demangles the two names in this
+> example properly:
+>
+>   typedef __SIZE_TYPE__ size_t;
+>   void operator "" _s(const char *) {}
+>   void operator "" _s(const char *, size_t) {}
+>   template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+>   template<typename T> auto f2(T x)->decltype(operator "" _s(x, 0));
+>   int main() {
+>     f1("xyz");  // _Z2f1IPKcEDTclli2_sfp_EET_
+>     f2("xyz");  // _Z2f2IPKcEDTclli2_sfp_Li0EEET_
+>   }
+>
+> Note that if the <unresolved-name> mangling is used here (i.e., with
+> "clonli" rather than "clli"), there's no issue with the arguments because
+> <unresolved-name> (rather than <unary/binary operator-name>) is used as the
+> first argument to the "cl" and the remaining <expressions> are parsed as
+> arguments to the "cl" (not the "li").  That's also the case with mangled
+> names of the form "clL_Zli2_x..." (where <expr-primary> is used for the
+> first "cl" <expression>").
+>
+> An observation: because the "li" mangling always involves mangling of the
+> implicit call to the literal operator, and the "cl" mangling already
+> handles a variable number of <expression>s, we need to ensure that the
+> arguments to the literal operator are demangled by the "cl" production, not
+> the "li" production; i.e., either we don't produce mangled names with
+> "clli" (because <unresolved-name> or <expr-primary> should instead be
+> used), or we make a special case for "li" that it effectively takes zero
+> <expression> arguments:
+>
+>         <expression> ::= <nullary operator-name>        # literal operand
+> (no arguments)
+>
+> I'd prefer the first of these options (I haven't seen an example where the
+> "clli" mangling makes sense), but I think demanglers need to implement the
+> second option in order to deal with existing practice.
+
+
+Why is the 'on' ever necessary when the operator is the callee of a 'cl'?
+It appears that Clang never emits it, and just uses the operator-name
+directly.
+
+Also, what about this:
+
+  struct X{}; void operator+(X);
+  template<typename ...T> auto f4(T... x) -> decltype(operator+(x...));
+  int main() {
+    f4(X{});
+  }
+
+Should we use 'pl' or 'ps' for the operator+ here? Clang uses 'clps', EDG
+uses 'clonps', and GCC uses 'clonpl'.
+
+Also, what about this:
+
+struct X {}; void operator+(X);
+struct Y; void operator+(Y);
+template<typename T> void g(void(*)(T), T);
+template<typename T> auto f(T x) -> decltype(g(operator+, x));
+void h() { f(X{}); }
+
+Here, GCC and Clang produce _Z1fI1XEDTcl1gplfp_EET_
+EDG produces the surprising _Z1fI1XEDTcl1gL_Z9operator+Efp_EET_
+
+Both manglings are malformed -- this looks like a case where we really do
+need the 'on', and yet no-one emits it.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130809/1ce83394/attachment.html>
+
+From daveed at edg.com  Sat Aug 10 02:10:19 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 9 Aug 2013 22:10:19 -0400
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <CAGL0aWfVfLfrZW7he4gms+XW93JXX3pQ-Bf8C4VyiAXY2HVLyQ@mail.gmail.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+	<CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+	<060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+	<CAGL0aWfVfLfrZW7he4gms+XW93JXX3pQ-Bf8C4VyiAXY2HVLyQ@mail.gmail.com>
+Message-ID: <A8F703DA-7061-4A69-B102-911D71230FF4@edg.com>
+
+
+On Aug 9, 2013, at 9:46 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> On Fri, Aug 9, 2013 at 8:42 AM, Mike Herrick <mjh at edg.com> wrote:
+[...]
+>>  typedef __SIZE_TYPE__ size_t;
+>>  void *operator "" _s(unsigned long long) {}
+>>  void *operator new(size_t) {}
+>>  void *f(unsigned long long) {}
+>>  template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+>>  template<typename T> auto f2(T x)->decltype(operator new(x));
+>>  template<typename T> auto f3(T x)->decltype(f(x));
+>>  int main() {
+>>    f1(0);  // neither g++ nor clang use <unresolved-name> for operator ""
+>> _s
+>>            // g++:      _Z2f1IiEDTclli2_sfp_EET_
+>>            // clang:    _Z2f1IiEDTclli2_sfp_EET_
+>>            // expected: _Z2f1IiEDTclonli2_sfp_EET_
+>>    f2(0);  // g++ uses <unresolved-name> for operator new
+>>            // g++:      _Z2f2IiEDTclonnwfp_EET_
+>>            // clang:    _Z2f2IiEDTclnwfp_EET_
+>>            // expected: _Z2f2IiEDTclonnwfp_EET_
+>>    f3(0);  // g++ and clang use <unresolved-name> for f
+>>            // g++:      _Z2f3IiEDTcl1ffp_EET_
+>>            // clang:    _Z2f3IiEDTcl1ffp_EET_
+>>            // expected: _Z2f3IiEDTcl1ffp_EET_
+>>  }
+>> 
+>> [Mangled names are from g++ 4.8.1 and clang 3.3.]   We believe
+>> <unresolved-name> should be used for all of these cases.
+[...]
+> Why is the 'on' ever necessary when the operator is the callee of a 'cl'?
+
+
+Because it's an <unresolved-name>?  Also, in the case of a literal operator, bare operators in expressions only occur for unary, binary, and ternary operators, but arguably a literal operator (or a literal operator template) isn't any of those?
+
+
+> It appears that Clang never emits it, and just uses the operator-name
+> directly.
+> 
+> Also, what about this:
+> 
+>  struct X{}; void operator+(X);
+>  template<typename ...T> auto f4(T... x) -> decltype(operator+(x...));
+>  int main() {
+>    f4(X{});
+>  }
+> 
+> Should we use 'pl' or 'ps' for the operator+ here? Clang uses 'clps', EDG
+> uses 'clonps', and GCC uses 'clonpl'.
+
+
+Good catch.  My vote is to go with the GCC mangling (i.e., if it could be unary or binary, go with binary).
+
+(Here too, I don't see how to read it as not requiring the <unresolved-name> production.)
+
+> 
+> Also, what about this:
+> 
+> struct X {}; void operator+(X);
+> struct Y; void operator+(Y);
+> template<typename T> void g(void(*)(T), T);
+> template<typename T> auto f(T x) -> decltype(g(operator+, x));
+> void h() { f(X{}); }
+> 
+> Here, GCC and Clang produce _Z1fI1XEDTcl1gplfp_EET_
+> EDG produces the surprising _Z1fI1XEDTcl1gL_Z9operator+Efp_EET_
+> 
+> Both manglings are malformed -- this looks like a case where we really do
+> need the 'on', and yet no-one emits it.
+
+
+Agreed.
+
+	Daveed
+
+
+
+From richardsmith at google.com  Sat Aug 10 02:23:07 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 9 Aug 2013 19:23:07 -0700
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <A8F703DA-7061-4A69-B102-911D71230FF4@edg.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+	<CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+	<060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+	<CAGL0aWfVfLfrZW7he4gms+XW93JXX3pQ-Bf8C4VyiAXY2HVLyQ@mail.gmail.com>
+	<A8F703DA-7061-4A69-B102-911D71230FF4@edg.com>
+Message-ID: <CAGL0aWf5QLjdmKQ6zXANnWrB6maVyOp=m6nGTaOT1KtrW9BTLg@mail.gmail.com>
+
+On Fri, Aug 9, 2013 at 7:10 PM, David Vandevoorde <daveed at edg.com> wrote:
+
+>
+> On Aug 9, 2013, at 9:46 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> > On Fri, Aug 9, 2013 at 8:42 AM, Mike Herrick <mjh at edg.com> wrote:
+> [...]
+> >>  typedef __SIZE_TYPE__ size_t;
+> >>  void *operator "" _s(unsigned long long) {}
+> >>  void *operator new(size_t) {}
+> >>  void *f(unsigned long long) {}
+> >>  template<typename T> auto f1(T x)->decltype(operator "" _s(x));
+> >>  template<typename T> auto f2(T x)->decltype(operator new(x));
+> >>  template<typename T> auto f3(T x)->decltype(f(x));
+> >>  int main() {
+> >>    f1(0);  // neither g++ nor clang use <unresolved-name> for operator
+> ""
+> >> _s
+> >>            // g++:      _Z2f1IiEDTclli2_sfp_EET_
+> >>            // clang:    _Z2f1IiEDTclli2_sfp_EET_
+> >>            // expected: _Z2f1IiEDTclonli2_sfp_EET_
+> >>    f2(0);  // g++ uses <unresolved-name> for operator new
+> >>            // g++:      _Z2f2IiEDTclonnwfp_EET_
+> >>            // clang:    _Z2f2IiEDTclnwfp_EET_
+> >>            // expected: _Z2f2IiEDTclonnwfp_EET_
+> >>    f3(0);  // g++ and clang use <unresolved-name> for f
+> >>            // g++:      _Z2f3IiEDTcl1ffp_EET_
+> >>            // clang:    _Z2f3IiEDTcl1ffp_EET_
+> >>            // expected: _Z2f3IiEDTcl1ffp_EET_
+> >>  }
+> >>
+> >> [Mangled names are from g++ 4.8.1 and clang 3.3.]   We believe
+> >> <unresolved-name> should be used for all of these cases.
+> [...]
+> > Why is the 'on' ever necessary when the operator is the callee of a 'cl'?
+>
+>
+> Because it's an <unresolved-name>?  Also, in the case of a literal
+> operator, bare operators in expressions only occur for unary, binary, and
+> ternary operators, but arguably a literal operator (or a literal operator
+> template) isn't any of those?
+
+
+I meant more abstractly, what ambiguity does the 'on' solve? But I answered
+this for myself; without it,
+
+  operator+(a, b)
+
+and
+
+  (a+b)()
+
+would have the same mangling. And indeed, in Clang, they do.
+
+> It appears that Clang never emits it, and just uses the operator-name
+> > directly.
+> >
+> > Also, what about this:
+> >
+> >  struct X{}; void operator+(X);
+> >  template<typename ...T> auto f4(T... x) -> decltype(operator+(x...));
+> >  int main() {
+> >    f4(X{});
+> >  }
+> >
+> > Should we use 'pl' or 'ps' for the operator+ here? Clang uses 'clps', EDG
+> > uses 'clonps', and GCC uses 'clonpl'.
+>
+>
+> Good catch.  My vote is to go with the GCC mangling (i.e., if it could be
+> unary or binary, go with binary).
+>
+> (Here too, I don't see how to read it as not requiring the
+> <unresolved-name> production.)
+>
+> >
+> > Also, what about this:
+> >
+> > struct X {}; void operator+(X);
+> > struct Y; void operator+(Y);
+> > template<typename T> void g(void(*)(T), T);
+> > template<typename T> auto f(T x) -> decltype(g(operator+, x));
+> > void h() { f(X{}); }
+> >
+> > Here, GCC and Clang produce _Z1fI1XEDTcl1gplfp_EET_
+> > EDG produces the surprising _Z1fI1XEDTcl1gL_Z9operator+Efp_EET_
+> >
+> > Both manglings are malformed -- this looks like a case where we really do
+> > need the 'on', and yet no-one emits it.
+>
+>
+> Agreed.
+>
+>         Daveed
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130809/0bdaa464/attachment.html>
+
+From mjh at edg.com  Sat Aug 10 11:01:38 2013
+From: mjh at edg.com (Mike Herrick)
+Date: Sat, 10 Aug 2013 07:01:38 -0400
+Subject: [cxx-abi-dev] Literal operator functions with 'li<length, ID>'
+In-Reply-To: <A8F703DA-7061-4A69-B102-911D71230FF4@edg.com>
+References: <4DEB3A41.5040408@csclub.uwaterloo.ca>
+	<63DEC41C-9231-4E0B-A178-EA7C3FFAFF86@edg.com>
+	<CAGL0aWem7nON0MohApDw+jzxnoWu0UabbMDA6HP_2aXb7Sz1wA@mail.gmail.com>
+	<A90C5B75-7DE2-4264-A4A7-8D3F6DA43AAA@edg.com>
+	<CAGL0aWdnftAghQfd8Yx32matu+0ssr0Hw2Oe1Y=Lg8-BFUxdNw@mail.gmail.com>
+	<060DD4F9-1298-41A2-BDFA-AB5FBFB16F68@edg.com>
+	<CAGL0aWfVfLfrZW7he4gms+XW93JXX3pQ-Bf8C4VyiAXY2HVLyQ@mail.gmail.com>
+	<A8F703DA-7061-4A69-B102-911D71230FF4@edg.com>
+Message-ID: <A4A5ED10-4D7E-4DCC-9D17-4FA80F689357@edg.com>
+
+
+>> Why is the 'on' ever necessary when the operator is the callee of a 'cl'?
+> 
+> 
+> Because it's an <unresolved-name>?  Also, in the case of a literal operator, bare operators in expressions only occur for unary, binary, and ternary operators, but arguably a literal operator (or a literal operator template) isn't any of those?
+> 
+> 
+>> It appears that Clang never emits it, and just uses the operator-name
+>> directly.
+>> 
+>> Also, what about this:
+>> 
+>> struct X{}; void operator+(X);
+>> template<typename ...T> auto f4(T... x) -> decltype(operator+(x...));
+>> int main() {
+>>   f4(X{});
+>> }
+>> 
+>> Should we use 'pl' or 'ps' for the operator+ here? Clang uses 'clps', EDG
+>> uses 'clonps', and GCC uses 'clonpl'.
+> 
+> 
+> Good catch.  My vote is to go with the GCC mangling (i.e., if it could be unary or binary, go with binary).
+
+This ambiguity is already discussed in the ABI:
+
+If the <unresolved-name> refers to an operator for which both unary and binary manglings are available, the mangling chosen is the mangling for the binary version. For example:
+
+          template<class T> auto f(T p)->decltype(&T::operator-);
+            // The return type in the mangling of the template signature
+            // is encoded as "DTadsrT_onmiE".
+
+So it looks like GCC's mangling is correct.
+
+> 
+> (Here too, I don't see how to read it as not requiring the <unresolved-name> production.)
+> 
+>> 
+>> Also, what about this:
+>> 
+>> struct X {}; void operator+(X);
+>> struct Y; void operator+(Y);
+>> template<typename T> void g(void(*)(T), T);
+>> template<typename T> auto f(T x) -> decltype(g(operator+, x));
+>> void h() { f(X{}); }
+>> 
+>> Here, GCC and Clang produce _Z1fI1XEDTcl1gplfp_EET_
+>> EDG produces the surprising _Z1fI1XEDTcl1gL_Z9operator+Efp_EET_
+>> 
+>> Both manglings are malformed -- this looks like a case where we really do
+>> need the 'on', and yet no-one emits it.
+> 
+> 
+> Agreed.
+
+Ditto.
+
+Mike Herrick
+Edison Design Group
+
+

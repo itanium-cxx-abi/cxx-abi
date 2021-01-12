@@ -1,0 +1,208 @@
+From hahaha at sexyfun.net  Sun Apr  1 21:57:12 2001
+From: hahaha at sexyfun.net (Hahaha)
+Date: Sun, 1 Apr 2001 14:57:12 -0700 (PDT)
+Subject: Enanito si, pero con que pedazo!
+Message-ID: <200104012157.OAA00292@deliverator.sgi.com>
+
+Faltaba apenas un dia para su aniversario de de 18 a?os. Blanca de Nieve fuera
+siempre muy bien cuidada por los enanitos. Ellos le prometieron una *grande*
+sorpresa para su fiesta de complea?os. Al entardecer, llegaron. Tenian un brillo
+incomun en los ojos...
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: blanca de nieve.scr
+Type: application/octet-stream
+Size: 23040 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010401/b9e1bb6d/attachment.obj>
+
+From mark at codesourcery.com  Mon Apr  2 05:17:14 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 01 Apr 2001 22:17:14 -0700
+Subject: Enanito si, pero con que pedazo!
+In-Reply-To: <200104012157.OAA00292@deliverator.sgi.com>
+References: <200104012157.OAA00292@deliverator.sgi.com>
+Message-ID: <20010401221714H.mitchell@codesourcery.com>
+
+
+Apparently the message that had this title is a virus, and you should
+not open it.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From nathan at codesourcery.com  Mon Apr  2 09:18:12 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 02 Apr 2001 10:18:12 +0100
+Subject: Emptyness vs. virtualness
+References: <20010321121917C.mitchell@codesourcery.com> <u9ofuuads0.fsf@casey.cambridge.redhat.com> <3AB95171.8B0B8D6D@transmeta.com> <20010321215000N.mitchell@codesourcery.com>
+Message-ID: <3AC843D4.5124AFD6@codesourcery.com>
+
+Mark Mitchell wrote:
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at transmeta.com> writes:
+> 
+>     Jim> But that's what I would have expected.  The rule is that we
+>     Jim> first lay out the non-virtual things (C (not B), A2 (with A))
+>     Jim> and then all the virtual bases (B).  By the time we get to B,
+>     Jim> it's A can't be at 0, so we get a new one.
+> 
+> Yup, that's the issue all right.
+> 
+> So, how do we decide?
+1) I don't recall any discussion of this - but that may be because I wasn't
+paying attention.
+2) It is the nearly empty base class optimization that's allowing C's B to
+be C's primary base.
+3) the allocation algorithm does not specify how *and* when indirect primary
+bases are allocated, except when one becomes the primary base of the class
+being layed out.
+	[2.4]I.2.a defines the indirect primary base classes
+	[2.4]I.2.b specifies how you pick one to be the primary base
+	[2.4]II allocates all but the virtual bases
+	[2.4]III allocates the virtual bases other than the indirect primary
+	bases. It does mention that an indirect primary base that has been
+	chosen as the primary base of some other base will be allocated there.
+	The procedure for allocating these indirect primaries is documented
+	here, but presumed to have happened earlier.
+
+If we determine which bases get which indirect primaries directly after
+determining the primary base, then we do not need to consider empty bases
+in doing so (we just need to walk in inheritance graph order). I find this
+simpler, as we keep the invariant that once a base becomes a primary in some
+graph, it is always a primary in any graphs derived from that graph. Also
+the exception, of when a base with an indirect primary base loses that primary
+base in an inheritance graph is simple -- it is because some other base
+with a higher priority `stole' it.
+
+If we determine which bases get which indirect primaries during the virtual
+base allocation, we have to consider empty bases. We lose the invariant of
+the previous paragraph, and have to add another exception to when a base
+loses its primary.
+
+My vote as to how to resolve this is to assign the indirect primaries directly
+after assigning the primary base. Obviously we won't know the offsets, but
+we will know where in the inheritance graph they belong.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From felix.burton at windriver.com  Wed Apr  4 00:50:44 2001
+From: felix.burton at windriver.com (Burton, Felix)
+Date: Tue, 3 Apr 2001 17:50:44 -0700 
+Subject: pointer to data member
+Message-ID: <23D782631FEAD311950C00508B65DB299FAB54@exch-us-02.isi.com>
+
+How is pmv supposed to be represented in the example below?
+
+
+struct V {
+	int v;
+};
+
+struct A : virtual V {
+	int a;
+};
+
+void main()
+{
+	int A::*pma = &A::a;
+	int A::*pmv = &A::v;
+}
+
+
+
+From jason_merrill at redhat.com  Fri Apr  6 16:35:33 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 06 Apr 2001 17:35:33 +0100
+Subject: symbol resolution
+Message-ID: <u9u2429eay.fsf@casey.cambridge.redhat.com>
+
+Currently, RTTI matching depends on address comparison.  This requires that
+duplicate copies of the mangled name NTBS be combined, both within a shared
+object (via comdat) and between them (via the usual symbol resolution
+rules).
+
+But the usual symbol resolution rules don't always apply to shared objects;
+apart from things like -B symbolic which specifically override them,
+the normal behavior of dlopen does not make symbols in the loaded object
+available to subsequently loaded libraries.  This means that if a
+particular typeinfo is defined in multiple dynamically loaded objects but
+not in the main executable, the definitions will not be combined properly,
+and comparison will produce false negatives.
+
+Furthermore, the decision to rely on sharing between objects means that
+static references to typeinfos, whether from the EH tables or other
+typeinfos, require runtime dynamic relocations.  If you might be referring
+to something in another object, there's no game you can play with reloc
+types to avoid this.
+
+I believe it is feasible to reconsider this now, since Intel has had
+questions about how to represent these references.
+
+Thoughts?
+
+Jason
+
+
+
+From eboling at borland.com  Fri Apr  6 16:25:13 2001
+From: eboling at borland.com (Eli Boling)
+Date: Fri, 06 Apr 2001 11:25:13 -0500
+Subject: symbol resolution
+References: <u9u2429eay.fsf@casey.cambridge.redhat.com>
+Message-ID: <3ACDEDE9.AD8716A7@borland.com>
+
+> But the usual symbol resolution rules don't always apply to shared objects;
+> apart from things like -B symbolic which specifically override them,
+> the normal behavior of dlopen does not make symbols in the loaded object
+> available to subsequently loaded libraries.  This means that if a
+> particular typeinfo is defined in multiple dynamically loaded objects but
+> not in the main executable, the definitions will not be combined properly,
+> and comparison will produce false negatives.
+
+Yep.  This is a problem that we've long had, and we've had no reasonable way to
+deal with it outside of doing name comparisons.  We've never been able to
+resolve the issue to our satisfaction.  The ELF linkage model might provide
+relocations that will help, but nothing will help under Win32/Win64, so far as
+I know.
+
+-Eli
+
+
+
+
+
+From jason_merrill at redhat.com  Sun Apr  8 00:10:18 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 08 Apr 2001 01:10:18 +0100
+Subject: Patch to abi.html re vcall discussion
+Message-ID: <m3zodsdzf9.fsf@prospero.cambridge.redhat.com>
+
+I believe that I managed to convince everyone of my position on the vcall
+thunks discussion of a month ago; accordingly, here is some text to correct
+the ambiguity.  I'll fix g++ soon unless someone beats me to it.
+
+I also added a note about the pure virtual destructor optimization and
+updated the text to specify that the VTT parm is not reflected in mangling.
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: text/x-patch
+Size: 6026 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010408/7336f0df/attachment.bin>
+

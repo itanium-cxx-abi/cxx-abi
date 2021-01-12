@@ -1,0 +1,1045 @@
+From hstong at ca.ibm.com  Sat Feb  8 20:43:06 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Sat, 8 Feb 2014 15:43:06 -0500
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+	documenting the bug
+Message-ID: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+
+
+Hi all,
+
+I think this has been visited every once in a while with regards to the
+addition of move constructors, defaulted and deleted constructors, etc.
+The following case magically works thanks to a pair of copy constructors
+which are never used by the program, and breaks otherwise because of an
+issue with the calling conventions.
+
+As a consumer of the ABI document, I would appreciate if it mentioned the
+known cases where it is not suitable for a compliant implementation of the
+C++ language.
+
+Thanks,
+
+
+Hubert Tong
+
+#include <cassert>
+
+class A {
+private:
+#if ! REMOVE_COPY_CTOR
+   A(const A &, void * = 0);
+   A(const A &, bool = 0);
+#endif
+
+public:
+   template <typename T>
+   A(const volatile T &t) : a(t.a), b(a) { }
+
+   A() : a(0), b(a) { }
+
+   long a, &b;
+};
+
+long bar(A a) {
+   ++a.b;
+   return a.a;
+}
+
+int main() {
+   volatile A a;
+   long ret = bar(a);
+   assert(ret == 1);
+}
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140208/004009cb/attachment.html>
+
+From richardsmith at google.com  Sat Feb  8 22:39:21 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Sat, 8 Feb 2014 14:39:21 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+Message-ID: <CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+
+On 8 February 2014 12:43, Hubert Tong <hstong at ca.ibm.com> wrote:
+
+> Hi all,
+>
+> I think this has been visited every once in a while with regards to the
+> addition of move constructors, defaulted and deleted constructors, etc.
+> The following case magically works thanks to a pair of copy constructors
+> which are never used by the program, and breaks otherwise because of an
+> issue with the calling conventions.
+>
+> As a consumer of the ABI document, I would appreciate if it mentioned the
+> known cases where it is not suitable for a compliant implementation of the
+> C++ language.
+>
+Agreement here and (IIRC) in CWG was that this is a defect in the language
+spec, not in the ABI. See core issue 1590.
+
+> Thanks,
+>
+>
+> Hubert Tong
+>
+> #include <cassert>
+>
+> class A {
+> private:
+> #if ! REMOVE_COPY_CTOR
+>    A(const A &, void * = 0);
+>    A(const A &, bool = 0);
+> #endif
+>
+> public:
+>    template <typename T>
+>    A(const volatile T &t) : a(t.a), b(a) { }
+>
+>    A() : a(0), b(a) { }
+>
+>    long a, &b;
+> };
+>
+> long bar(A a) {
+>    ++a.b;
+>    return a.a;
+> }
+>
+> int main() {
+>    volatile A a;
+>    long ret = bar(a);
+>    assert(ret == 1);
+> }
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140208/76878eb8/attachment.html>
+
+From hstong at ca.ibm.com  Sun Feb  9 13:37:41 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Sun, 9 Feb 2014 08:37:41 -0500
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+Message-ID: <OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+
+
+Core Issue 1590 mentions that the trivial copy or move constructor should
+be non-deleted and accessible.
+Replacing the pair of copy constructors below with private, deleted copy
+and move constructors seems to make GCC avoid the "magic" copy, but not
+Clang.
+Which compiler has the preferred behaviour?
+
+Thanks,
+
+
+Hubert Tong
+
+Richard Smith <richardsmith at google.com> wrote on 08-02-2014 05:39:21 PM:
+
+> From: Richard Smith <richardsmith at google.com>
+> To: Hubert Tong/Toronto/IBM at IBMCA,
+> Cc: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> Date: 08-02-2014 05:39 PM
+> Subject: Re: [cxx-abi-dev] The magic of uncalled copy constructors;
+> documenting the bug
+>
+> On 8 February 2014 12:43, Hubert Tong <hstong at ca.ibm.com> wrote:
+> Hi all,
+>
+> I think this has been visited every once in a while with regards to
+> the addition of move constructors, defaulted and deleted constructors,
+etc.
+> The following case magically works thanks to a pair of copy
+> constructors which are never used by the program, and breaks
+> otherwise because of an issue with the calling conventions.
+>
+> As a consumer of the ABI document, I would appreciate if it
+> mentioned the known cases where it is not suitable for a compliant
+> implementation of the C++ language.
+> Agreement here and (IIRC) in CWG was that this is a defect in the
+> language spec, not in the ABI. See core issue 1590.
+> Thanks,
+>
+>
+> Hubert Tong
+>
+> #include <cassert>
+>
+> class A {
+> private:
+> #if ! REMOVE_COPY_CTOR
+> ? ?A(const A &, void * = 0);
+> ? ?A(const A &, bool = 0);
+> #endif
+>
+> public:
+> ? ?template <typename T>
+> ? ?A(const volatile T &t) : a(t.a), b(a) { }
+>
+> ? ?A() : a(0), b(a) { }
+>
+> ? ?long a, &b;
+> };
+>
+> long bar(A a) {
+> ? ?++a.b;
+> ? ?return a.a;
+> }
+>
+> int main() {
+> ? ?volatile A a;
+> ? ?long ret = bar(a);
+> ? ?assert(ret == 1);
+> }
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140209/63258981/attachment.html>
+
+From richardsmith at google.com  Mon Feb 10 02:17:34 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Sun, 9 Feb 2014 18:17:34 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+Message-ID: <CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+
+On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+
+> Core Issue 1590 mentions that the trivial copy or move constructor should
+> be non-deleted and accessible.
+> Replacing the pair of copy constructors below with private, deleted copy
+> and move constructors seems to make GCC avoid the "magic" copy, but not
+> Clang.
+> Which compiler has the preferred behaviour?
+>
+I think GCC does, whereas Clang obeys the current description of the ABI.
+
+Under the current wording of core issue 1590, we're not allowed to perform
+a 'trivial' copy here. I think we should update the ABI document (in
+3.1.1/1) to make this work (perhaps something equivalent to replacing
+"non-trivial" with "non-trivial, non-public, or deleted" each time it
+occurs).
+
+> Thanks,
+>
+>
+> Hubert Tong
+>
+> Richard Smith <richardsmith at google.com> wrote on 08-02-2014 05:39:21 PM:
+>
+> > From: Richard Smith <richardsmith at google.com>
+> > To: Hubert Tong/Toronto/IBM at IBMCA,
+> > Cc: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> > Date: 08-02-2014 05:39 PM
+> > Subject: Re: [cxx-abi-dev] The magic of uncalled copy constructors;
+> > documenting the bug
+>
+> >
+> > On 8 February 2014 12:43, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > Hi all,
+> >
+> > I think this has been visited every once in a while with regards to
+> > the addition of move constructors, defaulted and deleted constructors,
+> etc.
+> > The following case magically works thanks to a pair of copy
+> > constructors which are never used by the program, and breaks
+> > otherwise because of an issue with the calling conventions.
+> >
+> > As a consumer of the ABI document, I would appreciate if it
+> > mentioned the known cases where it is not suitable for a compliant
+> > implementation of the C++ language.
+> > Agreement here and (IIRC) in CWG was that this is a defect in the
+> > language spec, not in the ABI. See core issue 1590.
+> > Thanks,
+> >
+> >
+> > Hubert Tong
+> >
+> > #include <cassert>
+> >
+> > class A {
+> > private:
+> > #if ! REMOVE_COPY_CTOR
+> >    A(const A &, void * = 0);
+> >    A(const A &, bool = 0);
+> > #endif
+> >
+> > public:
+> >    template <typename T>
+> >    A(const volatile T &t) : a(t.a), b(a) { }
+> >
+> >    A() : a(0), b(a) { }
+> >
+> >    long a, &b;
+> > };
+> >
+> > long bar(A a) {
+> >    ++a.b;
+> >    return a.a;
+> > }
+> >
+> > int main() {
+> >    volatile A a;
+> >    long ret = bar(a);
+> >    assert(ret == 1);
+> > }
+> >
+> > _______________________________________________
+> > cxx-abi-dev mailing list
+> > cxx-abi-dev at codesourcery.com
+> > http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140209/c6685b74/attachment.html>
+
+From rjmccall at apple.com  Mon Feb 10 17:32:59 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 10 Feb 2014 09:32:59 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+	<CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+Message-ID: <BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+
+On Feb 9, 2014, at 6:17 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+> Core Issue 1590 mentions that the trivial copy or move constructor should be non-deleted and accessible.
+> Replacing the pair of copy constructors below with private, deleted copy and move constructors seems to make GCC avoid the "magic" copy, but not Clang.
+> Which compiler has the preferred behaviour?
+> 
+> I think GCC does, whereas Clang obeys the current description of the ABI.
+> 
+> Under the current wording of core issue 1590, we're not allowed to perform a 'trivial' copy here. I think we should update the ABI document (in 3.1.1/1) to make this work (perhaps something equivalent to replacing "non-trivial" with "non-trivial, non-public, or deleted" each time it occurs).
+
+gcc?s rule appears to just be ?non-trivial or deleted?, which I think is reasonable for the ABI to adopt.  Would you like to write up a proposal for that?
+
+?Accessible? does not mean ?public?.  That?s a standards bug: we need to be able to decide the ABI signature of a function at its point of declaration, not have it be dependent on whether there exist (or might exist) calls to it which would not be allowed to use a privately-defaulted trivial copy constructor.
+
+Note that the pre-C++11 idiom for suppressing the copy-constructor would also make it non-trivial, so that?s okay.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140210/9aac17a0/attachment.html>
+
+From richardsmith at google.com  Mon Feb 10 20:39:28 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 10 Feb 2014 12:39:28 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+	<CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+	<BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+Message-ID: <CAGL0aWfrQRpFwn1nEnU43vFLEWRD2kT2w96qpVGT=9cPBMMt4A@mail.gmail.com>
+
+On 10 February 2014 09:32, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 9, 2014, at 6:17 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+>
+>> Core Issue 1590 mentions that the trivial copy or move constructor should
+>> be non-deleted and accessible.
+>> Replacing the pair of copy constructors below with private, deleted copy
+>> and move constructors seems to make GCC avoid the "magic" copy, but not
+>> Clang.
+>> Which compiler has the preferred behaviour?
+>>
+> I think GCC does, whereas Clang obeys the current description of the ABI.
+>
+> Under the current wording of core issue 1590, we're not allowed to perform
+> a 'trivial' copy here. I think we should update the ABI document (in
+> 3.1.1/1) to make this work (perhaps something equivalent to replacing
+> "non-trivial" with "non-trivial, non-public, or deleted" each time it
+> occurs).
+>
+>
+> gcc?s rule appears to just be ?non-trivial or deleted?, which I think is
+> reasonable for the ABI to adopt.  Would you like to write up a proposal for
+> that?
+>
+
+Sure.
+
+
+> ?Accessible? does not mean ?public?.  That?s a standards bug: we need to
+> be able to decide the ABI signature of a function at its point of
+> declaration, not have it be dependent on whether there exist (or might
+> exist) calls to it which would not be allowed to use a privately-defaulted
+> trivial copy constructor.
+>
+
+I don't see anything wrong with the standard here. Inaccessible implies
+non-public for these members (because they're not inherited from a base
+class), so the ABI can look for a public special member where the standard
+says any accessible special member is permitted to be called.
+
+Note that the pre-C++11 idiom for suppressing the copy-constructor would
+> also make it non-trivial, so that?s okay.
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140210/0c5c5ffc/attachment.html>
+
+From rjmccall at apple.com  Wed Feb 12 16:55:54 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 12 Feb 2014 08:55:54 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <CAGL0aWfrQRpFwn1nEnU43vFLEWRD2kT2w96qpVGT=9cPBMMt4A@mail.gmail.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+	<CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+	<BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+	<CAGL0aWfrQRpFwn1nEnU43vFLEWRD2kT2w96qpVGT=9cPBMMt4A@mail.gmail.com>
+Message-ID: <4EB9FF91-B256-43AB-9EAA-31549F199884@apple.com>
+
+On Feb 10, 2014, at 12:39 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 10 February 2014 09:32, John McCall <rjmccall at apple.com> wrote:
+> On Feb 9, 2014, at 6:17 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> Core Issue 1590 mentions that the trivial copy or move constructor should be non-deleted and accessible.
+>> Replacing the pair of copy constructors below with private, deleted copy and move constructors seems to make GCC avoid the "magic" copy, but not Clang.
+>> Which compiler has the preferred behaviour?
+>> 
+>> I think GCC does, whereas Clang obeys the current description of the ABI.
+>> 
+>> Under the current wording of core issue 1590, we're not allowed to perform a 'trivial' copy here. I think we should update the ABI document (in 3.1.1/1) to make this work (perhaps something equivalent to replacing "non-trivial" with "non-trivial, non-public, or deleted" each time it occurs).
+> 
+> gcc?s rule appears to just be ?non-trivial or deleted?, which I think is reasonable for the ABI to adopt.  Would you like to write up a proposal for that?
+> 
+> Sure.
+>  
+> ?Accessible? does not mean ?public?.  That?s a standards bug: we need to be able to decide the ABI signature of a function at its point of declaration, not have it be dependent on whether there exist (or might exist) calls to it which would not be allowed to use a privately-defaulted trivial copy constructor.
+> 
+> I don't see anything wrong with the standard here. Inaccessible implies non-public for these members (because they're not inherited from a base class), so the ABI can look for a public special member where the standard says any accessible special member is permitted to be called.
+
+Inaccessible does imply non-public, but accessibility in general is context-sensitive.
+
+Are you asking for the ABI rule to actually be ?non-public, non-trivial, or deleted??  I agree that that?s what the standard is requesting, because it?s the only way we can guarantee at the point of declaration of a function that all callers will be able to access the special member.  However, it?s not the current practice of any compiler, probably because we generally try quite hard to prevent access control from affecting the ABI, e.g. because it seems unfortunate for things like "#define private public? to actually break binary compatibility.  (I?ll grant that it?s legal under the standard, and it might also already affect the ABI in corner cases by making a base class suddenly POD.)
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140212/ca3aeaf7/attachment.html>
+
+From gdr at integrable-solutions.net  Thu Feb 13 15:20:23 2014
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Thu, 13 Feb 2014 07:20:23 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <4EB9FF91-B256-43AB-9EAA-31549F199884@apple.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+	<CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+	<BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+	<CAGL0aWfrQRpFwn1nEnU43vFLEWRD2kT2w96qpVGT=9cPBMMt4A@mail.gmail.com>
+	<4EB9FF91-B256-43AB-9EAA-31549F199884@apple.com>
+Message-ID: <CAAiZkiBvfOUmG63QoJQu9Yvei09o6v6p8+vk7dZO7S4mEAfv4A@mail.gmail.com>
+
+On Wed, Feb 12, 2014 at 8:55 AM, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 10, 2014, at 12:39 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 10 February 2014 09:32, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Feb 9, 2014, at 6:17 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+>>
+>>> Core Issue 1590 mentions that the trivial copy or move constructor
+>>> should be non-deleted and accessible.
+>>> Replacing the pair of copy constructors below with private, deleted copy
+>>> and move constructors seems to make GCC avoid the "magic" copy, but not
+>>> Clang.
+>>> Which compiler has the preferred behaviour?
+>>>
+>> I think GCC does, whereas Clang obeys the current description of the ABI.
+>>
+>> Under the current wording of core issue 1590, we're not allowed to
+>> perform a 'trivial' copy here. I think we should update the ABI document
+>> (in 3.1.1/1) to make this work (perhaps something equivalent to replacing
+>> "non-trivial" with "non-trivial, non-public, or deleted" each time it
+>> occurs).
+>>
+>>
+>> gcc's rule appears to just be "non-trivial or deleted", which I think is
+>> reasonable for the ABI to adopt.  Would you like to write up a proposal for
+>> that?
+>>
+>
+> Sure.
+>
+>
+>> "Accessible" does not mean "public".  That's a standards bug: we need to
+>> be able to decide the ABI signature of a function at its point of
+>> declaration, not have it be dependent on whether there exist (or might
+>> exist) calls to it which would not be allowed to use a privately-defaulted
+>> trivial copy constructor.
+>>
+>
+> I don't see anything wrong with the standard here. Inaccessible implies
+> non-public for these members (because they're not inherited from a base
+> class), so the ABI can look for a public special member where the standard
+> says any accessible special member is permitted to be called.
+>
+>
+> Inaccessible does imply non-public, but accessibility in general is
+> context-sensitive.
+>
+> Are you asking for the ABI rule to actually be "non-public, non-trivial,
+> or deleted"?  I agree that that's what the standard is requesting, because
+> it's the only way we can guarantee at the point of declaration of a
+> function that all callers will be able to access the special member.
+>  However, it's not the current practice of any compiler, probably because
+> we generally try quite hard to prevent access control from affecting the
+> ABI, e.g. because it seems unfortunate for things like "#define private
+> public" to actually break binary compatibility.  (I'll grant that it's
+> legal under the standard, and it might also already affect the ABI in
+> corner cases by making a base class suddenly POD.)
+>
+> John.
+>
+
+I agree 'inaccessible' is context dependent, and it is a good feature that
+the ABI does not try to hard to reflect access specifiers.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140213/77642c1f/attachment.html>
+
+From richardsmith at google.com  Thu Feb 13 17:42:37 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 13 Feb 2014 09:42:37 -0800
+Subject: [cxx-abi-dev] The magic of uncalled copy constructors;
+ documenting the bug
+In-Reply-To: <4EB9FF91-B256-43AB-9EAA-31549F199884@apple.com>
+References: <OF0EBB5837.DE738129-ON85257C79.0071661D-85257C79.0071CF38@ca.ibm.com>
+	<CAGL0aWcezcpnjLs2CerCS4SBjtYVxb6op0ogrSGMFTSPaVReuA@mail.gmail.com>
+	<OFF7F9EC15.A1525CC8-ON85257C7A.004AD061-85257C7A.004ADC95@ca.ibm.com>
+	<CAGL0aWef0nKkPxdnQkaacezasAp2U=Q+he6Tfx76QJXMvPAg5w@mail.gmail.com>
+	<BCC52690-7B42-4C62-AE35-F0CB0B856F82@apple.com>
+	<CAGL0aWfrQRpFwn1nEnU43vFLEWRD2kT2w96qpVGT=9cPBMMt4A@mail.gmail.com>
+	<4EB9FF91-B256-43AB-9EAA-31549F199884@apple.com>
+Message-ID: <CAGL0aWeZNr-xn1M1nE2uMJZmHRjFJ=d8TQyH6WpceBLDYzBM-w@mail.gmail.com>
+
+On 12 February 2014 08:55, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 10, 2014, at 12:39 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 10 February 2014 09:32, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Feb 9, 2014, at 6:17 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 9 February 2014 05:37, Hubert Tong <hstong at ca.ibm.com> wrote:
+>>
+>>> Core Issue 1590 mentions that the trivial copy or move constructor
+>>> should be non-deleted and accessible.
+>>> Replacing the pair of copy constructors below with private, deleted copy
+>>> and move constructors seems to make GCC avoid the "magic" copy, but not
+>>> Clang.
+>>> Which compiler has the preferred behaviour?
+>>>
+>> I think GCC does, whereas Clang obeys the current description of the ABI.
+>>
+>> Under the current wording of core issue 1590, we're not allowed to
+>> perform a 'trivial' copy here. I think we should update the ABI document
+>> (in 3.1.1/1) to make this work (perhaps something equivalent to replacing
+>> "non-trivial" with "non-trivial, non-public, or deleted" each time it
+>> occurs).
+>>
+>>
+>> gcc?s rule appears to just be ?non-trivial or deleted?, which I think is
+>> reasonable for the ABI to adopt.  Would you like to write up a proposal for
+>> that?
+>>
+>
+> Sure.
+>
+>
+>> ?Accessible? does not mean ?public?.  That?s a standards bug: we need to
+>> be able to decide the ABI signature of a function at its point of
+>> declaration, not have it be dependent on whether there exist (or might
+>> exist) calls to it which would not be allowed to use a privately-defaulted
+>> trivial copy constructor.
+>>
+>
+> I don't see anything wrong with the standard here. Inaccessible implies
+> non-public for these members (because they're not inherited from a base
+> class), so the ABI can look for a public special member where the standard
+> says any accessible special member is permitted to be called.
+>
+>
+> Inaccessible does imply non-public, but accessibility in general is
+> context-sensitive.
+>
+> Are you asking for the ABI rule to actually be ?non-public, non-trivial,
+> or deleted??  I agree that that?s what the standard is requesting, because
+> it?s the only way we can guarantee at the point of declaration of a
+> function that all callers will be able to access the special member.
+>  However, it?s not the current practice of any compiler, probably because
+> we generally try quite hard to prevent access control from affecting the
+> ABI, e.g. because it seems unfortunate for things like "#define private
+> public? to actually break binary compatibility.  (I?ll grant that it?s
+> legal under the standard, and it might also already affect the ABI in
+> corner cases by making a base class suddenly POD.)
+>
+
+ This only makes a difference if the function is trivial and not deleted.
+So we're *only* talking about the case of:
+
+struct S {
+  S(const S&) = default;
+};
+
+versus
+
+struct S {
+private:
+  S(const S&) = default;
+};
+
+... and yes, I think we should be allowed to make technical copies in the
+first case, and I think we should *not* be allowed to do so in the second
+case.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140213/802e6621/attachment.html>
+
+From mclow.lists at gmail.com  Sat Feb 15 19:05:42 2014
+From: mclow.lists at gmail.com (Marshall Clow)
+Date: Sat, 15 Feb 2014 11:05:42 -0800
+Subject: [cxx-abi-dev] A question about terminate handlers
+Message-ID: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+
+Consider the following code (example from Stephen T. Lajavev)
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <exception>
+using namespace std;
+
+void MyTerminate() {
+    puts("MyTerminate()");
+    abort();
+}
+
+int main() {
+    try {
+        try {
+            puts("main() throwing int");
+            throw 5;
+        } catch (int) {
+            puts("int caught initially");
+            #ifdef MEOW
+                puts("calling set_terminate()");
+                set_terminate(MyTerminate);
+            #endif
+            puts("rethrowing");
+            throw;
+        }
+    } catch (int) {
+        puts("int caught again, calling terminate()");
+        terminate();
+    }
+}
+
+[ Tests on Mac OS X Mavericks  - g++11 is an alias for ?g++-4.8.2 -std=c++11? ]
+
+$ clang++ -std=c++11 -stdlib=libc++ -DMEOW meow.cpp && ./a.out
+main() throwing int
+int caught initially
+calling set_terminate()
+rethrowing
+int caught again, calling terminate()
+libc++abi.dylib: terminating with uncaught exception of type int
+Abort trap: 6
+$ g++11 meow.cpp -DMEOW && ./a.out
+main() throwing int
+int caught initially
+calling set_terminate()
+rethrowing
+int caught again, calling terminate()
+MyTerminate()
+Abort trap: 6
+$ 
+
+Specifically:
+	libc++ & libc++abi call the terminate handler that was active when the exception was created.
+	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+
+Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+[ I wonder if __cxa_rethrow should reload the saved terminate (and maybe unexpected) handlers in the exception object ]
+
+? Marshall
+
+
+
+
+From rjmccall at apple.com  Mon Feb 17 18:50:00 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 17 Feb 2014 10:50:00 -0800
+Subject: [cxx-abi-dev] A question about terminate handlers
+In-Reply-To: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+References: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+Message-ID: <6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8@apple.com>
+
+On Feb 15, 2014, at 11:05 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+> Consider the following code (example from Stephen T. Lajavev)
+> 
+> #include <stdio.h>
+> #include <stdlib.h>
+> #include <exception>
+> using namespace std;
+> 
+> void MyTerminate() {
+>    puts("MyTerminate()");
+>    abort();
+> }
+> 
+> int main() {
+>    try {
+>        try {
+>            puts("main() throwing int");
+>            throw 5;
+>        } catch (int) {
+>            puts("int caught initially");
+>            #ifdef MEOW
+>                puts("calling set_terminate()");
+>                set_terminate(MyTerminate);
+>            #endif
+>            puts("rethrowing");
+>            throw;
+>        }
+>    } catch (int) {
+>        puts("int caught again, calling terminate()");
+>        terminate();
+>    }
+> }
+> 
+> [ Tests on Mac OS X Mavericks  - g++11 is an alias for ?g++-4.8.2 -std=c++11? ]
+> 
+> $ clang++ -std=c++11 -stdlib=libc++ -DMEOW meow.cpp && ./a.out
+> main() throwing int
+> int caught initially
+> calling set_terminate()
+> rethrowing
+> int caught again, calling terminate()
+> libc++abi.dylib: terminating with uncaught exception of type int
+> Abort trap: 6
+> $ g++11 meow.cpp -DMEOW && ./a.out
+> main() throwing int
+> int caught initially
+> calling set_terminate()
+> rethrowing
+> int caught again, calling terminate()
+> MyTerminate()
+> Abort trap: 6
+> $ 
+> 
+> Specifically:
+> 	libc++ & libc++abi call the terminate handler that was active when the exception was created.
+> 	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+> 
+> Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+
+I would expect this to be controlled by the language standard, not by the
+ABI document.
+
+Amusingly, the current standard is simply ungrammatical:
+  N3797 [terminate]p1:
+    Called by the implementation when exception handling must be abandoned
+    for any of several reasons, in effect immediately after throwing the exception.
+Clearly what?s ?in effect? is supposed to be the terminate_handler, but...
+
+As far as I can tell, this is a splice left over from a previous revision.  e.g.
+  C++03 [lib.terminate]p1:
+    Effect: Calls the terminate_handler function in effect immediately after evaluating
+    the throw-expression, if called by the implementation, or calls the current
+    terminate_handler function, if called by the program.
+
+Both standards are vague about *which* throw-expression is meant when more
+than one is associated with the same exception object.  If you can get the
+committee to clarify, please ask them to consider what should happen with
+std::rethrow_exception as well.
+
+John.
+
+From mclow.lists at gmail.com  Tue Feb 18 16:02:31 2014
+From: mclow.lists at gmail.com (Marshall Clow)
+Date: Tue, 18 Feb 2014 08:02:31 -0800
+Subject: [cxx-abi-dev] A question about terminate handlers
+In-Reply-To: <6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8@apple.com>
+References: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+	<6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8@apple.com>
+Message-ID: <D7728A8A-6688-4067-B207-B1C852B60663@gmail.com>
+
+
+On Feb 17, 2014, at 10:50 AM, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 15, 2014, at 11:05 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+>> Consider the following code (example from Stephen T. Lajavev)
+>> 
+>> #include <stdio.h>
+>> #include <stdlib.h>
+>> #include <exception>
+>> using namespace std;
+>> 
+>> void MyTerminate() {
+>>   puts("MyTerminate()");
+>>   abort();
+>> }
+>> 
+>> int main() {
+>>   try {
+>>       try {
+>>           puts("main() throwing int");
+>>           throw 5;
+>>       } catch (int) {
+>>           puts("int caught initially");
+>>           #ifdef MEOW
+>>               puts("calling set_terminate()");
+>>               set_terminate(MyTerminate);
+>>           #endif
+>>           puts("rethrowing");
+>>           throw;
+>>       }
+>>   } catch (int) {
+>>       puts("int caught again, calling terminate()");
+>>       terminate();
+>>   }
+>> }
+>> 
+>> [ Tests on Mac OS X Mavericks  - g++11 is an alias for ?g++-4.8.2 -std=c++11? ]
+>> 
+>> $ clang++ -std=c++11 -stdlib=libc++ -DMEOW meow.cpp && ./a.out
+>> main() throwing int
+>> int caught initially
+>> calling set_terminate()
+>> rethrowing
+>> int caught again, calling terminate()
+>> libc++abi.dylib: terminating with uncaught exception of type int
+>> Abort trap: 6
+>> $ g++11 meow.cpp -DMEOW && ./a.out
+>> main() throwing int
+>> int caught initially
+>> calling set_terminate()
+>> rethrowing
+>> int caught again, calling terminate()
+>> MyTerminate()
+>> Abort trap: 6
+>> $ 
+>> 
+>> Specifically:
+>> 	libc++ & libc++abi call the terminate handler that was active when the exception was created.
+>> 	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+>> 
+>> Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+> 
+> I would expect this to be controlled by the language standard, not by the ABI document.
+
+And yet it is spelled out in the ABI document in section 2.2.2.1: (http://mentorembedded.github.io/cxx-abi/abi-eh.html)
+
+	? The fields unexpectedHandler and terminateHandler contain pointers to the unexpected and terminate handlers at the point where the exception is thrown. The ISO C++ Final Draft International Standard [lib.unexpected] (18.6.2.4) states that the handlers to be used are those active immediately after evaluating the throw argument. If destructors change the active handlers during unwinding, the new values are not used until unwinding is complete.
+
+Of course, ?the? FDIS refers to the 2003 one, and later, there was the 2011 one, and as of last week there is a (possibly not final) 2014 DIS.
+
+> Amusingly, the current standard is simply ungrammatical:
+>  N3797 [terminate]p1:
+>    Called by the implementation when exception handling must be abandoned
+>    for any of several reasons, in effect immediately after throwing the exception.
+> Clearly what?s ?in effect? is supposed to be the terminate_handler, but...
+> 
+> As far as I can tell, this is a splice left over from a previous revision.  e.g.
+>  C++03 [lib.terminate]p1:
+>    Effect: Calls the terminate_handler function in effect immediately after evaluating
+>    the throw-expression, if called by the implementation, or calls the current
+>    terminate_handler function, if called by the program.
+> 
+> Both standards are vague about *which* throw-expression is meant when more
+> than one is associated with the same exception object.  If you can get the
+> committee to clarify, please ask them to consider what should happen with
+> std::rethrow_exception as well.
+
+This is LWG issue 2088: http://cplusplus.github.io/LWG/lwg-active.html#2088
+Apparently this was changed right before C++11 was released (see N3242 for the actual change), and it is (as you say) confused.
+The editor?s comments in n3242 reflect this confusion.
+
+So, what we have is that C++98/03 specifies things one way, and C++11/14 (arguably) a different way.
+And libc++abi implements the C++03 standard, and libsup++ (4.8) implements the C++11 standard.
+
+? Marshall
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140218/a964cd58/attachment.html>
+
+From rjmccall at apple.com  Tue Feb 18 16:49:55 2014
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 18 Feb 2014 08:49:55 -0800
+Subject: [cxx-abi-dev] A question about terminate handlers
+In-Reply-To: <D7728A8A-6688-4067-B207-B1C852B60663@gmail.com>
+References: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+	<6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8@apple.com>
+	<D7728A8A-6688-4067-B207-B1C852B60663@gmail.com>
+Message-ID: <E4CD96D4-D566-4D25-B720-EA17612FA80F@apple.com>
+
+On Feb 18, 2014, at 8:02 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+> On Feb 17, 2014, at 10:50 AM, John McCall <rjmccall at apple.com> wrote:
+>> On Feb 15, 2014, at 11:05 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+>>> Specifically:
+>>> 	libc++ & libc++abi call the terminate handler that was active when the exception was created.
+>>> 	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+>>> 
+>>> Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+>> 
+>> I would expect this to be controlled by the language standard, not by the ABI document.
+> 
+> And yet it is spelled out in the ABI document in section 2.2.2.1: (http://mentorembedded.github.io/cxx-abi/abi-eh.html)
+> 
+> 	? The fields unexpectedHandler and terminateHandler contain pointers to the unexpected and terminate handlers at the point where the exception is thrown. The ISO C++ Final Draft International Standard [lib.unexpected] (18.6.2.4) states that the handlers to be used are those active immediately after evaluating the throw argument. If destructors change the active handlers during unwinding, the new values are not used until unwinding is complete.
+
+To me, everything after the first sentence here is (1) explanatory and (2) deferring to the standard.
+
+>> Amusingly, the current standard is simply ungrammatical:
+>>  N3797 [terminate]p1:
+>>    Called by the implementation when exception handling must be abandoned
+>>    for any of several reasons, in effect immediately after throwing the exception.
+>> Clearly what?s ?in effect? is supposed to be the terminate_handler, but...
+>> 
+>> As far as I can tell, this is a splice left over from a previous revision.  e.g.
+>>  C++03 [lib.terminate]p1:
+>>    Effect: Calls the terminate_handler function in effect immediately after evaluating
+>>    the throw-expression, if called by the implementation, or calls the current
+>>    terminate_handler function, if called by the program.
+>> 
+>> Both standards are vague about *which* throw-expression is meant when more
+>> than one is associated with the same exception object.  If you can get the
+>> committee to clarify, please ask them to consider what should happen with
+>> std::rethrow_exception as well.
+> 
+> This is LWG issue 2088: http://cplusplus.github.io/LWG/lwg-active.html#2088
+> Apparently this was changed right before C++11 was released (see N3242 for the actual change), and it is (as you say) confused.
+> The editor?s comments in n3242 reflect this confusion.
+> 
+> So, what we have is that C++98/03 specifies things one way, and C++11/14 (arguably) a different way.
+> And libc++abi implements the C++03 standard, and libsup++ (4.8) implements the C++11 standard.
+
+If the standard is now being changed to always use the current terminate_handler at the time that the terminate is triggered, then neither library is implementing it correctly, and in fact these fields in the exception info are now obsolete.  That?s an explicit change in specified behavior, though, so I?m a little surprised by it.
+
+The difference as you?ve described it is just that libsupc++ is overwriting the handler fields on a rethrow (?throw;?), and libc++abi is not.  CI 2088 actually doesn?t identify this as an ambiguity, but it seems to me to be the only truly unaddressed problem unless they?re really switching the semantics to always use the current handler.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140218/68780898/attachment.html>
+
+From mclow.lists at gmail.com  Tue Feb 18 20:17:34 2014
+From: mclow.lists at gmail.com (Marshall Clow)
+Date: Tue, 18 Feb 2014 12:17:34 -0800
+Subject: [cxx-abi-dev] A question about terminate handlers
+In-Reply-To: <E4CD96D4-D566-4D25-B720-EA17612FA80F@apple.com>
+References: <FD0FA15D-703F-4A6E-81AE-CDC8E2CFD613@gmail.com>
+	<6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8@apple.com>
+	<D7728A8A-6688-4067-B207-B1C852B60663@gmail.com>
+	<E4CD96D4-D566-4D25-B720-EA17612FA80F@apple.com>
+Message-ID: <BE6EC8C3-958F-4467-9BBA-A1C559BA4C45@gmail.com>
+
+
+On Feb 18, 2014, at 8:49 AM, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 18, 2014, at 8:02 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+>> On Feb 17, 2014, at 10:50 AM, John McCall <rjmccall at apple.com> wrote:
+>>> On Feb 15, 2014, at 11:05 AM, Marshall Clow <mclow.lists at gmail.com> wrote:
+>>>> Specifically:
+>>>> 	libc++ & libc++abi call the terminate handler that was active when the exception was created.
+>>>> 	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+>>>> 
+>>>> Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+>>> 
+>>> I would expect this to be controlled by the language standard, not by the ABI document.
+>> 
+>> And yet it is spelled out in the ABI document in section 2.2.2.1: (http://mentorembedded.github.io/cxx-abi/abi-eh.html)
+>> 
+>> 	? The fields unexpectedHandler and terminateHandler contain pointers to the unexpected and terminate handlers at the point where the exception is thrown. The ISO C++ Final Draft International Standard [lib.unexpected] (18.6.2.4) states that the handlers to be used are those active immediately after evaluating the throw argument. If destructors change the active handlers during unwinding, the new values are not used until unwinding is complete.
+> 
+> To me, everything after the first sentence here is (1) explanatory and (2) deferring to the standard.
+> 
+>>> Amusingly, the current standard is simply ungrammatical:
+>>>  N3797 [terminate]p1:
+>>>    Called by the implementation when exception handling must be abandoned
+>>>    for any of several reasons, in effect immediately after throwing the exception.
+>>> Clearly what?s ?in effect? is supposed to be the terminate_handler, but...
+>>> 
+>>> As far as I can tell, this is a splice left over from a previous revision.  e.g.
+>>>  C++03 [lib.terminate]p1:
+>>>    Effect: Calls the terminate_handler function in effect immediately after evaluating
+>>>    the throw-expression, if called by the implementation, or calls the current
+>>>    terminate_handler function, if called by the program.
+>>> 
+>>> Both standards are vague about *which* throw-expression is meant when more
+>>> than one is associated with the same exception object.  If you can get the
+>>> committee to clarify, please ask them to consider what should happen with
+>>> std::rethrow_exception as well.
+>> 
+>> This is LWG issue 2088: http://cplusplus.github.io/LWG/lwg-active.html#2088
+>> Apparently this was changed right before C++11 was released (see N3242 for the actual change), and it is (as you say) confused.
+>> The editor?s comments in n3242 reflect this confusion.
+>> 
+>> So, what we have is that C++98/03 specifies things one way, and C++11/14 (arguably) a different way.
+>> And libc++abi implements the C++03 standard, and libsup++ (4.8) implements the C++11 standard.
+> 
+> If the standard is now being changed to always use the current terminate_handler at the time that the terminate is triggered, then neither library is implementing it correctly, and in fact these fields in the exception info are now obsolete.  That?s an explicit change in specified behavior, though, so I?m a little surprised by it.
+> 
+> The difference as you?ve described it is just that libsupc++ is overwriting the handler fields on a rethrow (?throw;?), and libc++abi is not.  CI 2088 actually doesn?t identify this as an ambiguity, but it seems to me to be the only truly unaddressed problem unless they?re really switching the semantics to always use the current handler.
+
+That is exactly the difference that I am describing.
+
+And I?d like to see that difference removed (and I don?t really care which way it is resolved).
+I also agree that it should be decided by the C++ standards group, not the members of this mailing list.
+
+But I think that people here should be aware of it.
+
+? Marshall
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140218/644278ea/attachment-0001.html>
+

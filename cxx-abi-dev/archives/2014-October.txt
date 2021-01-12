@@ -1,0 +1,117 @@
+From rafael.espindola at gmail.com  Thu Oct  9 18:17:00 2014
+From: rafael.espindola at gmail.com (=?UTF-8?Q?Rafael_Esp=C3=ADndola?=)
+Date: Thu, 9 Oct 2014 14:17:00 -0400
+Subject: [cxx-abi-dev] How to handle initialization of static members of
+	class templates.
+Message-ID: <CAG3jReJvHyPh1rc20invrj-M6ESQD-ieK4A=QwgdUf0NRStprw@mail.gmail.com>
+
+Given
+
+---------------------------------------------------------------
+struct S {
+  static const int x;
+};
+template<typename T> struct U {
+  static const int k;
+};
+template<typename T> const int U<T>::k = T::x;
+
+#ifdef TU1
+const int S::x = 42;
+extern const int *f();
+const int *g() { return &U<S>::k; }
+int main() {
+  return *f() + U<S>::k;
+}
+#endif
+
+#ifdef TU2
+const int *f() { return &U<S>::k; }
+#endif
+------------------------------------------------------
+
+_ZN1UI1SE1kE is a contant in TU1 but not in TU2. When compiling with
+gcc this can cause the resulting program to segfault as the
+initialization function tries to modify constant memory.
+
+The way this was fixed in clang is to put more things in the
+_ZN1UI1SE1kE comdat when compiling TU2. In particular, it puts
+
+* The .init_array section with a pointer to the init function
+* The init function itself
+* The guard variable
+
+If the linker decides to discard this _ZN1UI1SE1kE, the initialization
+code also goes away. If it decides to keep it, the .init_array section
+ends up being merged with the other sections with the same name and
+everything works.
+
+Cheers,
+Rafael
+
+From richardsmith at google.com  Fri Oct 17 02:18:32 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 16 Oct 2014 19:18:32 -0700
+Subject: [cxx-abi-dev] non-type template parameter types not mangled
+Message-ID: <CAGL0aWfoOtkT5PzHrqxgbcLsdmSTm4CVRP0TccdWCAh1NFO1KA@mail.gmail.com>
+
+These two distinct function templates:
+
+template<int *p> int f() {}
+template<const int *p> int f() {}
+
+... get the same mangling. Should we model qualification conversions in the
+template argument value somehow?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141016/bb824981/attachment.html>
+
+From richardsmith at google.com  Wed Oct 22 22:13:46 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 22 Oct 2014 15:13:46 -0700
+Subject: [cxx-abi-dev] <prefix> mangling and substitutions
+Message-ID: <CAGL0aWdj0WDOAkjhSw+pxEQrQZjjTYW4Fwp35EMOk1xeDDz1KA@mail.gmail.com>
+
+We have:
+
+<prefix> ::= # empty
+::= <substitution>
+
+This implies that we generate a substitution for an empty prefix (and then
+use that as the base of every subsequent prefix that doesn't start with a
+<template-param> or <decltype>). This seems wrong to me, and doesn't match
+current implementation practice.
+
+One possible fix: replace "# empty" with "<unqualified-name>", and add
+"<template unqualified-name>" to the productions for <template-prefix>.
+This would also remove the ambiguity as to whether ::x is 1x or N1xE.
+
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141022/ac698d76/attachment.html>
+
+From rjmccall at apple.com  Wed Oct 22 22:15:31 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 22 Oct 2014 15:15:31 -0700
+Subject: [cxx-abi-dev] <prefix> mangling and substitutions
+In-Reply-To: <CAGL0aWdj0WDOAkjhSw+pxEQrQZjjTYW4Fwp35EMOk1xeDDz1KA@mail.gmail.com>
+References: <CAGL0aWdj0WDOAkjhSw+pxEQrQZjjTYW4Fwp35EMOk1xeDDz1KA@mail.gmail.com>
+Message-ID: <BD9BDA43-B3B0-42B4-BEFE-2B741BEE5A68@apple.com>
+
+On Oct 22, 2014, at 3:13 PM, Richard Smith <richardsmith at google.com> wrote:
+> We have:
+> 
+> <prefix> ::= # empty
+>               ::= <substitution>
+> 
+> This implies that we generate a substitution for an empty prefix (and then use that as the base of every subsequent prefix that doesn't start with a <template-param> or <decltype>). This seems wrong to me, and doesn't match current implementation practice.
+> 
+> One possible fix: replace "# empty" with "<unqualified-name>", and add "<template unqualified-name>" to the productions for <template-prefix>. This would also remove the ambiguity as to whether ::x is 1x or N1xE.
+> 
+> Thoughts?
+
+Sounds like a good fix to me.
+
+John.
+

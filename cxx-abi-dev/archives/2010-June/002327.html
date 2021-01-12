@@ -1,0 +1,106 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Mangling of function-to-pointer conversion
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3CA42B5B6E-F44C-473C-AD30-AD52E9662AAB%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002332.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Mangling of function-to-pointer conversion</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3CA42B5B6E-F44C-473C-AD30-AD52E9662AAB%40edg.com%3E"
+       TITLE="Mangling of function-to-pointer conversion">mjh at edg.com
+       </A><BR>
+    <I>Wed Jun  9 16:55:37 UTC 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002332.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>While working on SFINAE mangling, I ran across this issue with an implicit function-to-pointer conversion.  Given:
+
+$ cat test.cpp
+template &lt;class T&gt; struct A {
+  template &lt;void (*PF)()&gt; struct B {};
+};
+template &lt;void (*PF)()&gt; struct B {};
+void ff();
+template &lt;class T&gt; B&lt;&amp;ff&gt; f1(T);
+template &lt;class T&gt; B&lt;ff&gt;  f2(T);
+template &lt;class T&gt; typename A&lt;T&gt;::template B&lt;&amp;ff&gt; f3(T);
+template &lt;class T&gt; typename A&lt;T&gt;::template B&lt;ff&gt;  f4(T);
+int main() {
+  f1(1);
+  f2(1);
+  f3(1);
+  f4(1);
+}
+$ g++450 -fabi-version=0 -c test.cpp &amp;&amp; nm -u test.o
+               U _Z2f1IiE1BIXadL_Z2ffvEEET_
+               U _Z2f2IiE1BIXadL_Z2ffvEEET_
+               U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+               U _Z2f4IiEN1AIT_E1BIL_Z2ffvEEES1_
+$ eccp -c test.cpp &amp;&amp; nm -u test.o
+               U _Z2f1IiE1BIXadL_Z2ffvEEET_
+               U _Z2f2IiE1BIXadL_Z2ffvEEET_
+               U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+               U _Z2f4IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+$ clang++ -c test.cpp &amp;&amp; nm -u test.o
+__Z2f1IiE1BILZ2ffvEET_
+__Z2f2IiE1BILZ2ffvEET_
+__Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+__Z2f4IiEN1AIT_E1BIXL_Z2ffvEEEES1_
+
+When ff is used as a nontype template parameter in f2, both g++ and EDG add an &quot;ad&quot; to represent the implied function-to-pointer conversion.  However, that's not the case in f4 where g++ doesn't add the &quot;ad&quot;.
+
+The ABI spec says (5.1.5): &quot;Except for the parentheses, therefore, it [the mangled expression encoding] represents the source token stream&quot;.  That would seem to indicate that the mangling for f2 is wrong (as is EDG's mangling for f4).
+
+Does anyone know the logic behind adding the &quot;ad&quot; in the mangled name for f2 (and whether or not that same logic applies to f4)?
+
+Curiously, g++ doesn't add the &quot;ad&quot; in dependent cases:
+
+template &lt;class T&gt; auto f5(T p1) -&gt; decltype(p1(f));
+
+Thanks,
+
+Mike Herrick
+Edison Design Group
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002332.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

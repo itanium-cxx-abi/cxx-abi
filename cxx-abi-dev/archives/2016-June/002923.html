@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] abi_tag mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCADzB%2B2nfZiMyN%3D35OHOe3_ijbYUTQLco5TKmN69nfWkEa5qqtg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002922.html">
+   <LINK REL="Next"  HREF="002924.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] abi_tag mangling</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCADzB%2B2nfZiMyN%3D35OHOe3_ijbYUTQLco5TKmN69nfWkEa5qqtg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] abi_tag mangling">jason at redhat.com
+       </A><BR>
+    <I>Fri Jun  3 22:25:26 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002922.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+        <LI>Next message: <A HREF="002924.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2923">[ date ]</a>
+              <a href="thread.html#2923">[ thread ]</a>
+              <a href="subject.html#2923">[ subject ]</a>
+              <a href="author.html#2923">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Jun 2, 2016, at 3:01 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+
+&gt;<i> If a type is not part of the regular mangling, and it contains an ABI tag in
+</I>&gt;<i> its mangling but not as part of its type (for instance, a dependent
+</I>&gt;<i> expression in a template argument references an entity with an ABI tag),
+</I>&gt;<i> does that appear in the resulting mangling?
+</I>
+&gt;<i> (That is, is an implementation required to effectively mangle the return
+</I>&gt;<i> type and throw it away, or is some walk over the top-level type required
+</I>&gt;<i> instead?)
+</I>
+Hmm, good question.  The current G++ implementation scans dependent
+expressions in a (member function of a class) template, and considers
+those in both the signature and the return type of a non-template
+member function (which is not part of its signature), leading to a
+somewhat curious result for this example:
+
+struct [[gnu::abi_tag (&quot;foo&quot;)]] A
+{
+  template &lt;class T&gt; static T f();
+};
+
+template &lt;class T&gt; struct B
+{
+  static decltype(A::f&lt;T&gt;()) g(decltype(A::f&lt;T&gt;()));
+  static decltype(A::f&lt;T&gt;()) h();
+};
+
+int main()
+{
+  B&lt;int&gt;::g(0); // _ZN1BIiE1gEi -- the tag does not appear in the mangled name
+  B&lt;int&gt;::h();  // _ZN1BIiE1hB3fooEv
+}
+
+Here G++ sees that A (and thus tag &quot;foo&quot;) appears in the signature of
+B&lt;T&gt;::g, so it doesn't tag B&lt;T&gt;::g, even though the dependent
+expression isn't actually part of the eventual mangling of B&lt;int&gt;::g
+because for non-template member functions we mangle the instantiated
+type rather than the temploid type.  The tag doesn't appear in the
+signature of B&lt;T&gt;::h, so h gets tagged.
+
+On Thu, Jun 2, 2016 at 7:22 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+
+&gt;<i> Do templates have ABI tags, or are the tags only properties of template
+</I>&gt;<i> specializations?  How does that play into mangling and/or substitutability?
+</I>
+Templates have tags.
+
+&gt;<i> I assume ABI tags can apply to unions as well.  (The standard's definition
+</I>&gt;<i> of &quot;compound type&quot; distinguishes classes and unions.)
+</I>
+Of course, unions are classes.  There are separate bullets for them in
+that paragraph, but the union bullet says that unions are classes.
+
+&gt;<i> It's probably worth spelling out that tags do not apply to enumerators.
+</I>
+OK.
+
+&gt;<i> Are ABI tags mangled in the &lt;prefix&gt;, or just on the entity &lt;name&gt;?
+</I>
+They are mangled as part of the name of the entity, whenever that name appears.
+
+&gt;<i> What
+</I>&gt;<i> happens if the same tag is applied to multiple places in the lexical
+</I>&gt;<i> hierarchy, e.g. to both a class and one of its member functions?
+</I>
+Then it appears multiple times.
+
+&gt;<i> I guess an inline friend function definition doesn't implicitly use the tags
+</I>&gt;<i> of its defining class, but presumably has them anyway because of their
+</I>&gt;<i> presence in the function signature.
+</I>
+Right.
+
+&gt;<i> Can you clarify which things in the Clang description are no longer correct?
+</I>
+These lines:
+
+&quot;If a function is used as a local scope for another name, and is part
+of another function as local scope, it doesn&#8217;t have any required tags.
+If a function is used as a local scope for a guard variable name, it
+doesn&#8217;t have any required tags.&quot;
+
+&gt;<i> I assume that a type used in the name of a conversion function should be
+</I>&gt;<i> mangled with its ABI tag.
+</I>
+Yes, any time the name of the type appears, the tags appear as well.
+
+&gt;<i> Also, I don't see anything in your proposed
+</I>&gt;<i> wording that talks about not mangling ABI tags on an entity that appear in
+</I>&gt;<i> its type.
+</I>
+&quot;that are not otherwise represented in the mangling&quot; was supposed to
+cover that, but as we see with my example above it should really talk
+about the type or signature rather than the mangling.
+
+Jason
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002922.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+	<LI>Next message: <A HREF="002924.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2923">[ date ]</a>
+              <a href="thread.html#2923">[ thread ]</a>
+              <a href="subject.html#2923">[ subject ]</a>
+              <a href="author.html#2923">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

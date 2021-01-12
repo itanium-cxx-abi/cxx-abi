@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Placement of vtables, inlines and such
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3Cu9so7gj1cs.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000125.html">
+   <LINK REL="Next"  HREF="000127.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Placement of vtables, inlines and such</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3Cu9so7gj1cs.fsf%40yorick.cygnus.com%3E"
+       TITLE="Placement of vtables, inlines and such">jason at cygnus.com
+       </A><BR>
+    <I>Fri Jun 25 05:28:03 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000125.html">Placement of vtables, inlines and such
+</A></li>
+        <LI>Next message: <A HREF="000127.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#126">[ date ]</a>
+              <a href="thread.html#126">[ thread ]</a>
+              <a href="subject.html#126">[ subject ]</a>
+              <a href="author.html#126">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt; writes:
+</I>
+ &gt; I think that the name of the vtable has to either contain the name  
+ &gt; of the class or the (mangled) name of the key function. If there is a  
+ &gt; key function, it does not harm to use that as the name (except that  
+ &gt; it makes for a slightly longer symbol), and it sometimes catches some  
+ &gt; broken makefiles that fail to recompile some .o file when a .h file  
+ &gt; they include changed :-). I don't know if catching a problem  
+ &gt; &quot;sometimes&quot; is better than &quot;never&quot;, or if it is actually worse...
+
+Worse, I think.  The heuristic can give different results in different
+translation units for well-formed code.
+
+ &gt; Also, HP uses COMDATs for the actual emission of the vtable,  
+ &gt; out-of-line copies of inline functions, some cases of template  
+ &gt; instantiations, etc. Our COMDAT key is the name alone. I don't think  
+ &gt; we can have the linker check size or whatever. Note that it's hard to  
+ &gt; believe that the content of a COMDAT section for code emitted by two  
+ &gt; different compilers would have anything in common :-)
+
+No, the size check is primarily interesting for vtables.
+
+ &gt;&gt; I propose that the ia64 base ABI be extended to provide for either
+ &gt;&gt; COMDAT sections or garbage collection, and that we use that support for
+ &gt;&gt; vague linkage.
+
+ &gt; It looks to me like garbage collection requires one extra operation,  
+ &gt; namely selecting the &quot;blessed&quot; symbol that will not be discarded,  
+ &gt; right? Isn't that some other form of COMDATing? In other words, isn't  
+ &gt; garbage collection just an additional optimization which may be  
+ &gt; placed on top of COMDATs?
+
+No.  gc works by sweeping from main, finding all the referenced symbols;
+any sections that haven't provided any symbols are discarded.  If we use
+weak symbols for vtables and put them in separate sections, gc will keep at
+most one copy, as needed.  There is no notion of a special symbol.
+
+gc is a more general solution, as it also can discard normal code that
+isn't actually needed.  It also allows us to discard all copies in cases
+where that is appropriate, such as when we can get the vtable from one of
+our shared libs.  But COMDAT is simpler to implement, and has fewer
+implications for the broader ABI.
+
+ &gt;&gt; I further propose that we not use heuristics to cut down the number of
+ &gt;&gt; copies ahead of time; they usually work fine, but can cause problems in
+ &gt;&gt; some situations, such as when not all of the class's members are in the
+ &gt;&gt; same symbol space.  Does the ia64 ABI provide for controlling which
+ &gt;&gt; symbols are exported from a shared library?
+
+ &gt; As you said, &quot;they usually work fine&quot;. In particular, without them,  
+ &gt; you end up emitting the same vtables again and again, which is a  
+ &gt; waste of time, disk space, etc. Just as a reminder, IA64 .o files are  
+ &gt; not exactly small.
+
+True enough.
+
+ &gt; Regarding the symbol spaces, did I misunderstand, or are you talking
+ &gt; about having some pathological case like (using Microsoft's notations
+ &gt; :-)
+
+ &gt; 	#if INCLUDED_FROM_FILE_1
+ &gt; 	__declspec(export)
+ &gt; 	#endif
+ &gt; 	inline void foo() { ... }
+
+ &gt; That's just a bad idea. There may be other cases I did not think of,  
+ &gt; but currently, I don't see this as a real issue.
+
+Not exactly.  The idea is not that the function needs to be explicitly
+imported, but that it is simply unavailable.  A customer of ours defines a
+proxy class where the main functionality is in one shared object which does
+not export the functions; the functionality of the class is only made
+available through virtual function calls.  Our use of the heuristic caused
+us to give an undefined symbol for a client's call to one of the class'
+inline functions.
+
+It may be that we don't want to support this practice, but it is something
+to think about.
+
+ &gt;&gt; A side issue: What do we want to do with dynamically-initialized
+ &gt;&gt; variables?  The same thing, or use COMMON?  I propose COMMON.
+
+ &gt; The problem is that some compiler may be smarter at inlining that  
+ &gt; another, and figure out that it actually can initialize it  
+ &gt; statically. In that case, it cannot go into COMMON (or you force that  
+ &gt; smart compiler to not do that optimization for binary compatibility  
+ &gt; reasons...). For instance:
+
+ &gt; 	inline int f() { return 1; }
+ &gt; 	static int i = f();
+
+ &gt; What is the problem with COMMON?
+
+Do you mean &quot;with COMDAT&quot; here?  There's no problem; it doesn't really
+matter which you use.  If one implementation uses COMMON, and another uses
+COMDAT, they will be combined by the linker (I think; does a weak symbol
+take precedence over COMMON?)
+
+This does bring up another issue; handling initialization.  g++ handles
+initialization of a weak/COMDAT object by emitting a sentry along with it,
+which gets set when the object has been initialized.
+
+BTW, note that this really only applies to template static data members;
+that's the only case where you would find a dynamically initialized
+variable with comdat linkage.
+
+ &gt;&gt; A side issue is how to handle local static variables in inlines.  G++ 
+ &gt;&gt; currently avoids this issue by suppressing inlining of functions with 
+ &gt;&gt; local statics.  If we don't want to do that, we'll need to specify a 
+ &gt;&gt; mangling for the statics, and handle multiple copies like we do above. 
+
+ &gt; Side issue of side issue: you are also supposed to name string  
+ &gt; constants, because they are supposed to have the same address in  
+ &gt; different inline functions ([7.1.2]/4 :-)
+
+Aha.  I guess there's no point in trying to avoid dealing with local
+statics then.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000125.html">Placement of vtables, inlines and such
+</A></li>
+	<LI>Next message: <A HREF="000127.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#126">[ date ]</a>
+              <a href="thread.html#126">[ thread ]</a>
+              <a href="subject.html#126">[ subject ]</a>
+              <a href="author.html#126">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

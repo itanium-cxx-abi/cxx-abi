@@ -1,0 +1,350 @@
+From jason at redhat.com  Wed Jan 30 11:43:09 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 30 Jan 2002 11:43:09 +0000
+Subject: Pointer to member function mangling
+Message-ID: <wvlofjc5ak2.fsf@prospero.cambridge.redhat.com>
+
+The ABI says
+
+  Names of objects nested in namespaces or classes are identified as a
+  delimited sequence of names identifying the enclosing scopes. In addition,
+  when naming a class member function, CV-qualifiers may be prefixed to the
+  compound name, encoding the this attributes. Note that if member function
+  CV-qualifiers are required, the delimited form must be used even if the
+  remainder of the name is a single substitution. 
+
+      <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E
+                      ::= N [<CV-qualifiers>] <template-prefix> <template-args> E
+
+  ...
+
+  [in the function type section]
+  If there are any cv-qualifiers of this, they are encoded at the beginning
+  of the <qualified-name> as described above.
+
+  ...
+
+  Pointer-to-member types encode the class and member types. 
+
+    <pointer-to-member-type> ::= M <class type> <member type>
+
+Let me just start by saying that I think the first bit above was a mistake,
+as the CV-quals are an attribute of the function type, not the class or
+function name.  But I suppose that since we don't mention the function type
+directly, we can't qualify it.  In any case, a function like
+
+  void A::f () const
+
+would be encoded
+
+  _ZNK1A1fEv
+
+My question has to do with encoding a cv-qualified pointer to member
+function type, i.e.
+
+  void (A::*)() const
+
+g++ currently emits
+
+  MK1AFvvE
+
+or, member of class "const A" of type "function of (void) returning void".
+I don't see how this can be deduced from the above text.  More consistent
+with the handling of function names, and suggested by the text in the
+function type section, would be
+
+  MNK1AEFvvE
+
+or, member of "A with member function-modifying const" of type "function of
+(void) returning void".
+
+IMO more consistent with the language semantics would be
+
+  M1AKFvvE
+
+or, member of A of type "function of (void) const returning void".  The C++
+standard states unambiguously that the cv-quals are part of the function
+type.
+
+Looking over the mailing list archives, I was unable to find any discussion
+of this issue, though it was mentioned in passing a couple of times.
+
+What do other compilers produce?  What do other demanglers expect?
+
+Jason
+
+
+From daveed at edg.com  Wed Jan 30 14:32:52 2002
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 30 Jan 2002 09:32:52 -0500
+Subject: [cxx-abi-dev] Pointer to member function mangling
+References: <wvlofjc5ak2.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3C580414.472F585A@edg.com>
+
+Jason Merrill wrote:
+> 
+> The ABI says
+> 
+>   Names of objects nested in namespaces or classes are identified as a
+>   delimited sequence of names identifying the enclosing scopes. In addition,
+>   when naming a class member function, CV-qualifiers may be prefixed to the
+>   compound name, encoding the this attributes. Note that if member function
+>   CV-qualifiers are required, the delimited form must be used even if the
+>   remainder of the name is a single substitution.
+> 
+>       <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E
+>                       ::= N [<CV-qualifiers>] <template-prefix> <template-args> E
+> 
+>   ...
+> 
+>   [in the function type section]
+>   If there are any cv-qualifiers of this, they are encoded at the beginning
+>   of the <qualified-name> as described above.
+
+I don't think the latter was meant to apply to pointer-to-member types, which
+(as you quote below) disocciate the class ("this") type from the member
+type.
+
+>   ...
+> 
+>   Pointer-to-member types encode the class and member types.
+> 
+>     <pointer-to-member-type> ::= M <class type> <member type>
+> 
+> Let me just start by saying that I think the first bit above was a mistake,
+> as the CV-quals are an attribute of the function type, not the class or
+> function name.  But I suppose that since we don't mention the function type
+> directly, we can't qualify it. 
+
+I remember we discussed that. I agree it's unfortunate, but I'm not
+sure it's a mistake.
+
+> In any case, a function like
+> 
+>   void A::f () const
+> 
+> would be encoded
+> 
+>   _ZNK1A1fEv
+> 
+> My question has to do with encoding a cv-qualified pointer to member
+> function type, i.e.
+> 
+>   void (A::*)() const
+> 
+> g++ currently emits
+> 
+>   MK1AFvvE
+> 
+> or, member of class "const A" of type "function of (void) returning void".
+> I don't see how this can be deduced from the above text.  More consistent
+> with the handling of function names, and suggested by the text in the
+> function type section, would be
+> 
+>   MNK1AEFvvE
+
+I don't see that: there is no <nested-name> in the pointer-to-member
+above.
+
+> or, member of "A with member function-modifying const" of type "function of
+> (void) returning void".
+> 
+> IMO more consistent with the language semantics would be
+> 
+>   M1AKFvvE
+
+That is what I would expect and what I actually read in the specification
+if I squint right:
+	M <class type> <member type>
+	<class type> :: 1A
+	<member type> :: K FvvE
+
+> or, member of A of type "function of (void) const returning void".  The C++
+> standard states unambiguously that the cv-quals are part of the function
+> type.
+> 
+> Looking over the mailing list archives, I was unable to find any discussion
+> of this issue, though it was mentioned in passing a couple of times.
+> 
+> What do other compilers produce?  What do other demanglers expect?
+
+As a human demangler, I expect your last form.
+
+	Daveed
+
+
+From mark at codesourcery.com  Wed Jan 30 17:38:07 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 30 Jan 2002 09:38:07 -0800
+Subject: [cxx-abi-dev] Pointer to member function mangling
+In-Reply-To: <3C580414.472F585A@edg.com>
+References: <wvlofjc5ak2.fsf@prospero.cambridge.redhat.com>
+ <3C580414.472F585A@edg.com>
+Message-ID: <4760000.1012412287@gandalf.codesourcery.com>
+
+>> g++ currently emits
+>>
+>>   MK1AFvvE
+>>
+>> or, member of class "const A" of type "function of (void) returning
+>> void". I don't see how this can be deduced from the above text.  More
+>> consistent with the handling of function names, and suggested by the
+>> text in the function type section, would be
+>>
+>>   MNK1AEFvvE
+>
+> I don't see that: there is no <nested-name> in the pointer-to-member
+> above.
+
+I don't think this is very clearly specified.
+
+Reading literally, a pointer-to-member type is:
+
+  M <class type> <member type>
+
+The problem is that the member type is a function type, and for
+function types we don't ever emit the this parameter, so were
+does the const-ness go?
+
+Your suggestion here implies a nested name, which Daveed rightly
+points out is not present.
+
+>> IMO more consistent with the language semantics would be
+>>
+>>   M1AKFvvE
+
+This suggestion is fine, but not supported by the grammar.  This
+would imply a member whose function type is const -- i.e., something
+equivalent to "g" in:
+
+  typedef void (f)();
+  typedef const f g;
+
+That's not the right type.
+
+The G++ implementation is relatively logical.  Instead of encoding
+
+  void ()(const A*)
+
+as everyone used to, we now do:
+
+  const A ... void ()
+
+So, while I would be the last to argue that the spec is 100% clear,
+I think it supports the G++ version as well as any of the other
+ones.
+
+>> What do other compilers produce?  What do other demanglers expect?
+
+This is the right question.  At this point, none of HP, Intel, GNU,
+or anyone else is going to be eager to change their compilers.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Jan 30 18:14:48 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 30 Jan 2002 18:14:48 +0000
+Subject: [cxx-abi-dev] Pointer to member function mangling
+In-Reply-To: <4760000.1012412287@gandalf.codesourcery.com> (Mark Mitchell's
+ message of "Wed, 30 Jan 2002 09:38:07 -0800")
+References: <wvlofjc5ak2.fsf@prospero.cambridge.redhat.com>
+	<3C580414.472F585A@edg.com>
+	<4760000.1012412287@gandalf.codesourcery.com>
+Message-ID: <wvlpu3r4sfb.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+>>> g++ currently emits
+>>> 
+>>> MK1AFvvE
+>>> 
+>>> or, member of class "const A" of type "function of (void) returning
+>>> void". I don't see how this can be deduced from the above text.  More
+>>> consistent with the handling of function names, and suggested by the
+>>> text in the function type section, would be
+>>> 
+>>> MNK1AEFvvE
+>> 
+>> I don't see that: there is no <nested-name> in the pointer-to-member
+>> above.
+
+> I don't think this is very clearly specified.
+
+> Reading literally, a pointer-to-member type is:
+
+>   M <class type> <member type>
+
+> The problem is that the member type is a function type, and for
+> function types we don't ever emit the this parameter, so were
+> does the const-ness go?
+
+> Your suggestion here implies a nested name, which Daveed rightly
+> points out is not present.
+
+Well, the first paragraph I quoted says that the nested name form should be
+used in this case even when there's no nesting.  I don't see how that could
+apply to member function names, which are always qualified by their class
+type; from this I conclude that it's meant to refer to the pmf case.  Not
+that I think this is a good idea, mind you.
+
+>>> IMO more consistent with the language semantics would be
+>>> 
+>>> M1AKFvvE
+
+> This suggestion is fine, but not supported by the grammar.  This
+> would imply a member whose function type is const -- i.e., something
+> equivalent to "g" in:
+
+>   typedef void (f)();
+>   typedef const f g;
+
+> That's not the right type.
+
+No, in fact that code snippet is ill-formed.  Since you can't create a
+cv-qualified function type as above, there's no ambiguity.  Again, the
+cv-quals are considered part of the function type:
+
+  8.3.5  Functions                                             [dcl.fct]
+
+1 In a declaration T D where D has the form
+     D1 ( parameter-declaration-clause ) cv-qualifier-seqopt
+     exception-specificationopt
+  and the type of the contained declarator-id in the declaration T D1 is
+  derived-declarator-type-list T," the type of the declarator-id in D is
+  "derived-declarator-type-list  function   of   (parameter-declaration-
+  clause)  cv-qualifier-seqopt  returning  T";  a type of this form is a
+  function type86).
+
+> The G++ implementation is relatively logical.  Instead of encoding
+
+>   void ()(const A*)
+
+> as everyone used to, we now do:
+
+>   const A ... void ()
+
+Fair enough.  But it's a real pain to demangle, as I've discovered
+recently.  You have to remember the 'const A' for later substitution, and
+then break it up into pieces to go at various points in the output.  The
+current demangler does a pretty bad job of handling function declarators in
+general.
+
+> So, while I would be the last to argue that the spec is 100% clear,
+> I think it supports the G++ version as well as any of the other
+> ones.
+
+>>> What do other compilers produce?  What do other demanglers expect?
+
+> This is the right question.  At this point, none of HP, Intel, GNU,
+> or anyone else is going to be eager to change their compilers.
+
+Certainly; I mainly wanted to find out if there was any disagreement in
+existing practice before the gcc 3.1 release.
+
+Jason
+
+

@@ -1,0 +1,2331 @@
+From mark at codesourcery.com  Tue Oct  1 03:59:27 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 30 Sep 2002 20:59:27 -0700
+Subject: [cxx-abi-dev] substitution for std::char_traits<char> in
+ mangled name issue
+In-Reply-To: <OFF18F384E.F8D645B9-ON85256C44.006F54B5@torolab.ibm.com>
+Message-ID: <37180000.1033444767@warlock.codesourcery.com>
+
+> The reason I question this substitution schema in the name mangling is
+> because when I  changed the namespace std to stdd then I got :
+> _ZN4stdd13basic_ostreamIcNS_11char_traitsIcEEElsEPFRNS_9basic_iosIcS2_EES
+> 6_E which indicates that stdd::char_traits<char> has been substituted
+> with S2_ but why std::char_traits<char> is not substituted in the case
+> with std namespace?  Is this a nonconformance to API spec or there is a
+> special encoding for std::char_traits<char>?
+
+Because there is a special substitution for std::ostream, the template
+parameters of std::ostream are not included in the substitution map.
+
+Therefore, G++ is correct in this respect.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dhandly at cup.hp.com  Tue Oct  1 04:42:17 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 30 Sep 2002 21:42:17 -0700 (PDT)
+Subject: [cxx-abi-dev] substitution for std::char_traits<char> in mangled name issue
+Message-ID: <200210010442.VAA25544@hpcll183.cup.hp.com>
+
+>I just came across an issue with the name mangling schema used be g++ v.
+>3.2.  Consider the following source:
+>      __ostream_type& operator<<(__ios_type& (*__pf)(__ios_type&)) {
+
+aC++ agrees with g++.  So do both demanglers.
+
+>The mangled name genrated by g++ for std::basic_ostream::operator<< (the one
+>in bold above) is _ZNSolsEPFRSt9basic_iosIcSt11char_traitsIcEES3_E.  Should
+>it be: _ZNSolsEPFRSt9basic_iosIcS1_ES4_E?
+
+How can it be?  Where is char_traits?
+And I don't think abreviations insert substitutions.
+
+>but why std::char_traits<char> is not substituted in the case with std
+>namespace?
+
+It is, with S3_ above which was St11char_traitsIc.
+
+>there is a special encoding for std::char_traits<char>?
+Zbigniew Sarbinowski (Zibi)  C++ for AS/400 developer
+
+I don't see one.
+
+
+From sdouglass at arm.com  Tue Oct  1 09:06:08 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Tue, 01 Oct 2002 10:06:08 +0100
+Subject: [cxx-abi-dev] complete object 'structors for abstract
+  classes (was deleting destructors)
+In-Reply-To: <30510000.1033400469@warlock.codesourcery.com>
+References: <5.1.0.14.1.20020930095444.07752300@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20021001100335.02021e70@cam-pop.cambridge.arm.com>
+
+At 30-09-02 08:41 AM -0700, Mark Mitchell wrote:
+>--On Monday, September 30, 2002 10:21:46 AM +0100 scott douglass <sdouglass at arm.com> wrote:
+>>At 30-09-02 01:33 AM -0700, Mark Mitchell wrote:
+>>>--On Monday, September 30, 2002 09:00:23 AM +0100 scott douglass
+>>><sdouglass at arm.com> wrote:
+>>>
+>>>>Hello,
+>>>>
+>>>>I've noticed that it's probably reasonable to not produce C1/D1/D0
+>>>>'structors for abstract classes -- the language rules prevent ever
+>>>>needing to construct or destruct a complete object of abstract type.
+>>>
+>>>You certinaly need D0:
+>>>
+>>>struct S { virtual void f () = 0; ~S (); };
+>>>
+>>>void g (S* sp) {
+>>>  delete sp;
+>>>}
+>>
+>>I don't follow that.  We know that sp must point to some class derived
+>>from S (because S is abstract).
+>
+>Note that ~S is not virtual. [..]
+
+You're right: I was misreading it as a virtual destructor.  I can see why a compiler would make a direct reference to the D0 destructor.  It's too bad the language allows calling delete on (a pointer to) an abstract type with a non-virtual destructor since it's going to be undefined behavior.
+
+
+
+From mark at codesourcery.com  Thu Oct  3 21:09:45 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 3 Oct 2002 14:09:45 -0700
+Subject: Mangling follow-up
+Message-ID: <200210032109.g93L9jT01265@localhost.localdomain>
+
+
+Actually, in this example:
+
+  template <template <typename> class Q>
+  void f (typename Q<int>::X) {}
+
+  template <typename Q>
+  struct S {
+    typedef int X;
+  };
+
+  template void f<S> (int);
+
+rather than adding this rule:
+
+  <template-prefix> ::= <template-template-param>
+
+we should add:
+
+  <template-prefix> ::= <template-param>
+
+The point is to avoid adding two substitutions for the same parameter;
+<template-prefix> adds a substitution and so does
+<template-template-param>.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Oct  3 21:04:30 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 3 Oct 2002 14:04:30 -0700
+Subject: Name-mangling for typename types
+Message-ID: <200210032104.g93L4Ui01261@localhost.localdomain>
+
+
+The ABI does not presently specify the mangling of the instantiation
+of "f" in this case:
+
+  template <typename Q>
+  void f (typename Q::X) {}
+
+  struct S {
+    typedef int X;
+  };
+
+  template void f<S> (int);
+
+The problem is that the <prefix> for the <nested-name> T::X is a
+template parameter.  The expansions for prefix to do not handle this
+case correctly; the only applicable choice is <unqualified-name>.
+
+That will result in this mangling for "f":
+
+  _Z1fI1SEvN1Q1XE
+
+which is incorrect because the name of the template parameter (Q)
+should not matter.
+
+The fix is to add:
+
+  <prefix> ::= <template-parm>
+
+This results in the mangling:
+
+   _Z1fI1SEvNT_1XE
+
+which is better.
+
+A similar issue arises for:
+
+  template <template <typename> class Q>
+  void f (typename Q<int>::X) {}
+
+  template <typename Q>
+  struct S {
+    typedef int X;
+  };
+
+  template void f<S> (int);
+
+which should be fixed by adding:
+
+  <template-prefix> ::= <template-template-parm>
+
+I will check in these chages shortly if nobody objects.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dhandly at cup.hp.com  Fri Oct  4 04:48:41 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 3 Oct 2002 21:48:41 -0700 (PDT)
+Subject: [cxx-abi-dev] Name-mangling for typename types
+Message-ID: <200210040448.VAA28974@hpcll183.cup.hp.com>
+
+>The fix is to add: <prefix> ::= <template-parm>
+>This results in the mangling: _Z1fI1SEvNT_1XE
+
+>I will check in these changes shortly if nobody objects.
+Mark Mitchell                   mark at codesourcery.com
+
+This doesn't demangle with g++ nor with aC++'s c++filt.
+Was there a typo or does some changes need to be made in the demanglers?
+(I guess NT_1XE seems reasonable.)
+
+I guess aC++ doesn't like nested template parm types.
+
+
+From mark at codesourcery.com  Tue Oct  8 15:57:42 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 08 Oct 2002 08:57:42 -0700
+Subject: [cxx-abi-dev] Name-mangling for typename types
+Message-ID: <28200000.1034092662@localhost>
+
+
+
+--On Thursday, October 03, 2002 09:48:41 PM -0700 Dennis Handly 
+<dhandly at cup.hp.com> wrote:
+
+>> The fix is to add: <prefix> ::= <template-parm>
+>> This results in the mangling: _Z1fI1SEvNT_1XE
+>
+>> I will check in these changes shortly if nobody objects.
+> Mark Mitchell                   mark at codesourcery.com
+>
+> This doesn't demangle with g++ nor with aC++'s c++filt.
+> Was there a typo or does some changes need to be made in the demanglers?
+
+The demanglers didn't demangle this because the specification didn't
+require it; they will need modifying.
+
+-
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Tue Oct  8 20:11:59 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 08 Oct 2002 13:11:59 -0700
+Subject: Mangling unary plus
+Message-ID: <21260000.1034107919@warlock.codesourcery.com>
+
+For this example:
+
+  struct A { void operator+(); };
+
+what is the mangling of A::operator+?
+
+The current ABI spec says that "unary and binary operators using the
+same symbol have different encodings" -- but does not actually specify
+a mangling for unary plus, even though it does specify manglings for
+unary minus, unary *, and unary &.
+
+G++ uses "ps" for unary plus.
+
+Intel, HP -- what do your compilers do?
+
+If there are no objections, I will update the document to indicate that
+"ps" is the approved spelling in a few days.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Tue Oct  8 20:28:21 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Tue, 8 Oct 2002 13:28:21 -0700 
+Subject: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D020@orsmsx117.jf.intel.com>
+
+> For this example:
+> 
+>   struct A { void operator+(); };
+> 
+> what is the mangling of A::operator+?
+> 
+> The current ABI spec says that "unary and binary operators using the
+> same symbol have different encodings" -- but does not actually specify
+> a mangling for unary plus, even though it does specify manglings for
+> unary minus, unary *, and unary &.
+> 
+> G++ uses "ps" for unary plus.
+> 
+> Intel, HP -- what do your compilers do?
+
+Intel's compiler uses "pl".
+
+> If there are no objections, I will update the document to 
+> indicate that
+> "ps" is the approved spelling in a few days.
+
+Hmmm. I guess we need a tie-breaker.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From kerch at cup.hp.com  Tue Oct  8 20:24:58 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Tue, 08 Oct 2002 13:24:58 -0700
+Subject: [cxx-abi-dev] Mangling unary plus
+References: <21260000.1034107919@warlock.codesourcery.com>
+Message-ID: <3DA33F1A.3040502@cup.hp.com>
+
+Mark Mitchell wrote:
+> For this example:
+> 
+>  struct A { void operator+(); };
+> 
+> what is the mangling of A::operator+?
+> ...
+> G++ uses "ps" for unary plus.
+> 
+> Intel, HP -- what do your compilers do?
+> 
+HP gives this mangling:
+_ZN1AplEv
+
+Guess the vote here is "pl".
+
+
+
+
+
+
+
+
+From mark at codesourcery.com  Wed Oct  9 02:06:03 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 08 Oct 2002 19:06:03 -0700
+Subject: [cxx-abi-dev] Mangling follow-up
+In-Reply-To: <200210032109.g93L9jT01265@localhost.localdomain>
+Message-ID: <18440000.1034129163@warlock.codesourcery.com>
+
+
+
+--On Thursday, October 03, 2002 02:09:45 PM -0700 Mark Mitchell 
+<mark at codesourcery.com> wrote:
+
+>
+> Actually, in this example:
+>
+>   template <template <typename> class Q>
+>   void f (typename Q<int>::X) {}
+>
+>   template <typename Q>
+>   struct S {
+>     typedef int X;
+>   };
+>
+>   template void f<S> (int);
+>
+> rather than adding this rule:
+>
+>   <template-prefix> ::= <template-template-param>
+>
+> we should add:
+>
+>   <template-prefix> ::= <template-param>
+>
+> The point is to avoid adding two substitutions for the same parameter;
+> <template-prefix> adds a substitution and so does
+> <template-template-param>.
+
+Since there were no objectios, I checked in this patch.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: application/octet-stream
+Size: 1432 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20021008/e3aa1daf/attachment.obj>
+
+From mark at codesourcery.com  Wed Oct  9 02:08:32 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 08 Oct 2002 19:08:32 -0700
+Subject: [cxx-abi-dev] Mangling follow-up
+In-Reply-To: <18440000.1034129163@warlock.codesourcery.com>
+Message-ID: <20720000.1034129312@warlock.codesourcery.com>
+
+> Since there were no objectios, I checked in this patch.
+
+But I corrected the change date, relative to what is there.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dhandly at cup.hp.com  Wed Oct  9 03:11:27 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 8 Oct 2002 20:11:27 -0700 (PDT)
+Subject: [cxx-abi-dev] Mangling unary plus
+Message-ID: <200210090311.UAA05746@hpcll183.cup.hp.com>
+
+>HP gives this mangling: _ZN1AplEv
+>Guess the vote here is "pl".
+
+Yes, but we can't demangle template expressions:
+_Z1fILi1EEv1BIXplT_EE
+
+template <int T>
+struct B{};
+template <int T>
+void f(B<+T> x) {}   // Is this reasonable??
+int main() {
+   B<+1> b;
+   f<1>(b);
+}
+
+(I suppose we could look ahead for the "E" and determine it is unary?)
+
+
+From mark at codesourcery.com  Wed Oct  9 19:08:54 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 09 Oct 2002 12:08:54 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585D020@orsmsx117.jf.intel.com>
+Message-ID: <14990000.1034190534@warlock.codesourcery.com>
+
+
+
+--On Tuesday, October 08, 2002 01:28:21 PM -0700 "Nelson, Clark" 
+<clark.nelson at intel.com> wrote:
+
+>> For this example:
+>>
+>>   struct A { void operator+(); };
+>>
+>> what is the mangling of A::operator+?
+>>
+>> The current ABI spec says that "unary and binary operators using the
+>> same symbol have different encodings" -- but does not actually specify
+>> a mangling for unary plus, even though it does specify manglings for
+>> unary minus, unary *, and unary &.
+>>
+>> G++ uses "ps" for unary plus.
+>>
+>> Intel, HP -- what do your compilers do?
+>
+> Intel's compiler uses "pl".
+
+And so does HP's.
+
+However, this encoding presents some problems.
+
+Consider:
+
+  A<(+3 + 4)>
+
+This is going to end up encoded as (if my brain is mangling
+corrctly today):
+
+  AIXplplLi3ELi4EEE
+
+if "pl" is used for both operators.
+
+Nobody's demangler is going to get that right; you now need to be
+writing scan-ahead code in your demangler to see how many arguments
+there are.
+
+And what about:
+
+  A<(3 + (+4)) + 5>
+
+  AIXplplLi3EplLi4ELi5EEE
+
+vs:
+
+  A<+3 + (4 + 5)>
+
+  AIXplplLi3EplLi4ELi5EEE
+
+Oops; those have the same mangling.  (Make it more interesting by
+using other template constants, rather than numeric literals.)
+
+So, I do not think we have a choice; I think we need to specify "ps"
+for unary plus.
+
+Thoughts?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Wed Oct  9 20:55:16 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Wed, 9 Oct 2002 13:55:16 -0700 
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D02C@orsmsx117.jf.intel.com>
+
+> So, I do not think we have a choice; I think we need to specify "ps"
+> for unary plus.
+> 
+> Thoughts?
+
+There is at least one obvious alternative to consider: is it really
+necessary to encode unary plus as part of an expression? Can someone give an
+example where simply ignoring the unary plus would cause a problem?
+
+(I imagine the answers are yes and yes, but this knowledge seems to occupy a
+leaky spot in my brain.)
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From mark at codesourcery.com  Wed Oct  9 21:23:49 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 09 Oct 2002 14:23:49 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585D02C@orsmsx117.jf.intel.com>
+Message-ID: <5660000.1034198629@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 09, 2002 01:55:16 PM -0700 "Nelson, Clark" 
+<clark.nelson at intel.com> wrote:
+
+>> So, I do not think we have a choice; I think we need to specify "ps"
+>> for unary plus.
+>>
+>> Thoughts?
+>
+> There is at least one obvious alternative to consider: is it really
+> necessary to encode unary plus as part of an expression? Can someone give
+> an example where simply ignoring the unary plus would cause a problem?
+
+First, note that not encoding unary plus at all would require changing
+all of the compilers, so it's not better than going with either "pl"
+or "ps" from that perspective.
+
+Unary plus does cause integral promotions, for example, so:
+
+ +'a'
+
+has type "int", not type "char".
+
+Also, inside a sizeof-expression, unary plus might indicate an
+overloaded operator.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From hommel at metrowerks.com  Thu Oct 10 10:13:15 2002
+From: hommel at metrowerks.com (Andreas Hommel)
+Date: Thu, 10 Oct 2002 12:13:15 +0200
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <5660000.1034198629@warlock.codesourcery.com>
+Message-ID: <B9CB1F5B.1C96%hommel@metrowerks.com>
+
+Mark Mitchell at mark at codesourcery.com wrote:
+
+> --On Wednesday, October 09, 2002 01:55:16 PM -0700 "Nelson, Clark"
+> <clark.nelson at intel.com> wrote:
+> 
+>>> So, I do not think we have a choice; I think we need to specify "ps"
+>>> for unary plus.
+>>> 
+>>> Thoughts?
+>> 
+>> There is at least one obvious alternative to consider: is it really
+>> necessary to encode unary plus as part of an expression? Can someone give
+>> an example where simply ignoring the unary plus would cause a problem?
+> 
+> First, note that not encoding unary plus at all would require changing
+> all of the compilers, so it's not better than going with either "pl"
+> or "ps" from that perspective.
+> 
+> Unary plus does cause integral promotions, for example, so:
+> 
+> +'a'
+> 
+> has type "int", not type "char".
+> 
+> Also, inside a sizeof-expression, unary plus might indicate an
+> overloaded operator.
+
+FWIW, the Metrowerks Codewarrior compiler for MacOS X is also using "ps" to
+encode the unary plus operator.
+
+Andreas
+______________________________________________________________________
+Andreas Hommel                        internet:  hommel at metrowerks.com
+Senior C/C++ Compiler Architect         Metrowerks, A Motorola Company
+
+
+
+
+From dhandly at cup.hp.com  Thu Oct 10 22:32:04 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 10 Oct 2002 15:32:04 -0700 (PDT)
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+Message-ID: <200210102232.PAA08169@hpcll183.cup.hp.com>
+
+>This is going to end up encoded as (if my brain is mangling corrctly today):
+>  AIXplplLi3ELi4EEE
+>if "pl" is used for both operators.
+>Nobody's demangler is going to get that right; you now need to be
+>writing scan-ahead code in your demangler to see how many arguments
+>there are.
+
+That's not a problem for aC++'s.
+
+>So, I do not think we have a choice; I think we need to specify "ps"
+>for unary plus.
+Mark Mitchell
+
+Use "ps" for template function expression and "pl" for overloaded unary
+operator+.
+
+
+From mark at codesourcery.com  Thu Oct 10 22:38:55 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 10 Oct 2002 15:38:55 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <200210102232.PAA08169@hpcll183.cup.hp.com>
+Message-ID: <69770000.1034289535@warlock.codesourcery.com>
+
+> Use "ps" for template function expression and "pl" for overloaded unary
+> operator+.
+
+How is this better than my proposal?
+
+Your idea makes all three compilers change; with my proposal only two
+need to change. (My example shows that we cannot keep "pl" for
+everything; that would otherwise be best since only one compiler would
+have to change.)
+
+Your suggestion also introduces an unncessary wart in the ABI; there
+are enough complications as it stands.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dhandly at cup.hp.com  Thu Oct 10 22:49:59 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 10 Oct 2002 15:49:59 -0700 (PDT)
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+Message-ID: <200210102249.PAA08221@hpcll183.cup.hp.com>
+
+>How is this better than my proposal?
+
+Probability games.  We have real paying customers that will be upset of
+anything is changed.  I don't think many users have unary + in template
+function arguments but they may have operator unary plus.
+
+>Your suggestion also introduces an unnecessary wart in the ABI; there
+>are enough complications as it stands.
+Mark Mitchell
+
+True, but you can't change ABIs in midstream, mine is a compromise.
+
+
+From mark at codesourcery.com  Thu Oct 10 22:59:47 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 10 Oct 2002 15:59:47 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <200210102249.PAA08221@hpcll183.cup.hp.com>
+Message-ID: <75330000.1034290787@warlock.codesourcery.com>
+
+
+
+--On Thursday, October 10, 2002 03:49:59 PM -0700 Dennis Handly 
+<dhandly at cup.hp.com> wrote:
+
+>> How is this better than my proposal?
+>
+> Probability games.  We have real paying customers that will be upset of
+> anything is changed.  I don't think many users have unary + in template
+> function arguments but they may have operator unary plus.
+
+We already know that aCC doesn't match the ABI spec in much more serious
+ways than this.
+
+G++ is in this boat too; there's now a switch to say whether you want
+the first try at the ABI, or a more correct version.
+
+If we start trying to make these half-way changes, we're going to make
+an already too-complex ABI even more complex.
+
+How do we reach consensus?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From ddd at cup.hp.com  Thu Oct 10 23:07:43 2002
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Thu, 10 Oct 2002 16:07:43 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <200210102249.PAA08221@hpcll183.cup.hp.com>
+Message-ID: <15255C26-DCA5-11D6-B2BF-0030657CE6E6@cup.hp.com>
+
+Dennis,
+
+
+I'm not sure I still have a voice in this forum, but I'll dare comment 
+:-)
+
+On Thursday, Oct 10, 2002, at 15:49 US/Pacific, Dennis Handly wrote:
+> True, but you can't change ABIs in midstream, mine is a compromise.
+
+This is not an ABI if the compilers disagree on it. As it stands, 
+keeping unary plus as "pl" would be better for aC++ customers, but 
+worse for GCC customers. Both are "real paying customers" to HP.
+
+Can't we add a compiler switch ;-)
+
+
+Christophe
+
+
+>> How is this better than my proposal?
+>
+> Probability games.  We have real paying customers that will be upset of
+> anything is changed.  I don't think many users have unary + in template
+> function arguments but they may have operator unary plus.
+>
+>> Your suggestion also introduces an unnecessary wart in the ABI; there
+>> are enough complications as it stands.
+> Mark Mitchell
+>
+>
+
+
+
+From dhandly at cup.hp.com  Fri Oct 11 06:54:50 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 10 Oct 2002 23:54:50 -0700 (PDT)
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+Message-ID: <200210110654.XAA08613@hpcll183.cup.hp.com>
+
+>We already know that aCC doesn't match the ABI spec in much more serious
+>ways than this.
+>How do we reach consensus?
+Mark Mitchell                mark at codesourcery.com
+
+I guess if you have those g++ flags, and since aC++ is already different,
+the right way is to add that "ps" for unary +.
+
+If we feel that nobody using unary + in aC++, we may just change it.
+
+>From: Christophe de Dinechin <ddd at cup.hp.com>
+>Can't we add a compiler switch ;-)
+
+I suppose if we do add one, this could be correct there.
+
+
+From mark at codesourcery.com  Fri Oct 11 19:00:32 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 11 Oct 2002 12:00:32 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Mangling unary plus
+In-Reply-To: <200210110654.XAA08613@hpcll183.cup.hp.com>
+Message-ID: <58660000.1034362832@warlock.codesourcery.com>
+
+
+
+--On Thursday, October 10, 2002 11:54:50 PM -0700 Dennis Handly 
+<dhandly at cup.hp.com> wrote:
+
+>> We already know that aCC doesn't match the ABI spec in much more serious
+>> ways than this.
+>> How do we reach consensus?
+> Mark Mitchell                mark at codesourcery.com
+>
+> I guess if you have those g++ flags, and since aC++ is already different,
+> the right way is to add that "ps" for unary +.
+
+Good.  I'm going to take that as consensus, since nobody else has
+objected.  (Intel originally moved for "pl", but has not objected since
+I pointed out that was actually ambiguous.)
+
+Here is the patch I've checked in.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.34
+diff -c -5 -p -r1.34 abi.html
+*** abi.html	9 Oct 2002 02:24:30 -0000	1.34
+--- abi.html	11 Oct 2002 18:59:54 -0000
+*************** the first of which is lowercase.
+*** 3908,3917 ****
+--- 3908,3918 ----
+  <pre><font color=blue><code>
+    &lt;operator-name> ::= nw	# new
+  		  ::= na	# new[]
+  		  ::= dl	# delete
+  		  ::= da	# delete[]
++ 		  ::= ps        # + (unary)
+  		  ::= ng	# - (unary)
+  		  ::= ad	# & (unary)
+  		  ::= de	# * (unary)
+  		  ::= co	# ~
+  		  ::= pl	# +
+*************** unwind table location.
+*** 4870,4879 ****
+--- 4871,4884 ----
+
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++
++ <p>
++ <font color=blue>[021011]</font>
++ Add mangling for unary plus.
+
+  <p>
+  <font color=blue>[021008]</font>
+  Make the names used for constructors and destructor entry points
+  consistent throughout.
+
+
+
+From mark at codesourcery.com  Tue Oct 15 06:23:41 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 14 Oct 2002 23:23:41 -0700
+Subject: Use of "sr" mangling code
+Message-ID: <200210150623.g9F6NfR10079@localhost.localdomain>
+
+
+It was pointed out to me that the ABI description of the "sr" mangling
+code left a lot to be desired:
+
+(1) The mangling grammar didn't say what the operands to "sr" should
+    be.
+
+(2) It was not as clear as it should have been under what
+    circumstances "sr" should be used.
+
+I've attempted to fix that with this patch.
+
+One particularly tricky issue is the mangling of something like:
+
+  template <typename T> void g (S<&T::operator- >) {}
+
+The key question is whether "operator+" should be treated as unary or
+binary.  There is no way to know, given the template declaration, so
+we just have to pick one arbitrarily.
+
+In the draft patch, I went with binary, for no particular reason.
+
+Here is a complete test case:
+
+  struct A {
+    int operator-();
+  };
+   
+  typedef int (A::*P)();
+  
+  template <P> struct S {};
+  
+  template <typename T> void g (S<&T::operator->) {}
+  
+  template void g<A> (S<&A::operator-);
+
+G++ doesn't get a vote in this question since it crashed on this test
+case.
+
+Intel, HP -- when you compile this program does the name for g look
+like:
+
+  _Z1gI1AEv1SIXadsrT_miEE
+
+or
+
+  _Z1gI1AEv1SIXadsrT_ngEE
+
+?
+
+Once we resolve that issue, I'll check in this patch, assuming, of
+course that there are no other objections.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.35
+diff -c -5 -p -r1.35 abi.html
+*** abi.html	11 Oct 2002 19:00:33 -0000	1.35
+--- abi.html	15 Oct 2002 06:16:36 -0000
+*************** the first of which is lowercase.
+*** 3953,3975 ****
+  		  ::= cl	# ()            
+  		  ::= ix	# []            
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
+- 		  ::= sr	# scope resolution (::), see below        
+  		  ::= cv &lt;type>	# (cast)        
+  		  ::= v &lt;digit> &lt;source-name>	# vendor extended operator
+  
+  </pre></font></code>
+  
+  <p>
+- The scope resolution operator is discussed with expressions below.
+  Vendors who define builtin extended operators (e.g. __alignof)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID> form.
+! 
+  
+  <p>
+  <a name=mangling-special>
+  <h4> 5.1.4 Other Special Functions and Entities </h4>
+  
+--- 3953,3973 ----
+  		  ::= cl	# ()            
+  		  ::= ix	# []            
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
+  		  ::= cv &lt;type>	# (cast)        
+  		  ::= v &lt;digit> &lt;source-name>	# vendor extended operator
+  
+  </pre></font></code>
+  
+  <p>
+  Vendors who define builtin extended operators (e.g. __alignof)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID> form.
+! </p>
+  
+  <p>
+  <a name=mangling-special>
+  <h4> 5.1.4 Other Special Functions and Entities </h4>
+  
+*************** it represents the source token stream.
+*** 4392,4423 ****
+    &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+  	       ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
+  	       ::= &lt;<i>trinary</i> operator-name> &lt;expression> &lt;expression> &lt;expression>
+                 ::= st &lt;type&gt;
+  	       ::= &lt;expr-primary>
+    &lt;expr-primary> ::= &lt;template-param>
+! 		 ::= L &lt;type> &lt;<i>value</i> number> E	# literal
+! 		 ::= L &lt;mangled-name> E		# external name
+  
+  </pre></font></code>
+  
+  <p>
+- Template arguments that could be pointer-to-member constants are
+- difficult because it is often not possible to distinguish them from
+- pointers to static member functions or data members without doing the
+- substitution.
+- Therefore, the <i>scope resolution</i> (sr) mangling operator is used
+- if the LHS operand of :: involves a template parameter.
+- Ignoring substitutions, <code>&T::j</code> as a template argument
+- would be encoded <code>Xadsr1T1jE</code>.
+- 
+- <p>
+  The encoding for a literal of an enumerated type is the encoding of the
+  type name followed by the encoding of the numeric value of the literal
+  in its base integral type
+  (which deals with values that don't have names declared in the type).
+  
+  
+  <p>
+  <a name=mangling-scope>
+  <h4> 5.1.6 Scope Encoding </h4>
+  
+--- 4390,4421 ----
+    &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+  	       ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
+  	       ::= &lt;<i>trinary</i> operator-name> &lt;expression> &lt;expression> &lt;expression>
+                 ::= st &lt;type&gt;
+  	       ::= &lt;expr-primary>
++ 
+    &lt;expr-primary> ::= &lt;template-param>
+! 		 ::= L &lt;type> &lt;<i>value</i> number> E	                # literal
+! 		 ::= L &lt;mangled-name> E		                 # external name
+!                  :: sr &lt;type> &lt;unqualified-name>                 # dependent name
+!                  :: sr &lt;type> &lt;unqualified-name> &lt;template-args> # dependent template-id
+  
+  </pre></font></code>
+  
+  <p>
+  The encoding for a literal of an enumerated type is the encoding of the
+  type name followed by the encoding of the numeric value of the literal
+  in its base integral type
+  (which deals with values that don't have names declared in the type).
+  
++ <p>
++ If an expression is a qualified-name, and the qualifying scope is a
++ dependent type, one of the <code>sr</code> productions is used, rather
++ than the <code>&lt;mangled-name></code> production.  If the qualified
++ name refers to an operator for which both unary and binary manglings
++ are available, the mangling chosen is the mangling for the binary
++ version.
+  
+  <p>
+  <a name=mangling-scope>
+  <h4> 5.1.6 Scope Encoding </h4>
+  
+*************** unwind table location.
+*** 4871,4880 ****
+--- 4869,4882 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[021014]</font>
++ Clarify use of <code>sr</code> in mangling.
+  
+  <p>
+  <font color=blue>[021011]</font>
+  Add mangling for unary plus.
+  
+
+
+From dhandly at cup.hp.com  Tue Oct 15 06:45:20 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 14 Oct 2002 23:45:20 -0700 (PDT)
+Subject: [cxx-abi-dev] Use of "sr" mangling code
+Message-ID: <200210150645.XAA13601@hpcll183.cup.hp.com>
+
+>  template <typename T> void g (S<&T::operator- >) {}
+>The key question is whether "operator+" should be treated as unary or
+>binary.                      ^^^^^^^^^
+
+I assume you meant operator-?
+
+  template <typename T> void g(S<&T::operator->) {}
+  template void g<A>(S<&A::operator-);
+
+Did you mean a space between "-" & ">" in the first and to add a space ">"
+in the second.
+
+>G++ doesn't get a vote in this question since it crashed on this test
+>case.
+CodeSourcery, LLC               http://www.codesourcery.com
+
+HP gives an error on explicit instantiation and crashes on implicit.
+
+
+From mark at codesourcery.com  Tue Oct 15 06:50:50 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 14 Oct 2002 23:50:50 -0700
+Subject: [cxx-abi-dev] Use of "sr" mangling code
+In-Reply-To: <200210150645.XAA13601@hpcll183.cup.hp.com>
+Message-ID: <38540000.1034664650@warlock.codesourcery.com>
+
+
+
+--On Monday, October 14, 2002 11:45:20 PM -0700 Dennis Handly 
+<dhandly at cup.hp.com> wrote:
+
+>>  template <typename T> void g (S<&T::operator- >) {}
+>> The key question is whether "operator+" should be treated as unary or
+>> binary.                      ^^^^^^^^^
+>
+> I assume you meant operator-?
+
+Yes, thanks; my original test case had "operator+", but then I didn't
+want to reopen the pl/ps issue.
+
+> HP gives an error on explicit instantiation and crashes on implicit.
+
+OK, Intel?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Tue Oct 15 22:52:22 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 15 Oct 2002 15:52:22 -0700
+Subject: When to emit deleting destructor
+Message-ID: <200210152252.g9FMqMi22831@localhost.localdomain>
+
+
+The current ABI document says:
+
+  That is, user-defined constructors or destructors, unless the
+  function is declared inline, or has internal linkage, are emitted
+  where defined, with their complete, and base object variants. For
+  destructors, the deleting variant is emitted as well.
+
+The reason is that in the C++ standard, we have:
+
+  [class.dtor]
+
+  At the point of definition of a virtual destructor (including an
+  implicit definition (_class.copy_)), non-placement operator delete
+  shall be looked up in the scope of the destructor's class
+  (_basic.lookup.unqual_) and if found shall be accessible and
+  unambiguous.
+
+There's no guarantee that operator delete will be unambiguous in a
+non-virtual destructor, and it therefore doesn't make sense to
+generate a deleting destructor in that case.
+
+If I do not hear objections over the next couple of days, I will
+modify the sentence above to read:
+
+  For virtual destructures, the deleting variant is emitted as well.
+
+(FWIW, G++ already omits the delting destructor if the destructor is
+non-virtual.)
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+
+From sdouglass at arm.com  Wed Oct 16 08:23:31 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Wed, 16 Oct 2002 09:23:31 +0100
+Subject: [cxx-abi-dev] When to emit deleting destructor
+References: <200210152252.g9FMqMi22831@localhost.localdomain>
+Message-ID: <3DAD2203.1000808@arm.com>
+
+Mark Mitchell wrote:
+> The current ABI document says:
+> 
+>   That is, user-defined constructors or destructors, unless the
+>   function is declared inline, or has internal linkage, are emitted
+>   where defined, with their complete, and base object variants. For
+>   destructors, the deleting variant is emitted as well.
+> 
+> The reason is that in the C++ standard, we have:
+> 
+>   [class.dtor]
+> 
+>   At the point of definition of a virtual destructor (including an
+>   implicit definition (_class.copy_)), non-placement operator delete
+>   shall be looked up in the scope of the destructor's class
+>   (_basic.lookup.unqual_) and if found shall be accessible and
+>   unambiguous.
+> 
+> There's no guarantee that operator delete will be unambiguous in a
+> non-virtual destructor, and it therefore doesn't make sense to
+> generate a deleting destructor in that case.
+> 
+> If I do not hear objections over the next couple of days, I will
+> modify the sentence above to read:
+> 
+>   For virtual destruct[ors], the deleting variant is emitted as well.
+> 
+> (FWIW, G++ already omits the delting destructor if the destructor is
+> non-virtual.)
+
+If I understand correctly it would mean that classes with non-virtual destructors no longer have any deleting destructor (D0).  I think these are the obvious options:
+
+  [0] No change.
+    Not really implementable for classes with a non-virtual destructor and an ambiguous operator delete.
+
+  [1] Drop deleting destructors entirely for non-virtual destructors.
+    Mark's suggestion above.
+
+  [2] Drop deleting destructors entirely for non-virtual destructor if the operator delete is ambiguous.
+
+  [3] Change deleting destructors for non-virtual destructors to be optional and caller-produced (in it own COMDAT group) like the allocating constructors (C3).
+
+Personally, I like option [3] best.
+
+Additionally I'd like to resolve this question:
+
+>> I have a question about delet[ing] destructors (D0).  Must they handle being
+>> passed a null this pointer?
+> 
+> This is a good question; it is unspecified at present.
+> 
+> G++'s D0 destructors do not handle a NULL this pointer.
+> 
+> What do HP and Intel do?
+
+I think the best resolution is that deleting destructors for virtual destructors may assume this != 0 and deleting destructors for non-virtual destructors must handle this == 0.
+
+
+
+From mark at codesourcery.com  Wed Oct 16 14:55:40 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 16 Oct 2002 07:55:40 -0700
+Subject: [cxx-abi-dev] When to emit deleting destructor
+In-Reply-To: <3DAD2203.1000808@arm.com>
+Message-ID: <6340000.1034780140@warlock.codesourcery.com>
+
+>   [3] Change deleting destructors for non-virtual destructors to be
+> optional and caller-produced (in it own COMDAT group) like the allocating
+> constructors (C3).
+
+The ways you can make use of such a thing are very limited.  (I think
+you know this, but just so that everyone understands the implications...)
+
+If you ever emit a call to the optional deleting destructor, you are
+depending on the deleting destructor being around, which you can't be
+sure will happen if some other compiler compiles the destructor.  So,
+this works only when the destructor definition is visible to you at the
+time that you are processing the delete expression.
+
+But, in that case, you can always do whatever you want anyhow; there's
+nothing to stop a compiler from inlining the call completely, or
+creating a function with internal linkage that combines the delete call
+and the destructor call.
+
+So, the only benefit to your proposal is that by giving a standard name
+to the destructor, there is a way for callers to collapse those functions 
+across translation units.
+
+I don't object to that, I don't suppose.
+
+>> This is a good question; it is unspecified at present.
+>>
+>> G++'s D0 destructors do not handle a NULL this pointer.
+>>
+>> What do HP and Intel do?
+
+Yes; we never heard from HP and Intel.  HP, Intel?
+
+> I think the best resolution is that deleting destructors for virtual
+> destructors may assume this != 0 and deleting destructors for non-virtual
+> destructors must handle this == 0.
+
+Why do you think that is best?  (I don't mean to be argumentative; I'm
+just curious why you came to this conclusion.)
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Wed Oct 16 15:04:47 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 16 Oct 2002 08:04:47 -0700
+Subject: [cxx-abi-dev] When to emit deleting destructor
+In-Reply-To: <6340000.1034780140@warlock.codesourcery.com>
+Message-ID: <10820000.1034780687@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 16, 2002 07:55:40 AM -0700 Mark Mitchell 
+<mark at codesourcery.com> wrote:
+
+>>   [3] Change deleting destructors for non-virtual destructors to be
+>> optional and caller-produced (in it own COMDAT group) like the allocating
+>> constructors (C3).
+>
+> The ways you can make use of such a thing are very limited.  (I think
+> you know this, but just so that everyone understands the implications...)
+>
+> If you ever emit a call to the optional deleting destructor, you are
+> depending on the deleting destructor being around, which you can't be
+> sure will happen if some other compiler compiles the destructor.  So,
+> this works only when the destructor definition is visible to you at the
+> time that you are processing the delete expression.
+
+This isn't strictly true; you can generate a D0 destructor that does,
+approximately:
+
+  operator delete(this);
+  D1(this);
+
+So, I guess this proposal provides some code size optimization
+opportunities.
+
+OK, I'll amend my proposal to be Scott's -- namely that an implementation
+can choose to emit D0 destructors for a class with a non-virtual
+destructor, and that if it does so they must have vague linkage.
+
+Objections?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Wed Oct 16 15:28:51 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Wed, 16 Oct 2002 16:28:51 +0100
+Subject: [cxx-abi-dev] When to emit deleting destructor
+References: <6340000.1034780140@warlock.codesourcery.com>
+Message-ID: <3DAD85B3.7050901@arm.com>
+
+Mark Mitchell wrote:
+>>   [3] Change deleting destructors for non-virtual destructors to be
+>> optional and caller-produced (in it own COMDAT group) like the allocating
+>> constructors (C3).
+> 
+> 
+> The ways you can make use of such a thing are very limited.  (I think
+> you know this, but just so that everyone understands the implications...)
+> 
+> If you ever emit a call to the optional deleting destructor, you are
+> depending on the deleting destructor being around, which you can't be
+> sure will happen if some other compiler compiles the destructor.
+
+I meant for non-virtual deleting destructors (D0) to be produced by the caller like allocating constructors (C3) are.
+
+> So,
+> this works only when the destructor definition is visible to you at the
+> time that you are processing the delete expression.
+
+If the caller can't see the body of the destructor it can produce a deleting destrcutor (D0) that uses the complete object destructor (D1).  Aside: If the body of the destructor is present then the complete object destructor (D1) can be inlined into the deleting destrcutor (D0).
+
+> [...] 
+> So, the only benefit to your proposal is that by giving a standard name
+> to the destructor, there is a way for callers to collapse those 
+> functions across translation units.
+Yes.  The same applies to allocating constructors (C3), right?
+
+>>> This is a good question; it is unspecified at present.
+>>>
+>>> G++'s D0 destructors do not handle a NULL this pointer.
+>>>
+>>> What do HP and Intel do?
+>>
+> 
+> Yes; we never heard from HP and Intel.  HP, Intel?
+
+After some rummaging 'round my mailboxes I found that Dennis Hardy wrote:
+> In aC++, all three destructors check for NULL "this" pointers.
+
+>> I think the best resolution is that deleting destructors for virtual
+>> destructors may assume this != 0 and deleting destructors for non-virtual
+>> destructors must handle this == 0.
+> 
+> 
+> Why do you think that is best?  (I don't mean to be argumentative; I'm
+> just curious why you came to this conclusion.)
+
+My reasoning went like this:
+  Deleting destructors are only invoked for delete expressions, e.g.
+    delete p;
+  for non-virtual destructors:
+    More code (the null test) can be shared when the deleting destructor (D0) is not inlined
+    A compiler that wants to optimize away the call in the null case still can (although the
+    test in the deleting destructor becomes useless).
+  for virtual destructors:
+    you can't do the virtual dispatch to the deleting destructor on a null pointer so
+    you have to do the test at the delete site anyway.
+
+
+
+From clark.nelson at intel.com  Wed Oct 16 17:20:45 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Wed, 16 Oct 2002 10:20:45 -0700
+Subject: [cxx-abi] Re: [cxx-abi-dev] When to emit deleting destructor
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D053@orsmsx117.jf.intel.com>
+
+> >> This is a good question; it is unspecified at present.
+> >>
+> >> G++'s D0 destructors do not handle a NULL this pointer.
+> >>
+> >> What do HP and Intel do?
+> 
+> Yes; we never heard from HP and Intel.  HP, Intel?
+
+The Intel compiler checks for null in the expansion of the
+delete-expression, so it never passes a null pointer to a destructor. This
+seems to be required by the standard ("if the value of the operand of delete
+is the null pointer the operation has no effect", 5.3.5p2).
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From mark at codesourcery.com  Thu Oct 17 01:00:28 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 16 Oct 2002 18:00:28 -0700
+Subject: Mangling of floating-point literals
+Message-ID: <200210170100.g9H10Su29569@localhost.localdomain>
+
+
+It was pointed out to me that the ABI spec made it sound like mangling
+floating-poit literals is optional -- but it's not:
+
+  f<int(3.14159)>
+
+is legal even in ISO C++, and the spec is very clear that no folding
+or simplification is supposed to take place.
+
+I cleaned this up with the following patch.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.35
+diff -c -5 -p -r1.35 abi.html
+*** abi.html	11 Oct 2002 19:00:33 -0000	1.35
+--- abi.html	17 Oct 2002 01:01:32 -0000
+*************** This is used in names for specialization
+*** 4322,4335 ****
+  but also in types and scope identification.
+  
+  <pre><font color=blue><code>
+    &lt;template-args> ::= I &lt;template-arg>+ E
+    &lt;template-arg> ::= &lt;type>			# type or template
+- 		 ::= L &lt;type> &lt;<i>value</i> number> E	# literal
+- 		 ::= L_Z &lt;encoding> E		# external name
+  		 ::= X &lt;expression> E		# expression
+! </pre></font></code>
+  
+  <p>
+  Type arguments appear using their regular encoding.
+  For example, the template class "A&lt;char, float>" is encoded as "1AIcfE".
+  A slightly more involved example is
+--- 4320,4346 ----
+  but also in types and scope identification.
+  
+  <pre><font color=blue><code>
+    &lt;template-args> ::= I &lt;template-arg>+ E
+    &lt;template-arg> ::= &lt;type>			# type or template
+  		 ::= X &lt;expression> E		# expression
+!                  ::= &lt;expr-primary>             # simple expressions
+! 
+!   &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+! 	       ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
+! 	       ::= &lt;<i>trinary</i> operator-name> &lt;expression> &lt;expression> &lt;expression>
+!                ::= st &lt;type&gt;
+!                ::= &lt;template-param>
+!                ::= sr &lt;type> &lt;unqualified-name>                   # dependent name
+!                ::= sr &lt;type> &lt;unqualified-name> &lt;template-args>   # dependent template-id
+! 	       ::= &lt;expr-primary>
+! 
+!   &lt;expr-primary> ::= L &lt;type> &lt;<i>value</i> number> E                   # integer literal
+!                  ::= L &lt;type &lt;<i>value</i> float> E                     # floating literal
+!                  ::= L &lt;mangled-name> E                           # external name
+! 
+! </pre></code></font>
+  
+  <p>
+  Type arguments appear using their regular encoding.
+  For example, the template class "A&lt;char, float>" is encoded as "1AIcfE".
+  A slightly more involved example is
+*************** where the "N...E" construct is used to d
+*** 4342,4356 ****
+  Literal arguments, e.g. "A&lt;42L>",
+  are encoded with their type and value.
+  Negative integer values are preceded with "n";
+  for example, "A&lt;-42L>" becomes "1AILln42EE".
+  The bool value false is encoded as 0, true as 1.
+! If floating-point arguments are accepted as an extension,
+! their values should be encoded using a fixed-length lowercase hexadecimal
+! string corresponding to the internal representation (IEEE on Itanium),
+! high-order bytes first, without leading zeroes.
+! For example: "Lf bf800000 E" is -1.0f on Itanium.
+  
+  <p>
+  A reference to an entity with external linkage is encoded with
+  "L&lt;mangled name>E".
+  For example:
+--- 4353,4374 ----
+  Literal arguments, e.g. "A&lt;42L>",
+  are encoded with their type and value.
+  Negative integer values are preceded with "n";
+  for example, "A&lt;-42L>" becomes "1AILln42EE".
+  The bool value false is encoded as 0, true as 1.
+! 
+! <p>
+! Floating-point literals are encoded using a fixed-length lowercase
+! hexadecimal string corresponding to the internal representation (IEEE
+! on Itanium), high-order bytes first, without leading zeroes.  For
+! example: "Lf bf800000 E" is -1.0f on Itanium.
+! 
+! <p>
+! The encoding for a literal of an enumerated type is the encoding of the
+! type name followed by the encoding of the numeric value of the literal
+! in its base integral type
+! (which deals with values that don't have names declared in the type).
+  
+  <p>
+  A reference to an entity with external linkage is encoded with
+  "L&lt;mangled name>E".
+  For example:
+*************** simplification,
+*** 4386,4423 ****
+  and without parentheses, which are implicit in the prefix representation.
+  Except for the parentheses, therefore,
+  it represents the source token stream.
+  (C++ Standard reference 14.5.5.1 p. 5.)
+  
+- <pre><font color=blue><code>
+-   &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+- 	       ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
+- 	       ::= &lt;<i>trinary</i> operator-name> &lt;expression> &lt;expression> &lt;expression>
+-                ::= st &lt;type&gt;
+- 	       ::= &lt;expr-primary>
+-   &lt;expr-primary> ::= &lt;template-param>
+- 		 ::= L &lt;type> &lt;<i>value</i> number> E	# literal
+- 		 ::= L &lt;mangled-name> E		# external name
+- 
+- </pre></font></code>
+- 
+  <p>
+! Template arguments that could be pointer-to-member constants are
+! difficult because it is often not possible to distinguish them from
+! pointers to static member functions or data members without doing the
+! substitution.
+! Therefore, the <i>scope resolution</i> (sr) mangling operator is used
+! if the LHS operand of :: involves a template parameter.
+! Ignoring substitutions, <code>&T::j</code> as a template argument
+! would be encoded <code>Xadsr1T1jE</code>.
+! 
+! <p>
+! The encoding for a literal of an enumerated type is the encoding of the
+! type name followed by the encoding of the numeric value of the literal
+! in its base integral type
+! (which deals with values that don't have names declared in the type).
+! 
+  
+  <p>
+  <a name=mangling-scope>
+  <h4> 5.1.6 Scope Encoding </h4>
+  
+--- 4404,4420 ----
+  and without parentheses, which are implicit in the prefix representation.
+  Except for the parentheses, therefore,
+  it represents the source token stream.
+  (C++ Standard reference 14.5.5.1 p. 5.)
+  
+  <p>
+! If an expression is a qualified-name, and the qualifying scope is a
+! dependent type, one of the <code>sr</code> productions is used, rather
+! than the <code>&lt;mangled-name></code> production.  If the qualified
+! name refers to an operator for which both unary and binary manglings
+! are available, the mangling chosen is the mangling for the binary
+! version.
+  
+  <p>
+  <a name=mangling-scope>
+  <h4> 5.1.6 Scope Encoding </h4>
+  
+*************** unwind table location.
+*** 4871,4880 ****
+--- 4868,4885 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[021016]</font>
++ Clarify mangling of floating-point literals.
+  
+  <p>
+  <font color=blue>[021011]</font>
+  Add mangling for unary plus.
+  
+
+
+From mark at codesourcery.com  Thu Oct 17 01:16:28 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 16 Oct 2002 18:16:28 -0700
+Subject: Mangling of named constants
+Message-ID: <200210170116.g9H1GSR29616@localhost.localdomain>
+
+
+I've been asked to get clarification here about the following issue.
+
+Given:
+
+  extern const int N = 3;
+
+  template <int I> struct S{};
+
+  template <int I> void f(S<N>) {}
+
+  template void f<7>(S<N>);
+
+how is instantiation to be mangled?  With "N" or with "3" as the
+template argument to "S"?
+
+The ISO C++ standard doesn't make us choose, as far as I can tell, in
+that it deliberately leaves unspecified whether these two templates
+are the same:
+
+  template <int I> void f(S<3>);
+  template <int I> void f(S<N>);
+
+(If N has internal linkage, does that change anything?)
+
+The ABI specification generally tries to mangle the source token
+stream, which would suggest using "N".
+
+The ABI does explicitly say that:
+
+  The encoding for a literal of an enumerated type is the encoding of
+  the type name followed by the encoding of the numeric value of the
+  literal in its base integral type (which deals with values that
+  don't have names declared in the type).
+
+which is similar, but a little different in that there are enum
+constants which have no name.
+
+G++ uses the name "N", so it gets:
+
+  _Z1fILi7EEv1SILZ1NEE
+
+I guess there are a couple of action items:
+
+(1) Does the spec already say what we should do here?  
+
+    If so, how can we make it clearer?
+
+(2) If the spec does not mandate any particular behavior at this
+    point, what behavior should it mandate?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+From jhs at edg.com  Thu Oct 17 02:13:34 2002
+From: jhs at edg.com (John H. Spicer)
+Date: Wed, 16 Oct 2002 22:13:34 -0400
+Subject: [cxx-abi-dev] Mangling of named constants
+References: <200210170116.g9H1GSR29616@localhost.localdomain>
+Message-ID: <3DAE1CCE.9010104@edg.com>
+
+Mark Mitchell wrote:
+
+>I've been asked to get clarification here about the following issue.
+>
+>Given:
+>
+>  extern const int N = 3;
+>
+>  template <int I> struct S{};
+>
+>  template <int I> void f(S<N>) {}
+>
+>  template void f<7>(S<N>);
+>
+>how is instantiation to be mangled?  With "N" or with "3" as the
+>template argument to "S"?
+>
+>The ISO C++ standard doesn't make us choose, as far as I can tell, in
+>that it deliberately leaves unspecified whether these two templates
+>are the same:
+>
+>  template <int I> void f(S<3>);
+>  template <int I> void f(S<N>);
+>
+>(If N has internal linkage, does that change anything?)
+>
+
+I don't think this is quite the right example.  The special rules for 
+template equivalence apply only to expressions that involve template 
+parameters.  So, if the expression was "3+I" or "N+I", the
+rules would apply.   f(S<some_way_to_name_3>) and 
+f(S<other_way_to_name_3>) must mangle to the same thing, which I think 
+means you have to use the actual integer value.
+
+The fact that N has internal linkage is not important.
+
+John.
+
+
+
+
+From mark at codesourcery.com  Thu Oct 17 05:28:05 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 16 Oct 2002 22:28:05 -0700
+Subject: [cxx-abi-dev] Mangling of named constants
+In-Reply-To: <3DAE1CCE.9010104@edg.com>
+Message-ID: <7080000.1034832485@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 16, 2002 10:13:34 PM -0400 "John H. Spicer" 
+<jhs at edg.com> wrote:
+
+> Mark Mitchell wrote:
+>
+>> I've been asked to get clarification here about the following issue.
+>>
+>> Given:
+>>
+>>  extern const int N = 3;
+>>
+>>  template <int I> struct S{};
+>>
+>>  template <int I> void f(S<N>) {}
+>>
+>>  template void f<7>(S<N>);
+>>
+>> how is instantiation to be mangled?  With "N" or with "3" as the
+>> template argument to "S"?
+>>
+>> The ISO C++ standard doesn't make us choose, as far as I can tell, in
+>> that it deliberately leaves unspecified whether these two templates
+>> are the same:
+>>
+>>  template <int I> void f(S<3>);
+>>  template <int I> void f(S<N>);
+>>
+>> (If N has internal linkage, does that change anything?)
+>>
+>
+> I don't think this is quite the right example.  The special rules for
+> template equivalence apply only to expressions that involve template
+> parameters.  So, if the expression was "3+I" or "N+I", the rules would
+> apply.   f(S<some_way_to_name_3>) and f(S<other_way_to_name_3>) must
+> mangle to the same thing, which I think means you have to use the actual
+> integer value.
+
+Ah, good point.  OK; let's consider the example as if I had written
+"I + N" everywhere I wrote "N".
+
+Thanks,
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Thu Oct 17 08:54:01 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Thu, 17 Oct 2002 09:54:01 +0100
+Subject: [cxx-abi-dev] When to emit deleting destructor
+References: <0DCC27458EB5D51181840002A507069E0585D053@orsmsx117.jf.intel.com>
+Message-ID: <3DAE7AA9.90601@arm.com>
+
+Nelson, Clark wrote:
+>>>>This is a good question; it is unspecified at present.
+>>>>
+>>>>G++'s D0 destructors do not handle a NULL this pointer.
+>>>>
+>>>>What do HP and Intel do?
+>>>
+>>Yes; we never heard from HP and Intel.  HP, Intel?
+> 
+> 
+> The Intel compiler checks for null in the expansion of the
+> delete-expression, so it never passes a null pointer to a destructor. This
+> seems to be required by the standard ("if the value of the operand of delete
+> is the null pointer the operation has no effect", 5.3.5p2).
+
+For a delete with a non-virtual destructor, having the check for null in D0 and not checking at the delete site still conforms to the standard.  What's required is that the D1 destructor (including any user destructor code) is not called.
+
+Aside: arguably you can still call the operator delete with the null since it too is required to have no effect but I would prefer to avoid calling operator delete if I'd already done the null check.
+
+
+
+From sdouglass at arm.com  Thu Oct 17 10:04:46 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Thu, 17 Oct 2002 11:04:46 +0100
+Subject: [cxx-abi-dev] Mangling of floating-point literals
+References: <200210170100.g9H10Su29569@localhost.localdomain>
+Message-ID: <3DAE8B3E.7020802@arm.com>
+
+Mark Mitchell wrote:
+> It was pointed out to me that the ABI spec made it sound like mangling
+> floating-poit literals is optional -- but it's not:
+> 
+>   f<int(3.14159)>
+> 
+> is legal even in ISO C++, and the spec is very clear that no folding
+> or simplification is supposed to take place.
+
+As pointed out by John Spicer in the thread "Mangling of named constants", simplification _does_ take place unless the expression involves a template argument.  But Mark's point still applies to similar examples.
+
+> I cleaned this up with the following patch.
+
+That looks generally good to me.
+
+But (since the original) isn't there a conflict between "fixed-length" and "without leading zeroes" in the following?
+
+> Floating-point literals are encoded using a fixed-length lowercase
+> hexadecimal string corresponding to the internal representation (IEEE
+> on Itanium), high-order bytes first, without leading zeroes.  For
+> example: "Lf bf800000 E" is -1.0f on Itanium.
+
+Maybe it would be good to include an example of the mangling of 0.0 (a double).
+
+
+
+From mark at codesourcery.com  Thu Oct 17 16:23:45 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 17 Oct 2002 09:23:45 -0700
+Subject: [cxx-abi-dev] Mangling of floating-point literals
+In-Reply-To: <3DAE8B3E.7020802@arm.com>
+Message-ID: <23780000.1034871825@warlock.codesourcery.com>
+
+> But (since the original) isn't there a conflict between "fixed-length"
+> and "without leading zeroes" in the following?
+
+Yes -- I don't actually know what that is supposed to mean.
+
+Does anyone else who was on the original committee understand what this
+meant?
+
+Here's what I think I would like this to say:
+
+  The encoded form of a floating-point constant is the hexidecimal
+  representation of each byte in the target representation of the
+  constant, written from the byte that will appear at the lowest
+  memory address to the highest memory address.
+
+That's probably not quite precise enough, but it seems tomake sense
+to me.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Sat Oct 19 00:43:53 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 18 Oct 2002 17:43:53 -0700
+Subject: Pointer-to-member-function mangling
+Message-ID: <200210190043.g9J0hrB01528@localhost.localdomain>
+
+
+Consider this example:
+
+  typedef void T ();
+
+  struct S {
+  };
+
+  void f (T*, T (S::*)) {}
+
+To make sure everyone's on the same page, the second parameter is a
+pointer to a member function of S whose return type is void and which
+has no parameters.
+
+The question is whether when mangling the pointer-to-member, you treat
+the member function type as equivalent to the function type pointed to
+by the first argument, for the purposes of substitution.
+
+In other words, is the type of a non-static member function the same
+as the type of a non-member function with the same prototype, for the
+purposes of substitution?
+
+I think the answer ought to be that these two types are *not* the
+same, and G++ agrees with me. :-)
+
+If your compiler produces this output:
+
+  _Z1fPFvvEM1SFvvE
+
+then your compiler agrees too.
+
+HP, Intel, do either of your compilers produce a different name?
+
+If not, I will clarify the spec.  If they do, we'll see what mode is
+more prevalent.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From clark.nelson at intel.com  Mon Oct 21 16:15:55 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Mon, 21 Oct 2002 09:15:55 -0700
+Subject: [cxx-abi] [cxx-abi-dev] Pointer-to-member-function mangling
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D074@orsmsx117.jf.intel.com>
+
+> I think the answer ought to be that these two types are *not* the
+> same, and G++ agrees with me. :-)
+> 
+> If your compiler produces this output:
+> 
+>   _Z1fPFvvEM1SFvvE
+> 
+> then your compiler agrees too.
+> 
+> HP, Intel, do either of your compilers produce a different name?
+
+The Intel compiler produces the same name as G++.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From mark at codesourcery.com  Mon Oct 21 16:16:57 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 21 Oct 2002 09:16:57 -0700
+Subject: [cxx-abi] [cxx-abi-dev] Pointer-to-member-function mangling
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585D074@orsmsx117.jf.intel.com>
+Message-ID: <34680000.1035217017@warlock.codesourcery.com>
+
+
+
+--On Monday, October 21, 2002 09:15:55 AM -0700 "Nelson, Clark" 
+<clark.nelson at intel.com> wrote:
+
+>> I think the answer ought to be that these two types are *not* the
+>> same, and G++ agrees with me. :-)
+>>
+>> If your compiler produces this output:
+>>
+>>   _Z1fPFvvEM1SFvvE
+>>
+>> then your compiler agrees too.
+>>
+>> HP, Intel, do either of your compilers produce a different name?
+>
+> The Intel compiler produces the same name as G++.
+
+OK, that's going to be two-out-of-three, no matter what HP's compiler
+has to say.  I will update the document appropriately.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Mon Oct 21 16:29:54 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 21 Oct 2002 09:29:54 -0700
+Subject: Update pointer to member function substitution language
+Message-ID: <200210211629.g9LGTsi01845@localhost.localdomain>
+
+
+As per recent discussions on this list regarding substitutions and
+pointers-to-members, I have updated the document with the following
+patch.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.37
+diff -c -5 -p -r1.37 abi.html
+*** abi.html	17 Oct 2002 01:03:57 -0000	1.37
+--- abi.html	21 Oct 2002 16:29:24 -0000
+*************** If a component has not been encountered 
+*** 4568,4577 ****
+--- 4568,4595 ----
+  its mangling is identified,
+  and it is added to a dictionary of substitution candidates.
+  No entity is added to the dictionary twice.
+  
+  <p>
++ The type of a non-static member function is considered to be
++ different, for the purposes of substitution, from the type of a
++ namespace-scope or static member function whose type appears similar.
++ Therefore, in the following example:
++ <blockquote><code><pre>
++ typedef void T();
++ struct S {};
++ void f(T*, T (S::*)) {}
++ </pre></code></blockquote>
++ the function <code>f</code> is mangled as
++ <code>_Z1fPFvvEM1SFvvE</code>; the type of the member function pointed
++ to by the second parameter is not considered the same as the type of
++ the function pointed to by the first parameter.  Both function types
++ are, however, entered the substitution table; subsequent references to
++ either variant of the function type will result in the use of
++ substitutions.
++ 
++ <p>
+  Substitution is according to the production:
+  
+  <pre><font color=blue><code>
+    &lt;substitution> ::= S &lt;seq-id> _
+  		 ::= S_
+*************** unwind table location.
+*** 4868,4877 ****
+--- 4886,4899 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[021021]</font>
++ Clarify mangling of pointer-to-member functions.
+  
+  <p>
+  <font color=blue>[021016]</font>
+  Clarify mangling of floating-point literals.
+  
+
+
+From mark at codesourcery.com  Mon Oct 21 20:11:00 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 21 Oct 2002 13:11:00 -0700
+Subject: [cxx-abi-dev] When to emit deleting destructor
+In-Reply-To: <3DAD85B3.7050901@arm.com>
+Message-ID: <78390000.1035231060@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 16, 2002 04:28:51 PM +0100 scott douglass 
+<sdouglass at arm.com> wrote:
+
+> Mark Mitchell wrote:
+>>>   [3] Change deleting destructors for non-virtual destructors to be
+>>> optional and caller-produced (in it own COMDAT group) like the
+>>> allocating constructors (C3).
+>>
+>>
+>> The ways you can make use of such a thing are very limited.  (I think
+>> you know this, but just so that everyone understands the implications...)
+
+This patch implements Scott's modification to my original suggestion on
+this issue.
+
+Since there were no other comments, I committed this change.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: application/octet-stream
+Size: 5737 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20021021/067dbd58/attachment.obj>
+
+From kerch at cup.hp.com  Thu Oct 24 00:06:54 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 23 Oct 2002 17:06:54 -0700
+Subject: [cxx-abi-dev] Pointer-to-member-function mangling
+References: <200210190043.g9J0hrB01528@localhost.localdomain>
+Message-ID: <3DB7399E.2040400@cup.hp.com>
+
+Mark Mitchell wrote:
+> Consider this example:
+> 
+>   typedef void T ();
+> 
+>   struct S {
+>   };
+> 
+>   void f (T*, T (S::*)) {}
+> 
+> 
+> I think the answer ought to be that these two types are *not* the
+> same, and G++ agrees with me. :-)
+> 
+> If your compiler produces this output:
+> 
+>   _Z1fPFvvEM1SFvvE
+
+This is HP's encoding:
+_Z1fPFvvEM1SS_
+
+Which seems a little broken because the when the demangler is given this
+string it mumbles about an unimplemented token.
+
+Kerch
+
+
+
+
+
+From mark at codesourcery.com  Thu Oct 24 00:15:34 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 23 Oct 2002 17:15:34 -0700
+Subject: [cxx-abi-dev] Pointer-to-member-function mangling
+In-Reply-To: <3DB7399E.2040400@cup.hp.com>
+Message-ID: <112370000.1035418534@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 23, 2002 05:06:54 PM -0700 Kerch Holt 
+<kerch at cup.hp.com> wrote:
+
+> Mark Mitchell wrote:
+>> Consider this example:
+>>
+>>   typedef void T ();
+>>
+>>   struct S {
+>>   };
+>>
+>>   void f (T*, T (S::*)) {}
+>>
+>>
+>> I think the answer ought to be that these two types are *not* the
+>> same, and G++ agrees with me. :-)
+>>
+>> If your compiler produces this output:
+>>
+>>   _Z1fPFvvEM1SFvvE
+>
+> This is HP's encoding:
+> _Z1fPFvvEM1SS_
+
+That's the other reasonable choice -- but Intel and G++ do it the other
+way, so I think you're out of luck.
+
+Some day, I hope we'll really have nailed down every corner case...
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Thu Oct 24 04:19:36 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 23 Oct 2002 21:19:36 -0700
+Subject: Nearly empty classes
+Message-ID: <200210240419.g9O4Jae02283@localhost.localdomain>
+
+
+It's been pointed out that this definition:
+
+ nearly empty class
+
+     A class that contains no data except its virtual pointer (if any)
+     or virtual bases. In particular, it:
+
+        * has no non-static data members other than zero-width bitfields,
+        * has no direct base classes that are not either empty, nearly
+	  empty, or virtual,
+        * has at most one non-virtual, nearly empty direct base class, and
+        * has no proper base class that is empty, not morally virtual,
+	  and at an offset other than zero. 
+
+isn't quite right.
+
+In particular, you can read that, in conjunction with:
+
+  If C has a dynamic base class, attempt to choose a primary base
+  class B. It is the first (in direct base class order) non-virtual
+  dynamic base class, if one exists. Otherwise, it is a nearly empty
+  virtual base class, the first one in (preorder) inheritance graph
+  order which is not an indirect primary base class if any exist, or
+  just the first one if they are all indirect primaries.
+
+to say that in this situation:
+
+  struct S {};
+  struct T : virtual public S {};
+
+S is the primary base of T.
+
+The problem is that S is nearly-empty by the above definition; that
+definition doesn't actually *require* the nearly-empty base to have a
+virtual pointer.  Of course, it makes no sense to have a primary base
+that does not have a virtual pointer; in fact, following the layout
+rules would then indicate that T has no virtual pointer even though it
+does have a virtual base.
+
+I believe the correct fix is to to rephrase the first line of the
+definition of nearly empty class as:
+
+  A dynamic class that contains no data except its virtual pointer or
+  virtual bases.  In particular, it:
+
+Any objections?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Thu Oct 24 06:51:27 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Wed, 23 Oct 2002 23:51:27 -0700
+Subject: [cxx-abi-dev] Nearly empty classes
+References: <200210240419.g9O4Jae02283@localhost.localdomain>
+Message-ID: <3DB7986F.7020506@transmeta.com>
+
+Mark Mitchell wrote:
+> 
+> I believe the correct fix is to to rephrase the first line of the
+> definition of nearly empty class as:
+> 
+>   A dynamic class that contains no data except its virtual pointer or
+>   virtual bases.  In particular, it:
+> 
+> Any objections?
+
+That is, you mean to require that a nearly empty class has a virtual
+pointer?  If so, you should say so more explicitly.  But my gut feeling
+is that it makes more sense to add the condition to the primary base
+choice, since that's what it comes from.
+
+Jim
+
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+
+From mark at codesourcery.com  Thu Oct 24 07:08:25 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 24 Oct 2002 00:08:25 -0700
+Subject: [cxx-abi-dev] Nearly empty classes
+In-Reply-To: <3DB7986F.7020506@transmeta.com>
+Message-ID: <17840000.1035443305@warlock.codesourcery.com>
+
+
+
+--On Wednesday, October 23, 2002 11:51:27 PM -0700 Jim Dehnert 
+<dehnert at transmeta.com> wrote:
+
+> Mark Mitchell wrote:
+>>
+>> I believe the correct fix is to to rephrase the first line of the
+>> definition of nearly empty class as:
+>>
+>>   A dynamic class that contains no data except its virtual pointer or
+>>   virtual bases.  In particular, it:
+>>
+>> Any objections?
+>
+> That is, you mean to require that a nearly empty class has a virtual
+> pointer?  If so, you should say so more explicitly.
+
+OK, we can tweak the wording.
+
+> But my gut feeling is that it makes more sense to add the condition to
+> the primary base choice, since that's what it comes from.
+
+But there's no other use of "nearly empty" in the document; the whole
+point of the concept of "nearly empty" is for this virtual base as
+primary base idea.  Besides, if you said your fridge was "nearly
+empty" you'd mean you had a solitary jar of old mayonnaise in there,
+not that you had nothing at all.  It doesn't make sense to say
+something is "nearly empty" if it is actually empty.
+
+Of course, it's just a choice of where to put the words; it doesn't make
+any difference in terms of what code gets generated by compilers...
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Thu Oct 31 19:47:34 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 31 Oct 2002 11:47:34 -0800
+Subject: Thunk error in specification
+Message-ID: <89960000.1036093654@warlock.codesourcery.com>
+
+Section 3.2.3 of the ABI specification indicates what thunks should be
+emitted with a particular function.
+
+While constructing our ABI testsuite, we have noticed a problem
+with this language:
+
+  For each direct or indirect virtual base V of C such that either V
+  declares f, or is derived from a class that declares f, the compiler
+  must emit, in the same object file as the code for C::f, a
+  V-adjusting entry point for C::f.
+
+This sentence should be revised to remove the "or is derived from a class
+that declares f" clause.  An example of where this matters is:
+
+  struct A { virtual void f(); };
+
+  struct B { virtual void g(); };
+
+  struct C : public A, public B { }:
+
+  struct D : virtual public C { virtual void g(); };
+
+There is no point in creating a C::g thunk to convert from a C* to a
+D* since C's vtable will not contain an entry for g.  (You do, of
+course, need a thunk that converts from a B* to a C*, and then
+adjusts by using the appropriate vcall offset in C's virtual table.)
+
+(This language is a hold-over from an earlier draft of the ABI where
+C's vtable *did* have an entry for g.)
+
+As a result of removing the clause mentioned above, this language in the
+next paragraph should also be removed:
+
+  (Note that one implementation of the M-adjusting entry point is to
+  convert from M* to V* and then transfer control to the V-adjusting
+  entry point.)
+
+There is no longer any guarantee that the V-adjusting entry point exists.
+
+I will make this change in a couple of days, unless anyone objects.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+

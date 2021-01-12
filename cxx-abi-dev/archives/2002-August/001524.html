@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Incorrect example in abi-examples
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Incorrect%20example%20in%20abi-examples&In-Reply-To=%3COF97C7A48C.CE48473B-ON85256C22.0015D5FB%40torolab.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001523.html">
+   <LINK REL="Next"  HREF="001527.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Incorrect example in abi-examples</H1>
+    <B>michaelw at ca.ibm.com</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Incorrect%20example%20in%20abi-examples&In-Reply-To=%3COF97C7A48C.CE48473B-ON85256C22.0015D5FB%40torolab.ibm.com%3E"
+       TITLE="Incorrect example in abi-examples">michaelw at ca.ibm.com
+       </A><BR>
+    <I>Tue Aug 27 04:26:14 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001523.html">Tail padding, more differences
+</A></li>
+        <LI>Next message: <A HREF="001527.html">[cxx-abi-dev] Incorrect example in abi-examples
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1524">[ date ]</a>
+              <a href="thread.html#1524">[ thread ]</a>
+              <a href="subject.html#1524">[ subject ]</a>
+              <a href="author.html#1524">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The CXXABI example section
+<A HREF="http://www.codesourcery.com/cxx-abi/abi-examples.html">http://www.codesourcery.com/cxx-abi/abi-examples.html</A>
+contain an incorrect sample. On page 3:
+/*
+Test case for sharing virtual bases.
+In Most_Derived, share the vptr with
+Interface2 but not Interface3, since
+Interface3 is indirectly inherited.
+
+Should get:
+(long)(Interface1 *)dd - (long)dd = 0
+(long)(Interface2 *)dd - (long)dd = 0
+(long)(Interface3 *)dd - (long)dd = 8
+(long)(Concrete1 *)dd - (long)dd = 8
+*/
+
+struct Interface1 {
+    virtual void foo();
+};
+struct Interface2 : virtual Interface1 {
+        virtual void bar();
+};
+struct Interface3 : virtual Interface2 {
+        virtual void baz();
+};
+
+struct Concrete1 : virtual Interface3 {
+        virtual void foo();
+        int i; // important.
+};
+
+struct Most_Derived : virtual Interface1,
+                      virtual Interface2,
+                      virtual Concrete1 {
+        virtual void bar();
+};
+
+void Interface1::foo() { }
+void Interface2::bar() { }
+void Interface3::baz() { }
+void Concrete1::foo() { }
+void Most_Derived::bar() { }
+
+
+extern &quot;C&quot; int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR &quot; = %d\n&quot;, (EXPR) );
+main()
+{
+  Most_Derived *dd = new Most_Derived;
+  EVAL((long)(Interface1 *)dd - (long)dd);
+  EVAL((long)(Interface2 *)dd - (long)dd);
+  EVAL((long)(Interface3 *)dd - (long)dd);
+  EVAL((long)(Concrete1 *)dd - (long)dd);
+}
+
+G++ 3.0.3 reveals the order is as follows:
+Class Most_Derived
+   size=12 align=4
+Most_Derived (0x300a0200) 0 nearly-empty
+    vptridx=0 vptr=((&amp;Most_Derived::_ZTV12Most_Derived) + 28)
+  Interface1 (0x300a0240) 0 nearly-empty virtual canonical
+      primary-for Most_Derived (0x300a0200)
+      vptridx=4 vbaseoffset=-16
+  Interface2 (0x300a0280) 4 nearly-empty virtual non-canonical
+      lost-primary
+    Interface1 (0x300a02c0) 0 nearly-empty virtual non-canonical
+  Concrete1 (0x300a0300) 4 virtual canonical
+      subvttidx=28 vptridx=12 vbaseoffset=-24 vptr=((&amp;Most_Derived::
+_ZTV12Most_D
+erived) + 68)
+    Interface3 (0x300a0340) 4 nearly-empty virtual canonical
+        primary-for Concrete1 (0x300a0300)
+        subvttidx=44 vptridx=16 vbaseoffset=-28
+      Interface2 (0x300a0380) 4 nearly-empty virtual canonical
+          primary-for Interface3 (0x300a0340) lost-primary
+          subvttidx=20 vptridx=8 vbaseoffset=-20
+        Interface1 (0x300a03c0) 0 nearly-empty virtual non-canonical
+
+G++ seems correct based on the following rule.
+
+For a stand-alone class:
+Primary(Interface2)=Interface1 by virtual nearly empty
+Primary(Interface 3)=Interface2 by virtual nearly empty
+Primary (Concrete1)=Interface3 by virtual nearly empty
+
+Primary(Most_Derived)=Interface1 since it is the first virtual nearly empty
+primary. Most_Derived cannot take Concrete1 since it is virtually inherited
+and is not nearly empty.
+So Interface2 loses its primary
+
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001523.html">Tail padding, more differences
+</A></li>
+	<LI>Next message: <A HREF="001527.html">[cxx-abi-dev] Incorrect example in abi-examples
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1524">[ date ]</a>
+              <a href="thread.html#1524">[ thread ]</a>
+              <a href="subject.html#1524">[ subject ]</a>
+              <a href="author.html#1524">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

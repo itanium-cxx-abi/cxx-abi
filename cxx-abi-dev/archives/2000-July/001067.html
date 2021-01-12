@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Covariant returns
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Covariant%20returns&In-Reply-To=%3C200007052123.OAA01520%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001070.html">
+   <LINK REL="Next"  HREF="001071.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Covariant returns</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Covariant%20returns&In-Reply-To=%3C200007052123.OAA01520%40baalbek.engr.sgi.com%3E"
+       TITLE="Covariant returns">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Jul  5 21:23:40 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001070.html">Covariant returns
+</A></li>
+        <LI>Next message: <A HREF="001071.html">Covariant returns
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1067">[ date ]</a>
+              <a href="thread.html#1067">[ thread ]</a>
+              <a href="subject.html#1067">[ subject ]</a>
+              <a href="author.html#1067">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Let me try introducing some concreteness into this discussion.  I
+think I've figured out the source of confusion, but then maybe I've
+just become confused...
+
+Suppose we have:
+
+	class A { ... };
+	class B: public A { ... };
+
+	class V {
+		...
+		virtual A* f ();
+		...
+	};
+	class W: virtual public V {
+		...
+		virtual B* f ();
+		...
+	};
+
+	W *w;
+	V *v = w;
+
+Suppose initially that no bases are primary.  (And check my example
+before you believe anything...)
+
+Now, if I call w-&gt;f(), I get the basic W::f, with no adjustments.
+This is what should happen if I use the &quot;normal&quot; entry for f in the W
+vtable.
+
+If I call v-&gt;f(), it's more complicated.  I get a thunk which (a)
+adjusts v to a W*, (b) calls W::f, and (c) adjusts the resulting B*
+back to an A*.  This is what should happen if I use the &quot;normal&quot; entry
+for f in the V-in-W secondary vtable.
+
+So far, so good.  The W vtable contains the overriding W::f vptr.
+The V-in-W secondary vtable contains the thunk vptr.  Nothing special
+for the covariant return types, except that the thunk is messier.
+I note, as an aside so far, that if W did not override V::f, we would
+have a &quot;promoted&quot; vptr for it in the W vtable to make it easier to
+call.  But that has nothing to do with covariant return types either.
+
+Next, suppose V is the primary base of W.  Now they share a vtable, and
+therefore an f vptr.  If the f's had the same return type, there would
+be no adjustments to be made, and that f vptr could just point to the
+overriding W::f.  But because they have covariant return types, v-&gt;f()
+must still adjust on return, so the &quot;shared&quot; vptr must do that, and W's
+vtable needs to have another entry for the &quot;normal&quot; W::f vptr.  What we
+decided before (issue B-2), and what seems to have started Mark down
+this discussion path, is that we will have two such entries whether or
+not a caller could figure out the necessary adjustment (B* to A*, I
+presume), though I don't know how it could be possible in general if he
+is calling v-&gt;f().
+
+(My thoughts went down a dark alley at this point.  Even if the return
+types were the same, if X is derived from V and W in such a way that V
+is no longer primary in the W subobject, then V::f and W::f would need
+different adjustments and therefore distinct entries.  So I thought
+briefly that this required two entries in the W vtable.  But if V and W
+are split in this way, the main entry in the W-in-X vtable is no longer
+shared with the V-in-X vtable, so this was a red herring.)
+
+Finally, suppose we have:
+
+	class X: virtual public W {
+	  ...
+	};
+
+Now, we specify that the vptrs from W get promoted to the X vtable.
+That presumably means both of them in the case at hand.  Correct?
+I'm guessing that this was Mark's original point.  Correct?  Am I
+missing anything that Jason or Mark was trying to point out? Screwing
+it up?  Where precisely do we need to say more in the draft?
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001070.html">Covariant returns
+</A></li>
+	<LI>Next message: <A HREF="001071.html">Covariant returns
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1067">[ date ]</a>
+              <a href="thread.html#1067">[ thread ]</a>
+              <a href="subject.html#1067">[ subject ]</a>
+              <a href="author.html#1067">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

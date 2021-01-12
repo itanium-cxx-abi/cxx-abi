@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] POD types
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20POD%20types&In-Reply-To=%3CF8BB5D7D-19F9-4C2D-870C-909660F01CFF%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002578.html">
+   <LINK REL="Next"  HREF="002577.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] POD types</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20POD%20types&In-Reply-To=%3CF8BB5D7D-19F9-4C2D-870C-909660F01CFF%40apple.com%3E"
+       TITLE="[cxx-abi-dev] POD types">rjmccall at apple.com
+       </A><BR>
+    <I>Fri May 10 22:25:51 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002578.html">[cxx-abi-dev] N3639 (arrays of runtime bound):	__cxa_bad_array_length
+</A></li>
+        <LI>Next message: <A HREF="002577.html">[cxx-abi-dev] POD types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2576">[ date ]</a>
+              <a href="thread.html#2576">[ thread ]</a>
+              <a href="subject.html#2576">[ subject ]</a>
+              <a href="author.html#2576">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Apropos of the recent discussion, I'd like to propose a small number of related changes to our description of POD types and layout.
+
+1.  bool
+
+We should specify that bool is the same type as the C99 type _Bool if the base ABI supports that.  This matters for, e.g., PPC32, where _Bool is sometimes 32 bits.
+
+2.  Empty classes
+
+We should specify the size and alignment of empty classes in case the base ABI does not.
+
+I'll just note here that the entire ABI generally has not kept up with the reality of explicit alignment attributes, but that's a topic for another time.
+
+3.  Discussion of language revisions
+
+I'd like to change the wording of the note in the definition of &quot;POD for the purposes of layout&quot; to clarify that the ABI has permanently adopted the C++03 definition of POD and will not adopt the C++11 definition.  I believe that's still the consensus position of this list.
+
+I would like to note that, contra previous discussion on this list, this does not appear to affect formal language compliance.  Specifically, a compiler which allocates other objects into the tail-padding of a base-class subobject is still fully compliant with the standard, even if that subobject has POD type.  The reason is that, while the language does make guarantees about copying the bytes of POD types (trivially-copyable types in C++11), these guarantees specifically should not apply to base-class subobjects.  Lawyering follows.
+
+Here are all the guarantees I can find about the underlying byte representation of POD types in all three published standards.  I don't *think* the memory model changes anything here.
+
+C++11 [basic.type]p2:
+  For any object (other than a base-class subobject) of trivially copyable type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+C++03 [basic.type]p2:
+  For any object (other than a base-class subobject) of POD type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+C++98 [basic.type]p2:
+  For any complete POD object type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+
+C++11 [basic.type]p3:
+  For any trivially copyable type T, if two pointers to T point to distinct T objects obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if the underlying bytes making up obj1 are copied into obj2, obj2 shall subsequently hold the same value as obj1.
+C++03 [basic.type]p3:
+  For any POD type T, if two pointers to T point to distinct T objects obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if the value of obj1 is copied into obj2, using the memcpy library function, obj2 shall subsequently hold the same value as obj1.
+C++98 [basic.type]p3:
+ For any POD type T, if two pointers to T point to distinct T objects obj1 and obj2, if the value of obj1 is copied into obj2, using the memcpy library function, obj2 shall subsequently hold the same value as obj1.
+
+Note that while C++98 extended these guarantees to all objects, both were limited to most-derived objects by C++03, a restriction which persists into C++11.
+
+I feel that this is clearly just a corrected oversight in the specification, but even an implementation that wished to pedantically hew to the C++98 rules would only need to avoid allocating objects in the tail-padding of types that were POD in C++98.  Since the generic ABI avoids this for the broader set of types that were POD in C++03, we're fully in compliance.
+
+That said, tail-allocating more objects involves a potential time/space trade-off.  It may be undefined behavior to use memcpy to read or write to a trivially-copyable base-class subobject, but it's perfectly legal to copy them with a constructor or assignment operator.  Those operations generally compile to memcpy, but if the type can have objects allocated in its tail padding, that memcpy frequently has to be restricted to the data size of the type instead of its full size, which generally makes for a less efficient memcpy.  So it can be a performance win to disallow tail-allocation for a type if it's likely to be copied a lot and rarely if ever used as a base-class subobject.
+
+4.  Proposal
+
+Here is my proposed patch:
+
+diff --git a/abi.html b/abi.html
+index e0ce972..c8f3c68 100644
+--- a/abi.html
++++ b/abi.html
+@@ -256,18 +256,32 @@ array type is not a POD for the purpose of layout if the element type
+ of the array is not a POD for the purpose of layout.  Where references
+ to the ISO C++ are made in this paragraph, the Technical Corrigendum 1
+ version of the standard is intended.
++&lt;/p&gt;
+ 
+ &lt;p&gt;
+-&lt;img src=warning.gif alt=&quot;&lt;b&gt;NOTE&lt;/b&gt;:&quot;&gt;
+-The ISO C++ standard published in 1998 had a different definition of
+-POD types.  In particular, a class with a non-static data member of
+-pointer-to-member type was not considered a POD in C++98, but is
+-considered a POD in TC1.  Because the C++ standard requires that
+-compilers not overlay the tail padding in a POD, using the C++98
+-definition in this ABI would prevent a conforming compiler from
+-correctly implementing the TC1 version of the C++ standard.
+-Therefore, this ABI uses the TC1 definition of POD.&lt;/dd&gt;
++&lt;img src=&quot;warning.gif&quot; alt=&quot;&lt;b&gt;NOTE&lt;/b&gt;:&quot;&gt;
++There have been multiple published revisions to the ISO C++ standard,
++and each one has included a different definition of POD.  To ensure
++interoperation of code compiled according to different revisions of
++the standard, it is necessary to settle on a single definition for a
++platform.  A platform vendor may choose to follow a different revision
++of the standard, but by default, the definition of POD under this ABI
++is the definition from the 2003 revision (TC1).
++&lt;/p&gt;
++
++&lt;p&gt;
++Being tied to the TC1 definition of POD does not prevent compilers
++from being fully compliant with later revisions.  This ABI uses the
++definition of POD only to decide whether to allocate objects in the
++tail-padding of a base-class subobject.  While the standards have
++broadened the definition of POD over time, they have also forbidden
++the programmer from directly reading or writing the underlying bytes
++of a base-class subobject with, say, &lt;tt&gt;memcpy&lt;/tt&gt;.  Therefore,
++even in the most conservative interpretation, implementations may
++freely allocate objects in the tail padding of any class which would
++not have been POD in C++98.  This ABI is in compliance with that.
+ &lt;/p&gt;
++&lt;/dd&gt;
+ 
+ &lt;p&gt;
+ &lt;dt&gt; &lt;i&gt;primary base class&lt;/i&gt; &lt;/dt&gt; &lt;dd&gt; For a dynamic class, the
+@@ -578,17 +592,34 @@ without virtual bases.
+ &lt;h3&gt; 2.2 POD Data Types &lt;/h3&gt;
+ 
+ &lt;p&gt;
+-
+ The size and alignment of a type which is a &lt;a href=&quot;#POD&quot;&gt;POD for the
+-purpose of layout&lt;a&gt; is as specified by the base (C) ABI.  Type bool
+-has size and alignment 1.  All of these types have data size and
+-non-virtual size equal to their size.  (We ignore tail padding for
+-PODs because the Standard does not allow us to use it for anything
+-else.)
++purpose of layout&lt;a&gt; is as specified by the base (C) ABI, with the
++following provisos:
++&lt;/p&gt;
+ 
++&lt;ul&gt;
++&lt;li&gt;If the base ABI specifies rules for the C99 type &lt;code&gt;_Bool&lt;/code&gt;,
++then &lt;code&gt;bool&lt;/code&gt; follows those rules.  Otherwise, it has size
++and alignment 1.&lt;/li&gt;
++
++&lt;li&gt;If the base ABI does not specify rules for empty classes, then an
++empty class has size and alignment 1.&lt;/li&gt;
++
++&lt;li&gt;A member pointer type is treated exactly as if it were the C type
++&lt;a href=&quot;#member-pointers&quot;&gt;described below&lt;/a&gt;.&lt;/li&gt;
++&lt;/ul&gt;
++
++&lt;p&gt;
++The &lt;i&gt;dsize&lt;/i&gt;, &lt;i&gt;nvsize&lt;/i&gt;, and &lt;i&gt;nvalign&lt;/i&gt; of these types are
++defined to be their ordinary size and alignment.  These properties
++only matter for non-empty class types that are used as base classes.
++We ignore tail padding for PODs because an early version of the
++standard did not allow us to use it for anything else and because it
++sometimes permits faster copying of the type.
++&lt;/p&gt;
+ 
+ &lt;p&gt; &lt;hr&gt; &lt;p&gt;
+-&lt;a name=member-pointers&gt;&lt;/a&gt;
++&lt;a name=&quot;member-pointers&quot;&gt;&lt;/a&gt;
+ &lt;h3&gt; 2.3 Member Pointers &lt;/h3&gt;
+ 
+ &lt;p&gt;
+
+
+John.
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002578.html">[cxx-abi-dev] N3639 (arrays of runtime bound):	__cxa_bad_array_length
+</A></li>
+	<LI>Next message: <A HREF="002577.html">[cxx-abi-dev] POD types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2576">[ date ]</a>
+              <a href="thread.html#2576">[ thread ]</a>
+              <a href="subject.html#2576">[ subject ]</a>
+              <a href="author.html#2576">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Member selections on dependent expressions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Member%20selections%20on%20dependent%20expressions&In-Reply-To=%3C6B740CC5-185A-4875-9E3C-4BA5C3D6863C%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002340.html">
+   <LINK REL="Next"  HREF="002344.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Member selections on dependent expressions</H1>
+    <B>David Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Member%20selections%20on%20dependent%20expressions&In-Reply-To=%3C6B740CC5-185A-4875-9E3C-4BA5C3D6863C%40edg.com%3E"
+       TITLE="Member selections on dependent expressions">daveed at vandevoorde.com
+       </A><BR>
+    <I>Fri Jun 25 21:55:17 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002340.html">[cxx-abi-dev] deleted functions, implicit move constructors, and 	the ABI
+</A></li>
+        <LI>Next message: <A HREF="002344.html">Proposed ABI changes for new C++0x SFINAE rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2343">[ date ]</a>
+              <a href="thread.html#2343">[ thread ]</a>
+              <a href="subject.html#2343">[ subject ]</a>
+              <a href="author.html#2343">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We've been working on the new C++0x SFINAE rules and the backward-compatibility consequences for mangling are a bit baffling: I'd like to get input from other implementors (particularly GCC) regarding direction in this area.
+
+Let me start with a seemingly simple example:
+
+	namespace N {
+	  struct S { int x; } s;
+	  template&lt;class T&gt; auto f(T p)-&gt;decltype(p.S::x);
+	  void g() {
+	    f(s);  // i.e. f&lt;S&gt;(s)
+	  }
+	}
+
+GCC 4.5 encodes N::f&lt;N::S&gt; as &quot;_ZN1N1fINS_1SEEEDtdtfp_srS1_1xET_&quot; -- let me walk through how it gets there.
+
+After the ABI prefix &quot;_Z&quot; comes the &lt;nested-name&gt; N::f&lt;N::S&gt; which is encoded as &quot;N1N1fINS_1SEEE&quot;.
+Note how the first substitutable entity (code &quot;S_&quot;) is the namespace N, and that is used for the second reference to N in the template argument N::S (&quot;NS_1SE&quot;), which itself becomes the second substitutable entity (code &quot;S1_&quot;).
+
+The return type follows (&quot;Dtdtfp_srS1_1xE&quot;) and breaks down as follows: &quot;Dt ... E&quot; for decltype of the member selection encoded as &quot;dtfp_srS1_1x&quot;, &quot;dt&quot; for the dot operator on &quot;fp_&quot; (an encoding that means &quot;first function parameter&quot;), which leaves &quot;srS1_1x&quot; to represent &quot;S::x&quot; in this case.
+
+Now the &quot;sr&quot; (&quot;scope resolution&quot;) code in the current ABI spec is specified through the following productions:
+
+  &lt;expression&gt; ::= ...
+               ::= sr &lt;type&gt; &lt;unqualified-name&gt;                    # dependent name
+               ::= sr &lt;type&gt; &lt;unqualified-name&gt; &lt;template-args&gt;    # dependent template-id
+
+This seems reasonable here because p in &quot;p.S::x&quot; has a template-dependent type, and so the &quot;x&quot; can be considered a dependent name.  &quot;S&quot; is apparently N::S, which, as noted above, is encoded as &quot;S1_&quot; because of the substitution rules.
+
+Now, if I'd written the declaration of f by writing S as N::S:
+
+	  template&lt;class T&gt; auto f(T p)-&gt;decltype(p.N::S::x);
+
+the reasoning above holds and I'd find the same mangled name (and, indeed, GCC 4.5 does that).
+
+However, the language definition throws a wrench in that reasoning: S in &quot;p.S::x&quot; must be looked up both using ordinary lookup and in the scope of whatever class type p ends up having (see 3.4.5/4 in the current working paper for the language), and if the two lookups end up finding different things, it is an error... except that since this is a SFINAE case it just means that that function instance drops out of the overload set.  Similarly, N::S in &quot;p.N::S&quot; must be looked up twice, and may end up being invalid.  But since S and N::S can yield different results in the class-scope lookup, it means that the two template declarations above are distinct!
+
+Let me demonstrate this by example with a slight modification of the example above (still valid C++0x, but requires support for the new SFINAE rules):
+
+	namespace N {
+	  struct S { int x; struct N { enum S {}; }; } s;                   // Note the added nested class N.
+	  template&lt;class T&gt; auto f(T p)-&gt;decltype(p.S::x) { return 1; }     // #1
+	  template&lt;class T&gt; auto f(T p)-&gt;decltype(p.N::S::x) { return 2; }  // #2
+	  void g() {
+	    f(s);  // Calls #1
+	  }
+	}
+
+When substituting N::S for T in template #1, the lookup of S in the scope of p finds the type S itself, which is the same type as what ordinary lookup finds: That substitution is fine.
+
+When substituting N::S for T in template #2, the lookup of N::S in the scope of p finds an enumeration, which conflicts with the class type N::S found through ordinary lookup: The substitution of #2 therefore fails, and the only remaining candidate for the call is #1.
+
+The existing ABI (and, hence, existing practice) is therefore not adequate for the C++0x language rules: We have to break backward compatibility in this area.
+
+(We also looked at changing the C++0x language itself to avoid the problem, but it's a really sell (&quot;please change the language in an obscure/subtle way because it raises some obscure/subtle backward-compatibility issue in our mangling scheme&quot;).)
+
+Instead of the current approach, we'll have to encode the source form of the selected member in cases like these.  I.e., p.S::x, p.N::S, and even p.::N::S::x must all be encoded differently even though for a valid instantiation they must all resolve to the same thing.  I'm thinking that we should continue to use the sr prefix, but what follows would be a &lt;type&gt; only if the qualifier is a template parameter (p.T::x) or a decltype construct (p.decltype(xx)::x); otherwise, it would encode an &quot;unresolved name&quot; (which is not a candidate for substitution; e.g., N::S might be encoded as &quot;N1N1SE&quot; even though there is a substitution code for the type ::N::S.
+
+
+Thoughts?
+
+	Daveed
+
+
+
+P.S.: What mitigates the bad news of ABI breakage is that I don't think code like this is widespread yet (and the cases that do occur are probably inlined calls).
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002340.html">[cxx-abi-dev] deleted functions, implicit move constructors, and 	the ABI
+</A></li>
+	<LI>Next message: <A HREF="002344.html">Proposed ABI changes for new C++0x SFINAE rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2343">[ date ]</a>
+              <a href="thread.html#2343">[ thread ]</a>
+              <a href="subject.html#2343">[ subject ]</a>
+              <a href="author.html#2343">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

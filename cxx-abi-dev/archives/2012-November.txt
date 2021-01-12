@@ -1,0 +1,695 @@
+From scshunt at csclub.uwaterloo.ca  Mon Nov  5 17:07:58 2012
+From: scshunt at csclub.uwaterloo.ca (Sean Hunt)
+Date: Mon, 5 Nov 2012 12:07:58 -0500
+Subject: [cxx-abi-dev] Emission of vtables with a later-declared inline key
+	function
+Message-ID: <CAMQXVwU7opsYqiyZ9Zv1j52QcyV7TO1O-CApSLSAia=wnxVVSQ@mail.gmail.com>
+
+Section 5.2.3 says "Note that if the key function is not declared
+inline in the class definition, but its definition later is always
+declared inline, it will be emitted in every object containing the
+definition."
+
+I submit that this should be changed, so that if the key function is
+later declared inline, the vtable is emitted only if used in that TU.
+If the key function is inline, it must be defined in every TU in which
+it is odr-used, and since it is necessarily virtual and non-pure, it
+is odr-used in every TU containing a definition of the class. Hence
+any TU which may see a definition of the class also necessarily
+contains a definition of the key function, so we are no better off by
+selecting this key function than we would be if the function were
+declared inline in the class declaration.
+
+Sean
+
+From rjmccall at apple.com  Mon Nov  5 19:46:32 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 05 Nov 2012 11:46:32 -0800
+Subject: [cxx-abi-dev] Emission of vtables with a later-declared inline
+ key function
+In-Reply-To: <CAMQXVwU7opsYqiyZ9Zv1j52QcyV7TO1O-CApSLSAia=wnxVVSQ@mail.gmail.com>
+References: <CAMQXVwU7opsYqiyZ9Zv1j52QcyV7TO1O-CApSLSAia=wnxVVSQ@mail.gmail.com>
+Message-ID: <FABC4DA0-F621-404B-B002-BF6985EF8B98@apple.com>
+
+On Nov 5, 2012, at 9:07 AM, Sean Hunt wrote:
+> Section 5.2.3 says "Note that if the key function is not declared
+> inline in the class definition, but its definition later is always
+> declared inline, it will be emitted in every object containing the
+> definition."
+> 
+> I submit that this should be changed, so that if the key function is
+> later declared inline, the vtable is emitted only if used in that TU.
+> If the key function is inline, it must be defined in every TU in which
+> it is odr-used, and since it is necessarily virtual and non-pure, it
+> is odr-used in every TU containing a definition of the class. Hence
+> any TU which may see a definition of the class also necessarily
+> contains a definition of the key function, so we are no better off by
+> selecting this key function than we would be if the function were
+> declared inline in the class declaration.
+
+This is all true, and I think your rule sounds fine.  I don't see any
+binary-compatibility issues with it, either, since files compiled under
+the old rule are always self-sufficient for this.
+
+Note that your proposed rule is not the optimal way of taking
+advantage of this language rule;  the optimal change is to ignore
+functions with inline definitions for the purposes of choosing the
+key function, and that's actually what ARM's modified ABI does.
+I'm not sure whether any compilers actually implement this rule,
+but it's there.  However, unlike your proposal, that rule is not
+binary-compatible on platforms (like Darwin) that don't link strong
+symbols with weak ones.
+
+John.
+
+From jason at redhat.com  Fri Nov 23 20:37:54 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 23 Nov 2012 15:37:54 -0500
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+Message-ID: <50AFDEA2.9040209@redhat.com>
+
+On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+> parameters and class type return values are passed via the address of a
+> reference if the class type has
+>      (a) a nontrivial destructor, or
+>      (b) a nontrivial copy constructor.
+>
+> Should we now also add to that:
+>      (c) a (nontrivial) move constructor
+> ?
+
+This change doesn't seem to have been applied to the ABI, though G++ 
+implements it.  What are other compilers doing?
+
+Jason
+
+
+
+From richardsmith at google.com  Mon Nov 26 05:03:38 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Sun, 25 Nov 2012 21:03:38 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <50AFDEA2.9040209@redhat.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+Message-ID: <CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+
+On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill <jason at redhat.com> wrote:
+
+> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+>
+>> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+>> parameters and class type return values are passed via the address of a
+>> reference if the class type has
+>>      (a) a nontrivial destructor, or
+>>      (b) a nontrivial copy constructor.
+>>
+>> Should we now also add to that:
+>>      (c) a (nontrivial) move constructor
+>> ?
+>>
+>
+> This change doesn't seem to have been applied to the ABI, though G++
+> implements it.  What are other compilers doing?
+
+
+I happened to be looking into this very recently... Clang implements the
+ABI as currently specified (along with the corresponding miscompiles).
+However, the proposed approach doesn't appear to remove all the
+miscompiles, for at least two reasons:
+
+1) A parameter can be passed or a return value constructed by calling a
+constructor which is not a copy or move constructor. This can happen when a
+templated constructor is selected:
+
+struct A {
+  A(const A&) = default; // suppress implicit move constructor, still
+trivial
+  template<typename T> A(T &&); // chosen for copies from non-const objects
+and for moves, not a copy constructor nor a move constructor
+};
+
+2) A parameter can be passed or a return value constructed by
+copy-list-initialization with no copy or move occurring:
+
+struct B {
+  B(int);
+  B(const B&) = delete; // deleted, but still trivial
+  B(B&&) = delete; // likewise
+  B *p = this;
+};
+B f(B x) {
+  return { 1 };
+}
+void g() {
+  f({2});
+}
+
+Both of these cases can lead to miscompiles with both g++ 4.7 and Clang
+trunk due to the ABI's rules. Both problems can also arise for classes with
+no user-declared special members.
+
+The second issue in particular seems unsolvable without a major ABI break
+or a core language change (we cannot pass types in registers if they have
+any non-trivial constructors).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121125/2a714368/attachment.html>
+
+From gdr at integrable-solutions.net  Mon Nov 26 05:33:40 2012
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Sun, 25 Nov 2012 23:33:40 -0600
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+Message-ID: <CAAiZkiA+xm0rgwE=f8U1bczb4uN_F+9b2__40E0C4mcsFjDTRw@mail.gmail.com>
+
+On Sun, Nov 25, 2012 at 11:03 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+>>>
+>>> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+>>> parameters and class type return values are passed via the address of a
+>>> reference if the class type has
+>>>      (a) a nontrivial destructor, or
+>>>      (b) a nontrivial copy constructor.
+>>>
+>>> Should we now also add to that:
+>>>      (c) a (nontrivial) move constructor
+>>> ?
+>>
+>>
+>> This change doesn't seem to have been applied to the ABI, though G++
+>> implements it.  What are other compilers doing?
+>
+>
+> I happened to be looking into this very recently... Clang implements the ABI
+> as currently specified (along with the corresponding miscompiles). However,
+> the proposed approach doesn't appear to remove all the miscompiles, for at
+> least two reasons:
+>
+> 1) A parameter can be passed or a return value constructed by calling a
+> constructor which is not a copy or move constructor. This can happen when a
+> templated constructor is selected:
+>
+> struct A {
+>   A(const A&) = default; // suppress implicit move constructor, still
+> trivial
+>   template<typename T> A(T &&); // chosen for copies from non-const objects
+> and for moves, not a copy constructor nor a move constructor
+> };
+>
+> 2) A parameter can be passed or a return value constructed by
+> copy-list-initialization with no copy or move occurring:
+>
+> struct B {
+>   B(int);
+>   B(const B&) = delete; // deleted, but still trivial
+>   B(B&&) = delete; // likewise
+>   B *p = this;
+> };
+> B f(B x) {
+>   return { 1 };
+> }
+> void g() {
+>   f({2});
+> }
+>
+> Both of these cases can lead to miscompiles with both g++ 4.7 and Clang
+> trunk due to the ABI's rules. Both problems can also arise for classes with
+> no user-declared special members.
+>
+> The second issue in particular seems unsolvable without a major ABI break or
+> a core language change (we cannot pass types in registers if they have any
+> non-trivial constructors).
+
+The examples also suggest that in-class non-static data
+member initialization is potentially ABI-breaking.
+
+Whatever the changes are, we should not lose efficient
+value transfer modes as we have today.
+
+-- Gaby
+
+From rjmccall at apple.com  Mon Nov 26 20:23:34 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 26 Nov 2012 12:23:34 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+Message-ID: <7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+
+On Nov 25, 2012, at 9:03 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+> parameters and class type return values are passed via the address of a
+> reference if the class type has
+>      (a) a nontrivial destructor, or
+>      (b) a nontrivial copy constructor.
+> 
+> Should we now also add to that:
+>      (c) a (nontrivial) move constructor
+> ?
+> 
+> This change doesn't seem to have been applied to the ABI, though G++ implements it.  What are other compilers doing?
+> 
+> I happened to be looking into this very recently... Clang implements the ABI as currently specified (along with the corresponding miscompiles). However, the proposed approach doesn't appear to remove all the miscompiles, for at least two reasons:
+> 
+> 1) A parameter can be passed or a return value constructed by calling a constructor which is not a copy or move constructor. This can happen when a templated constructor is selected:
+> 
+> struct A {
+>   A(const A&) = default; // suppress implicit move constructor, still trivial
+>   template<typename T> A(T &&); // chosen for copies from non-const objects and for moves, not a copy constructor nor a move constructor
+> };
+> 
+> 2) A parameter can be passed or a return value constructed by copy-list-initialization with no copy or move occurring:
+> 
+> struct B {
+>   B(int);
+>   B(const B&) = delete; // deleted, but still trivial
+>   B(B&&) = delete; // likewise
+>   B *p = this;
+> };
+> B f(B x) {
+>   return { 1 };
+> }
+> void g() {
+>   f({2});
+> }
+> 
+> Both of these cases can lead to miscompiles with both g++ 4.7 and Clang trunk due to the ABI's rules. Both problems can also arise for classes with no user-declared special members.
+> 
+> The second issue in particular seems unsolvable without a major ABI break or a core language change (we cannot pass types in registers if they have any non-trivial constructors).
+
+I think a relatively modest core language change would simply be to say that passing or returning a trivially copyable type is allowed to introduce extra copies.  That would make your examples have unspecified behavior.
+
+Note that AFAICT this problem is not new to C++11;  the following C++98 program never formally invokes A's (trivial) copy constructor, and yet every implementation that I know of will actually return the object in registers ? in effect, adding a trivial copy:
+  struct A {
+    A *self;
+    A() : self(this) {}
+    template <class T> A(T &t) : self(this) {}
+  };
+  A foo() {
+    A temp;
+    return temp;
+  }
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121126/f356e583/attachment.html>
+
+From richardsmith at google.com  Mon Nov 26 21:09:26 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 26 Nov 2012 13:09:26 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+Message-ID: <CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+
+On Mon, Nov 26, 2012 at 12:23 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Nov 25, 2012, at 9:03 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill <jason at redhat.com> wrote:
+>
+>> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+>>
+>>> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+>>> parameters and class type return values are passed via the address of a
+>>> reference if the class type has
+>>>      (a) a nontrivial destructor, or
+>>>      (b) a nontrivial copy constructor.
+>>>
+>>> Should we now also add to that:
+>>>      (c) a (nontrivial) move constructor
+>>> ?
+>>>
+>>
+>> This change doesn't seem to have been applied to the ABI, though G++
+>> implements it.  What are other compilers doing?
+>
+>
+> I happened to be looking into this very recently... Clang implements the
+> ABI as currently specified (along with the corresponding miscompiles).
+> However, the proposed approach doesn't appear to remove all the
+> miscompiles, for at least two reasons:
+>
+> 1) A parameter can be passed or a return value constructed by calling a
+> constructor which is not a copy or move constructor. This can happen when a
+> templated constructor is selected:
+>
+>  struct A {
+>   A(const A&) = default; // suppress implicit move constructor, still
+> trivial
+>   template<typename T> A(T &&); // chosen for copies from non-const
+> objects and for moves, not a copy constructor nor a move constructor
+>  };
+>
+> 2) A parameter can be passed or a return value constructed by
+> copy-list-initialization with no copy or move occurring:
+>
+> struct B {
+>   B(int);
+>   B(const B&) = delete; // deleted, but still trivial
+>   B(B&&) = delete; // likewise
+>   B *p = this;
+> };
+> B f(B x) {
+>   return { 1 };
+> }
+> void g() {
+>   f({2});
+> }
+>
+> Both of these cases can lead to miscompiles with both g++ 4.7 and Clang
+> trunk due to the ABI's rules. Both problems can also arise for classes with
+> no user-declared special members.
+>
+> The second issue in particular seems unsolvable without a major ABI break
+> or a core language change (we cannot pass types in registers if they have
+> any non-trivial constructors).
+>
+>
+> I think a relatively modest core language change would simply be to say
+> that passing or returning a trivially copyable type is allowed to introduce
+> extra copies.  That would make your examples have unspecified behavior.
+>
+
+The rule would need more finessing (as proposed, it would be disastrous for
+'struct B', and would still require an ABI break for classes which have
+trivial copy construction but non-trivial copy assignment), but I think
+something along these lines could be workable.
+
+Suggestion for core language:
+
+When an object of class type C is passed to or returned from a function, if
+C has a trivial, accessible copy or move constructor that is not deleted,
+and has no non-trivial copy constructors, move constructors, nor
+destructors, implementations are permitted to perform an additional copy or
+move of the object using the trivial constructor (even if it would not be
+selected by overload resolution to perform a copy or move of the object).
+[Note: This latitude is granted to allow objects of class type to be passed
+to or returned from functions in registers -- end note]
+
+Suggestion for Itanium ABI:
+
+[parameters and return values are passed by address if] the type has a
+non-trivial copy constructor, move constructor or destructor, or if neither
+the copy constructor nor the move constructor is public and non-deleted.
+
+If that seems reasonable, I'll take this over to the core reflector for
+more discussion.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121126/918e54b0/attachment-0001.html>
+
+From daveed at edg.com  Mon Nov 26 22:04:51 2012
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 26 Nov 2012 17:04:51 -0500
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+Message-ID: <A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+
+That works for me.
+
+	Daveed
+
+
+On Nov 26, 2012, at 4:09 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> On Mon, Nov 26, 2012 at 12:23 PM, John McCall <rjmccall at apple.com> wrote:
+> 
+>> On Nov 25, 2012, at 9:03 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> 
+>> On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill <jason at redhat.com> wrote:
+>> 
+>>> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+>>> 
+>>>> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+>>>> parameters and class type return values are passed via the address of a
+>>>> reference if the class type has
+>>>>     (a) a nontrivial destructor, or
+>>>>     (b) a nontrivial copy constructor.
+>>>> 
+>>>> Should we now also add to that:
+>>>>     (c) a (nontrivial) move constructor
+>>>> ?
+>>>> 
+>>> 
+>>> This change doesn't seem to have been applied to the ABI, though G++
+>>> implements it.  What are other compilers doing?
+>> 
+>> 
+>> I happened to be looking into this very recently... Clang implements the
+>> ABI as currently specified (along with the corresponding miscompiles).
+>> However, the proposed approach doesn't appear to remove all the
+>> miscompiles, for at least two reasons:
+>> 
+>> 1) A parameter can be passed or a return value constructed by calling a
+>> constructor which is not a copy or move constructor. This can happen when a
+>> templated constructor is selected:
+>> 
+>> struct A {
+>>  A(const A&) = default; // suppress implicit move constructor, still
+>> trivial
+>>  template<typename T> A(T &&); // chosen for copies from non-const
+>> objects and for moves, not a copy constructor nor a move constructor
+>> };
+>> 
+>> 2) A parameter can be passed or a return value constructed by
+>> copy-list-initialization with no copy or move occurring:
+>> 
+>> struct B {
+>>  B(int);
+>>  B(const B&) = delete; // deleted, but still trivial
+>>  B(B&&) = delete; // likewise
+>>  B *p = this;
+>> };
+>> B f(B x) {
+>>  return { 1 };
+>> }
+>> void g() {
+>>  f({2});
+>> }
+>> 
+>> Both of these cases can lead to miscompiles with both g++ 4.7 and Clang
+>> trunk due to the ABI's rules. Both problems can also arise for classes with
+>> no user-declared special members.
+>> 
+>> The second issue in particular seems unsolvable without a major ABI break
+>> or a core language change (we cannot pass types in registers if they have
+>> any non-trivial constructors).
+>> 
+>> 
+>> I think a relatively modest core language change would simply be to say
+>> that passing or returning a trivially copyable type is allowed to introduce
+>> extra copies.  That would make your examples have unspecified behavior.
+>> 
+> 
+> The rule would need more finessing (as proposed, it would be disastrous for
+> 'struct B', and would still require an ABI break for classes which have
+> trivial copy construction but non-trivial copy assignment), but I think
+> something along these lines could be workable.
+> 
+> Suggestion for core language:
+> 
+> When an object of class type C is passed to or returned from a function, if
+> C has a trivial, accessible copy or move constructor that is not deleted,
+> and has no non-trivial copy constructors, move constructors, nor
+> destructors, implementations are permitted to perform an additional copy or
+> move of the object using the trivial constructor (even if it would not be
+> selected by overload resolution to perform a copy or move of the object).
+> [Note: This latitude is granted to allow objects of class type to be passed
+> to or returned from functions in registers -- end note]
+> 
+> Suggestion for Itanium ABI:
+> 
+> [parameters and return values are passed by address if] the type has a
+> non-trivial copy constructor, move constructor or destructor, or if neither
+> the copy constructor nor the move constructor is public and non-deleted.
+> 
+> If that seems reasonable, I'll take this over to the core reflector for
+> more discussion.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From rjmccall at apple.com  Mon Nov 26 22:54:52 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 26 Nov 2012 14:54:52 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+Message-ID: <98474B05-838F-45A0-959A-38409296539D@apple.com>
+
+On Nov 26, 2012, at 2:04 PM, David Vandevoorde <daveed at edg.com> wrote:
+> That works for me.
+
+I agree, this sounds great.  Thanks, Richard!  Let me know how this
+proposal goes with the committee;  if it gets adopted, I'll change the ABI
+document.
+
+John.
+
+From jason at redhat.com  Tue Nov 27 13:47:22 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 27 Nov 2012 08:47:22 -0500
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+Message-ID: <50B4C46A.6030909@redhat.com>
+
+On 11/26/2012 04:09 PM, Richard Smith wrote:
+> Suggestion for core language:
+>
+> When an object of class type C is passed to or returned from a function,
+> if C has a trivial, accessible copy or move constructor that is not
+
+I don't think we want to check accessibility; the calling convention for 
+a type needs to be the same no matter where it's called from, and I 
+think it's fine for the compiler to use a private trivial copy 
+constructor that isn't deleted.
+
+> deleted, and has no non-trivial copy constructors, move constructors,
+
+Incidentally, if we're making this latitude explicit, we don't 
+necessarily need to involve move constructors at all.  I don't have much 
+of an opinion either way.
+
+> nor destructors, implementations are permitted to perform an additional
+> copy or move of the object using the trivial constructor (even if it
+> would not be selected by overload resolution to perform a copy or move
+> of the object). [Note: This latitude is granted to allow objects of
+> class type to be passed to or returned from functions in registers --
+> end note]
+
+I think when we added implicit move constructors we decided against 
+talking about "copy or move" of an object, since moving is a special 
+case of copying.
+
+Jason
+
+
+From richardsmith at google.com  Tue Nov 27 20:17:36 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 27 Nov 2012 12:17:36 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <50B4C46A.6030909@redhat.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<50B4C46A.6030909@redhat.com>
+Message-ID: <CAGL0aWesD4vzW82VV19tGEXHTL1J1a8GKrffkwxdeGUaXAJDxw@mail.gmail.com>
+
+On Tue, Nov 27, 2012 at 5:47 AM, Jason Merrill <jason at redhat.com> wrote:
+
+> On 11/26/2012 04:09 PM, Richard Smith wrote:
+>
+>> Suggestion for core language:
+>>
+>
+This is probably best discussed further on the core reflector.
+
+
+> When an object of class type C is passed to or returned from a function,
+>> if C has a trivial, accessible copy or move constructor that is not
+>>
+>
+> I don't think we want to check accessibility; the calling convention for a
+> type needs to be the same no matter where it's called from, and I think
+> it's fine for the compiler to use a private trivial copy constructor that
+> isn't deleted.
+
+
+The suggested ABI change requires a public constructor, not just an
+accessible one. I don't think it's OK to synthesize calls to private
+trivial copy constructors; such things might just be implementation details
+of the class:
+
+class A {
+public:
+  enum Kind { ... };
+  A(const A &a, Kind k) : A(a) {
+    if (p == &a) p = this;
+    this->k = k;
+    clog() << "Created A at address " << this << endl;
+  }
+private:
+  // Synthesize a copy constructor for use *only* in our own constructors
+  A(const A&) = default;
+  void *p;
+  Kind k;
+  // ...
+};
+
+I would be fine with restricting the core language change to only apply to
+classes with public copy/move constructors.
+
+
+>  deleted, and has no non-trivial copy constructors, move constructors,
+>>
+>
+> Incidentally, if we're making this latitude explicit, we don't necessarily
+> need to involve move constructors at all.  I don't have much of an opinion
+> either way.
+
+
+There aren't many cases which would be affected by this, but some form of
+owning wrapper for a value (with a deleted copy constructor, a trivial move
+constructor and a trivial destructor) seems plausible, and there seems to
+be no good reason to require it to be passed by address, so I'm weakly in
+favor of handling move constructors here too.
+
+
+>  nor destructors, implementations are permitted to perform an additional
+>> copy or move of the object using the trivial constructor (even if it
+>> would not be selected by overload resolution to perform a copy or move
+>> of the object). [Note: This latitude is granted to allow objects of
+>> class type to be passed to or returned from functions in registers --
+>> end note]
+>>
+>
+> I think when we added implicit move constructors we decided against
+> talking about "copy or move" of an object, since moving is a special case
+> of copying.
+
+
+I picked this wording to match the "A class object can be copied or moved
+in two ways" in [class.copy]p1, but this seems fine to me either way.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121127/9518aff9/attachment.html>
+

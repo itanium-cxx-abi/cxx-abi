@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> array new-expressions: proposal
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20array%20new-expressions%3A%20proposal&In-Reply-To=%3C10001211016.ZM96896%40isolde.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000458.html">
+   <LINK REL="Next"  HREF="000461.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>array new-expressions: proposal</H1>
+    <B>Matt Austern</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20array%20new-expressions%3A%20proposal&In-Reply-To=%3C10001211016.ZM96896%40isolde.engr.sgi.com%3E"
+       TITLE="array new-expressions: proposal">austern at isolde.engr.sgi.com
+       </A><BR>
+    <I>Fri Jan 21 18:16:55 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000458.html">Agenda for 20 January
+</A></li>
+        <LI>Next message: <A HREF="000461.html">array new-expressions: proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>WHAT THE STANDARD SAYS. (3.7.3.1, 5.3.4, and 18.4.1.3)
+
+Array new has the form &quot;new(ARGS) T[n]&quot;.  The &quot;(ARGS)&quot;
+part is optional.  If it's present then this is a placement
+new-expression, and we use a version of operator new[] with
+two or more arguments, otherwise it's an ordinary new-
+expression, and we use a version of operator new[] with one
+argument.  For the purposes of this proposal the distinction
+isn't all that important.
+
+After finding the appropriate operator new, a new-expression
+obtains storage with
+    void* p = operator new[](n1, ARGS),
+where n1 &gt;= n * sizeof(T).  It then constructs n objects of type
+T starting at position p1, where p1 = p + delta.  The return
+value is p1.
+
+It is required (3.7.3.1/2) that the return value of any operator
+new[], whether it's built-in or provided by the user, must be
+suitably aligned for objects of any type.
+
+If T is &quot;char&quot; or &quot;unsigned char&quot; the standard requires that
+delta is a nonnegative multiple of the most stringent alignment
+constraint for objects of size less than or equal to n
+(5.3.4/10).  Otherwise the only restriction is that delta is
+nonnegative.
+
+Some implementations store the number of elements in the array at
+a negative offset from p1.  The standard neither requires nor
+forbids it.
+
+There's a predefined placement version of array operator new,
+    ::operator new[](size_t n1, void* p),
+that does nothing but return p.  p must be a pointer to the
+beginning of some array of size at least n1.  The standard
+doesn't tell users how large an array they need.  Many users
+probably assume that it's sufficient for the array to be of size
+n * sizeof(T), but there's no basis in the standard for that
+assumption.
+
+IA-64 SPECIFICS
+
+On IA-64 long double is 80 bits.  long double has 128-bit alignment,
+as do classes and unions containing long double, so sizeof(long double)
+is 16.  All other types have 64-bit alignment.
+
+WHAT THE ABI NEEDS TO SPECIFY
+
+(1) Given n, and T, what are n1 and delta?
+    (a) Are T=char and T=unsigned char special cases?  (Or,
+        perhaps, is sizeof(T)=1 a special case?)
+    (b) Is ::operator new[](size_t, void*) a special case?
+    (c) Is ::operator new[](size_t), which is used for
+        non-placement new, a special case?
+    (d) Is ::operator new[](size_t, const nothrow_t&amp;) a
+        special case?  I can't find anything in the standard
+        guaranteeing that you can delete an array allocated
+        with nothrow array new using an ordinary array delete-
+        expression, but users probably expect it, and
+        legitimately so.
+(2) Do we store n at a negative offset from p1?  (This affects
+    the answer to question 1.)  If so, we need to specify
+    precisely what that offset is.
+
+
+PROPOSAL A.
+
+No version of operator new[] is a special case.  For any array
+new-expression we store the number of elements in the array,
+as a size_t, at an offset of -sizeof(size_t) from the pointer
+returned by the new-expression.  For any type T other than char,
+unsigned char, long double, or a type containing a long double,
+n1 = n * sizeof(T) + sizeof(size_t).   For those three types,
+since we need to preserve long double alignment, n1 = n * sizeof(T) +
+sizeof(long double).
+
+Pseudocode for new(ARGS) T[n] under this proposal:
+
+    if T = char or unsigned char, or if it has long double alignment,
+      padding = sizeof(long double)
+    else
+      padding = sizeof(size_t)
+
+    p = operator new[](n * sizeof(T) + padding, ARGS)
+
+    p1 = (T*) (p + padding)
+    ((unsigned long*) p1 - 1) = n
+
+    for i = [0, n)
+      create a T, using the default constructor, at p1[i]
+
+    return p1
+
+
+PROPOSAL B.
+
+::<i>operator new[](size_t, void*) is a special case.  For that
+</I>version of operator new[] only, n1 = n * sizeof(T).  We do not
+store the number of elements in such an array anywhere.
+
+Pseudocode for new(ARGS) T[n] under this proposal:
+
+    If the expression is new(p) T[n], and if overload resolution
+    determines we're using ::operator new[](size_t, void*), then
+      p1 = (T*) p
+
+      for i = [0, n)
+        create a T, using the default constructor, at p1[i]
+
+      return p1
+
+    For all other cases, same as proposal A.
+
+
+Proposal A is simpler, but proposal B probably conforms more
+closely to user expectations.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000458.html">Agenda for 20 January
+</A></li>
+	<LI>Next message: <A HREF="000461.html">array new-expressions: proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

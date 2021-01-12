@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of reference temporaries
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20reference%20temporaries&In-Reply-To=%3C41A87A23-895A-4429-89A2-0C04073BF39D%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002713.html">
+   <LINK REL="Next"  HREF="002715.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of reference temporaries</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20reference%20temporaries&In-Reply-To=%3C41A87A23-895A-4429-89A2-0C04073BF39D%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of reference temporaries">rjmccall at apple.com
+       </A><BR>
+    <I>Mon May  5 19:10:26 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002713.html">[cxx-abi-dev] Mangling of reference temporaries
+</A></li>
+        <LI>Next message: <A HREF="002715.html">[cxx-abi-dev] Mangling of reference temporaries
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2714">[ date ]</a>
+              <a href="thread.html#2714">[ thread ]</a>
+              <a href="subject.html#2714">[ subject ]</a>
+              <a href="author.html#2714">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On May 5, 2014, at 11:07 AM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+&gt;<i> On 5 May 2014 10:14, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;<i> On May 5, 2014, at 10:02 AM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On 5 May 2014 09:13, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On May 4, 2014, at 8:00 PM, David Majnemer &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">david.majnemer at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;<i> &gt; The Itanium ABI does not seem to provide a mangling for reference temporaries.
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; Consider the following:
+</I>&gt;&gt;<i> &gt; struct A { const int (&amp;x)[3]; };
+</I>&gt;&gt;<i> &gt; struct B { const A (&amp;x)[2]; };
+</I>&gt;&gt;<i> &gt; template &lt;typename T&gt; B &amp;&amp;b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+</I>&gt;&gt;<i> &gt; B &amp;temp = b&lt;void&gt;;
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; The temporaries created by instantiating b&lt;void&gt; must be the same in all translation units.
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> What does GCC do?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> GCC trunk seems to use
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   &lt;special-name&gt; ::= GR &lt;object name&gt; &lt;nonnegative number&gt;
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> where the first reference temporary gets number 0, and so on. It appears to number them through a post-order tree walk of the expression. Older versions of GCC did not add a number, IIRC.
+</I>&gt;<i> 
+</I>&gt;<i> Okay.  So we have two different manglings out there that both look basically the same except for an off-by-one and a major semantic ordering difference.  I think we should either standardize on one or the other or switch to a different prefix entirely.
+</I>&gt;<i> 
+</I>&gt;<i> Looking at the GCC output again, I see:
+</I>&gt;<i>   * GCC actually does seem to be using lexical order (of the start of the expression) after all (at least in the std::initializer_list array temporary case).
+</I>&gt;<i>   * GCC emits these symbols with internal linkage.
+</I>&gt;<i> 
+</I>&gt;<i> So I don't think there's any compatibility problem with GCC.
+</I>
+Okay.
+
+&gt;<i> Has the clang mangling actually been used in a released compiler, or did it just get implemented?
+</I>&gt;<i> 
+</I>&gt;<i> Sort of? Until very recently, Clang used the same mangling for all the temporaries, and added numbers to disambiguate, so we got the current proposal by accident (except the numbering starts from 1 instead of from 0) -- at least, in some cases: Clang would number the temporaries in a different order if they were initialized by constant expressions (because it happened to emit them in a different order).
+</I>
+Yeah, we don&#8217;t need to work to maintain compatibility with that.
+
+&gt;<i> Hmm.  Putting a &lt;number&gt; after a &lt;name&gt; requires demangler lookahead, doesn&#8217;t it?
+</I>&gt;<i> 
+</I>&gt;<i> &lt;name&gt; is self-delimiting, so a demangler can walk over it, then read digits until it sees a non-digit or end-of-mangled-name. (&lt;encoding&gt;s are only nested if they appear within a &lt;local-name&gt;, which has a terminating E.) Not sure if that addresses your concern, though.
+</I>
+Ah, right, I was thinking of &lt;encoding&gt;.
+
+Let&#8217;s just follow the example of &lt;susbtitution&gt;, which is basically what you&#8217;re proposing except a &lt;seq-id&gt; instead of a &lt;number&gt; and always followed by a _.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/dc8169ec/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/dc8169ec/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002713.html">[cxx-abi-dev] Mangling of reference temporaries
+</A></li>
+	<LI>Next message: <A HREF="002715.html">[cxx-abi-dev] Mangling of reference temporaries
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2714">[ date ]</a>
+              <a href="thread.html#2714">[ thread ]</a>
+              <a href="subject.html#2714">[ subject ]</a>
+              <a href="author.html#2714">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

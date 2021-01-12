@@ -1,0 +1,273 @@
+From hinnant at twcny.rr.com  Wed Jan 19 18:50:15 2011
+From: hinnant at twcny.rr.com (Howard Hinnant)
+Date: Wed, 19 Jan 2011 13:50:15 -0500
+Subject: __cxa_demangle memory ownership issue
+Message-ID: <CC33B1FD-01CF-4E8D-8A2A-C8E4026C8FB5@twcny.rr.com>
+
+Given:
+
+char* __cxa_demangle (const char* mangled_name,
+				   char* buf,
+				   size_t* n,
+				   int* status);
+
+If buf and n are non-null and if __cxa_demangle returns NULL (e.g. because of an invalid mangled_name), does __cxa_demangle  free(buf) or not?  The spec seems ambiguous on this point.
+
+Thanks,
+Howard
+
+
+
+From hhinnant at apple.com  Wed Jan 19 17:30:39 2011
+From: hhinnant at apple.com (Howard Hinnant)
+Date: Wed, 19 Jan 2011 12:30:39 -0500
+Subject: __cxa_demangle memory ownership issue
+Message-ID: <44EC160B-F6DE-43F8-959A-AD52FA270A38@apple.com>
+
+Given:
+
+char* __cxa_demangle (const char* mangled_name,
+				   char* buf,
+				   size_t* n,
+				   int* status);
+
+If buf and n are non-null and if __cxa_demangle returns NULL (e.g. because of an invalid mangled_name), does __cxa_demangle  free(buf) or not?  The spec seems ambiguous on this point.
+
+Thanks,
+Howard
+
+
+
+From dhandly at cup.hp.com  Thu Jan 20 06:31:46 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 19 Jan 2011 22:31:46 -0800 (PST)
+Subject: [cxx-abi-dev] __cxa_demangle memory ownership issue
+Message-ID: <201101200631.WAA09309@hpcll183.cup.hp.com>
+
+>From: Howard Hinnant <hhinnant at apple.com>
+>char* __cxa_demangle(const char* mangled_name, char* buf, size_t* n,
+>				   int* status);
+
+>If buf and n are non-null and if __cxa_demangle returns NULL (e.g.
+>because of an invalid mangled_name), does __cxa_demangle free(buf) or
+>not?  The spec seems ambiguous on this point.
+
+My implementation never frees anything unless it is too small.
+
+The spec isn't ambiguous if you assume you do ONLY what is mentioned under
+Memory management.
+
+
+From hinnant at twcny.rr.com  Thu Jan 20 14:07:40 2011
+From: hinnant at twcny.rr.com (Howard Hinnant)
+Date: Thu, 20 Jan 2011 09:07:40 -0500
+Subject: [cxx-abi-dev] __cxa_demangle memory ownership issue
+In-Reply-To: <201101200631.WAA09309@hpcll183.cup.hp.com>
+References: <201101200631.WAA09309@hpcll183.cup.hp.com>
+Message-ID: <205C13C1-DD35-408A-BC68-A9903361A261@twcny.rr.com>
+
+On Jan 20, 2011, at 1:31 AM, Dennis Handly wrote:
+
+>> From: Howard Hinnant <hhinnant at apple.com>
+>> char* __cxa_demangle(const char* mangled_name, char* buf, size_t* n,
+>> 				   int* status);
+> 
+>> If buf and n are non-null and if __cxa_demangle returns NULL (e.g.
+>> because of an invalid mangled_name), does __cxa_demangle free(buf) or
+>> not?  The spec seems ambiguous on this point.
+> 
+> My implementation never frees anything unless it is too small.
+> 
+> The spec isn't ambiguous if you assume you do ONLY what is mentioned under
+> Memory management.
+
+Ok, thanks.
+
+I guess it seemed ambiguous to me only because I'm used to C++ memory ownership patterns and I thought of the client passing ownership in buf and receiving it back in the return value (e.g. like you would do with auto_ptr).
+
+-Howard
+
+
+
+From doug.gregor at gmail.com  Fri Jan 21 00:24:36 2011
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Thu, 20 Jan 2011 16:24:36 -0800
+Subject: [cxx-abi-dev] Mangling ambiguity with argument packs in template
+ argument lists
+In-Reply-To: <EC9B15D9-7580-47BF-93A8-68879CBC488A@edg.com>
+References: <EC9B15D9-7580-47BF-93A8-68879CBC488A@edg.com>
+Message-ID: <AANLkTin4HohHFr5rmvgJ_AKz73Sfra_JgQ_UNryOJNL0@mail.gmail.com>
+
+On Mon, Dec 20, 2010 at 9:41 AM, Mike Herrick <mjh at edg.com> wrote:
+> We ran into a mangling ambiguity with argument packs in template argument lists (where both use the letter "I"):
+>
+> ?<template-args> ::= I <template-arg>+ E
+> ?<template-arg> ::= <type> ? ? ? ? ? ? ? ? ? ? ? ? # type or template
+> ? ? ? ? ? ? ? ? ::= X <expression> E ? ? ? ? ? ? ? # expression
+> ? ? ? ? ? ? ? ? ::= <expr-primary> ? ? ? ? ? ? ? ? # simple expressions
+> ? ? ? ? ? ? ? ? ::= I <template-arg>* E ? ? ? ? ? ?# argument pack
+> ? ? ? ? ? ? ? ? ::= sp <expression> ? ? ? ? ? ? ? ?# pack expansion (C++0x)
+>
+> Here's an example where two different source constructs generate the same mangled name (_Z1fI1BI1AIiEEEDTcmfp_fp_ET_):
+>
+> $ cat foo.cpp
+> ?template <class T> auto f(T p1) -> decltype(p1, p1);
+> ?template <class T> struct A {};
+> #if FOO
+> ?template <class T> struct B {};
+> ?B<A<int>> b;
+> #else
+> ?template <template <class TT> class T, class ... U> struct B {};
+> ?B<A,int> b;
+> #endif
+> ?int main() {
+> ? ?f(b);
+> ?}
+> $ g++451 -DFOO -std=c++0x foo.cpp
+> /tmp/ccOqFYBI.o(.text+0xc): In function `main':
+> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+> collect2: ld returned 1 exit status
+> $ g++451 -UFOO -std=c++0x foo.cpp
+> /tmp/cc448n5U.o(.text+0xc): In function `main':
+> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+> collect2: ld returned 1 exit status
+> $
+>
+> When the demangler gets to the "I" after "1A", it's ambiguous whether the "I" represents an argument pack or a template argument (as noted by g++ 4.5.1 issuing the same demangled name for both cases).
+>
+> To address this, we propose changing the mangling for argument packs to use "J" rather than "I":
+>
+> ?<template-arg> ::= J <template-arg>* E ? ? ? ? ? ? ?# argument pack
+>
+> This change is not backward compatible.
+>
+> I'm attaching a patch that includes this change with the others that I've proposed.
+
+These changes seem perfectly reasonable to me.
+
+  - Doug
+
+
+From doug.gregor at gmail.com  Wed Jan 26 17:36:43 2011
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 26 Jan 2011 09:36:43 -0800
+Subject: Mangling for C++0x ref-qualifier
+Message-ID: <AANLkTikOzUdr2DKLMo0UBq12oiAtT2w0RCtEmrYSMfa9@mail.gmail.com>
+
+We don't yet have a mangling for C++0x ref-qualifiers, e.g.,
+
+  struct X {
+    int f() &;
+    int g() &&;
+    int h() const &&;
+  };
+
+I propose that we use 'R' for a & ref-qualifier and 'O' for a &&
+ref-qualifier, following the mangling of the cv-qualifiers for the
+member function. The attached patch has the specifics.
+
+  - Doug
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ref-qualifier-abi.patch
+Type: application/octet-stream
+Size: 2545 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20110126/50be95ad/attachment.obj>
+
+From mjh at edg.com  Fri Jan 28 19:44:42 2011
+From: mjh at edg.com (Mike Herrick)
+Date: Fri, 28 Jan 2011 14:44:42 -0500
+Subject: [cxx-abi-dev] Mangling for C++0x ref-qualifier
+In-Reply-To: <AANLkTikOzUdr2DKLMo0UBq12oiAtT2w0RCtEmrYSMfa9@mail.gmail.com>
+References: <AANLkTikOzUdr2DKLMo0UBq12oiAtT2w0RCtEmrYSMfa9@mail.gmail.com>
+Message-ID: <08AB600A-E94A-47EC-B727-CE60C3D2525F@edg.com>
+
+On Jan 26, 2011, at 12:36 PM, Doug Gregor wrote:
+
+> We don't yet have a mangling for C++0x ref-qualifiers, e.g.,
+> 
+>  struct X {
+>    int f() &;
+>    int g() &&;
+>    int h() const &&;
+>  };
+> 
+> I propose that we use 'R' for a & ref-qualifier and 'O' for a &&
+> ref-qualifier, following the mangling of the cv-qualifiers for the
+> member function. The attached patch has the specifics.
+> 
+>  - Doug
+> <ref-qualifier-abi.patch>
+
+Looks okay to us.
+
+Mike.
+
+
+From mjh at edg.com  Fri Jan 28 19:49:11 2011
+From: mjh at edg.com (Mike Herrick)
+Date: Fri, 28 Jan 2011 14:49:11 -0500
+Subject: [cxx-abi-dev] Mangling ambiguity with argument packs in template argument lists
+In-Reply-To: <AANLkTin4HohHFr5rmvgJ_AKz73Sfra_JgQ_UNryOJNL0@mail.gmail.com>
+References: <EC9B15D9-7580-47BF-93A8-68879CBC488A@edg.com> <AANLkTin4HohHFr5rmvgJ_AKz73Sfra_JgQ_UNryOJNL0@mail.gmail.com>
+Message-ID: <BCC25107-AA84-465A-AE36-94EBCB5C56B7@edg.com>
+
+
+On Jan 20, 2011, at 7:24 PM, Doug Gregor wrote:
+
+> On Mon, Dec 20, 2010 at 9:41 AM, Mike Herrick <mjh at edg.com> wrote:
+>> We ran into a mangling ambiguity with argument packs in template argument lists (where both use the letter "I"):
+>> 
+>>  <template-args> ::= I <template-arg>+ E
+>>  <template-arg> ::= <type>                         # type or template
+>>                 ::= X <expression> E               # expression
+>>                 ::= <expr-primary>                 # simple expressions
+>>                 ::= I <template-arg>* E            # argument pack
+>>                 ::= sp <expression>                # pack expansion (C++0x)
+>> 
+>> Here's an example where two different source constructs generate the same mangled name (_Z1fI1BI1AIiEEEDTcmfp_fp_ET_):
+>> 
+>> $ cat foo.cpp
+>>  template <class T> auto f(T p1) -> decltype(p1, p1);
+>>  template <class T> struct A {};
+>> #if FOO
+>>  template <class T> struct B {};
+>>  B<A<int>> b;
+>> #else
+>>  template <template <class TT> class T, class ... U> struct B {};
+>>  B<A,int> b;
+>> #endif
+>>  int main() {
+>>    f(b);
+>>  }
+>> $ g++451 -DFOO -std=c++0x foo.cpp
+>> /tmp/ccOqFYBI.o(.text+0xc): In function `main':
+>> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+>> collect2: ld returned 1 exit status
+>> $ g++451 -UFOO -std=c++0x foo.cpp
+>> /tmp/cc448n5U.o(.text+0xc): In function `main':
+>> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+>> collect2: ld returned 1 exit status
+>> $
+>> 
+>> When the demangler gets to the "I" after "1A", it's ambiguous whether the "I" represents an argument pack or a template argument (as noted by g++ 4.5.1 issuing the same demangled name for both cases).
+>> 
+>> To address this, we propose changing the mangling for argument packs to use "J" rather than "I":
+>> 
+>>  <template-arg> ::= J <template-arg>* E              # argument pack
+>> 
+>> This change is not backward compatible.
+>> 
+>> I'm attaching a patch that includes this change with the others that I've proposed.
+> 
+> These changes seem perfectly reasonable to me.
+
+Thanks, Doug.
+
+Are there any other comments (particularly on the backward-incompatible nature of this change, say from any implementations that have already implemented it)?
+
+Mike.
+
+
+

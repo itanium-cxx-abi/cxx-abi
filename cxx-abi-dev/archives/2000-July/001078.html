@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Notes from the meeting
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C20000706164513A.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001077.html">
+   <LINK REL="Next"  HREF="001079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Notes from the meeting</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C20000706164513A.mitchell%40codesourcery.com%3E"
+       TITLE="Notes from the meeting">mark at codesourcery.com
+       </A><BR>
+    <I>Thu Jul  6 23:45:13 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001077.html">Notes from the meeting
+</A></li>
+        <LI>Next message: <A HREF="001079.html">Notes from the meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1078">[ date ]</a>
+              <a href="thread.html#1078">[ thread ]</a>
+              <a href="subject.html#1078">[ subject ]</a>
+              <a href="author.html#1078">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Jim&quot; == Jim Dehnert &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at baalbek.engr.sgi.com</A>&gt; writes:
+</I>
+    Jim&gt; 	extern &quot;C&quot; int __cxx_gv_test_and_set ( long long *gv
+    Jim&gt; );
+
+    Jim&gt; The routine returns &quot;true&quot; to only one caller, and &quot;false&quot; to
+    Jim&gt; all others after the first has released the lock.  We
+    Jim&gt; neglected to note that the release also needs specification.
+    Jim&gt; How about:
+
+    Jim&gt; 	extern &quot;C&quot; void __cxx_gv_release ( long long *gv );
+
+    Jim&gt; Comments?
+
+I suggest a simpler interface, and make it mandatory:
+
+  extern &quot;C&quot; int __cxx_gv_set_guard_variable (long long *gv);
+
+This function returns true if the caller is the first to call the
+function; false otherwise.  The right code to generate would be:
+
+  if (/* low-order byte of guard variable not already set*
+      &amp;&amp; __cxx_gv_set_guard_variable (&amp;gv)) {
+    // Do initialization
+  }
+
+This causes you to take the hit of the function call only the first
+time through, except that if multiple threads reach this point all at
+once the first time, several of them may call the function.  (A
+correct compiler can skip the test, but not the call, at the cost of
+more function calls) So, the function itself must be thread safe, if
+it cares.
+
+A non-thread-safe implementation is:
+
+  int __cxx_gv_set_guard_variable (long long* gv) {
+    if (*((char*) gv) == 0) {
+      *((char*) gv) = 1;
+      return 1;
+    } else
+      return 0;
+  } 
+
+A thread-safe implementation is something like:
+
+  int __cxx_gv_set_guard_variable (long long* gv) {
+    static mutex m;			 
+    int result;
+
+    lock(m);
+    if (*((char*) gv) == 0) {
+      *((char*) gv) = 1;
+      result = 1;
+    } else 
+      result = 0;
+    unlock(m);
+    return result;
+  } 
+
+Does that make sense?
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001077.html">Notes from the meeting
+</A></li>
+	<LI>Next message: <A HREF="001079.html">Notes from the meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1078">[ date ]</a>
+              <a href="thread.html#1078">[ thread ]</a>
+              <a href="subject.html#1078">[ subject ]</a>
+              <a href="author.html#1078">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

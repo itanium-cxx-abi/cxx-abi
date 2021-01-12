@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of calling convention attributes
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20calling%20convention%20attributes&In-Reply-To=%3C5571CB08-C530-4186-A9AB-39F8DD65B85D%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002840.html">
+   <LINK REL="Next"  HREF="002843.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of calling convention attributes</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20calling%20convention%20attributes&In-Reply-To=%3C5571CB08-C530-4186-A9AB-39F8DD65B85D%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of calling convention attributes">rjmccall at apple.com
+       </A><BR>
+    <I>Tue May  5 22:31:01 UTC 2015</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002840.html">[cxx-abi-dev] Mangling of calling convention attributes
+</A></li>
+        <LI>Next message: <A HREF="002843.html">[cxx-abi-dev] Mangling of calling convention attributes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2841">[ date ]</a>
+              <a href="thread.html#2841">[ thread ]</a>
+              <a href="subject.html#2841">[ subject ]</a>
+              <a href="author.html#2841">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On May 5, 2015, at 3:02 PM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;<i> On 05/05/2015 05:00 PM, Jason Merrill wrote:
+</I>&gt;&gt;<i> ia32 targets support a variety of calling conventions, which correspond
+</I>&gt;&gt;<i> to various attributes (cdecl, stdcall, regparm, etc.).  Currently these
+</I>&gt;&gt;<i> are not represented in mangling, which leads to problems with template
+</I>&gt;&gt;<i> instantiation; I'm thinking about starting to treat them as vendor
+</I>&gt;&gt;<i> qualifiers, so given
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> extern &quot;C&quot; void abort();
+</I>&gt;&gt;<i> template &lt;typename F, typename T&gt;
+</I>&gt;&gt;<i> void IndirectExternCall(F f, T t1, T t2) {
+</I>&gt;&gt;<i>   typedef F (*WrapF)(F);
+</I>&gt;&gt;<i>   f (t1, t2);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> __attribute__((regparm(3), stdcall))
+</I>&gt;&gt;<i> void regparm_func (int i, int j)
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   if (i != 24 || j != 42)
+</I>&gt;&gt;<i>     abort();
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> void normal_func (int i, int j)
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   if (i != 24 || j != 42)
+</I>&gt;&gt;<i>     abort();
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> int main()
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   IndirectExternCall (regparm_func, 24, 42);
+</I>&gt;&gt;<i>   IndirectExternCall (normal_func, 24, 42);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> the two instantiations of IndirectExternCall would be mangled
+</I>&gt;&gt;<i> differently.  Currently my prototype mangles stdcall as U7stdcall and
+</I>&gt;&gt;<i> regparm(3) as U11regparmLi3E, i.e. mangling the attribute argument like
+</I>&gt;&gt;<i> a template argument.
+</I>&gt;<i> 
+</I>&gt;<i> So the first instantiation is
+</I>&gt;<i> 
+</I>&gt;<i> _Z18IndirectExternCallIPU7stdcallU11regparmLi3EFviiEiEvT_T0_S3_
+</I>
+Okay.  So, basically a qualifier on the function type itself?  Seems reasonable to me.
+
+These qualifiers aren&#8217;t order-sensitive, so we need to specify the order; alphabetical order is the most obvious, which I think would make this mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+
+For member pointer types, this would become part of the member type.  That&#8217;s also where we put ref-qualifiers and CV-qualifiers, so we need to specify an order; I suggest putting these attributes after the CV/ref qualifiers.
+
+Should we mangle these as part of an entity&#8217;s type?  It&#8217;s not possible to directly overload using the CC of a function itself, so it&#8217;s not strictly necessary.  There&#8217;s a general issue with overloading function templates by the types of non-type template parameters, but I don&#8217;t think it affects us in this specific case because the argument itself resolves the ambiguity.
+
+John.
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002840.html">[cxx-abi-dev] Mangling of calling convention attributes
+</A></li>
+	<LI>Next message: <A HREF="002843.html">[cxx-abi-dev] Mangling of calling convention attributes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2841">[ date ]</a>
+              <a href="thread.html#2841">[ thread ]</a>
+              <a href="subject.html#2841">[ subject ]</a>
+              <a href="author.html#2841">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

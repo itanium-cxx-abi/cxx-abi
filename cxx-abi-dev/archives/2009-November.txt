@@ -1,0 +1,1361 @@
+From jason at redhat.com  Tue Nov 10 20:10:39 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 10 Nov 2009 15:10:39 -0500
+Subject: mangling vector types
+Message-ID: <4AF9C8BF.2020602@redhat.com>
+
+G++ has been using U8__vector<type> for mangling vector types forever, 
+which has been an increasing problem as vector types become more 
+prevalent--primarily because the mangling doesn't specify the number of 
+elements in the vector, and processors are continuing to support more 
+and more different vector sizes.
+
+I assume that other compilers need to deal with vector types as well, so 
+they ought to be part of the standard ABI.
+
+I'm thinking
+
+  Dv <length> <element type>
+
+A compact representation of the length would be the log2 of the number 
+of elements.  However, this wouldn't work very well with template 
+substitution, and it seems reasonable to want to write a template that 
+will work on vectors of varying lengths, and indeed it's possible to do 
+so in G++ now (though it won't work with deduction).
+
+So I think that we want to just give the length.  But should it be in 
+terms of elements or bytes?
+
+Jason
+
+
+From mark at codesourcery.com  Tue Nov 10 20:54:56 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 10 Nov 2009 12:54:56 -0800
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9C8BF.2020602@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com>
+Message-ID: <4AF9D320.4040708@codesourcery.com>
+
+Jason Merrill wrote:
+
+>  Dv <length> <element type>
+> 
+> So I think that we want to just give the length.  But should it be in
+> terms of elements or bytes?
+
+I agree: length, not log2(length).
+
+I think number of elements, not bytes, though; for all processors I know
+of bytes = length * sizeof(element_type), so using bytes is just a less
+compact encoding with no increase in information.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Tue Nov 10 21:18:18 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 10 Nov 2009 16:18:18 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9C8BF.2020602@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com>
+Message-ID: <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com>
+
+
+On Nov 10, 2009, at 3:10 PM, Jason Merrill wrote:
+
+> G++ has been using U8__vector<type> for mangling vector types  
+> forever, which has been an increasing problem as vector types become  
+> more prevalent--primarily because the mangling doesn't specify the  
+> number of elements in the vector, and processors are continuing to  
+> support more and more different vector sizes.
+
+
+Yes, it's been painful :-P
+
+
+> I assume that other compilers need to deal with vector types as  
+> well, so they ought to be part of the standard ABI.
+>
+> I'm thinking
+>
+> Dv <length> <element type>
+
+
+Does that need a separator?  I know that element_type is currently  
+only builtin types (and template parameters?), but it seems prudent to  
+allow for future extension.
+
+Maybe
+
+	Dv <n_elements number> _ <element type>
+
+?
+
+>
+> A compact representation of the length would be the log2 of the  
+> number of elements.  However, this wouldn't work very well with  
+> template substitution, and it seems reasonable to want to write a  
+> template that will work on vectors of varying lengths, and indeed  
+> it's possible to do so in G++ now (though it won't work with  
+> deduction).
+>
+> So I think that we want to just give the length.  But should it be  
+> in terms of elements or bytes?
+
+
+Elements, IMO.
+
+	Daveed
+
+
+
+From jason at redhat.com  Tue Nov 10 21:30:01 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 10 Nov 2009 16:30:01 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com>
+Message-ID: <4AF9DB59.3070103@redhat.com>
+
+On 11/10/2009 04:18 PM, David Vandevoorde wrote:
+> On Nov 10, 2009, at 3:10 PM, Jason Merrill wrote:
+
+>> Dv <length> <element type>
+
+> Does that need a separator? I know that element_type is currently only
+> builtin types (and template parameters?), but it seems prudent to allow
+> for future extension.
+>
+> Maybe
+>
+> Dv <n_elements number> _ <element type>
+>
+> ?
+
+Yes, I agree.
+
+Jason
+
+
+From jason at redhat.com  Tue Nov 10 22:23:27 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 10 Nov 2009 17:23:27 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9D320.4040708@codesourcery.com>
+References: <4AF9C8BF.2020602@redhat.com> <4AF9D320.4040708@codesourcery.com>
+Message-ID: <4AF9E7DF.5050604@redhat.com>
+
+On 11/10/2009 03:54 PM, Mark Mitchell wrote:
+> I think number of elements, not bytes, though; for all processors I know
+> of bytes = length * sizeof(element_type), so using bytes is just a less
+> compact encoding with no increase in information.
+
+It's not a matter of more or less information, but it does determine how 
+a template parameter could be represented.  Specifically, currently in 
+GCC vector types are currently specified with the vector_size attribute, 
+which takes an argument of bytes, i.e.
+
+template <class T, int I>
+void f (T vec __attribute ((vector_size (I))));
+
+(which doesn't work currently)
+
+to represent the type of vec in an element-based mangling, the number of 
+elements would need to be expressed as I/sizeof(T), which is not more 
+compact.
+
+That, and the fact that vector_size takes a number of bytes rather than 
+elements suggests that maybe the former is more natural for working with 
+vector hardware.
+
+Jason
+
+
+From mark at codesourcery.com  Tue Nov 10 22:49:53 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 10 Nov 2009 14:49:53 -0800
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9E7DF.5050604@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com> <4AF9D320.4040708@codesourcery.com> <4AF9E7DF.5050604@redhat.com>
+Message-ID: <4AF9EE11.7080905@codesourcery.com>
+
+Jason Merrill wrote:
+
+> to represent the type of vec in an element-based mangling, the number of
+> elements would need to be expressed as I/sizeof(T), which is not more
+> compact.
+> 
+> That, and the fact that vector_size takes a number of bytes rather than
+> elements suggests that maybe the former is more natural for working with
+> vector hardware.
+
+>From a language-design point of view, I don't understand why we're using
+bytes there.  It seems unnecessarily low-level.  So, using a byte-based
+mangling seems consistent with GCC's language extension, but I'm not
+sure why that's a particularly good language extension.  Of course, if
+it's a language extension that everyone has accepted and is therefore
+standard (not in the ISO sense, but in the everyone-does-it sense), then
+abstract goodness is irrelevant.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Tue Nov 10 23:02:46 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 10 Nov 2009 18:02:46 -0500
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <1255467935.5960.8.camel@janis-laptop>
+References: <1255467935.5960.8.camel@janis-laptop>
+Message-ID: <4AF9F116.9050708@redhat.com>
+
+Incidentally, should the type_infos for the fundamental decimal types be 
+added to the list of types with type_infos in the runtime library in 
+2.9.2?  I lean slightly towards not, but only slightly.
+
+Jason
+
+
+From daveed at edg.com  Tue Nov 10 23:06:55 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 10 Nov 2009 18:06:55 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9EE11.7080905@codesourcery.com>
+References: <4AF9C8BF.2020602@redhat.com> <4AF9D320.4040708@codesourcery.com> <4AF9E7DF.5050604@redhat.com> <4AF9EE11.7080905@codesourcery.com>
+Message-ID: <D177CCC9-D561-41A9-9F8C-B44239AE0A35@edg.com>
+
+
+On Nov 10, 2009, at 5:49 PM, Mark Mitchell wrote:
+
+> Jason Merrill wrote:
+>
+>> to represent the type of vec in an element-based mangling, the  
+>> number of
+>> elements would need to be expressed as I/sizeof(T), which is not more
+>> compact.
+>>
+>> That, and the fact that vector_size takes a number of bytes rather  
+>> than
+>> elements suggests that maybe the former is more natural for working  
+>> with
+>> vector hardware.
+>
+> From a language-design point of view, I don't understand why we're  
+> using
+> bytes there.  It seems unnecessarily low-level.  So, using a byte- 
+> based
+> mangling seems consistent with GCC's language extension, but I'm not
+> sure why that's a particularly good language extension.  Of course, if
+> it's a language extension that everyone has accepted and is therefore
+> standard (not in the ISO sense, but in the everyone-does-it sense),  
+> then
+> abstract goodness is irrelevant.
+
+
+Actually, other extensions (e.g., OpenCL) deal with "number of  
+elements" instead of "number of bytes".
+
+Could GCC introduce a new attribute "vector" such that __attribute 
+((vector(N))) is equivalent to __attribute((vector_size(N*sizeof 
+(element_type)))) and only allow the "vector" variant with dependent  
+signatures?
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Tue Nov 10 23:45:57 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Tue, 10 Nov 2009 15:45:57 -0800
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <D177CCC9-D561-41A9-9F8C-B44239AE0A35@edg.com>
+References: <4AF9C8BF.2020602@redhat.com> <4AF9D320.4040708@codesourcery.com>
+	 <4AF9E7DF.5050604@redhat.com> <4AF9EE11.7080905@codesourcery.com>
+	 <D177CCC9-D561-41A9-9F8C-B44239AE0A35@edg.com>
+Message-ID: <24b520d20911101545t9f6b45bl42c038d9d7b3af23@mail.gmail.com>
+
+On Tue, Nov 10, 2009 at 3:06 PM, David Vandevoorde <daveed at edg.com> wrote:
+>
+> On Nov 10, 2009, at 5:49 PM, Mark Mitchell wrote:
+>
+>> Jason Merrill wrote:
+>>
+>>> to represent the type of vec in an element-based mangling, the number of
+>>> elements would need to be expressed as I/sizeof(T), which is not more
+>>> compact.
+>>>
+>>> That, and the fact that vector_size takes a number of bytes rather than
+>>> elements suggests that maybe the former is more natural for working with
+>>> vector hardware.
+>>
+>> From a language-design point of view, I don't understand why we're using
+>> bytes there. ?It seems unnecessarily low-level. ?So, using a byte-based
+>> mangling seems consistent with GCC's language extension, but I'm not
+>> sure why that's a particularly good language extension. ?Of course, if
+>> it's a language extension that everyone has accepted and is therefore
+>> standard (not in the ISO sense, but in the everyone-does-it sense), then
+>> abstract goodness is irrelevant.
+>
+>
+> Actually, other extensions (e.g., OpenCL) deal with "number of elements"
+> instead of "number of bytes".
+
+Right.
+
+> Could GCC introduce a new attribute "vector" such that
+> __attribute((vector(N))) is equivalent to
+> __attribute((vector_size(N*sizeof(element_type)))) and only allow the
+> "vector" variant with dependent signatures?
+
+FWIW, we use the ext_vector attribute for exactly this purpose (it
+introduces an OpenCL-compatible vector type) and we only allow the
+ext_vector variant to have a dependent size.
+
+  - Doug
+
+
+From daveed at edg.com  Wed Nov 11 01:57:57 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 10 Nov 2009 20:57:57 -0500
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <4AF9F116.9050708@redhat.com>
+References: <1255467935.5960.8.camel@janis-laptop> <4AF9F116.9050708@redhat.com>
+Message-ID: <26D59888-15AB-462D-952C-5F6B1FAFB65A@edg.com>
+
+
+On Nov 10, 2009, at 6:02 PM, Jason Merrill wrote:
+
+> Incidentally, should the type_infos for the fundamental decimal  
+> types be added to the list of types with type_infos in the runtime  
+> library in 2.9.2?
+
+Oh yes.
+
+
+>  I lean slightly towards not, but only slightly.
+
+
+I lean the other way.
+
+I also have a TODO item to deal with the type_info entry of nullptr_t.
+
+	Daveed
+
+
+
+From dhandly at cup.hp.com  Wed Nov 11 02:21:31 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 10 Nov 2009 18:21:31 -0800 (PST)
+Subject: [cxx-abi-dev] decimal float argument passing
+Message-ID: <200911110221.SAA15635@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>should the type_infos for the fundamental decimal types be 
+>added to the list of types with type_infos in the runtime library in 
+>2.9.2?  I lean slightly towards not, but only slightly.
+
+I'm adding them to my lib, I'm not sure why you wouldn't?
+
+Unfortunately this leads to a chicken & egg issue for my build environment
+update process.  I need a compiler that supports it, to compile that lib.
+
+So in order to make it unique in the future, I have to disallow throw
+or typeid until my next release.
+
+
+From jason at redhat.com  Wed Nov 11 15:12:28 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 10:12:28 -0500
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <200911110221.SAA15635@hpcll183.cup.hp.com>
+References: <200911110221.SAA15635@hpcll183.cup.hp.com>
+Message-ID: <4AFAD45C.2060502@redhat.com>
+
+On 11/10/2009 09:21 PM, Dennis Handly wrote:
+>> From: Jason Merrill<jason at redhat.com>
+>> should the type_infos for the fundamental decimal types be
+>> added to the list of types with type_infos in the runtime library in
+>> 2.9.2?  I lean slightly towards not, but only slightly.
+>
+> I'm adding them to my lib, I'm not sure why you wouldn't?
+
+No strong reason, just thinking that they wouldn't show up very often so 
+we might as well generate them as needed.
+
+Jason
+
+
+From jason at redhat.com  Wed Nov 11 15:15:52 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 10:15:52 -0500
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <26D59888-15AB-462D-952C-5F6B1FAFB65A@edg.com>
+References: <1255467935.5960.8.camel@janis-laptop> <4AF9F116.9050708@redhat.com> <26D59888-15AB-462D-952C-5F6B1FAFB65A@edg.com>
+Message-ID: <4AFAD528.7070501@redhat.com>
+
+On 11/10/2009 08:57 PM, David Vandevoorde wrote:
+>
+> On Nov 10, 2009, at 6:02 PM, Jason Merrill wrote:
+>
+>> Incidentally, should the type_infos for the fundamental decimal types
+>> be added to the list of types with type_infos in the runtime library
+>> in 2.9.2?
+>
+> Oh yes.
+
+OK then.
+
+Jason
+
+
+From jason at redhat.com  Wed Nov 11 17:22:52 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 12:22:52 -0500
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <4AFAD528.7070501@redhat.com>
+References: <1255467935.5960.8.camel@janis-laptop> <4AF9F116.9050708@redhat.com> <26D59888-15AB-462D-952C-5F6B1FAFB65A@edg.com> <4AFAD528.7070501@redhat.com>
+Message-ID: <4AFAF2EC.5090302@redhat.com>
+
+On 11/11/2009 10:15 AM, Jason Merrill wrote:
+> On 11/10/2009 08:57 PM, David Vandevoorde wrote:
+>>
+>> On Nov 10, 2009, at 6:02 PM, Jason Merrill wrote:
+>>
+>>> Incidentally, should the type_infos for the fundamental decimal types
+>>> be added to the list of types with type_infos in the runtime library
+>>> in 2.9.2?
+>>
+>> Oh yes.
+
+Here's a patch:
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: dfp-rtti.patch
+Type: text/x-patch
+Size: 1098 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20091111/a2179162/attachment.bin>
+
+From jason at redhat.com  Wed Nov 11 17:55:26 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 12:55:26 -0500
+Subject: mangling template-id
+Message-ID: <4AFAFA8E.8030906@redhat.com>
+
+Currently there's no way in the ABI to mangle something like 
+decltype(fn<args>()) because mangling is only specified for a qualified 
+template-id.
+
+Handling this just as unqualified-name template-args seems to work fine; 
+any reason not to just add that to expression?  We also need to support 
+a plain identifier for overloaded functions.
+
+Jason
+
+
+From jason at redhat.com  Wed Nov 11 21:33:44 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 16:33:44 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AF9DB59.3070103@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com> <4AF9DB59.3070103@redhat.com>
+Message-ID: <4AFB2DB8.4050705@redhat.com>
+
+>> Dv <n_elements number> _ <element type>
+
+Though a plain /number/ there doesn't allow for template substitution. 
+Perhaps
+
+Dv _ <expression> _ <element type>
+
+when the number of elements is value-dependent?
+
+Jason
+
+
+From jason at redhat.com  Wed Nov 11 21:35:07 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Nov 2009 16:35:07 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AFB2DB8.4050705@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com> <4AF9DB59.3070103@redhat.com> <4AFB2DB8.4050705@redhat.com>
+Message-ID: <4AFB2E0B.4070800@redhat.com>
+
+On 11/11/2009 04:33 PM, Jason Merrill wrote:
+>>> Dv <n_elements number> _ <element type>
+>
+> Though a plain /number/ there doesn't allow for template substitution.
+> Perhaps
+>
+> Dv _ <expression> _ <element type>
+>
+> when the number of elements is value-dependent?
+
+...in which case we could go back to the log2 idea for the non-dependent 
+case.
+
+Jason
+
+
+From daveed at edg.com  Wed Nov 11 21:56:09 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Nov 2009 16:56:09 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <4AFB2E0B.4070800@redhat.com>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com> <4AF9DB59.3070103@redhat.com> <4AFB2DB8.4050705@redhat.com> <4AFB2E0B.4070800@redhat.com>
+Message-ID: <1020E3B6-28FE-4ED7-9044-ED396EAAF1F2@edg.com>
+
+
+On Nov 11, 2009, at 4:35 PM, Jason Merrill wrote:
+
+> On 11/11/2009 04:33 PM, Jason Merrill wrote:
+>>>> Dv <n_elements number> _ <element type>
+>>
+>> Though a plain /number/ there doesn't allow for template  
+>> substitution.
+>> Perhaps
+>>
+>> Dv _ <expression> _ <element type>
+>>
+>> when the number of elements is value-dependent?
+
+
+Ah yes: That looks good.
+
+
+> ...in which case we could go back to the log2 idea for the non- 
+> dependent case.
+
+
+I could go either way on that.  I suppose some day someone might  
+decide to pack 5 24-bit integers in a 128-bit register, and then the  
+log2 approach would require revision again (but that would be entirely  
+feasible, I think).
+
+	Daveed
+
+
+
+From sabre at nondot.org  Thu Nov 12 03:54:48 2009
+From: sabre at nondot.org (Chris Lattner)
+Date: Wed, 11 Nov 2009 19:54:48 -0800
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <1020E3B6-28FE-4ED7-9044-ED396EAAF1F2@edg.com>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com> <4AF9DB59.3070103@redhat.com> <4AFB2DB8.4050705@redhat.com> <4AFB2E0B.4070800@redhat.com> <1020E3B6-28FE-4ED7-9044-ED396EAAF1F2@edg.com>
+Message-ID: <9AB4DE46-71C0-4CC7-BB8F-DC066A973352@nondot.org>
+
+
+On Nov 11, 2009, at 1:56 PM, David Vandevoorde wrote:
+
+>
+> On Nov 11, 2009, at 4:35 PM, Jason Merrill wrote:
+>
+>> On 11/11/2009 04:33 PM, Jason Merrill wrote:
+>>>>> Dv <n_elements number> _ <element type>
+>>>
+>>> Though a plain /number/ there doesn't allow for template  
+>>> substitution.
+>>> Perhaps
+>>>
+>>> Dv _ <expression> _ <element type>
+>>>
+>>> when the number of elements is value-dependent?
+>
+>
+> Ah yes: That looks good.
+>
+>
+>> ...in which case we could go back to the log2 idea for the non- 
+>> dependent case.
+>
+>
+> I could go either way on that.  I suppose some day someone might  
+> decide to pack 5 24-bit integers in a 128-bit register, and then the  
+> log2 approach would require revision again (but that would be  
+> entirely feasible, I think).
+
+vectors of 3 elements are very common in the graphics world.  Clang  
+supports arbitrary width vectors, including bizarre things like 25- 
+wide float vectors etc.
+
+-Chris
+
+
+From daveed at edg.com  Thu Nov 12 04:23:03 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Nov 2009 23:23:03 -0500
+Subject: [cxx-abi-dev] mangling vector types
+In-Reply-To: <9AB4DE46-71C0-4CC7-BB8F-DC066A973352@nondot.org>
+References: <4AF9C8BF.2020602@redhat.com> <126B1CF1-4AA4-49A6-9F5C-7F9A5C08E650@edg.com> <4AF9DB59.3070103@redhat.com> <4AFB2DB8.4050705@redhat.com> <4AFB2E0B.4070800@redhat.com> <1020E3B6-28FE-4ED7-9044-ED396EAAF1F2@edg.com> <9AB4DE46-71C0-4CC7-BB8F-DC066A973352@nondot.org>
+Message-ID: <E548BD69-6DC5-4949-9F8D-C46C1FF1ABA8@edg.com>
+
+
+On Nov 11, 2009, at 10:54 PM, Chris Lattner wrote:
+
+>
+> On Nov 11, 2009, at 1:56 PM, David Vandevoorde wrote:
+>
+>>
+>> On Nov 11, 2009, at 4:35 PM, Jason Merrill wrote:
+>>
+>>> On 11/11/2009 04:33 PM, Jason Merrill wrote:
+>>>>>> Dv <n_elements number> _ <element type>
+>>>>
+>>>> Though a plain /number/ there doesn't allow for template  
+>>>> substitution.
+>>>> Perhaps
+>>>>
+>>>> Dv _ <expression> _ <element type>
+>>>>
+>>>> when the number of elements is value-dependent?
+>>
+>>
+>> Ah yes: That looks good.
+>>
+>>
+>>> ...in which case we could go back to the log2 idea for the non- 
+>>> dependent case.
+>>
+>>
+>> I could go either way on that.  I suppose some day someone might  
+>> decide to pack 5 24-bit integers in a 128-bit register, and then  
+>> the log2 approach would require revision again (but that would be  
+>> entirely feasible, I think).
+>
+> vectors of 3 elements are very common in the graphics world.  Clang  
+> supports arbitrary width vectors, including bizarre things like 25- 
+> wide float vectors etc.
+
+
+I think that settles it then: A simple count instead of a log2 value.
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Fri Nov 13 20:57:49 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 13 Nov 2009 12:57:49 -0800
+Subject: [cxx-abi-dev] decimal float argument passing
+In-Reply-To: <4AFAF2EC.5090302@redhat.com>
+References: <1255467935.5960.8.camel@janis-laptop> <4AF9F116.9050708@redhat.com> <26D59888-15AB-462D-952C-5F6B1FAFB65A@edg.com> <4AFAD528.7070501@redhat.com> <4AFAF2EC.5090302@redhat.com>
+Message-ID: <4AFDC84D.6030106@codesourcery.com>
+
+Jason Merrill wrote:
+
+>>>> Incidentally, should the type_infos for the fundamental decimal types
+>>>> be added to the list of types with type_infos in the runtime library
+>>>> in 2.9.2?
+> 
+> Here's a patch:
+
+I've applied this patch, since it seemed agreed that this was the right
+thing to do.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Wed Nov 18 20:22:50 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Nov 2009 15:22:50 -0500
+Subject: Non-cloned [cd]tors
+Message-ID: <4B04579A.3060200@redhat.com>
+
+As I recall, the ABI was intended to allow the various [cd]tor variants 
+to be implemented either as separate functions or multiple entry points 
+to the same function.  But the actual specification is a bit problematic 
+for the latter: it's a bit vague, but it seems to require that any vague 
+linkage [cd]tors be emitted as needed, each in their own COMDAT group.
+
+But if the two constructor variants are alternate entry points to the 
+same function, they can't go in different groups.  One could be 
+implemented as a jump to a different symbol in the other group, but that 
+breaks if the linker chooses a definition of the other group which 
+doesn't define this symbol.
+
+Does anyone remember how this was supposed to work?  It seems like the 
+only way to deal with it is to add a new COMDAT group, put all the 
+variants in there, and accept that if you're linking objects from 
+multiple compilers you may end up with dead code in the output.
+
+We're currently looking at changing G++ to only emit one version of 
+[cd]tors when they'll be identical (i.e. when the class has no virtual 
+bases), and in the non-COMDAT case making one symbol an alias to the 
+other.  This special case is not as problematic for the COMDAT case 
+either, as one function can just jump to the ABI-defined symbol for the 
+other.
+
+The only situation in which this could be a problem would be if one 
+compiler decided to make C1 jump to C2 and another compiler made C2 jump 
+to C1, and we choose one of each and end up with an infinite loop.  So 
+I'd like to specify which one will be the real function if a compiler 
+decides to do this.  I don't have a strong preference; the base variant 
+is conceptually a subroutine of the complete variant, but the complete 
+variant is going to be more commonly used.
+
+Adding an extra branch in the COMDAT case does have a performance 
+impact, so I'd like to do the redirection on the caller side.  Since the 
+two functions must be identical, I don't think there should be any 
+problem calling a different variant than specified by the ABI; does 
+anyone disagree?
+
+Jason
+
+
+From mark at codesourcery.com  Wed Nov 18 20:51:04 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Nov 2009 12:51:04 -0800
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B04579A.3060200@redhat.com>
+References: <4B04579A.3060200@redhat.com>
+Message-ID: <4B045E38.5060904@codesourcery.com>
+
+Jason Merrill wrote:
+
+> As I recall, the ABI was intended to allow the various [cd]tor variants
+> to be implemented either as separate functions or multiple entry points
+> to the same function.  But the actual specification is a bit problematic
+> for the latter: it's a bit vague, but it seems to require that any vague
+> linkage [cd]tors be emitted as needed, each in their own COMDAT group.
+
+My recollection is that they were all supposed to be emitted in a single
+COMDAT group, and that if you provided a definition of any one, you had
+to provide all of them.  That way it doesn't matter which of those
+COMDAT groups you ended up with.  The expectation was that they were in
+fact multiple entry points, and thus the fact that you had to emit all
+of them together was no big deal.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From crowl at google.com  Wed Nov 18 21:01:24 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Wed, 18 Nov 2009 13:01:24 -0800
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B04579A.3060200@redhat.com>
+References: <4B04579A.3060200@redhat.com>
+Message-ID: <29bd08b70911181301m373ad206i4a3ae23a6e0a14d@mail.gmail.com>
+
+On 11/18/09, Jason Merrill <jason at redhat.com> wrote:
+> As I recall, the ABI was intended to allow the various [cd]tor variants to
+> be implemented either as separate functions or multiple entry points to the
+> same function.  But the actual specification is a bit problematic for the
+> latter: it's a bit vague, but it seems to require that any vague linkage
+> [cd]tors be emitted as needed, each in their own COMDAT group.
+>
+> But if the two constructor variants are alternate entry points to the same
+> function, they can't go in different groups.  One could be implemented as a
+> jump to a different symbol in the other group, but that breaks if the linker
+> chooses a definition of the other group which doesn't define this symbol.
+>
+> Does anyone remember how this was supposed to work?  It seems like the only
+> way to deal with it is to add a new COMDAT group, put all the variants in
+> there, and accept that if you're linking objects from multiple compilers you
+> may end up with dead code in the output.
+>
+> We're currently looking at changing G++ to only emit one version of
+> [cd]tors when they'll be identical (i.e. when the class has no virtual
+> bases), and in the non-COMDAT case making one symbol an alias to the other.
+> This special case is not as problematic for the COMDAT case either, as one
+> function can just jump to the ABI-defined symbol for the other.
+>
+> The only situation in which this could be a problem would be if one
+> compiler decided to make C1 jump to C2 and another compiler made C2 jump to
+> C1, and we choose one of each and end up with an infinite loop.  So I'd like
+> to specify which one will be the real function if a compiler decides to do
+> this.  I don't have a strong preference; the base variant is conceptually a
+> subroutine of the complete variant, but the complete variant is going to be
+> more commonly used.
+
+Making the base be the "real" function seems more natural to me, particularly
+as if there is a non-trivial difference, the base would be real anyway.
+
+>
+> Adding an extra branch in the COMDAT case does have a performance impact,
+> so I'd like to do the redirection on the caller side.  Since the two
+> functions must be identical, I don't think there should be any problem
+> calling a different variant than specified by the ABI; does anyone disagree?
+
+I don't see any execution problem, but the change would adversely affect the
+debugging experience and programmers would see themselves calling the base
+constructor rather than the outer constructor.  Whether that effect is worth
+worrying about is a separate issue.
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Wed Nov 18 21:36:02 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Nov 2009 16:36:02 -0500
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B045E38.5060904@codesourcery.com>
+References: <4B04579A.3060200@redhat.com> <4B045E38.5060904@codesourcery.com>
+Message-ID: <4B0468C2.7070401@redhat.com>
+
+On 11/18/2009 03:51 PM, Mark Mitchell wrote:
+> My recollection is that they were all supposed to be emitted in a single
+> COMDAT group, and that if you provided a definition of any one, you had
+> to provide all of them.
+
+That was my recollection as well, but the document doesn't actually seem 
+to say that.  Nor, unfortunately, is that what we currently do.
+
+Jason
+
+
+From jason at redhat.com  Wed Nov 18 21:49:41 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Nov 2009 16:49:41 -0500
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <29bd08b70911181301m373ad206i4a3ae23a6e0a14d@mail.gmail.com>
+References: <4B04579A.3060200@redhat.com> <29bd08b70911181301m373ad206i4a3ae23a6e0a14d@mail.gmail.com>
+Message-ID: <4B046BF5.2090104@redhat.com>
+
+On 11/18/2009 04:01 PM, Lawrence Crowl wrote:
+> Making the base be the "real" function seems more natural to me, particularly
+> as if there is a non-trivial difference, the base would be real anyway.
+
+It seems more natural to me as well, but I think would lead to more 
+situations where we need to produce both symbols rather than just one. 
+That's certainly the case for virtual destructors, since the complete 
+version is referenced by both the vtable and the deleting destructor.
+
+> I don't see any execution problem, but the change would adversely affect the
+> debugging experience and programmers would see themselves calling the base
+> constructor rather than the outer constructor.  Whether that effect is worth
+> worrying about is a separate issue.
+
+I think not; from a language perspective there's only one constructor 
+anyway.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Nov 19 02:15:13 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 18 Nov 2009 18:15:13 -0800 (PST)
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+Message-ID: <200911190215.SAA22237@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>As I recall, the ABI was intended to allow the various [cd]tor variants 
+>to be implemented either as separate functions or multiple entry points 
+>to the same function. ...
+>each in their own COMDAT group.
+
+We have implemented it both ways, now with separate functions.  But we only
+have one group for all of them.
+
+And there was a change from a common C9/D9 function to calling one of the
+others (base).
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>My recollection is that they were all supposed to be emitted in a single
+>COMDAT group, and that if you provided a definition of any one, you had
+>to provide all of them.
+
+Right.
+
+>From: Lawrence Crowl <crowl at google.com>
+>I don't see any execution problem, but the change would adversely affect the
+>debugging experience and programmers would see themselves calling the base
+>constructor rather than the outer constructor.
+
+We had that problem with the "common" function having debug info and the
+intermediates having none.  I'm not sure if it was that confusing.
+
+>From: Jason Merrill <jason at redhat.com>
+>That was my recollection as well, but the document doesn't actually seem 
+>to say that.
+
+It probably takes N logical inferences to read that into it.  :-)
+And have worked with comdats enough to realize that they must define
+the same symbols everywhere.
+
+And it doesn't help to have a linker that turns deleted definitions of
+symbols in one comdat into unsats to another.  And if they don't match,
+you'll automatically get cases of definitions turned into unsats.
+
+>From: Jason Merrill <jason at redhat.com>
+>from a language perspective there's only one constructor anyway.
+
+Unless they know the mangling rules.
+
+
+From gdr at integrable-solutions.net  Thu Nov 19 03:27:07 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Wed, 18 Nov 2009 21:27:07 -0600
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <200911190215.SAA22237@hpcll183.cup.hp.com>
+References: <200911190215.SAA22237@hpcll183.cup.hp.com>
+Message-ID: <206fcf960911181927p9606915l558248f122be1a53@mail.gmail.com>
+
+On Wed, Nov 18, 2009 at 8:15 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+
+
+>>From: Jason Merrill <jason at redhat.com>
+>>from a language perspective there's only one constructor anyway.
+>
+> Unless they know the mangling rules.
+
+then we are no longer talking of the majority of users...
+
+-- Gaby
+
+
+From jason at redhat.com  Thu Nov 19 05:41:58 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 19 Nov 2009 00:41:58 -0500
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <200911190215.SAA22237@hpcll183.cup.hp.com>
+References: <200911190215.SAA22237@hpcll183.cup.hp.com>
+Message-ID: <4B04DAA6.2080707@redhat.com>
+
+On 11/18/2009 09:15 PM, Dennis Handly wrote:
+>> From: Jason Merrill<jason at redhat.com>
+>> As I recall, the ABI was intended to allow the various [cd]tor variants
+>> to be implemented either as separate functions or multiple entry points
+>> to the same function. ...
+>> each in their own COMDAT group.
+>
+> We have implemented it both ways, now with separate functions.  But we only
+> have one group for all of them.
+
+What is the name of that group?  That seems like something the ABI ought 
+to specify.
+
+>>from a language perspective there's only one constructor anyway.
+>
+> Unless they know the mangling rules.
+
+Right, but the mangling rules aren't part of the language.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Nov 19 06:56:42 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 18 Nov 2009 22:56:42 -0800 (PST)
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+Message-ID: <200911190656.WAA23497@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>What is the name of that group?  That seems like something the ABI ought 
+>to specify.
+
+Yes, unfortunately.
+We just picked what we did before when we had entry points and used the
+same name when we had separate functions.
+
+Index: 81       Directory Section Name: _ZN3fooC3Ev
+Index: 82       Directory Section Name: _ZN3fooD2Ev
+Index: 83       Directory Section Name: _ZN3fooD0Ev
+Index: 84       Directory Section Name: _ZN3fooD1Ev
+
+Basically, we only had entry points for constructors and not for destructors.
+
+>but the mangling rules aren't part of the language.
+Jason
+
+Yes.  The extra function in the stack trace is visible.
+We do a call instead of a goto.
+
+
+From christophe.de-dinechin at hp.com  Thu Nov 19 09:08:41 2009
+From: christophe.de-dinechin at hp.com (de Dinechin, Christophe (Integrity VM))
+Date: Thu, 19 Nov 2009 09:08:41 +0000
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B045E38.5060904@codesourcery.com>
+References: <4B04579A.3060200@redhat.com> <4B045E38.5060904@codesourcery.com>
+Message-ID: <B762E0E7F3807D4A8178162D999827461DDC02FA1E@GVW1155EXB.americas.hpqcorp.net>
+
+> My recollection is that they were all supposed to be emitted in a
+> single COMDAT group, and that if you provided a definition of any one, you had
+> to provide all of them.  That way it doesn't matter which of those
+> COMDAT groups you ended up with.  The expectation was that they were in
+> fact multiple entry points, and thus the fact that you had to emit all
+> of them together was no big deal.
+
+That's also my recollection, and Dennis confirmed that this is how we did it.
+
+However, Jason's point that multiple compilers may end up making different choices remain interesting. Shouldn't we at least attempt to explain the rationale of how this is supposed to work if the compiler for the derived class and base class are different? As Dennis wrote, right now it requires way too much implicit knowledge. It breaks easily, say if one of the compilers optimizes away an "unneeded" constructor from one of the COMDATs. So we need to make it clear why a compiler must emit constructors that it doesn't need.
+
+Just $.02 from a rusty old friend who forgot everything about C++...
+Christophe
+
+
+From mark at codesourcery.com  Thu Nov 19 15:02:08 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 19 Nov 2009 07:02:08 -0800
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <B762E0E7F3807D4A8178162D999827461DDC02FA1E@GVW1155EXB.americas.hpqcorp.net>
+References: <4B04579A.3060200@redhat.com> <4B045E38.5060904@codesourcery.com> <B762E0E7F3807D4A8178162D999827461DDC02FA1E@GVW1155EXB.americas.hpqcorp.net>
+Message-ID: <4B055DF0.2080005@codesourcery.com>
+
+de Dinechin, Christophe (Integrity VM) wrote:
+
+>> My recollection is that they were all supposed to be emitted in a
+>> single COMDAT group, and that if you provided a definition of any one, you had
+>> to provide all of them.  That way it doesn't matter which of those
+>> COMDAT groups you ended up with.  The expectation was that they were in
+>> fact multiple entry points, and thus the fact that you had to emit all
+>> of them together was no big deal.
+> 
+> That's also my recollection, and Dennis confirmed that this is how we did it.
+
+That's my recollection of how EDG did it too, in the sense that I think
+there were fields in the IL for COMDAT group, and a COMDAT-capable
+back-end could thus emit them in the right group.
+
+For G++, I believe that there was no support for actual COMDAT groups at
+the time this got implemented, and so we fell back to weak/linkonce as
+the closest equivalent.  In other words, I think this is was a
+quasi-known bug in the G++ implementation.  The decision to make now,
+then, is whether to fix G++, or change the ABI to permit the G++
+implementation.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Thu Nov 19 15:53:09 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 19 Nov 2009 10:53:09 -0500
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B055DF0.2080005@codesourcery.com>
+References: <4B04579A.3060200@redhat.com> <4B045E38.5060904@codesourcery.com> <B762E0E7F3807D4A8178162D999827461DDC02FA1E@GVW1155EXB.americas.hpqcorp.net> <4B055DF0.2080005@codesourcery.com>
+Message-ID: <4B0569E5.9070205@redhat.com>
+
+On 11/19/2009 10:02 AM, Mark Mitchell wrote:
+> That's my recollection of how EDG did it too, in the sense that I think
+> there were fields in the IL for COMDAT group, and a COMDAT-capable
+> back-end could thus emit them in the right group.
+
+A quick check with icc 10.1 shows that they currently put them in 
+separate COMDATs as well.  And they also emit a C9/D9 variant, curiously 
+enough.  Anyone know what that's for?
+
+> For G++, I believe that there was no support for actual COMDAT groups at
+> the time this got implemented, and so we fell back to weak/linkonce as
+> the closest equivalent.  In other words, I think this is was a
+> quasi-known bug in the G++ implementation.
+
+We could have done the right thing with linkonce sections, though.
+
+> The decision to make now,
+> then, is whether to fix G++, or change the ABI to permit the G++
+> implementation.
+
+I want to fix both G++ and the ABI, which seems to require the G++ 
+implementation:
+
+"Implicitly-defined or inline user-defined constructors and destructors 
+are emitted where referenced, each in its own COMDAT group identified by 
+the constructor or destructor name."
+
+Since the symbols are weak anyway, the only negative impact of the 
+change would be some redundancy when linking together code from 
+different compilers: the output would have one definition of the 
+complete constructor from a C1 comdat and another definition from the 
+combined comdat.  I think that's an improvement over the current 
+situation where we get two definitions even when everything is built 
+with the same compiler.
+
+So, what name should we give the common comdat group?  [CD]5, perhaps? 
+We can't use one of the existing names, so we can't just adopt the HP 
+compiler convention.
+
+Do we want to include the deleting destructor in that group as well as 
+the base/complete variants, for classes with a virtual destructor?  I 
+suppose we might as well, but don't have a strong preference.
+
+Do we want to treat inlines differently from non-inline templates?  I 
+think not.
+
+Jason
+
+
+From jsa at edg.com  Thu Nov 19 16:27:35 2009
+From: jsa at edg.com (J. Stephen Adamczyk)
+Date: Thu, 19 Nov 2009 11:27:35 -0500
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+In-Reply-To: <4B0569E5.9070205@redhat.com>
+References: <4B04579A.3060200@redhat.com> <4B045E38.5060904@codesourcery.com> <B762E0E7F3807D4A8178162D999827461DDC02FA1E@GVW1155EXB.americas.hpqcorp.net> <4B055DF0.2080005@codesourcery.com> <4B0569E5.9070205@redhat.com>
+Message-ID: <A8A2158A-5024-4801-8BD7-92684B37AFCA@edg.com>
+
+
+On Nov 19, 2009, at 10:53 AM, Jason Merrill wrote:
+
+> On 11/19/2009 10:02 AM, Mark Mitchell wrote:
+>> That's my recollection of how EDG did it too, in the sense that I  
+>> think
+>> there were fields in the IL for COMDAT group, and a COMDAT-capable
+>> back-end could thus emit them in the right group.
+>
+> A quick check with icc 10.1 shows that they currently put them in  
+> separate COMDATs as well.  And they also emit a C9/D9 variant,  
+> curiously enough.  Anyone know what that's for?
+
+The EDG implementation used to have all the ABI-mandated ctors and  
+dtors call an underlying "9" routine.  That's no longer the case  
+(since January of 2006, in our version).
+
+On the larger issue, I can confirm that we do put each entry point  
+into a COMDAT named the same as the routine.
+
+Steve
+
+
+From janis187 at us.ibm.com  Thu Nov 19 17:11:27 2009
+From: janis187 at us.ibm.com (Janis Johnson)
+Date: Thu, 19 Nov 2009 09:11:27 -0800
+Subject: patch to C++ ABI doc for decimal float classes
+In-Reply-To: <1255474272.5960.10.camel@janis-laptop>
+References: <1255474272.5960.10.camel@janis-laptop>
+Message-ID: <1258650687.6037.1.camel@janis-laptop>
+
+On Tue, 2009-10-13 at 15:51 -0700, Janis Johnson wrote:
+> This patch to the C++ ABI document provides exceptions to the usual
+> function calling convention and mangling rules to treat the decimal
+> classes defined in TR 24733 the same as the corresponding native
+> scalar types.  Please consider it and, if it's acceptable, apply it.
+> 
+> Janis Johnson
+
+No one has commented on this patch, although discussion about
+other aspects of decimal float continued in another thread.
+
+Janis
+
+> --- abi.html.orig	2009-10-13 15:36:16.000000000 -0700
+> +++ abi.html	2009-10-13 15:46:08.000000000 -0700
+> @@ -2577,7 +2577,12 @@
+>  <p>
+>  In general, C++ value parameters are handled just like C parameters.
+>  This includes class type parameters passed wholly or partially in registers.
+> -However, in the special case where the parameter type has a non-trivial
+> +There are, however, some special cases.
+> +</p><ol type="1">
+> +<p>
+> +</p><li>
+> +<p>
+> +In the special case where the parameter type has a non-trivial
+>  copy constructor or destructor,
+>  the caller must allocate space for a temporary copy,
+>  and pass the resulting copy by reference (below).
+> @@ -2622,7 +2627,16 @@
+>  If necessary (e.g. if the parameter was allocated on the heap),
+>  the caller deallocates space after return and destruction.
+>  
+> +<p></p> </li></ul>
+> +<li>
+> +In the case where the parameter type is class
+> +<code>std::decimal::decimal32</code>, <code>std::decimal::decimal64</code>,
+> +or <code>std::decimal::decimal128</code> as defined in TR 24733, the
+> +parameter is passed the same as the corresponding native decimal
+> +floating-point scalar type.
+> +<p></p>
+>  </li></ul>
+> +</ol>
+>  
+> 
+>  <p>
+> @@ -2663,6 +2677,12 @@
+>  The callee constructs the return value into this temporary.
+>  
+>  </p><p>
+> +Another exception is that a return value type of class
+> +<code>std::decimal::decimal32</code>, <code>std::decimal::decimal64</code>,
+> +or <code>std::decimal::decimal128</code> as defined in TR 24733 is returned
+> +the same as the corresponding native decimal floating-point scalar type.
+> +
+> +</p><p>
+>  A result of an empty class type will be returned as though it were
+>  a struct containing a single char,
+>  i.e. <code>struct S { char c; };</code>.
+> @@ -4343,6 +4363,13 @@
+>    &lt;class-enum-type&gt; ::= &lt;name&gt;
+>  </font></code></pre>
+>  
+> +<p>
+> +An exception, however, is that class <code>std::decimal::decimal32</code>,
+> +<code>std::decimal::decimal64</code>, or <code>std::decimal::decimal128</code>
+> +as defined in TR 24733 uses the same encoding as the corresponding native
+> +decimal-floating point scalar type.
+> +
+> +</p><p>
+>  Unnamed class, union, and enum types that aren't closure types, that
+>  haven't acquired a "name for linkage purposes" (through a typedef), and
+>  that aren't anonymous union types, follow
+> 
+
+
+
+From jason at redhat.com  Thu Nov 19 21:01:22 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 19 Nov 2009 16:01:22 -0500
+Subject: [cxx-abi-dev] patch to C++ ABI doc for decimal float classes
+In-Reply-To: <1255474272.5960.10.camel@janis-laptop>
+References: <1255474272.5960.10.camel@janis-laptop>
+Message-ID: <4B05B222.80901@redhat.com>
+
+Looks fine to me.
+
+Jason
+
+
+From dhandly at cup.hp.com  Fri Nov 20 00:12:27 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 19 Nov 2009 16:12:27 -0800 (PST)
+Subject: [cxx-abi-dev] Non-cloned [cd]tors
+Message-ID: <200911200012.QAA26700@hpcll183.cup.hp.com>
+
+>From: "de Dinechin, Christophe (Integrity VM)" <christophe.de-dinechin at hp.com>
+>Shouldn't we at least attempt to explain the rationale of how this is
+>supposed to work if the compiler for the derived class and base class
+>are different?
+
+Yes.  But it may be too late, other than list other implementations?
+
+>It breaks easily, say if one of the compilers optimizes away an "unneeded"
+>constructor from one of the COMDATs.  So we need to make it clear why a
+>compiler must emit constructors that it doesn't need.
+Christophe
+
+Yes.
+
+>From: Jason Merrill <jason at redhat.com>
+>A quick check with icc 10.1 shows that they currently put them in 
+>separate COMDATs as well.  And they also emit a C9/D9 variant, curiously 
+>enough.  Anyone know what that's for?
+
+That was that common function Steve and I mentioned.
+
+>I want to fix both G++ and the ABI, which seems to require the G++ 
+>implementation:
+>"Implicitly-defined or inline user-defined constructors and destructors 
+>are emitted where referenced, each in its own COMDAT group identified by 
+>the constructor or destructor name."
+
+At least this is simple.  Except how to mangle it.  And since the mangling
+of these has a C# or D#, which to pick?
+
+>what name should we give the common comdat group?  [CD]5, perhaps? 
+>We can't use one of the existing names, so we can't just adopt the HP 
+>compiler convention.
+
+You could but we do it two different ways.  :-)
+
+>Do we want to treat inlines differently from non-inline templates?  I 
+>think not.
+Jason
+
+Right, they are the same, both need comdats.
+
+>From: "J. Stephen Adamczyk" <jsa at edg.com>
+>On the larger issue, I can confirm that we do put each entry point  
+>into a COMDAT named the same as the routine.
+
+I assume this could easily be changed with some conditional compilation to
+maintain compatibility for existing implementations, if desired.
+
+
+From mark at codesourcery.com  Wed Nov 25 01:15:15 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 24 Nov 2009 17:15:15 -0800
+Subject: [cxx-abi-dev] patch to C++ ABI doc for decimal float classes
+In-Reply-To: <4B05B222.80901@redhat.com>
+References: <1255474272.5960.10.camel@janis-laptop> <4B05B222.80901@redhat.com>
+Message-ID: <4B0C8523.5090107@codesourcery.com>
+
+Jason Merrill wrote:
+> Looks fine to me.
+
+Janis, since there seemed to be no controversy, I applied this patch.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From rideau3 at gmail.com  Sun Nov 29 07:54:56 2009
+From: rideau3 at gmail.com (Sean Hunt)
+Date: Sun, 29 Nov 2009 00:54:56 -0700
+Subject: Mangling of C++0x literal operator functions
+Message-ID: <4B1228D0.2010503@gmail.com>
+
+Hello,
+
+I've been working on putting C++0x literal operator functions into 
+clang, and I ran into the fact that I wasn't sure how to mangle them. I 
+opted for "ul" (for "user literal") followed by an identifier as an 
+<operator-name>, but I don't think this is necessarily the best 
+solution, because it might cause confusion with vendor-specific types 
+(though it's guaranteed not to collide directly). Perhaps "lo" (for 
+"literal operator") would be better. It's not a big deal; the user 
+literal support (and clang itself) are far from mature enough that a 
+minor ABI change would be an issue, but it would nonetheless be best to 
+resolve this as soon as possible.
+
+Thanks,
+
+Sean Hunt
+
+
+From daveed at edg.com  Mon Nov 30 16:49:44 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 30 Nov 2009 11:49:44 -0500
+Subject: [cxx-abi-dev] Mangling of C++0x literal operator functions
+In-Reply-To: <4B1228D0.2010503@gmail.com>
+References: <4B1228D0.2010503@gmail.com>
+Message-ID: <C0DF2B1B-1EF8-417D-BCEC-80A48AF4E70A@edg.com>
+
+
+On Nov 29, 2009, at 2:54 AM, Sean Hunt wrote:
+
+> Hello,
+>
+> I've been working on putting C++0x literal operator functions into  
+> clang, and I ran into the fact that I wasn't sure how to mangle  
+> them. I opted for "ul" (for "user literal") followed by an  
+> identifier as an <operator-name>, but I don't think this is  
+> necessarily the best solution, because it might cause confusion with  
+> vendor-specific types (though it's guaranteed not to collide  
+> directly). Perhaps "lo" (for "literal operator") would be better.  
+> It's not a big deal; the user literal support (and clang itself) are  
+> far from mature enough that a minor ABI change would be an issue,  
+> but it would nonetheless be best to resolve this as soon as possible.
+
+
+"lo" is fine by me.  "li" would be fine too.
+
+	Daveed
+
+
+

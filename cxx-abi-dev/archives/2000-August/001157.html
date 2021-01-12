@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> EH level II
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20EH%20level%20II&In-Reply-To=%3C200008310729.AAA22527%40casey.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001155.html">
+   <LINK REL="Next"  HREF="001158.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>EH level II</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20EH%20level%20II&In-Reply-To=%3C200008310729.AAA22527%40casey.cygnus.com%3E"
+       TITLE="EH level II">jason at cygnus.com
+       </A><BR>
+    <I>Thu Aug 31 07:29:39 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001155.html">Meeting tomorrow (31 August)
+</A></li>
+        <LI>Next message: <A HREF="001158.html">Page updates, scope section
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1157">[ date ]</a>
+              <a href="thread.html#1157">[ thread ]</a>
+              <a href="subject.html#1157">[ subject ]</a>
+              <a href="author.html#1157">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Thanks a lot for writing this up.  Some comments follow.
+
+Note that I will be unavailable for the three Thursdays after tomorrow, Sep
+14 in particular.
+
+2.2.2 says:
+
+  uncaughtExceptions is a count of exceptions thrown and not yet caught by
+  the current thread.
+
+Add:
+(this includes rethrown exceptions, which may still have active handlers,
+but are not considered caught).
+
+2.3.1 says:
+
+  The interface to the emergency buffer is implementation-defined, and used
+  only by the __cxa_allocate_exception runtime library routine specified in
+  Section 2.4.2 below.
+
+Shouldn't __cxa_get_globals be able to get space from the emergency buffer?
+
+2.4.1 says:
+
+  Evaluate the thrown expression, and copy it into the buffer returned by
+  __cxa_allocate_exception, possibly using a copy constructor (see Section
+  2.4.3). If evaluation of the thrown expression or the copy constructor
+  itself exits by throwing an exception, that exception will propagate
+  instead of the expression itself. Cleanup code must ensure that
+  __cxa_free_exception is called on the just allocated exception object. 
+
+But the standard says:
+[except.terminate]:
+
+  15.5.1  The terminate() function                    [except.terminate]
+
+1 In the following situations exception handling must be  abandoned  for
+  less subtle error handling techniques:
+  
+  --when  the  exception handling mechanism, after completing evaluation
+    of the expression to be thrown but before the  exception  is  caught
+    (_except.throw_),  calls  a user function that exits via an uncaught
+    exception,134)
+  _________________________
+  134) For example, if the object being thrown is of a class with a copy
+  constructor, terminate() will be called if that copy constructor exits
+  with an exception during a throw.
+
+I suggest removing the words &quot;or the copy constructor itself&quot;, and adding a
+note
+
+  (If the copy constructor itself exits by throwing an exception, terminate
+  is called.)
+
+Furthermore, when I was dealing with this stuff in g++, I decided that
+rather than try to deal with cleaning up the allocated buffer, I would
+wait to allocate the exception until after the thrown expression has been
+evaluated.  This means we can't elide the copy, but eliminates a cleanup,
+making the code simpler and probably smaller.  If the temporary has a
+destructor, that needs a cleanup, but that's handled by the standard
+compiler mechanisms.
+
+I don't see why this sequence needs to be part of the ABI, actually.  It
+should be a QOI issue.
+
+2.4.2 says:
+
+  although an emergency buffer is available to handle bad_alloc exceptions
+  during exception object allocation.
+
+I don't see what this has to do with exception object allocation.  If I
+have an infinite loop of new int[5], the emergency buffer will allow me to
+throw bad_alloc in that case, too.
+
+Perhaps &quot;...available so the implementation can throw bad_alloc exceptions
+under low memory conditions&quot;.
+
+Actually, since there is no public interface to the emergency buffer, it
+seems like a QOI issue as well.  It should be possible to have a conforming
+implementation with no emergency buffer, though I'd leave the current stuff
+in as a suggestion.
+
+2.4.3: As mentioned above, this seems like overspecification.  This stuff is
+constrained by the language, but that's it.
+
+2.4.4: ***How do we tell the EH code how to destroy the exception?***
+  I would think it should be an argument to __cxa_throw.
+
+  &quot;Save the typeinfo argument to __cxa_throw in the __cxa_exception header&quot;
+  is unclear; my first reaction was &quot;but there isn't a __cxa_throw in that
+  header.&quot;  I think we can drop &quot;to __cxa_throw&quot;.
+
+2.5: The landing pad stuff seems like part of Level III.  An implementation
+  shouldn't need to use landing pads to be able to share exception objects
+  with other implementations.
+
+2.5.1 says:
+
+  Some cleanup code generated by the front-end may then execute,
+  corresponding to the exit of the try block. For instance, a local variable
+  with lifetime limited by the try block enclosing the scope would be
+  destroyed here.
+
+The last two lines seem rather awkward.  How about
+
+  an automatic variable local to the try block would be destroyed here.
+
+And similarly,
+
+  an automatic variable local to the outer block of the function would be
+  destroyed here.
+
+This should use &quot;handler&quot; rather than &quot;catch clause&quot; in most cases.
+
+This should also note that we loop through the various try blocks on our
+way out of the function, trying our switch value at each one.
+
+We should replace [RESX] with &quot;_Unwind_Resume();&quot;.
+
+I think we need a &quot;goto X1&quot; at the end of the example.
+
+2.5.2 says:
+
+  If the exception is not a C++ exception, the C++ personality routine must
+  ignore it, that is, return _URC_CONTINUE_UNWIND in both phases.
+
+What about running cleanups?
+Did we give up on being able to catch foreign exceptions?
+
+2.5.4: Rather than &quot;the current exception object&quot;, say &quot;the exception on
+    top of the caughtExceptions stack&quot;.  Rather than &quot;there is no current
+    exception&quot;, &quot;the stack is empty&quot;.
+
+2.5.5: Needs to say &quot;When unexpected() exits (by throwing) _after being
+    entered due to a throw_.&quot;
+
+Cases 1 and 3 have the same effect; that should be clearer.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001155.html">Meeting tomorrow (31 August)
+</A></li>
+	<LI>Next message: <A HREF="001158.html">Page updates, scope section
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1157">[ date ]</a>
+              <a href="thread.html#1157">[ thread ]</a>
+              <a href="subject.html#1157">[ subject ]</a>
+              <a href="author.html#1157">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

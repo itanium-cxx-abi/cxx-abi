@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3C9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002789.html">
+   <LINK REL="Next"  HREF="002791.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] N4198 and mangling for member pointer template	arguments</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3C9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7%40apple.com%3E"
+       TITLE="[cxx-abi-dev] N4198 and mangling for member pointer template	arguments">rjmccall at apple.com
+       </A><BR>
+    <I>Tue Dec  2 21:58:33 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002789.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+        <LI>Next message: <A HREF="002791.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2790">[ date ]</a>
+              <a href="thread.html#2790">[ thread ]</a>
+              <a href="subject.html#2790">[ subject ]</a>
+              <a href="author.html#2790">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Dec 2, 2014, at 11:46 AM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;<i> On 1 December 2014 at 17:41, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> On Dec 1, 2014, at 2:18 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> On 1 December 2014 at 12:02, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> &gt; On Nov 25, 2014, at 6:13 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; N4198 (accepted at Urbana) makes it possible for a template parameter of type T U::* to have a template argument of type T V::*, where V is a base class of U or vice versa. A naive attempt to apply the existing ABI rules leads to mangling collisions in cases like this:
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; struct A { int n; };
+</I>&gt;&gt;<i> &gt; struct B : A {};
+</I>&gt;&gt;<i> &gt; template&lt;int A::*&gt; void f() {}
+</I>&gt;&gt;<i> &gt; template&lt;int B::*&gt; void f() {}
+</I>&gt;&gt;<i> &gt; void g() {
+</I>&gt;&gt;<i> &gt;   constexpr int A::*p = &amp;A::n;
+</I>&gt;&gt;<i> &gt;   constexpr int B::*q = p;
+</I>&gt;&gt;<i> &gt;   f&lt;p&gt;();
+</I>&gt;&gt;<i> &gt;   f&lt;q&gt;();
+</I>&gt;&gt;<i> &gt; }
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; (Here, a naive approach would use XadL_ZN1A1nEEE as the template argument value in both calls.)
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; In order to resolve this, I suggest we introduce a new mangling for the case of a member pointer template argument where the class containing the member is different from the class in the template parameter. The minimal information we'll need to include is the class in the template parameter and a designator if the base class is a repeated base class.
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; One approach would be to use
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt;   sc &lt;type&gt; ad L&lt;member&gt;E
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; and to explicitly include the final type plus those intermediate types that introduce multiple inheritance from the base class (that is, just enough to uniquely identify the path).
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; Another would be to introduce a new mangling that incorporates the final type and an offset or discriminator.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Do we have the same problem for references and pointers to base subobjects?  Okay, I see that the answer is &#8220;no&#8221;, but only because you kept that restriction in N4198.  I think we can assume that that&#8217;s not permanent.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I agree; I expect we'll eventually pare back the restrictions to something like &quot;no pointers/references to union members, and no one-past-the-end pointers&quot;, or even remove all restrictions altogether if no-one gets upset that different template arguments can compare equal. (We've actually already crossed this bridge by specifying that pointers to members of a union compare equal even if they point to different members, but no-one has got upset about it yet...)
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I like the idea of using (possibly invented) static_casts; it&#8217;s not optimally compact, but it at least theoretically works with existing demanglers.  Have you checked to see if it actually works?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> GCC's c++filt gives void f&lt;static_cast&lt;int B::*&gt;(&amp;A::n)&gt;()
+</I>&gt;&gt;<i> libc++abi's demangler gives void f&lt;static_cast&lt;int B::*&gt;(&amp;(A::n))&gt;() ... which is wrong, but it's equally wrong without the static_cast.
+</I>&gt;<i> 
+</I>&gt;<i> Awesome.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> I agree with only including those intermediate steps necessary to uniquely determine the path.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> We&#8217;d have to specify in what dependent situations we include the path.  &#8220;Never&#8221; is the easiest answer, so that in
+</I>&gt;&gt;<i>   template &lt;class T, int T::*member&gt; void foo(decltype(T() + temp&lt;&amp;A::baz&gt;());
+</I>&gt;&gt;<i> we&#8217;d mangle &amp;A::baz without a path clarification even if we could type-check &quot;temp&lt;&amp;A::baz&gt;()&#8221; at template definition time.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> That seems reasonable to me, but I'm not exactly sure what classifies as a &quot;dependent situation&quot;; do you mean that we should mangle the path only if the &lt;template-arg&gt; is not nested within an instantiation-dependent &lt;expression&gt;?
+</I>&gt;<i> 
+</I>&gt;<i> Good question.  We get this same issue with integer template arguments: the expression 1 has type int, but &lt;1&gt; (sometimes) gets mangled with the template parameter type to which it&#8217;s been coerced.  I don&#8217;t think the ABI completely specifies when to use one or the other &#8212; it&#8217;s an example of one of the few places where &#8220;mangle the token stream&#8221; isn&#8217;t really enough information &#8212; but I feel like the same rule should clearly apply here.
+</I>&gt;<i> 
+</I>&gt;<i> The simplest rule is probably &#8220;only mangle using the coerced type when identifying a concrete specialization, as in the &lt;name&gt; of an &lt;encoding&gt;&#8221;.  However, I suspect that Clang, at least, probably aggressively uses the coerced type whenever it's already type-checked the template arguments, meaning probably whenever the reference isn&#8217;t (some kind of) dependent.
+</I>&gt;<i> 
+</I>&gt;<i> It's not just Clang that does this. Consider:
+</I>&gt;<i> 
+</I>&gt;<i> template&lt;int N, short S&gt; struct X {};
+</I>&gt;<i> template&lt;int N&gt; void f(X&lt;N, 5&gt;) {}
+</I>&gt;<i> template void f&lt;0&gt;(X&lt;0, 5&gt;);
+</I>&gt;<i> 
+</I>&gt;<i> Clang, GCC, and EDG all give _Z1fILi0EEv1XIXT_ELs5EE as the mangling.
+</I>&gt;<i> 
+</I>&gt;<i> Here's a trickier case:
+</I>&gt;<i> 
+</I>&gt;<i> template&lt;int N, short S&gt; struct X {};
+</I>&gt;<i> template&lt;int ...N&gt; void f(X&lt;N..., 5&gt;) {}
+</I>&gt;<i> template void f&lt;int&gt;(X&lt;int, 5&gt;);
+</I>&gt;<i> 
+</I>&gt;<i> For this, GCC and clang give _Z1fIJLi0EEEv1XIXspT_ELi5EE, and EDG gives _Z1fIJLi0EEEv1XIXT_ELs5EE. I think EDG is wrong here, and we should not perform conversions on template arguments that appear at or after a pack expansion into a non-pack (because we don't know how template arguments and parameters correspond beyond that point).
+</I>&gt;<i> 
+</I>&gt;<i> Presumably all implementations also skip canonicalization when the template parameter is dependent or the template argument is some kind of dependent (though maybe not the same kind).
+</I>
+Hmm.  I&#8217;d prefer not to hard-code an order dependence, because I think it&#8217;s likely that the committee will eventually weaken the rules about where packs can appear in parameter lists (e.g. to allow templates to pull arguments off the end instead of the beginning).  So I think we either need to do what EDG does and heroically match later arguments which have to be part of the pack &#8212; which may or may not work equally well with future pack-placement rules &#8212; or pull back and say we&#8217;re completely blocked by the existence of dependent pack expansions.
+
+I think the ABI rule we&#8217;re looking at is something like this:  there are two kinds of template argument, dependent and non-dependent.  A template argument is dependent if:
+  - it is itself instantiation-dependent,
+  - the template name is dependent, or
+  - &lt;some rule about dependent pack expansions?&gt;.
+
+A dependent template argument should be mangled using its original value/type/template-name expression.  A non-dependent non-type template argument can always be matched with a corresponding template parameter type and should be mangled as a (possibly coerced) literal value.
+
+Right now, coercion only applies to non-type template arguments, but it&#8217;s also possible for it to apply to template template arguments in the future &#8212; I was just thinking of passing
+  template &lt;class T, class U=int&gt; class A;
+to a parameter typed as:
+  template&lt;class&gt; class
+but Doug points out that you could also pass variadic templates, e.g.
+  template &lt;class&#8230; T&gt; class A;
+
+&gt;&gt;<i> There's another issue that we should probably fix at the same time: qualification conversions are permitted in template arguments, and we currently mangle a signature that performs a qualification conversion the same way as we mangle a signature that does not. We could either fold the qualification conversion into the last (synthetic) static_cast, or add an explicit synthetic const_cast to model it. I'm inclined to favour the latter, even though it will give longer manglings in the (hopefully rare) case where both conversions occur (because it also works if the user has cast away constness, and because it's simpler). Example:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> // tu1
+</I>&gt;&gt;<i> extern int n;
+</I>&gt;&gt;<i> template&lt;int*&gt; void f() {}
+</I>&gt;&gt;<i> void g() { f&lt;&amp;n&gt;(); }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> // tu2
+</I>&gt;&gt;<i> extern int n;
+</I>&gt;&gt;<i> template&lt;const int*&gt; void f() {}
+</I>&gt;&gt;<i> void h() { f&lt;&amp;n&gt;(); }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Here:
+</I>&gt;&gt;<i> g calls _Z1fIXadL_Z1nEEEvv
+</I>&gt;&gt;<i> h calls _Z1fIXccPKiadL_Z1nEEEvv
+</I>&gt;<i> 
+</I>&gt;<i> Is this a compatibility issue?  As in, aren&#8217;t qualification conversions already allowed in template arguments?  There might be a significant number of existing template arguments that, say, bind a non-const global to a const reference.
+</I>&gt;<i> 
+</I>&gt;<i> Yes, this is a pre-existing bug in the ABI; we have always been required to miscompile the above code. We could limit the scope of the damage by only applying this change to function templates.
+</I>
+Hmm, yes, that would help a lot.
+
+A fair amount of code relies on separate template instantiations being mangled consistently, but that code is generally either:
+  - using RTTI for a class temploid specialization,
+  - using a class template specialization as a parameter type, or
+  - using an explicit instantiation.
+The second is completely specific to class templates, the first is almost completely specific to class templates (the exception being local classes in a function template), and the third is mostly used for class templates.
+
+There&#8217;s relatively little code doing stuff like:
+  - putting a static local variable in a function template or
+  - using a function template specialization as a non-type template argument to a template that itself needs symbol consistency for some reason.
+
+So yes, if this only practically affects instantiations of function templates with non-type template parameters, and only when there&#8217;s a qualifier mismatch between the actual declaration and the parameter, then the overall impact should be tiny.
+
+Nonetheless, it&#8217;s an ABI break, and not just for a new feature but for existing code.  So it should be separately formally proposed.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/36013670/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/36013670/attachment-0001.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002789.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+	<LI>Next message: <A HREF="002791.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2790">[ date ]</a>
+              <a href="thread.html#2790">[ thread ]</a>
+              <a href="subject.html#2790">[ subject ]</a>
+              <a href="author.html#2790">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

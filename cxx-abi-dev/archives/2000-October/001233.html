@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Wrong wording in 1.3 &quot;Throwing an exception.&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Wrong%20wording%20in%201.3%20%22Throwing%20an%20exception.%22&In-Reply-To=%3C200010050318.UAA61538%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001232.html">
+   <LINK REL="Next"  HREF="001235.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Wrong wording in 1.3 &quot;Throwing an exception.&quot;</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Wrong%20wording%20in%201.3%20%22Throwing%20an%20exception.%22&In-Reply-To=%3C200010050318.UAA61538%40baalbek.engr.sgi.com%3E"
+       TITLE="Wrong wording in 1.3 &quot;Throwing an exception.&quot;">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Thu Oct  5 03:18:36 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001232.html">Other results from today's meeting (28 Sept 2000)
+</A></li>
+        <LI>Next message: <A HREF="001235.html">Wrong wording in 1.3 &quot;Throwing an exception.&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1233">[ date ]</a>
+              <a href="thread.html#1233">[ thread ]</a>
+              <a href="subject.html#1233">[ subject ]</a>
+              <a href="author.html#1233">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> The current wording doesn't match the C++ standard:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; If the unwinder encounters an unexpected error during phase 2,
+</I>&gt;<i> &gt; the unwind runtime may have modified the stack, e.g. popped
+</I>&gt;<i> &gt; frames from it, or landing pad code may have caused stack corruption.
+</I>&gt;<i> &gt; As a result, the unwind library probably could not find a return address,
+</I>&gt;<i> &gt; and the caller of _Unwind_RaiseException could make no assumptions about
+</I>&gt;<i> &gt; the state of its stack. Rather than attempt to return, therefore, the unwind
+</I>&gt;<i> &gt; library should use the exception_cleanup entry in the exception,
+</I>&gt;<i> &gt; and then call abort(). 
+</I>&gt;<i> 
+</I>&gt;<i> What C++ mandates in that case is calling terminate(), not abort(), and that's a
+</I>&gt;<i> decision that only the C++ runtime can make (it may be different for other
+</I>&gt;<i> languages).
+</I>&gt;<i> 
+</I>&gt;<i> What's more, the justification doesn't apply very well on IA-64. There is
+</I>&gt;<i> only one return address for _RaiseException, and it is not on the stack
+</I>&gt;<i> but in a local register (br0). Therefore, _RaiseException has very good
+</I>&gt;<i> chances of being able to return to the C++ runtime, and from there, we
+</I>&gt;<i> move only downwards in the calls tack (terminate() which typically calls
+</I>&gt;<i> abort() itself).
+</I>&gt;<i> 
+</I>&gt;<i> So the paragraph above should indicate that we return _URC_FATAL_PHASE2_ERROR.
+</I>
+Well, I was about ready to do this, when I got worried.  I know we
+talked about this last week, and agreed as above, but I'd like to get
+confirmation from more people than were present that we're not opening
+an implementation can of worms.
+
+As Christophe points out, the objection that a return address might be
+hard to find is at least overstated.  But the bigger problem is that
+the caller of _Unwind_RaiseException must assume a garbaged stack, and
+likely has garbage in its registers, including GP and an unknown
+stacked register state, which might make it difficult to find
+terminate() to call it.  So the problem isn't really difficulty
+for the unwind runtime, but for its caller.  This call (to
+_Unwind_RaiseException) will happen in many places in compiled code, so
+I would think that if we're not careful, we could place some nasty, and
+not very useful, constraints on compilers.  Who has thought about the
+implications of this, and what do you think?
+
+There are several potential specifications we can make:
+
+ 1) Unwinder returns _URC_FATAL_PHASE2_ERROR.
+
+     a) Nothing further specified.
+     b) Require that caller call terminate() with no further help.
+     c) Require that the unwinder also return valid GP for caller
+	(and perhaps other registers).  (Remember that we've been
+	modifying the context during phase 2 unwinding, so this
+	probably requires extra work in the unwinder.)
+
+ 2) Unwinder calls abort().
+
+ 3) Unwinder may do either (1) or (2).
+
+ 4) Unwinder behavior is completely undefined.
+
+Biases, anyone?
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001232.html">Other results from today's meeting (28 Sept 2000)
+</A></li>
+	<LI>Next message: <A HREF="001235.html">Wrong wording in 1.3 &quot;Throwing an exception.&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1233">[ date ]</a>
+              <a href="thread.html#1233">[ thread ]</a>
+              <a href="subject.html#1233">[ subject ]</a>
+              <a href="author.html#1233">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,111 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20need%20mangling%20for%20string%20literals%20and%0A%20lifetime-extended%20temporaries%20used%20in%20static%20constexpr%20member%20initializers%0A%20and%20for%20string%20literals%20in%20constexpr%20functions&In-Reply-To=%3CCAGL0aWch%2Bxdf6NPKUCiG_P7UFfyxz1UE1d78rcw36QJCtCk_tg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002588.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20need%20mangling%20for%20string%20literals%20and%0A%20lifetime-extended%20temporaries%20used%20in%20static%20constexpr%20member%20initializers%0A%20and%20for%20string%20literals%20in%20constexpr%20functions&In-Reply-To=%3CCAGL0aWch%2Bxdf6NPKUCiG_P7UFfyxz1UE1d78rcw36QJCtCk_tg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions">richardsmith at google.com
+       </A><BR>
+    <I>Thu May 30 00:48:55 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002588.html">[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2593">[ date ]</a>
+              <a href="thread.html#2593">[ thread ]</a>
+              <a href="subject.html#2593">[ subject ]</a>
+              <a href="author.html#2593">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, May 24, 2013 at 6:23 AM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+
+&gt;<i> On 05/24/2013 01:23 AM, Richard Smith wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> So... this problem was not really new in C++11. In C++98 it can be
+</I>&gt;&gt;<i> witnessed for an inline function such as:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> inline const char *get() {
+</I>&gt;&gt;<i>    static const char *str = &quot;foo&quot;;
+</I>&gt;&gt;<i>    return str;
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The ABI already deals with this case:
+</I>&gt;<i>
+</I>&gt;<i> ---
+</I>&gt;<i>
+</I>&gt;<i> Occasionally entities in local scopes must be mangled too (e.g. because
+</I>&gt;<i> inlining or template compilation causes multiple translation units to
+</I>&gt;<i> require access to that entity). The encoding for such entities is as
+</I>&gt;<i> follows:
+</I>&gt;<i>
+</I>&gt;<i>   &lt;local-name&gt; := Z &lt;function encoding&gt; E &lt;entity name&gt; [&lt;discriminator&gt;]
+</I>&gt;<i>                := Z &lt;function encoding&gt; E s [&lt;discriminator&gt;]
+</I>&gt;<i>
+</I>&gt;<i>   &lt;discriminator&gt; := _ &lt;non-negative number&gt;      # when number &lt; 10
+</I>&gt;<i>                   := __ &lt;non-negative number&gt; _   # when number &gt;= 10
+</I>&gt;<i>
+</I>&gt;<i> ...
+</I>&gt;<i> ---
+</I>&gt;<i>
+</I>&gt;<i> We just need to specify how lifetime-extended temporaries fit into this.
+</I>&gt;<i>  And, I suppose, that we need to use &lt;data-member-prefix&gt; for strings in
+</I>&gt;<i> the various lambda contexts.
+</I>&gt;<i>
+</I>
+This may mean that copy-elision becomes part of the ABI in some cases. For
+instance...
+
+struct A { int &amp;&amp;r1; };
+struct B { A &amp;&a; char &amp;&amp;r2; };
+char *f() {
+  static B c = { A(A{0}), 'x' };
+  return &amp;c.r2;
+};
+
+Do we assign a mangling to the int temporary or not? It is
+lifetime-extended if and only if the A copy is elided. For instance, g++
+returns _ZGRZ1fvE1c1 with -fno-elide-constructors and _ZGRZ1fvE1c2 with
+-felide-constructors.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130529/e86b3adb/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130529/e86b3adb/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002588.html">[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2593">[ date ]</a>
+              <a href="thread.html#2593">[ thread ]</a>
+              <a href="subject.html#2593">[ subject ]</a>
+              <a href="author.html#2593">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

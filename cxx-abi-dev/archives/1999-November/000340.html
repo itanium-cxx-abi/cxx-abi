@@ -1,0 +1,295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Name hashing algorithm(s).
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Name%20hashing%20algorithm%28s%29.&In-Reply-To=%3C199911182022.AA13296%40philli.zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000339.html">
+   <LINK REL="Next"  HREF="000341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Name hashing algorithm(s).</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Name%20hashing%20algorithm%28s%29.&In-Reply-To=%3C199911182022.AA13296%40philli.zko.dec.com%3E"
+       TITLE="Name hashing algorithm(s).">coleen at zko.dec.com
+       </A><BR>
+    <I>Thu Nov 18 20:22:13 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000339.html">Special characters in mangled names
+</A></li>
+        <LI>Next message: <A HREF="000341.html">Name hashing algorithm(s).
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#340">[ date ]</a>
+              <a href="thread.html#340">[ thread ]</a>
+              <a href="subject.html#340">[ subject ]</a>
+              <a href="author.html#340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>/*
+The following code (which is a snippet of our name hashing code) computes
+a CRC code for the name.   There are two versions, we use the &quot;good&quot; one
+to append to the mangled names on VMS (limit 32) and Unix is 1024.
+
+The algorithm is: using the mangled name, compute the CRC.  Chop off the
+mangled name at whatever the limit is (1022 for Unix for historical reasons)
+minus 7, and fill the CRC in the last 7 characters using the routine
+fill_crc() below.
+
+Demangling: The demangler on Unix will try to demangle the name up to
+where it's chopped off (which is almost always good enough, well, we haven't
+heard any complaints).  On VMS, we have a demangler database.
+
+The other CRC routine is one we use for exception id
+comdats because they don't get the same address on VMS shared images.
+I think it has the same (low) probability of collisions as the first.
+If you use both, there's virtually no chance of collisions (someone
+else did the math for this, which I may have saved).
+
+Sorry, about the '$' in id's - this originally came from VMS, hence the
+strange interface to lib$crc.
+
+Coleen
+*/
+/****************************************************************************
+*
+*  Copyright Digital Equipment Corporation 1989, 1998. All rights reserved.
+*
+*  Restricted Rights: Use, duplication, or disclosure by the U.S.
+*  Government is subject to restrictions as set forth in subparagraph
+*  (c) (1) (ii) of DFARS 252.227-7013, or in FAR 52.227-19, or in FAR
+*  52.227-14 Alt. III, as applicable.
+*
+*  This software is proprietary to and embodies the confidential
+*  technology of Digital Equipment Corporation. Possession, use, or
+*  copying of this software and media is authorized only pursuant to a
+*  valid written license from Digital or an authorized sublicensor.
+*
+****************************************************************************/
+#include &lt;ctype.h&gt;
+#include &lt;stddef.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;assert.h&gt;
+
+/* prototypes */
+/* AUTODIN-II CRC code. */
+unsigned int cs_get_good_crc_code(int len, char *name);
+
+/* Bevin's CRC code. */
+unsigned int cs_get_crc_code2(int len, char *name);
+
+/*
+** Default CRC table:
+**
+**	This table was taken from Ada's generalized name generation
+**	algorithm.  It represents a commonly used CRC polynomial known
+**	as AUTODIN-II.  For more information see the VAX Macro VMS
+**	documentation under the CRC VAX instruction.
+*/
+
+static const unsigned int good_crc_table[16] =
+                     {0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
+		      0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
+		      0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
+		      0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C};
+/*
+**
+** Facility:  PLIB
+**
+** Abstract:  Routine to compute a CRC without using the CRC instruction.
+**
+** Environment:  VAX/VMS
+**
+** Author:  Gary Barton, Creation Date:  11-Apr-1990
+**
+** Modified by:
+**
+*/
+
+/* Only S supported */
+#define DSC$K_CLASS_S   1               /* fixed-length descriptor */
+#define DSC$K_CLASS_D   2               /* dynamic string descriptor */
+#define	DSC$K_DTYPE_T   0               /* stub, just make it compile */
+
+struct  dsc$descriptor
+{
+	unsigned short  dsc$w_length;   /* specific to descriptor class;
+					typically a 16-bit (unsigned) length */
+	unsigned char   dsc$b_dtype;    /* data type code */
+	unsigned char   dsc$b_class;    /* descriptor class code */
+	unsigned char  *dsc$a_pointer;  /* address of first byte of data
+					element */
+};
+
+#define analyze_sdesc( desc, addr, len ) \
+if ( desc-&gt;dsc$b_class &lt;= DSC$K_CLASS_D ) \
+    {\
+    addr = (char *)desc-&gt;dsc$a_pointer;\
+    len = desc-&gt;dsc$w_length;\
+    }\
+else\
+    ; /* str$analyze_sdesc( desc, &amp;addr, &amp;len ); */
+
+
+unsigned int lib$crc (unsigned int crc_table[16],
+		      unsigned int *initial_crc,
+		      struct dsc$descriptor *stream)
+{   
+    int            i;
+    unsigned int   result;
+    char          *stream_addr;
+    int            stream_length;
+
+    analyze_sdesc(stream, stream_addr, stream_length);
+
+    /*
+    ** Compute the result 4 bits at a time.
+    */
+
+    result = *initial_crc;
+    for (i = 0; i &lt; stream_length; ++i)
+    {
+	unsigned int data = (unsigned char)stream_addr[i];
+
+	result = (result &gt;&gt; 4) ^ crc_table [(result ^ data) &amp; 0x0f];
+	data = data &gt;&gt; 4;
+	result = (result &gt;&gt; 4) ^ crc_table [(result ^ data) &amp; 0x0f];
+    }
+
+    return (result);
+}
+
+void fill_crc (char *buffer, int length, unsigned crc)
+/*
+**  DESCRIPTION:
+**	Fills in the CRC field with the number of characters requested.
+**	Uses base 32.
+*/
+{
+    static char crc_converter[] = &quot;0123456789abcdefghijklmnopqrstuv&quot;;
+    int mask = 0x00000001f;
+    unsigned int temp = crc;
+    unsigned int digit = 0;
+    int i;
+
+    for (i =0; i&lt;length; i++) {
+	digit = temp &amp; mask;
+	buffer[length-i-1] = crc_converter[digit];
+	temp = temp &gt;&gt; 5;
+	}
+} /* fill_crc */
+
+unsigned int cs_get_good_crc_code( int len, char *name)
+/*
+**++
+**  FUNCTIONAL DESCRIPTION:
+**
+**	Calls lib$crc determine a hex number representing
+**	the identifier name.  Uses the good crc table.
+**--
+*/
+{
+    unsigned crc_result  = 0;
+    unsigned int          initial_crc = -1;
+    struct dsc$descriptor crc_stream = {0,
+					  DSC$K_DTYPE_T,
+					  DSC$K_CLASS_S,
+					  NULL};
+    /*
+    ** Initialize the crc_stream fixed length descriptor
+    */
+    crc_stream.dsc$w_length  = len;
+    crc_stream.dsc$a_pointer = (unsigned char *)name;
+
+    crc_result = lib$crc((unsigned int *)good_crc_table,
+			 &amp;initial_crc,
+			 &amp;crc_stream);
+    return crc_result;
+}
+
+unsigned int cs_get_crc_code2(int len, char *name)
+/*
+**++
+**  FUNCTIONAL DESCRIPTION:
+**
+**	This function returns a CRC code generated from this
+**	polynomial.
+**		polynomial = x^32+x^29+x^3+x^1+1
+**		POLY  = D0000004
+**
+**	(POLY is used in calculating the CRC table- computed
+**	 by leaving off the 32 term and setting the
+**	 bits corresponding to the terms in reverse.)
+**
+**  FORMAL PARAMETERS:
+**
+**	char *name:
+**	    The identifier node whose encoded name needs further
+**	    target specific encoding.
+**
+**	int  len:
+**	    Length of name.
+**--
+*/
+{
+    static unsigned int crc_table2[16] = {
+	0x00000000, 0xca000004, 0x34000001, 0xfe000005,
+	0x68000002, 0xa2000006, 0x5c000003, 0x96000007,
+	0xd0000004, 0x1a000000, 0xe4000005, 0x2e000001,
+	0xb8000006, 0x72000002, 0x8c000007, 0x46000003 };
+
+    unsigned   crc_result  = 0;
+
+    unsigned int initial_crc = -1;
+    struct dsc$descriptor crc_stream = {0,
+					  DSC$K_DTYPE_T,
+					  DSC$K_CLASS_S,
+					  NULL};
+    /*
+    ** Initialize the crc_stream fixed length descriptor
+    */
+    crc_stream.dsc$w_length  = len;
+    crc_stream.dsc$a_pointer = (unsigned char *)name;
+
+
+    crc_result = lib$crc(crc_table2,
+			 &amp;initial_crc,
+			 &amp;crc_stream);
+
+    return crc_result;
+}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000339.html">Special characters in mangled names
+</A></li>
+	<LI>Next message: <A HREF="000341.html">Name hashing algorithm(s).
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#340">[ date ]</a>
+              <a href="thread.html#340">[ thread ]</a>
+              <a href="subject.html#340">[ subject ]</a>
+              <a href="author.html#340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

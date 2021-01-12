@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> platform c++ abi additions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20platform%20c%2B%2B%20abi%20additions&In-Reply-To=%3C484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002321.html">
+   <LINK REL="Next"  HREF="002323.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>platform c++ abi additions</H1>
+    <B>Nick Kledzik</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20platform%20c%2B%2B%20abi%20additions&In-Reply-To=%3C484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4%40apple.com%3E"
+       TITLE="platform c++ abi additions">kledzik at apple.com
+       </A><BR>
+    <I>Fri May 14 00:20:09 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002321.html">[cxx-abi-dev] Magical type trait operators
+</A></li>
+        <LI>Next message: <A HREF="002323.html">[cxx-abi-dev] platform c++ abi additions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2322">[ date ]</a>
+              <a href="thread.html#2322">[ thread ]</a>
+              <a href="subject.html#2322">[ subject ]</a>
+              <a href="author.html#2322">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm exploring adding some new interfaces (described below) to Apple's  
+implementation of the C++ ABI.  If there is no interest here in adding  
+these to the base C++ ABI, we can add them in a new namespace like  
+__cxxabiapple (instead of __cxxabiv1).
+
+As you may have heard, llvm.org is working on a new C++ library  
+implementation &lt;<A HREF="http://libcxx.llvm.org/">http://libcxx.llvm.org/</A>&gt;.  Apple would like to release  
+a shared library version of this library (libc++.dylib) in parallel  
+with the existing gcc based C++ library (libstc++.dylib).   In order  
+to allow these libraries to inter-operate, we plan to factor out the C+ 
++ ABI parts of libstdc++.dylib into a stand alone library (libc+ 
++abi.dylib) which will then be used by the higher level C++ libraries.
+
+But there are a few extra things we need in libc++abi.dylib (beyond  
+what the current ABI specifies) to support multiple C++ libraries.  I  
+wanted to explain our current implementation to see if this might lead  
+to future issues:
+
+1) std::set_terminate(), std::set_unexpected(), and  
+std::set_new_handler() assume there is one process wide global holding  
+the current handler.   To support this we are adding three global  
+variables to libc++abi.dylib:  __cxa_terminate_handler,  
+__cxa_unexpected_handler, and __cxa_new_handler.   The two C++  
+libraries atop libc++abi.dylib will use these global variables instead  
+of having their own copy.
+
+2) C++ 0x introduces std::exception_ptr.  Two years ago on this list,  
+Sebastian Redl outlined &lt;<A HREF="http://www.codesourcery.com/archives/cxx-abi-dev/msg01924.html">http://www.codesourcery.com/archives/cxx-abi-dev/msg01924.html</A> 
+ &gt; a way to support exception_ptr by adding a field to __cxa_exception  
+and add a similar __cxa_dependent_exception struct.   This  
+implementation works, but it exposes some inner workings of libc+ 
++abi.dylib.  It is the only use of __cxa_exception needed in the  
+higher level C++ libraries. To provide better encapsulation, we've  
+created a procedural interface in  libc++abi.dylib for use by  
+exception_ptr:
+
+   extern void * __cxa_current_primary_exception() throw();
+   extern void __cxa_rethrow_primary_exception(void* primary_exception);
+   extern void __cxa_increment_exception_refcount(void*  
+primary_exception) throw();
+   extern void __cxa_decrement_exception_refcount(void*  
+primary_exception) throw();
+
+These make the implementation of exception_ptr trivial:
+
+   exception_ptr::~exception_ptr()  {
+       __cxa_decrement_exception_refcount(__ptr_);
+   }
+
+   exception_ptr::exception_ptr(const exception_ptr&amp; other)   : __ptr_ 
+(other.__ptr_) {
+       __cxa_increment_exception_refcount(__ptr_);
+   }
+
+   std::exception_ptr std::current_exception() {
+   	return exception_ptr(__cxa_current_primary_exception());
+   }
+
+   void std::rethrow_exception(exception_ptr p)  {
+	__cxa_rethrow_primary_exception(p.__ptr_);
+       std::terminate();
+   }
+
+3) Lastly, the only use of __cxa_globals in the higher level C++  
+libraries is to implement std::uncaught_exception().  To keep  
+__cxa_globals (like __cxa_exception) private to  libc++abi.dylib,  
+we've added a new function:
+
+     extern bool __cxa_uncaught_exception() throw();
+
+These new entry points will be in Apple's &lt;cxxabi.h&gt;.  Is there any  
+model for platform specific additions to the C++ ABI like these?
+
+-------------
+Nick Kledzik
+Apple Inc.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100513/6e197263/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100513/6e197263/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002321.html">[cxx-abi-dev] Magical type trait operators
+</A></li>
+	<LI>Next message: <A HREF="002323.html">[cxx-abi-dev] platform c++ abi additions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2322">[ date ]</a>
+              <a href="thread.html#2322">[ thread ]</a>
+              <a href="subject.html#2322">[ subject ]</a>
+              <a href="author.html#2322">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

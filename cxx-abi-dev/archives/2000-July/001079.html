@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Notes from the meeting
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C200007062355.QAA05489%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001078.html">
+   <LINK REL="Next"  HREF="001082.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Notes from the meeting</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C200007062355.QAA05489%40baalbek.engr.sgi.com%3E"
+       TITLE="Notes from the meeting">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Thu Jul  6 23:55:17 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001078.html">Notes from the meeting
+</A></li>
+        <LI>Next message: <A HREF="001082.html">Mangling (Was: Notes from the meeting)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1079">[ date ]</a>
+              <a href="thread.html#1079">[ thread ]</a>
+              <a href="subject.html#1079">[ subject ]</a>
+              <a href="author.html#1079">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A> Thu Jul  6 15:37:50 2000
+</I>&gt;<i> 
+</I>&gt;<i> &gt;      Upon further thought, though, I don't think this is needed.  The
+</I>&gt;<i> &gt;      two functions have different definitions, with different
+</I>&gt;<i> &gt;      hierarchical names.  The result adjustment is determined by which
+</I>&gt;<i> &gt;      function is called and where it is called from, and there
+</I>&gt;<i> &gt;      shouldn't be an opportunity to confuse them.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt;      Am I missing something?
+</I>&gt;<i> 
+</I>&gt;<i> I think so, yes. What do you mean by &quot;hierarchical names&quot;? Consider
+</I>&gt;<i> 
+</I>&gt;<i> struct A{};struct B:primary,A{};
+</I>&gt;<i> 
+</I>&gt;<i> struct Base{
+</I>&gt;<i>   virtual A* func(int);  // _ZN4Base4funcEi
+</I>&gt;<i> };
+</I>&gt;<i> 
+</I>&gt;<i> struct Derived:Base{
+</I>&gt;<i>   B* func(int);
+</I>&gt;<i> };
+</I>&gt;<i> 
+</I>&gt;<i> Now, _ZN7Derived4funcEi refers to - what? In the vtable of Derived,
+</I>&gt;<i> you have two slots - what symbols do you put in there?
+</I>
+Well, you're right that I was a bit confused.
+Let me try to work through it.
+
+The two slots in the Derived vtable are the shared slot with the Base
+vtable, and the unshared one at the end.  In the unshared one goes the
+unadorned Derived::func pointer:
+
+	_ZN7Derived4funcEP7Derivedi
+
+(except that the second 7Derived gets substituted).
+
+In the shared slot goes what a Base caller expects to see, which is a
+thunk that converts 'this' to Derived, calls Derived::func, and
+converts the result back to an A*.  It would be named, by our current
+convention:
+
+	_ZTh0_N7Derived4funcEP7Derivedi
+
+This encodes the 'this' adjustment (0) and the target function name.
+It works (is distinguishable), but only because the thunk prefix is
+there.  So if we add another level of derivation, again as a primary
+base, we have a problem.  So I was wrong... (but you knew that
+already).
+
+&gt;<i> The obvious solution would be to have
+</I>&gt;<i> 
+</I>&gt;<i>   _ZN7Derived4funcEP1Ai  // A* Derived::func(int)
+</I>&gt;<i>   _ZN7Derived4funcEP1Bi  // B* Derived::func(int)
+</I>&gt;<i> 
+</I>&gt;<i> However, that won't work, because e.g. the first one is confused with
+</I>&gt;<i> 
+</I>&gt;<i>   Ret? Derived::func(A*, int)
+</I>&gt;<i> 
+</I>&gt;<i> and the same confusion arises for the second one.
+</I>
+It isn't really a problem, because you only need to do it for the thunk
+names, and we could add the rule that covariant return thunk names,
+identified by a different special prefix, encode the result type.
+
+&gt;<i> Was there any
+</I>&gt;<i> concrete proposal in the meeting?
+</I>
+Yes.  Observing that the offset encoding is likely shorter than the
+return type name, we would encode covariant return thunk names with
+the return type adjustment information.  We had agreed to new prefixes
+Tc and Td, analogous to Th and Tv, but it occurs to me that the return
+type adjustment is independent of the call adjustment, so I suggest the
+following:
+
+  Tch &lt;static this adjust&gt;_ &lt;static result adjust&gt;_ &lt;base function&gt;
+  Tcv &lt;static this adjust&gt;_ &lt;vcall offset for this adjust&gt;_ \
+	&lt;static result adjust&gt;_ &lt;base function&gt;
+  Tdh &lt;static this adjust&gt;_ &lt;static result adjust&gt;_ \
+	&lt;vbase offset for result adjust&gt;_ &lt;base function&gt;
+  Tdv &lt;static this adjust&gt;_ &lt;vcall offset for this adjust&gt;_ \
+	&lt;static result adjust&gt;_ &lt;vbase offset for result adjust&gt;_ \
+	&lt;base function&gt;
+
+For Tch/Tdh, the static result adjust (a number) is added to the
+result pointer in the thunk (to convert B* to A* in our example),
+when A is a non-virtual base of B.
+
+For Tcv/Tdv, the vbase pointer at offset given, in B, is added to
+the result pointer B* to get the virtual base of B containing A, and
+then the static result adjust is added to that to get A*.
+
+Does this match what people thought at the meeting?  Does it sound OK,
+Martin?
+
+Regards,
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001078.html">Notes from the meeting
+</A></li>
+	<LI>Next message: <A HREF="001082.html">Mangling (Was: Notes from the meeting)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1079">[ date ]</a>
+              <a href="thread.html#1079">[ thread ]</a>
+              <a href="subject.html#1079">[ subject ]</a>
+              <a href="author.html#1079">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,36 @@
+<tt>
+&lt;div&nbsp;dir=&quot;ltr&quot;&gt;On&nbsp;Fri,&nbsp;May&nbsp;24,&nbsp;2013&nbsp;at&nbsp;6:23&nbsp;AM,&nbsp;Jason&nbsp;Merrill&nbsp;&lt;span&nbsp;dir=&quot;ltr&quot;&gt;&lt;&lt;a&nbsp;href=&quot;mailto:jason@redhat.com&quot;&nbsp;target=&quot;_blank&quot;&gt;jason@redhat.com&lt;/a&gt;&gt;&lt;/span&gt;&nbsp;wrote:&lt;br&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;<br>
+&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;&lt;div&nbsp;class=&quot;im&quot;&gt;On&nbsp;05/24/2013&nbsp;01:23&nbsp;AM,&nbsp;Richard&nbsp;Smith&nbsp;wrote:&lt;br&gt;<br>
+<br>
+&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;<br>
+So...&nbsp;this&nbsp;problem&nbsp;was&nbsp;not&nbsp;really&nbsp;new&nbsp;in&nbsp;C++11.&nbsp;In&nbsp;C++98&nbsp;it&nbsp;can&nbsp;be&lt;br&gt;<br>
+witnessed&nbsp;for&nbsp;an&nbsp;inline&nbsp;function&nbsp;such&nbsp;as:&lt;br&gt;<br>
+&lt;br&gt;<br>
+inline&nbsp;const&nbsp;char&nbsp;*get()&nbsp;{&lt;br&gt;<br>
+ &nbsp; static&nbsp;const&nbsp;char&nbsp;*str&nbsp;=&nbsp;&quot;foo&quot;;&lt;br&gt;<br>
+ &nbsp; return&nbsp;str;&lt;br&gt;<br>
+}&lt;br&gt;<br>
+&lt;/blockquote&gt;<br>
+&lt;br&gt;&lt;/div&gt;<br>
+The&nbsp;ABI&nbsp;already&nbsp;deals&nbsp;with&nbsp;this&nbsp;case:&lt;br&gt;<br>
+&lt;br&gt;<br>
+---&lt;br&gt;<br>
+&lt;br&gt;<br>
+Occasionally&nbsp;entities&nbsp;in&nbsp;local&nbsp;scopes&nbsp;must&nbsp;be&nbsp;mangled&nbsp;too&nbsp;(e.g.&nbsp;because&nbsp;inlining&nbsp;or&nbsp;template&nbsp;compilation&nbsp;causes&nbsp;multiple&nbsp;translation&nbsp;units&nbsp;to&nbsp;require&nbsp;access&nbsp;to&nbsp;that&nbsp;entity).&nbsp;The&nbsp;encoding&nbsp;for&nbsp;such&nbsp;entities&nbsp;is&nbsp;as&nbsp;follows:&lt;br&gt;<br>
+<br>
+&lt;br&gt;<br>
+ &nbsp;&lt;local-name&gt;&nbsp;:=&nbsp;Z&nbsp;&lt;function&nbsp;encoding&gt;&nbsp;E&nbsp;&lt;entity&nbsp;name&gt;&nbsp;[&lt;discriminator&gt;]&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; :=&nbsp;Z&nbsp;&lt;function&nbsp;encoding&gt;&nbsp;E&nbsp;s&nbsp;[&lt;discriminator&gt;]&lt;br&gt;<br>
+&lt;br&gt;<br>
+ &nbsp;&lt;discriminator&gt;&nbsp;:=&nbsp;_&nbsp;&lt;non-negative&nbsp;number&gt;&nbsp; &nbsp; &nbsp; #&nbsp;when&nbsp;number&nbsp;&lt;&nbsp;10&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;:=&nbsp;__&nbsp;&lt;non-negative&nbsp;number&gt;&nbsp;_&nbsp; &nbsp;#&nbsp;when&nbsp;number&nbsp;&gt;=&nbsp;10&lt;br&gt;<br>
+&lt;br&gt;<br>
+...&lt;br&gt;<br>
+---&lt;br&gt;<br>
+&lt;br&gt;<br>
+We&nbsp;just&nbsp;need&nbsp;to&nbsp;specify&nbsp;how&nbsp;lifetime-extended&nbsp;temporaries&nbsp;fit&nbsp;into&nbsp;this.&nbsp; And,&nbsp;I&nbsp;suppose,&nbsp;that&nbsp;we&nbsp;need&nbsp;to&nbsp;use&nbsp;&lt;data-member-prefix&gt;&nbsp;for&nbsp;strings&nbsp;in&nbsp;the&nbsp;various&nbsp;lambda&nbsp;contexts.&lt;br&gt;&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&nbsp;style&gt;<br>
+This&nbsp;may&nbsp;mean&nbsp;that&nbsp;copy-elision&nbsp;becomes&nbsp;part&nbsp;of&nbsp;the&nbsp;ABI&nbsp;in&nbsp;some&nbsp;cases.&nbsp;For&nbsp;instance...&lt;/div&gt;&lt;div&nbsp;style&gt;&lt;br&gt;&lt;/div&gt;&lt;div&nbsp;style&gt;struct&nbsp;A&nbsp;{&nbsp;int&nbsp;&amp;&amp;r1;&nbsp;};&lt;/div&gt;&lt;div&nbsp;style&gt;struct&nbsp;B&nbsp;{&nbsp;A&nbsp;&amp;&amp;a;&nbsp;char&nbsp;&amp;&amp;r2;&nbsp;};&lt;/div&gt;<br>
+&lt;div&nbsp;style&gt;char&nbsp;*f()&nbsp;{&lt;/div&gt;&lt;div&nbsp;style&gt; &nbsp;static&nbsp;B&nbsp;c&nbsp;=&nbsp;{&nbsp;A(A{0}),&nbsp;&#39;x&#39;&nbsp;};&lt;/div&gt;&lt;div&nbsp;style&gt; &nbsp;return&nbsp;&amp;c.r2;&lt;/div&gt;&lt;div&nbsp;style&gt;};&lt;/div&gt;&lt;/div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&nbsp;style&gt;Do&nbsp;we&nbsp;assign&nbsp;a&nbsp;mangling&nbsp;to&nbsp;the&nbsp;int&nbsp;temporary&nbsp;or&nbsp;not?&nbsp;It&nbsp;is&nbsp;lifetime-extended&nbsp;if&nbsp;and&nbsp;only&nbsp;if&nbsp;the&nbsp;A&nbsp;copy&nbsp;is&nbsp;elided.&nbsp;For&nbsp;instance,&nbsp;g++&nbsp;returns _ZGRZ1fvE1c1&nbsp;with&nbsp;-fno-elide-constructors&nbsp;and _ZGRZ1fvE1c2&nbsp;with&nbsp;-felide-constructors.&lt;/div&gt;<br>
+&lt;/div&gt;<br>
+
+</tt>

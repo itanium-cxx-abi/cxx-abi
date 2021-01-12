@@ -1,0 +1,113 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Guaranteed copy elision and tail padding
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3C63F2FD6B-6768-4FDD-AC49-7ED1C229BBA0%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002943.html">
+   <LINK REL="Next"  HREF="002945.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Guaranteed copy elision and tail padding</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3C63F2FD6B-6768-4FDD-AC49-7ED1C229BBA0%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Guaranteed copy elision and tail padding">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Jul 21 20:34:06 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002943.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+        <LI>Next message: <A HREF="002945.html">[cxx-abi-dev] Proposing an ABI restriction on loads from an	object's vtable pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2942">[ date ]</a>
+              <a href="thread.html#2942">[ thread ]</a>
+              <a href="subject.html#2942">[ subject ]</a>
+              <a href="author.html#2942">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Jul 21, 2016, at 1:20 PM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;<i> On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+</I>&gt;<i> &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On 21 July 2016 at 11:02, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> P0135 seems to require that we elide the copy when using the result of
+</I>&gt;&gt;&gt;<i> a function returning by value to initialize a base class subobject,
+</I>&gt;&gt;&gt;<i> but the ABI doesn't currently require that such a function avoid
+</I>&gt;&gt;&gt;<i> clobbering tail padding when initializing its return object.
+</I>&gt;&gt;&gt;<i> Thoughts?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> If the function clobbers the tail padding of its return object, at least GCC
+</I>&gt;&gt;<i> and Clang will miscompile the program today, without P0135:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> #include &lt;string.h&gt;
+</I>&gt;&gt;<i> struct X { ~X() {} int n; char d; };
+</I>&gt;&gt;<i> struct Y { Y(); char c[3]; };
+</I>&gt;&gt;<i> struct Z : X, virtual Y { Z(); };
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> X f() { X nrvo; memset(&amp;nrvo, 0, sizeof(X)); return nrvo; }
+</I>&gt;&gt;<i> Z::Z() : Y(), X(f()) {}
+</I>&gt;&gt;<i> Y::Y() : c{1, 2, 3} {}
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> int main() {
+</I>&gt;&gt;<i>  Z z;
+</I>&gt;&gt;<i>  return z.c[0];
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+</I>&gt;&gt;<i> optimization level, even with -fno-elide-constructors) returns 0.
+</I>&gt;<i> 
+</I>&gt;<i> Thanks for the testcase.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> (It looks like Clang gets this &quot;wrong&quot; in two ways: first, NRVO is apprently
+</I>&gt;&gt;<i> never correct on a type whose tail padding could be reused
+</I>&gt;<i> 
+</I>&gt;<i> Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+</I>&gt;<i> elide the copy because the function might clobber tail padding.  But
+</I>&gt;<i> that gets back to my initial question, since P0135 requires that
+</I>&gt;<i> elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+</I>&gt;<i> create a new ABI requirement that existing code might violate.
+</I>
+P0135 is broken and cannot be implemented as written.  Given that we're telling
+the committee to fix it, we should ask for something that we think can be
+reasonably implemented with acceptable backwards compatibility.  We should
+not be encouraging implementations to avoid NRVO.
+
+It seems to me that the bug is that implementations should not be evaluating
+call results in-place into base sub-objects that have tail padding that might be reused.
+
+John.
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002943.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+	<LI>Next message: <A HREF="002945.html">[cxx-abi-dev] Proposing an ABI restriction on loads from an	object's vtable pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2942">[ date ]</a>
+              <a href="thread.html#2942">[ thread ]</a>
+              <a href="subject.html#2942">[ subject ]</a>
+              <a href="author.html#2942">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

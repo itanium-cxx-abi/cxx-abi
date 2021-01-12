@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] A question about terminate handlers
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20question%20about%20terminate%20handlers&In-Reply-To=%3CFD0FA15D-703F-4A6E-81AE-CDC8E2CFD613%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002686.html">
+   <LINK REL="Next"  HREF="002688.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] A question about terminate handlers</H1>
+    <B>Marshall Clow</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20question%20about%20terminate%20handlers&In-Reply-To=%3CFD0FA15D-703F-4A6E-81AE-CDC8E2CFD613%40gmail.com%3E"
+       TITLE="[cxx-abi-dev] A question about terminate handlers">mclow.lists at gmail.com
+       </A><BR>
+    <I>Sat Feb 15 19:05:42 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002686.html">[cxx-abi-dev] The magic of uncalled copy constructors; documenting the bug
+</A></li>
+        <LI>Next message: <A HREF="002688.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2687">[ date ]</a>
+              <a href="thread.html#2687">[ thread ]</a>
+              <a href="subject.html#2687">[ subject ]</a>
+              <a href="author.html#2687">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Consider the following code (example from Stephen T. Lajavev)
+
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;exception&gt;
+using namespace std;
+
+void MyTerminate() {
+    puts(&quot;MyTerminate()&quot;);
+    abort();
+}
+
+int main() {
+    try {
+        try {
+            puts(&quot;main() throwing int&quot;);
+            throw 5;
+        } catch (int) {
+            puts(&quot;int caught initially&quot;);
+            #ifdef MEOW
+                puts(&quot;calling set_terminate()&quot;);
+                set_terminate(MyTerminate);
+            #endif
+            puts(&quot;rethrowing&quot;);
+            throw;
+        }
+    } catch (int) {
+        puts(&quot;int caught again, calling terminate()&quot;);
+        terminate();
+    }
+}
+
+[ Tests on Mac OS X Mavericks  - g++11 is an alias for &#8220;g++-4.8.2 -std=c++11&#8221; ]
+
+$ clang++ -std=c++11 -stdlib=libc++ -DMEOW meow.cpp &amp;&amp; ./a.out
+main() throwing int
+int caught initially
+calling set_terminate()
+rethrowing
+int caught again, calling terminate()
+libc++abi.dylib: terminating with uncaught exception of type int
+Abort trap: 6
+$ g++11 meow.cpp -DMEOW &amp;&amp; ./a.out
+main() throwing int
+int caught initially
+calling set_terminate()
+rethrowing
+int caught again, calling terminate()
+MyTerminate()
+Abort trap: 6
+$ 
+
+Specifically:
+	libc++ &amp; libc++abi call the terminate handler that was active when the exception was created.
+	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+
+Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+[ I wonder if __cxa_rethrow should reload the saved terminate (and maybe unexpected) handlers in the exception object ]
+
+&#8212; Marshall
+
+
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002686.html">[cxx-abi-dev] The magic of uncalled copy constructors; documenting the bug
+</A></li>
+	<LI>Next message: <A HREF="002688.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2687">[ date ]</a>
+              <a href="thread.html#2687">[ thread ]</a>
+              <a href="subject.html#2687">[ subject ]</a>
+              <a href="author.html#2687">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

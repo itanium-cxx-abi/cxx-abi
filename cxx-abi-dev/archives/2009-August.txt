@@ -1,0 +1,561 @@
+From janis187 at us.ibm.com  Tue Aug  4 17:09:38 2009
+From: janis187 at us.ibm.com (Janis Johnson)
+Date: Tue, 04 Aug 2009 10:09:38 -0700
+Subject: decimal floating point support for C++
+Message-ID: <1249405778.6927.3.camel@janis-laptop>
+
+I'm investigating support for decimal floating-point arithmetic in G++
+and sent similar mail to the GCC mailing list last month, where Jason
+Merrill suggested that this might be a more appropriate discussion
+venue.
+
+GCC currently supports decimal floating point functionality in C for
+several targets based on ISO/IEC TR 24732.  The C support adds 3 new
+scalar types: _Decimal32, _Decimal64, and _Decimal128.  With minor
+changes to GCC, including support for mangling those types, and
+changes to tests to define typedefs to the underlying type modes, G++
+already passes almost all of GCC's decimal float tests for C.
+
+The C++ standards committee defined quite different support for C++ in
+ISO/IEC DTR 24733, "Extension for the programming language C++ to
+support decimal floating-point arithmetic".  It defines the support in
+terms of classes decimal32, decimal64, and decimal128 in namespace
+decimal, defined in <decimal>, and allows decimal floating-point
+literals as a conforming extension.
+
+If the libstdc++ implmentation of the decimal classes can depend on
+compiler support for the decimal float type modes then the support is
+straightforward, with classes that contain a data member of the
+appropriate mode.  The only tricky part I've run into is passing
+arguments and return values in a way that is compatible with C, since
+one is a scalar and the other is a class.  This affects not just
+intercallability between user code written in C and C++, but also
+access to the decimal float math functions defined for both C and C++.
+
+Given that libstdc++ is used with compilers other than G++, is it
+reasonable to depend on non-standard C++ compiler support?  An
+alternative is for the libstdc++ support to use decNumber and/or
+libbid libraries, but that would be less efficient and more time-
+consuming to implement.
+
+Both TRs are available online:
+C:   http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1312.pdf
+C++: http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2009/n2849.pdf
+  
+Janis Johnson
+IBM Linux Technology Center
+
+
+
+
+From jason at redhat.com  Tue Aug  4 17:58:03 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 04 Aug 2009 13:58:03 -0400
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <1249405778.6927.3.camel@janis-laptop>
+References: <1249405778.6927.3.camel@janis-laptop>
+Message-ID: <4A7876AB.7090606@redhat.com>
+
+On 08/04/2009 01:09 PM, Janis Johnson wrote:
+> Given that libstdc++ is used with compilers other than G++, is it
+> reasonable to depend on non-standard C++ compiler support?
+
+The question for this list is, rather, do we want to standardise the 
+necessary compiler support?
+
+Jason
+
+
+From janis187 at us.ibm.com  Tue Aug  4 18:26:44 2009
+From: janis187 at us.ibm.com (Janis Johnson)
+Date: Tue, 04 Aug 2009 11:26:44 -0700
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <4A71E1C4.9090909@codesourcery.com>
+References: <1249405778.6927.3.camel@janis-laptop>
+	 <4A7876AB.7090606@redhat.com>  <4A71E1C4.9090909@codesourcery.com>
+Message-ID: <1249410404.6927.9.camel@janis-laptop>
+
+On Thu, 2009-07-30 at 11:09 -0700, Mark Mitchell wrote:
+> Jason Merrill wrote:
+> 
+> >> Given that libstdc++ is used with compilers other than G++, is it
+> >> reasonable to depend on non-standard C++ compiler support?
+> > 
+> > The question for this list is, rather, do we want to standardise the
+> > necessary compiler support?
+> 
+> What support would we be standardizing?  Special handling of these
+> classes, or some source-level attribute for passing these classes as if
+> they were scalars, or ...?
+
+First off would be allowing the classes to use, internally, something
+like
+
+  typedef float _decfloat64 __attribute__((mode(DD)));
+
+or the equivalent for each compiler that uses libstdc++ and for which
+<decimal> would be supported.
+
+Secondly, a way to use that type for extern "C" function declarations
+(or perhaps a source-level attribute) to pass the class as a scalar
+using the target's ABI for decimal float types.
+
+Janis
+
+
+
+From daveed at edg.com  Tue Aug  4 19:05:30 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 4 Aug 2009 15:05:30 -0400
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <1249410404.6927.9.camel@janis-laptop>
+References: <1249405778.6927.3.camel@janis-laptop> <4A7876AB.7090606@redhat.com>  <4A71E1C4.9090909@codesourcery.com> <1249410404.6927.9.camel@janis-laptop>
+Message-ID: <FB17B7C0-C3F1-4804-8D95-A55E54133353@edg.com>
+
+
+On Aug 4, 2009, at 2:26 PM, Janis Johnson wrote:
+
+> On Thu, 2009-07-30 at 11:09 -0700, Mark Mitchell wrote:
+>> Jason Merrill wrote:
+>>
+>>>> Given that libstdc++ is used with compilers other than G++, is it
+>>>> reasonable to depend on non-standard C++ compiler support?
+>>>
+>>> The question for this list is, rather, do we want to standardise the
+>>> necessary compiler support?
+>>
+>> What support would we be standardizing?  Special handling of these
+>> classes, or some source-level attribute for passing these classes  
+>> as if
+>> they were scalars, or ...?
+>
+> First off would be allowing the classes to use, internally, something
+> like
+>
+>  typedef float _decfloat64 __attribute__((mode(DD)));
+>
+> or the equivalent for each compiler that uses libstdc++ and for which
+> <decimal> would be supported.
+>
+> Secondly, a way to use that type for extern "C" function declarations
+> (or perhaps a source-level attribute) to pass the class as a scalar
+> using the target's ABI for decimal float types.
+
+
+IMO the distinction should _not_ be based on extern "C" vs. extern "C+ 
++".  The classes should be marked as being just generally "magical" in  
+that they're transferred like native _DecimalN types no matter what  
+the calling convention.
+
+We'd also need to clarify that such class types mangle with the Dd/De/ 
+Df codes and not the usual class type rules.
+
+	Daveed
+
+
+
+
+From crowl at google.com  Tue Aug  4 21:45:18 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Tue, 4 Aug 2009 14:45:18 -0700
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <FB17B7C0-C3F1-4804-8D95-A55E54133353@edg.com>
+References: <1249405778.6927.3.camel@janis-laptop>
+	 <4A7876AB.7090606@redhat.com> <4A71E1C4.9090909@codesourcery.com>
+	 <1249410404.6927.9.camel@janis-laptop>
+	 <FB17B7C0-C3F1-4804-8D95-A55E54133353@edg.com>
+Message-ID: <29bd08b70908041445w23c53d40w5bcd1de25773df0f@mail.gmail.com>
+
+On 8/4/09, David Vandevoorde <daveed at edg.com> wrote:
+>  On Aug 4, 2009, at 2:26 PM, Janis Johnson wrote:
+> > On Thu, 2009-07-30 at 11:09 -0700, Mark Mitchell wrote:
+> > > Jason Merrill wrote:
+> > > > > Given that libstdc++ is used with compilers other than G++, is it
+> > > > > reasonable to depend on non-standard C++ compiler support?
+> > > >
+> > > > The question for this list is, rather, do we want to standardise the
+> > > > necessary compiler support?
+> > >
+> > > What support would we be standardizing?  Special handling of these
+> > > classes, or some source-level attribute for passing these classes as if
+> > > they were scalars, or ...?
+> >
+> > First off would be allowing the classes to use, internally, something
+> > like
+> >
+> >  typedef float _decfloat64 __attribute__((mode(DD)));
+> >
+> > or the equivalent for each compiler that uses libstdc++ and for which
+> > <decimal> would be supported.
+> >
+> > Secondly, a way to use that type for extern "C" function declarations
+> > (or perhaps a source-level attribute) to pass the class as a scalar
+> > using the target's ABI for decimal float types.
+>
+> IMO the distinction should _not_ be based on extern "C" vs. extern "C++".
+> The classes should be marked as being just generally "magical" in that
+> they're transferred like native _DecimalN types no matter what the calling
+> convention.
+>
+> We'd also need to clarify that such class types mangle with the Dd/De/Df
+> codes and not the usual class type rules.
+
+I agree with Daveed here.  The real problem is that compilers either
+need to recognize the name or the libstdc++ source needs to specially
+mark them.  I lean towards doing the former.
+
+-- 
+Lawrence Crowl
+
+
+From mark at codesourcery.com  Tue Aug  4 22:11:15 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 04 Aug 2009 15:11:15 -0700
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <29bd08b70908041445w23c53d40w5bcd1de25773df0f@mail.gmail.com>
+References: <1249405778.6927.3.camel@janis-laptop>	 <4A7876AB.7090606@redhat.com> <4A71E1C4.9090909@codesourcery.com>	 <1249410404.6927.9.camel@janis-laptop>	 <FB17B7C0-C3F1-4804-8D95-A55E54133353@edg.com> <29bd08b70908041445w23c53d40w5bcd1de25773df0f@mail.gmail.com>
+Message-ID: <4A78B203.1020604@codesourcery.com>
+
+Lawrence Crowl wrote:
+
+> I agree with Daveed here.  The real problem is that compilers either
+> need to recognize the name or the libstdc++ source needs to specially
+> mark them.  I lean towards doing the former.
+
+I tend to agree.  The ABI has very little to say about the source
+language; it's about the binary implementation.  Therefore, saying that
+the class "std::decimal32" object is passed using the same calling
+conventions as a _decimal32 scalar seems a reasonable way to handle
+this.  It's an ugly special case, but it's an ugly special case imposed
+upon us by the fact that the C++ committee insisted on making these
+classes, rather than new datatypes, thereby making it hard to
+interoperate with C.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Thu Aug  6 19:46:10 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 6 Aug 2009 15:46:10 -0400
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <167875D3-F9C9-4DD0-AFC5-522A881F99D9@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com> <20DEB312-E433-4847-9092-0208D3DD5660@edg.com> <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com> <49C27637.1090204@codesourcery.com> <04D69AFA-96FF-4612-98C2-072A562EB916@edg.com> <2DBA2615-6CD8-45FA-B146-81F9DD198CB7@edg.com> <167875D3-F9C9-4DD0-AFC5-522A881F99D9@edg.com>
+Message-ID: <8B186783-6955-437B-8B47-C048BB14FAB2@edg.com>
+
+I found two nits in the changes I sent a week ago:
+
+   -- the repeat of <unnamed-type-name> in 5.1.6 (from 5.1.5) had a  
+misplaced bracket
+   -- the second mangled name in the first example of 5.1.6 was  
+misplaced
+
+Both issues are fixed in the attached version.
+
+	Daveed
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ia64_lambda-2.diffs
+Type: application/octet-stream
+Size: 15822 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090806/d46461c7/attachment.obj>
+-------------- next part --------------
+
+
+From dhandly at cup.hp.com  Fri Aug  7 08:03:55 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 7 Aug 2009 01:03:55 -0700 (PDT)
+Subject: [cxx-abi-dev] decimal floating point support for C++
+Message-ID: <200908070803.BAA13995@hpcll183.cup.hp.com>
+
+>From: Janis Johnson <janis187 at us.ibm.com>
+>The C support adds 3 new scalar types:  _Decimal32, _Decimal64, and
+>_Decimal128.  With minor changes to GCC, including support for mangling
+>those types
+
+We have such support in aC++ for C mode.
+
+>The C++ standards committee defined quite different support for C++ in
+>ISO/IEC DTR 24733, "Extension for the programming language C++ to
+>support decimal floating-point arithmetic".  It defines the support in
+>terms of classes decimal32, decimal64, and decimal128 in namespace
+>decimal, defined in <decimal>, and allows decimal floating-point
+>literals as a conforming extension.
+Janis Johnson
+
+I was once in the process of responding to this to have some hand waving
+rule that said if there was an application that had a difference between
+a class implementation and a builtin implementation, this was implementation
+defined.
+
+With the only exception of providing that the builtin type always
+initialized to zero.
+And stating that the user couldn't take the address of any operator
+conversion functions.
+
+>From: Jason Merrill <jason at redhat.com>
+>do we want to standardise the necessary compiler support?
+
+At least special case these as not really a class.
+
+Also _Decimal32 if a class, must be right justified in the register,
+like a builtin type, not like a class.
+(I mentioned that latter here before.
+
+>From: Janis Johnson <janis187 at us.ibm.com>
+>a way to use that type for extern "C" function declarations
+>(or perhaps a source-level attribute) to pass the class as a scalar
+>using the target's ABI for decimal float types.
+
+You can use a type hammer, a reference cast to fool things.  But that
+would require an intermediate inline function and I guess you want to
+bypass that?
+
+>From: David Vandevoorde <daveed at edg.com>
+>The classes should be marked as being just generally "magical" in  
+>that they're transferred like native _DecimalN types no matter what  
+>the calling convention.
+
+Right.
+
+>We'd also need to clarify that such class types mangle with the Dd/De/ 
+>Df codes and not the usual class type rules.
+	Daveed
+
+Yes.
+
+>From: Lawrence Crowl <crowl at google.com>
+>The real problem is that compilers either need to recognize the name or
+>the libstdc++ source needs to specially mark them.  I lean towards doing
+>the former.
+
+Sounds good.
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>It's an ugly special case, but it's an ugly special case imposed
+>upon us by the fact that the C++ committee insisted on making these
+>classes, rather than new datatypes, thereby making it hard to
+>interoperate with C.
+
+Right.
+
+
+From gdr at integrable-solutions.net  Fri Aug  7 23:03:40 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Fri, 7 Aug 2009 18:03:40 -0500
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <1249405778.6927.3.camel@janis-laptop>
+References: <1249405778.6927.3.camel@janis-laptop>
+Message-ID: <206fcf960908071603q1ac4b6ey3d62cffa0614a871@mail.gmail.com>
+
+On Tue, Aug 4, 2009 at 12:09 PM, Janis Johnson<janis187 at us.ibm.com> wrote:
+> I'm investigating support for decimal floating-point arithmetic in G++
+> and sent similar mail to the GCC mailing list last month, where Jason
+> Merrill suggested that this might be a more appropriate discussion
+> venue.
+>
+> GCC currently supports decimal floating point functionality in C for
+> several targets based on ISO/IEC TR 24732. ?The C support adds 3 new
+> scalar types: _Decimal32, _Decimal64, and _Decimal128. ?With minor
+> changes to GCC, including support for mangling those types, and
+> changes to tests to define typedefs to the underlying type modes, G++
+> already passes almost all of GCC's decimal float tests for C.
+>
+> The C++ standards committee defined quite different support for C++ in
+> ISO/IEC DTR 24733, "Extension for the programming language C++ to
+> support decimal floating-point arithmetic". ?It defines the support in
+> terms of classes decimal32, decimal64, and decimal128 in namespace
+> decimal, defined in <decimal>, and allows decimal floating-point
+> literals as a conforming extension.
+>
+> If the libstdc++ implmentation of the decimal classes can depend on
+> compiler support for the decimal float type modes then the support is
+> straightforward, with classes that contain a data member of the
+> appropriate mode. ?The only tricky part I've run into is passing
+> arguments and return values in a way that is compatible with C, since
+> one is a scalar and the other is a class. ?This affects not just
+> intercallability between user code written in C and C++, but also
+> access to the decimal float math functions defined for both C and C++.
+>
+> Given that libstdc++ is used with compilers other than G++, is it
+> reasonable to depend on non-standard C++ compiler support? ?An
+> alternative is for the libstdc++ support to use decNumber and/or
+> libbid libraries, but that would be less efficient and more time-
+> consuming to implement.
+>
+> Both TRs are available online:
+> C: ? http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1312.pdf
+> C++: http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2009/n2849.pdf
+
+Hi Janis,
+
+The fundamental problem is not limited to <decimal>.  Similar
+issues exist for <complex>.  One could argue that the C99 committee
+did not care about compabitility, or that the C++ committee did not
+care about compability.  I think that would be beside the point.
+I'm not sure that C99 would have made the same decisions if they
+had as powerful abstraction mechanisms as C++.
+
+Anyway, C++0x has the notion of "literal types".  For example complex<double>
+is a literal type.  Concretely, what it means is that the compiler can
+manipulate
+values of such type at compile time (there is nothing that prevents the decimal
+types from being such types.)  an ABI that aims at efficient support of C++
+could (and should) treat literal types very efficiently as opposed to saying
+"oh, this is a struct, let's not make it faster than in C".  For
+example, the ABI
+could define the parameter passing mechanism as equivalent to that
+of the underlying representation -- even on IA32.  In this case, it
+would mean no
+difference between the C and C++ versions, even if in C++ it is a
+class -- the key
+point being that it is not just a random struct: it is a literal type.
+
+-- Gaby
+
+
+From crowl at google.com  Sat Aug  8 00:55:48 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Fri, 7 Aug 2009 17:55:48 -0700
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <206fcf960908071603q1ac4b6ey3d62cffa0614a871@mail.gmail.com>
+References: <1249405778.6927.3.camel@janis-laptop>
+	 <206fcf960908071603q1ac4b6ey3d62cffa0614a871@mail.gmail.com>
+Message-ID: <29bd08b70908071755x60c0442axcd5e1cf50ceaf71d@mail.gmail.com>
+
+On 8/7/09, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+> On Aug 4, 2009, Janis Johnson<janis187 at us.ibm.com> wrote:
+> > I'm investigating support for decimal floating-point arithmetic
+> > in G++ and sent similar mail to the GCC mailing list last
+> > month, where Jason Merrill suggested that this might be a more
+> > appropriate discussion venue.
+> >
+> > GCC currently supports decimal floating point functionality
+> > in C for several targets based on ISO/IEC TR 24732.  The C
+> > support adds 3 new scalar types: _Decimal32, _Decimal64, and
+> > _Decimal128.  With minor changes to GCC, including support for
+> > mangling those types, and changes to tests to define typedefs
+> > to the underlying type modes, G++ already passes almost all of
+> > GCC's decimal float tests for C.
+> >
+> > The C++ standards committee defined quite different support
+> > for C++ in ISO/IEC DTR 24733, "Extension for the programming
+> > language C++ to support decimal floating-point arithmetic".
+> > It defines the support in terms of classes decimal32, decimal64,
+> > and decimal128 in namespace decimal, defined in <decimal>, and
+> > allows decimal floating-point literals as a conforming extension.
+> >
+> > If the libstdc++ implmentation of the decimal classes can depend
+> > on compiler support for the decimal float type modes then the
+> > support is straightforward, with classes that contain a data
+> > member of the appropriate mode.  The only tricky part I've
+> > run into is passing arguments and return values in a way that
+> > is compatible with C, since one is a scalar and the other is
+> > a class.  This affects not just intercallability between user
+> > code written in C and C++, but also access to the decimal float
+> > math functions defined for both C and C++.
+> >
+> > Given that libstdc++ is used with compilers other than G++, is
+> > it reasonable to depend on non-standard C++ compiler support?
+> > An alternative is for the libstdc++ support to use decNumber
+> > and/or libbid libraries, but that would be less efficient and
+> > more time- consuming to implement.
+> >
+> > Both TRs are available online:
+> > C:   http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1312.pdf
+> > C++: http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2009/n2849.pdf
+>
+> The fundamental problem is not limited to <decimal>.  Similar
+> issues exist for <complex>.  One could argue that the C99 committee
+> did not care about compabitility, or that the C++ committee did not
+> care about compability.  I think that would be beside the point.
+
+Actually, I think the primary problem here is that the C++ definition
+came first, and the path of least resistance in the ABI was to
+simply represent it as a struct.  C99 came along and folks expected
+compatiblity with Fortran, which was not struct-like.
+
+> I'm not sure that C99 would have made the same decisions if they
+> had as powerful abstraction mechanisms as C++.
+
+Actually, C99 didn't need the abstraction mechanisms to ensure a high
+degree of compatibility.  All they needed was to define the spelling
+of "float _Complex" as "complex<float>".  Having an ability to name
+types with template-like syntax does not imply supporting templates.
+
+> Anyway, C++0x has the notion of "literal types".  For example
+> complex<double> is a literal type.  Concretely, what it means is
+> that the compiler can manipulate values of such type at compile
+> time (there is nothing that prevents the decimal types from being
+> such types.)  An ABI that aims at efficient support of C++ could
+> (and should) treat literal types very efficiently as opposed to
+> saying "oh, this is a struct, let's not make it faster than in C".
+> For example, the ABI could define the parameter passing mechanism
+> as equivalent to that of the underlying representation -- even
+> on IA32.
+
+Many of the more modern ABIs have very little performance difference
+between a native type and a struct of the native type.  Sadly,
+IA32 is too old for such a benefit.
+
+> In this case, it would mean no difference between the C and C++
+> versions, even if in C++ it is a class -- the key point being
+> that it is not just a random struct: it is a literal type.
+
+-- 
+Lawrence Crowl
+
+
+From janis187 at us.ibm.com  Wed Aug 26 17:19:45 2009
+From: janis187 at us.ibm.com (Janis Johnson)
+Date: Wed, 26 Aug 2009 10:19:45 -0700
+Subject: decimal floating point support for C++
+In-Reply-To: <1249405778.6927.3.camel@janis-laptop>
+References: <1249405778.6927.3.camel@janis-laptop>
+Message-ID: <1251307185.5975.13.camel@janis-laptop>
+
+Thanks for the feedback.
+
+The consensus seems to be that the C++ ABI should require that a
+compiler recognize std::decimal:decimal32/64/128 and pass them the
+same as native decimal float scalar types and use the scalar name
+mangling (Dd/De/Df).  What needs to happen to add that to the ABI?
+
+Janis Johnson
+IBM Linux Technology Center
+
+
+
+
+From daveed at edg.com  Fri Aug 28 18:39:54 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 28 Aug 2009 14:39:54 -0400
+Subject: [cxx-abi-dev] Re: decimal floating point support for C++
+In-Reply-To: <1251307185.5975.13.camel@janis-laptop>
+References: <1249405778.6927.3.camel@janis-laptop> <1251307185.5975.13.camel@janis-laptop>
+Message-ID: <82C495BD-A44B-411F-890F-38D071324533@edg.com>
+
+
+On Aug 26, 2009, at 1:19 PM, Janis Johnson wrote:
+
+> Thanks for the feedback.
+>
+> The consensus seems to be that the C++ ABI should require that a
+> compiler recognize std::decimal:decimal32/64/128 and pass them the
+> same as native decimal float scalar types and use the scalar name
+> mangling (Dd/De/Df).  What needs to happen to add that to the ABI?
+
+
+You'll have to post a patch to the ABI document adding words  
+implementing the desired rules.  If no-one objects, Mark usually  
+incorporates it in the main document after a while.
+
+	Daveed
+
+
+

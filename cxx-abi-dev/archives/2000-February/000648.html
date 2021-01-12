@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> ia64 vtable entries (was: C implementations of the C++ ABI)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20ia64%20vtable%20entries%20%28was%3A%20C%20implementations%20of%20the%20C%2B%2B%20ABI%29&In-Reply-To=%3C20000223122607.A4098%40cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000639.html">
+   <LINK REL="Next"  HREF="000659.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>ia64 vtable entries (was: C implementations of the C++ ABI)</H1>
+    <B>Richard Henderson</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20ia64%20vtable%20entries%20%28was%3A%20C%20implementations%20of%20the%20C%2B%2B%20ABI%29&In-Reply-To=%3C20000223122607.A4098%40cygnus.com%3E"
+       TITLE="ia64 vtable entries (was: C implementations of the C++ ABI)">rth at cygnus.com
+       </A><BR>
+    <I>Wed Feb 23 20:26:07 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000639.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+        <LI>Next message: <A HREF="000659.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Feb 23, 2000 at 10:43:03AM -0800, Jason Merrill wrote:
+&gt;<i>  &gt;   o GP/address pairs in vtables
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;     This one concerns me the most.  I don't even know if there's 
+</I>&gt;<i>  &gt;     any kind of standard assembly syntax for this.  Is there?
+</I>&gt;<i> 
+</I>&gt;<i> Richard Henderson still doesn't believe that there's a suitable reloc for
+</I>&gt;<i> this in the base ABI, and apparently I forgot to write up his explanation
+</I>&gt;<i> for a wider audience.  Richard, care to repeat it in a less transient
+</I>&gt;<i> medium?
+</I>
+There are no relocations in the base ABI to fill in an existing function
+descriptor.  Nor are there relocations to acquire a function's gp with
+which you could fill in a descriptor yourself.
+
+There are three relocation types that cause the linker or loader to create
+a descriptor in linker-controled memory and give the program a pointer to
+that memory.
+
+Reference SC-2916 v2.0 Unix System V Application Binary Interface,
+Intel IA-64 Processor Supplement, section 4.3.1:
+
+  R_IA_64_FPTR64LSB
+
+	The descriptor is, in the case of dynamic symbols, created by the
+	run-time loader.  This is because the descriptor must be globally
+	unique to satisfy function pointer equality.
+
+	GNU ld will statically create the descriptors for non-dynamic
+	symbols when linking without -shared; dso's will contain no static
+	descriptors because it is more work memory-reference-wise to
+	adjust the descriptors for the dso load address than it is to
+	just create them from scratch.
+
+	The relocation itself is direct against the descriptor.
+
+  R_IA_64_LTOFF_FPTR64LSB
+
+	Same as above, except that a slot in the .got is created to hold
+	the pointer to the descriptor.  The relocation itself is slot-gp.
+
+  R_IA_64_PLTOFF64LSB
+
+	Creates a non-unique descriptor to a PLT entry local to the dso.
+	The memory is always statically allocated.  Unfortunately, the
+	relocation is gp-relative and so is of no use in vtables.
+	Moreover, R_IA_64_PLTOFF22 is the variant normally used, so the
+	memory allocated for this eats into the small-data area.
+
+I would suspect that this late in the game amending the ABI is not
+an option.  So R_IA_64_FPTR64LSB, as heavyweight as it is, is your
+only choice for a normal function descriptor.
+
+There is one convoluted way I can see to define a vtable entry that
+does not require runtime relocation of any form, at least if the 
+symbol were private to the dso (via STV_HIDDEN or so).  If the symbol
+is dynamic, there is no escaping some form of runtime relocation.
+
+	data8	@pcrel(func#)
+	data8	@gprel(func#)
+
+Suppose r16 contains the address of the first word.
+
+	ld8 r18 = [r16]
+	adds r17 = 8, r16
+	;;
+	add r18 = r18, r16
+	ld8 r17 = [r17]
+	;;
+	sub gp = r18, r17
+	mov b6 = r18
+	br.call.sptk.many b0 = b6
+
+which is two more instructions, no more insn groups, and one fewer
+memory reference than the standard indirect function descriptor sequence.
+
+Note that GNU ld would currently abort on this because it doesn't
+believe gp-relative relocations against dynamic symbols are legal.
+Nor does glibc's ld.so know how to fix up such relocations.  However,
+it is possible to implement if needed.
+
+
+r~
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000639.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+	<LI>Next message: <A HREF="000659.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

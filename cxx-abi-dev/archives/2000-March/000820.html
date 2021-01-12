@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> incomplete rtti
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C38DDD572.4332C48D%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000830.html">
+   <LINK REL="Next"  HREF="000821.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>incomplete rtti</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C38DDD572.4332C48D%40codesourcery.com%3E"
+       TITLE="incomplete rtti">nathan at codesourcery.com
+       </A><BR>
+    <I>Sun Mar 26 09:16:34 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000830.html">Mangling: Special names
+</A></li>
+        <LI>Next message: <A HREF="000821.html">Mangling: grammar too permissive
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#820">[ date ]</a>
+              <a href="thread.html#820">[ thread ]</a>
+              <a href="subject.html#820">[ subject ]</a>
+              <a href="author.html#820">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I'm again puzzled as to how the new rtti scheme is supposed to work
+with incomplete types. There's a contradiction in the layout doc. The
+contradiction is understandable if you know what the intention is, but
+I think it'd be confusing to someone reading this cold (it's still
+confusing to me).
+
+* `Assuming that after linking and loading only one type_info
+  structure is active'.
+* `Two abi::__pointer_type_info objects are compared for equality (i.e.
+  of the types represented) by checking for equal target type RTTI
+  pointers unless either or both have the incomplete flag set, in
+  which case the pointed-to RTTI structures must be checked for
+  equality (described below).'
+
+The former is refering to complete types. As any `T cv *' is a complete
+type, to test for equality of such a type only requires pointer
+comparison of the type_info's representing that type. It is when
+determining the equality of the targets for differently qualified `T cv
+*' instances with incomplete T that we have to deal with multiple
+instances of the __class_type_info for T. This type of comparison is
+only of interest when looking for a qualification conversion on catch
+matching. It is only the pointer to T which needs to consider this, a
+pointer to pointer to T will not need to know about the completeness of
+T.
+
+So why does the __pointer_type_info class's incomplete target type
+(0x8) apply when the ultimate non-pointer type is incomplete? I think
+it should just apply when the immediately pointed-to type is
+incomplete. 
+
+Secondly I don't see how making the incomplete class type object static
+linkage will avoid preemption. Suppose translation unit 1 contains
+        struct A;
+        ...
+        typeid (A *);
+and unit 2 contains
+        struct B {};
+        struct A : B {};
+        ...
+        typeid (A *);
+
+The `typeid (A *)' objects emitted in 1 and 2 will have comdat linkage
+and so only one will be active in the final program. We have no control
+over which is actually selected by the linker (I don't think the linker
+cares, because it is assuming that any comdat's named the same have the
+same contents - yes?). Now, which of the abi::__class_type_info's for A
+will the selected one point to? For this to work it must be the one in 2,
+as that contains the complete information about the type. Will static
+linkage of 1's instance behave this way? We need to specify that 1's
+instance has weak linkage.
+
+I suggest,
+
+`If the target type of the pointer is an incomplete class type, directly
+or indirectly, a dummy class RTTI is generated for the incomplete type
+that will not resolve to the final complete class RTTI (because the
+latter need not exist), possibly by making it a local static object,
+and the incomplete target type flag is set in each pointer RTTI that
+references it directly or indirectly. 
+
+Two abi::__pointer_type_info objects are compared for equality (i.e. of
+the types represented) by checking for equal target type RTTI pointers
+unless either or both have the incomplete flag set, in which case the
+pointed-to RTTI structures must be checked for equality (described
+below).'
+
+be replaced by
+
+`If the target type of the pointer is an incomplete class type, a dummy
+abi::__class_type_info is generated for the incomplete type. The dummy
+instance is given weak linkage so it will not conflict with the complete
+RTTI object which might be provided in another translation unit. The
+abi::__pointer_type_info object which points to this incomplete type has
+its incomplete target type flag set.'
+
+`Two abi::__pointer_type_info objects are compared for equality in the
+normal way, by comparing their addresses.  Checking for equality of the
+pointed-to objects requires checking the incomplete target type flags of
+the two (different) pointer objects. If neither is set, then the targets
+can be compared in the normal way. If either is set then the NTBS of the
+target type_info objects must be compared.'
+
+`Note: Two different abi::__pointer_type_info objects can only point to
+the same type, if the target type is differently qualified in each
+pointer.'
+
+The following paragraph describing abi::__class_type_info should be
+deleted.
+
+`Two abi::__class_type_info objects are normally compared for equality
+(i.e. of the types represented) by comparison of their addresses.
+However, incomplete class RTTI objects, which can only be accessed via
+abi::__pointer_type_info objects, must be compared for equality by
+comparison of the name NTBS in their std::type_info bases. '
+
+The following paragraph
+
+`This RTTI class may also be used for incomplete class types when
+referenced by a pointer RTTI, in which case it must be prevented from
+preempting the RTTI for the complete class type, for instance by
+emitting it as a static object (without external linkage).'
+
+should be replaced by
+
+`This RTTI class may also be used for incomplete class types when
+referenced by a pointer RTTI, in which case it must be prevented from
+preempting the RTTI for the complete class type, by giving it
+weak linkage.'
+
+With these changes, given
+        struct A;
+type_info's will be of the following form (using gcc's mangling
+&amp; __attribute__)
+
+__class_type_info tf_1A __attribute__ ((weak)) (&quot;1A&quot;); // typeid (A)
+__pointer_type_info tf_P1A (&quot;P1A&quot;, 0x8, &amp;tf_1A); // typeid (A *)
+__pointer_type_info tf_PP1A (&quot;PP1A&quot;, 0, &amp;tf_P1A); // typeid (A **)
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A> : <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A> : <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000830.html">Mangling: Special names
+</A></li>
+	<LI>Next message: <A HREF="000821.html">Mangling: grammar too permissive
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#820">[ date ]</a>
+              <a href="thread.html#820">[ thread ]</a>
+              <a href="subject.html#820">[ subject ]</a>
+              <a href="author.html#820">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,297 @@
+From jason at redhat.com  Wed Apr  3 15:20:12 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 03 Apr 2013 11:20:12 -0400
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <416E5A3E-F75B-4582-A6C6-1B0AA9DF6D18@apple.com>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>	<AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>	<CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>	<CAGL0aWeVwB2ayVCkOuFrv=5WqFTun-1JOattxVg8rVmP=Cjt=Q@mail.gmail.com>
+	<416E5A3E-F75B-4582-A6C6-1B0AA9DF6D18@apple.com>
+Message-ID: <515C48AC.3010605@redhat.com>
+
+On 05/11/2012 09:00 PM, John McCall wrote:
+> -- diff begin --
+>   Empty parameter lists, whether declared as () or conventionally as (void), are encoded with a void parameter specifier (v). Therefore function types always encode at least one parameter type, and function manglings can always be distinguished from data manglings by the presence of the type. Member functions do not encode the types of implicit parameters, either this or the VTT parameter.
+>
+> -A "Y" prefix for the bare function type encodes extern "C". If there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above. This affects only type mangling, since extern "C" function objects have unmangled names.
+> +When mangling a non-static member function name, if there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above.  When mangling any other function type, if there are any cv-qualifiers or a ref-qualifier, they are encoded as part of the function type as described below.
+> +
+> +A "Y" prefix for the bare function type encodes extern "C" in implementations which distinguish between function types with "C" and "C++" language linkage. This affects only type mangling, since extern "C" function objects have unmangled names.
+> -- diff end --
+
+We should also clarify whether the modified function type is a 
+substitution candidate.  That is, given
+
+template <class T, class U> struct A { };
+void f (A<void()const, void()> *){}
+
+whether f is mangled as
+
+_Z1fP1AIKFvvES0_E
+or
+_Z1fP1AIKFvvEFvvEE
+
+G++ currently treats it as a substitution candidate, clang 3.2 does not, 
+and EDG 4.4 neither treats it as a substitution candidate nor mangles 
+the 'const'.
+
+I think not treating it as a substitution candidate is most consistent 
+with the language rules, and with the mangling rule for pointer to 
+member function types.
+
+Incidentally, the change above hasn't been applied to the published ABI yet.
+
+Jason
+
+
+From rjmccall at apple.com  Wed Apr  3 21:58:40 2013
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 03 Apr 2013 14:58:40 -0700
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <515C48AC.3010605@redhat.com>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+	<AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+	<CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>
+	<CAGL0aWeVwB2ayVCkOuFrv=5WqFTun-1JOattxVg8rVmP=Cjt=Q@mail.gmail.com>
+	<416E5A3E-F75B-4582-A6C6-1B0AA9DF6D18@apple.com>
+	<515C48AC.3010605@redhat.com>
+Message-ID: <915A068B-DD01-4B5D-8000-B31E43FF48F4@apple.com>
+
+On Apr 3, 2013, at 8:20 AM, Jason Merrill <jason at redhat.com> wrote:
+> On 05/11/2012 09:00 PM, John McCall wrote:
+>> -- diff begin --
+>>  Empty parameter lists, whether declared as () or conventionally as (void), are encoded with a void parameter specifier (v). Therefore function types always encode at least one parameter type, and function manglings can always be distinguished from data manglings by the presence of the type. Member functions do not encode the types of implicit parameters, either this or the VTT parameter.
+>> 
+>> -A "Y" prefix for the bare function type encodes extern "C". If there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above. This affects only type mangling, since extern "C" function objects have unmangled names.
+>> +When mangling a non-static member function name, if there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above.  When mangling any other function type, if there are any cv-qualifiers or a ref-qualifier, they are encoded as part of the function type as described below.
+>> +
+>> +A "Y" prefix for the bare function type encodes extern "C" in implementations which distinguish between function types with "C" and "C++" language linkage. This affects only type mangling, since extern "C" function objects have unmangled names.
+>> -- diff end --
+> 
+> We should also clarify whether the modified function type is a substitution candidate.  That is, given
+> 
+> template <class T, class U> struct A { };
+> void f (A<void()const, void()> *){}
+> 
+> whether f is mangled as
+> 
+> _Z1fP1AIKFvvES0_E
+> or
+> _Z1fP1AIKFvvEFvvEE
+> 
+> G++ currently treats it as a substitution candidate, clang 3.2 does not, and EDG 4.4 neither treats it as a substitution candidate nor mangles the 'const'.
+> 
+> I think not treating it as a substitution candidate is most consistent with the language rules, and with the mangling rule for pointer to member function types.
+
+This was actually covered in my original proposal:
+
+Therefore I propose the following change:
+
+-- diff begin --
+-    <function-type> ::= F [Y] <bare-function-type> E
++    <function-type> ::= [<CV-qualifiers>] F [Y] <bare-function-type> [<ref-qualifier>] E
+     <bare-function-type> ::= <signature type>+
+         # types are possible return type, then parameter types
+
++For the purposes of substitution, the CV-qualifiers and ref-qualifier of a function type are an indivisible part of the type;  that is, when mangling 'void () const', 'void ()' is not a substitution candidate.
+-- diff end --
+
+> Incidentally, the change above hasn't been applied to the published ABI yet.
+
+Thanks!  I also noticed that Doug's patch for ref-qualifiers from January 2011 hadn't been committed, so I've done that, too.
+
+John.
+
+From rjmccall at apple.com  Wed Apr  3 22:48:44 2013
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 03 Apr 2013 15:48:44 -0700
+Subject: [cxx-abi-dev] Internal links in the mangling specification
+Message-ID: <A5EA54BF-9B42-4A2E-B27A-DF79230CCC2E@apple.com>
+
+I've updated the ABI document so that references to other mangling productions are hyperlinked to the definition of that production.  Obviously I did this with perl, so there's a risk that I've accidentally turned something into a link that shouldn't be, or to be more specific, that I've failed to revert one of the many places where I accidentally turned something into a link that shouldn't be.  It's also possible that some of the links are broken.  At any rate, I hope this is desired, useful, and 100% perfect, but if you do find a broken or bogus link, please let me know.
+
+John.
+
+From richardsmith at google.com  Sat Apr 20 23:19:12 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Sat, 20 Apr 2013 16:19:12 -0700
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+Message-ID: <CAGL0aWfFsZLBjVyDPMou=uTfLNgBDE3bo5h97VkNDCTC32GW0w@mail.gmail.com>
+
+Hi,
+
+N3639, which was voted into the C++14 committee draft today, adds a
+std::bad_array_length exception which an implementation is required to
+throw if the computed bound for a VLA ("array of runtime bound") is
+"erroneous".
+
+"erroneous" can be any of:
+ - bound <= 0
+ - bound > some implementation-defined limit
+ - bound < number of initializers provided
+
+We need a new ABI entry point to throw this exception. I propose we don't
+try to encode what went wrong and just use
+
+  extern "C" void __cxa_throw_bad_array_length();
+
+analogously to __cxa_throw_bad_array_*new*_length.
+
+Sound good?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130420/004479bb/attachment.html>
+
+From fweimer at redhat.com  Mon Apr 22 07:00:12 2013
+From: fweimer at redhat.com (Florian Weimer)
+Date: Mon, 22 Apr 2013 09:00:12 +0200
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+In-Reply-To: <CAGL0aWfFsZLBjVyDPMou=uTfLNgBDE3bo5h97VkNDCTC32GW0w@mail.gmail.com>
+References: <CAGL0aWfFsZLBjVyDPMou=uTfLNgBDE3bo5h97VkNDCTC32GW0w@mail.gmail.com>
+Message-ID: <5174DFFC.7020008@redhat.com>
+
+On 04/21/2013 01:19 AM, Richard Smith wrote:
+> N3639, which was voted into the C++14 committee draft today, adds a
+> std::bad_array_length exception which an implementation is required to
+> throw if the computed bound for a VLA ("array of runtime bound") is
+> "erroneous".
+>
+> "erroneous" can be any of:
+>   - bound <= 0
+>   - bound > some implementation-defined limit
+>   - bound < number of initializers provided
+
+Do we want to throw an exception if the stack hasn't got sufficient 
+space for the array?  Then we need a fundamentally different interface 
+(probably a stack limit stored in a TLS variable or an alloca-like 
+function).
+
+I should probably askon the standards list what the expectations are.
+
+-- 
+Florian Weimer / Red Hat Product Security Team
+
+From fweimer at redhat.com  Mon Apr 22 08:39:28 2013
+From: fweimer at redhat.com (Florian Weimer)
+Date: Mon, 22 Apr 2013 10:39:28 +0200
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+In-Reply-To: <5174DFFC.7020008@redhat.com>
+References: <CAGL0aWfFsZLBjVyDPMou=uTfLNgBDE3bo5h97VkNDCTC32GW0w@mail.gmail.com>
+	<5174DFFC.7020008@redhat.com>
+Message-ID: <5174F740.6030006@redhat.com>
+
+On 04/22/2013 09:00 AM, Florian Weimer wrote:
+> On 04/21/2013 01:19 AM, Richard Smith wrote:
+>> N3639, which was voted into the C++14 committee draft today, adds a
+>> std::bad_array_length exception which an implementation is required to
+>> throw if the computed bound for a VLA ("array of runtime bound") is
+>> "erroneous".
+>>
+>> "erroneous" can be any of:
+>>   - bound <= 0
+>>   - bound > some implementation-defined limit
+>>   - bound < number of initializers provided
+>
+> Do we want to throw an exception if the stack hasn't got sufficient
+> space for the array?  Then we need a fundamentally different interface
+> (probably a stack limit stored in a TLS variable or an alloca-like
+> function).
+>
+> I should probably askon the standards list what the expectations are.
+
+Uhm, is this about N3497?  N3639 does not seem to exist yet (or if it 
+does, I'd appreciate someone sending me a copy).
+
+-- 
+Florian Weimer / Red Hat Product Security Team
+
+From richardsmith at google.com  Mon Apr 22 13:05:51 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 22 Apr 2013 06:05:51 -0700
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+In-Reply-To: <5174F740.6030006@redhat.com>
+References: <CAGL0aWfFsZLBjVyDPMou=uTfLNgBDE3bo5h97VkNDCTC32GW0w@mail.gmail.com>
+	<5174DFFC.7020008@redhat.com> <5174F740.6030006@redhat.com>
+Message-ID: <CAGL0aWeSi-eMD8FMLsJQpgZWMyg=mRXDWSrirNgjwRgCYHfQLQ@mail.gmail.com>
+
+On Mon, Apr 22, 2013 at 1:39 AM, Florian Weimer <fweimer at redhat.com> wrote:
+
+> On 04/22/2013 09:00 AM, Florian Weimer wrote:
+>
+>> On 04/21/2013 01:19 AM, Richard Smith wrote:
+>>
+>>> N3639, which was voted into the C++14 committee draft today, adds a
+>>> std::bad_array_length exception which an implementation is required to
+>>> throw if the computed bound for a VLA ("array of runtime bound") is
+>>> "erroneous".
+>>>
+>>> "erroneous" can be any of:
+>>>   - bound <= 0
+>>>   - bound > some implementation-defined limit
+>>>   - bound < number of initializers provided
+>>>
+>>
+>> Do we want to throw an exception if the stack hasn't got sufficient
+>> space for the array?  Then we need a fundamentally different interface
+>> (probably a stack limit stored in a TLS variable or an alloca-like
+>> function).
+>>
+>> I should probably askon the standards list what the expectations are.
+>>
+>
+> Uhm, is this about N3497?  N3639 does not seem to exist yet (or if it
+> does, I'd appreciate someone sending me a copy).
+
+
+Attached.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130422/1a7f1f19/attachment-0002.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130422/1a7f1f19/attachment-0003.html>
+
+From dhandly at cup.hp.com  Mon Apr 22 23:26:54 2013
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 22 Apr 2013 16:26:54 -0700 (PDT)
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+Message-ID: <201304222326.r3MNQsf09804@adlwrk05.cce.hp.com>
+
+>From: Richard Smith <richardsmith at google.com>
+>N3639, which was voted into the C++14 committee draft today, adds a
+>std::bad_array_length exception which an implementation is required to
+>throw if the computed bound for a VLA ("array of runtime bound") is
+>"erroneous".
+> - bound <= 0
+> - bound > some implementation-defined limit
+> - bound < number of initializers provided
+
+>I propose we don't try to encode what went wrong and just use
+>  extern "C" void __cxa_throw_bad_array_length();
+
+Any reason we don't try to pass in one of the above three?
+Do we want to enable a useful what() string?
+
+>From: Florian Weimer <fweimer at redhat.com>
+>Do we want to throw an exception if the stack hasn't got sufficient 
+>space for the array?
+
+Or is this just some "small" implementation-defined limit that is mentioned
+in N3639?
+
+I assume this limit is really based on total size and not on a bound?
+
+From jason at redhat.com  Tue Apr 23 01:45:19 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 22 Apr 2013 21:45:19 -0400
+Subject: [cxx-abi-dev] Mangling decltype(auto)
+Message-ID: <5175E7AF.6090208@redhat.com>
+
+I propose to use Dc for decltype(auto) mangling.  I've sent a github 
+pull request to that effect, as well.
+
+Jason
+

@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Alternate picking virtual bases to share vptrs.
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Alternate%20picking%20virtual%20bases%20to%20share%20vptrs.&In-Reply-To=%3C200001131959.AA28424%40philli.zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000424.html">
+   <LINK REL="Next"  HREF="000428.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Alternate picking virtual bases to share vptrs.</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Alternate%20picking%20virtual%20bases%20to%20share%20vptrs.&In-Reply-To=%3C200001131959.AA28424%40philli.zko.dec.com%3E"
+       TITLE="Alternate picking virtual bases to share vptrs.">coleen at zko.dec.com
+       </A><BR>
+    <I>Thu Jan 13 19:59:29 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000424.html">Test cases for sharing virtual base vptrs 3 of 3.
+</A></li>
+        <LI>Next message: <A HREF="000428.html">Alternate picking virtual bases to share vptrs.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#427">[ date ]</a>
+              <a href="thread.html#427">[ thread ]</a>
+              <a href="subject.html#427">[ subject ]</a>
+              <a href="author.html#427">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>/*
+Jason had a good point about virtual base dominators, since (below)
+Concrete1 dominates Interface1,2,and 3, it appears that virtual function
+calls to 'foo' first convert to a Concrete1 before being called.  So in
+this case, there's no point in sharing the vptr of Interface1 2 or 3
+with the Most_Derived class.  (Correct me if I'm wrong about this
+please, this is all experimental).
+
+The alternate algorithm could then be:
+
+Pick the first virtual base class in dfs order (I vote no
+declaration order on the base class specifier list) that's not a
+primary base class of any subobject of derived class to be
+the primary base class of the derived class.  If there is no such
+virtual base class, don't pick one.
+
+I like dfs (depth first search) order because it's how our representation
+stores them - it's painfully (and surprisingly) difficult to get back to
+the order on the base class specifier list after it's parsed.
+
+I just implemented this, it's pretty simple.
+
+Test case for sharing virtual bases.  In Most_Derived, share the vptr with
+Interface2 but not Interface3, since Interface3 is indirectly inherited.
+
+Should get:
+(long)(Interface1 *)dd - (long)dd = 8
+(long)(Interface2 *)dd - (long)dd = 8
+(long)(Interface3 *)dd - (long)dd = 8
+(long)(Interface4 *)dd - (long)dd = 0
+(long)(Concrete1 *)dd - (long)dd = 8
+*/
+
+struct Interface1 {
+    virtual void foo();
+};
+struct Interface2 : virtual Interface1 {
+	virtual void foo();
+};
+struct Interface3 : virtual Interface2 {
+	virtual void foo();
+};
+
+struct Interface4 {
+	virtual void foo();
+};
+struct Concrete1 : virtual Interface3, virtual Interface4 {
+	virtual void foo();
+	int i; // important.
+};
+
+struct Most_Derived : virtual Interface1, 
+		      virtual Interface2,
+		      virtual Concrete1 {
+	virtual void bar();
+};
+
+void Interface1::foo() {}
+void Interface2::foo() {}
+void Interface3::foo() {}
+void Interface4::foo() {}
+void Concrete1::foo() {}
+void Most_Derived::bar() {}
+
+
+extern &quot;C&quot; int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR &quot; = %d\n&quot;, (EXPR) );
+main()
+{
+  Most_Derived *dd = new Most_Derived;
+  EVAL((long)(Interface1 *)dd - (long)dd);
+  EVAL((long)(Interface2 *)dd - (long)dd);
+  EVAL((long)(Interface3 *)dd - (long)dd);
+  EVAL((long)(Interface4 *)dd - (long)dd);
+  EVAL((long)(Concrete1 *)dd - (long)dd);
+  dd-&gt;foo();
+}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000424.html">Test cases for sharing virtual base vptrs 3 of 3.
+</A></li>
+	<LI>Next message: <A HREF="000428.html">Alternate picking virtual bases to share vptrs.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#427">[ date ]</a>
+              <a href="thread.html#427">[ thread ]</a>
+              <a href="subject.html#427">[ subject ]</a>
+              <a href="author.html#427">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

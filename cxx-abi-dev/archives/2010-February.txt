@@ -1,0 +1,536 @@
+From mark at codesourcery.com  Wed Feb 17 00:53:39 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 16 Feb 2010 16:53:39 -0800
+Subject: Broken link in cxx-abi
+In-Reply-To: <20100216214827.GE9493@caradoc.them.org>
+References: <20100216214827.GE9493@caradoc.them.org>
+Message-ID: <4B7B3E13.3070503@codesourcery.com>
+
+Daniel Jacobowitz wrote:
+
+> http://www.codesourcery.com/public/cxx-abi/abi.html, section 2.9.3,
+> has "mangled name" as a link.  Clicking on that gives me a 404.  The
+> second one - I see now that the first instance works.
+
+Fixed, thanks.  They're supposed to point at slightly different places,
+so I also clarified the wording a bit to make that more obvious.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From Alasdair.Grant at arm.com  Mon Feb 22 17:03:16 2010
+From: Alasdair.Grant at arm.com (Alasdair Grant)
+Date: Mon, 22 Feb 2010 17:03:16 +0000
+Subject: Key functions and templates
+Message-ID: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+
+Hi,
+
+Given the following:
+
+  /* Key function, defined */
+  struct C_key_defined { virtual int f(); };
+  int C_key_defined::f() { return 1; }
+  int f_key_defined(void) { C_key_defined c; return c.f(); }
+
+  /* Key function, not defined */
+  struct C_key_nodef { virtual int f(); };
+  int f_key_nodef(void) { C_key_nodef c; return c.f(); }
+
+  /* No key function */
+  struct C_no_key { inline int f() { return 1; } };
+  int f_no_key(void) { C_no_key c; return c.f(); }
+
+  /* Key function(?), defined */
+  template<typename T> struct G_key_defined { virtual int f(); };
+  template<typename T> int G_key_defined<T>::f() { return 1; }
+  int g_key_defined(void) { G_key_defined<int> c; return c.f(); }
+
+  /* Key function(?), not defined */
+  template<typename T> struct G_key_nodef { virtual int f(); };
+  int g_key_nodef(void) { G_key_nodef<int> c; return c.f(); }
+
+  /* No key function */
+  template<typename T> struct G_no_key { inline int f() { return 1; } };
+  int g_no_key(void) { G_no_key<int> c; return c.f(); }
+
+are G_key_defined<int>::f() and G_key_nodef<int>::f() key functions?
+
+By the letter of the ABI they are, since each of them is the first
+non-inline non-pure virtual function of its class.
+
+But surely the spirit of the ABI is to use the key function as a
+'key' to identify a unique translation unit - but these functions
+may be multiply defined.  So if the vtables for G_key_defined<int>
+and G_key_nodef<int> are defined at all, they must be defined with
+vague linkage.
+
+Implementations (at least of the ARM variant of the ABI) seem to
+differ about whether the code above should define the vtable for
+G_key_nodef<int>.  GCC 4.4 for ARM does define the vtable - which
+suggests it is not treating G_key_nodef<int>::f() as a key function
+(if it did, it could rely on some other unit to be defining f(),
+and hence the vtable).
+
+I can't see any discussion of this point in the generic ABI, but it
+might be worth a clarification.
+
+Thanks,
+
+Al Grant
+
+-- IMPORTANT NOTICE: The contents of this email and any attachments are confidential and may also be privileged. If you are not the intended recipient, please notify the sender immediately and do not disclose the contents to any other person, use it for any purpose, or store or copy the information in any medium.  Thank you.
+
+
+From mark at codesourcery.com  Mon Feb 22 19:41:51 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 22 Feb 2010 11:41:51 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+Message-ID: <4B82DDFF.4030604@codesourcery.com>
+
+Alasdair Grant wrote:
+
+> are G_key_defined<int>::f() and G_key_nodef<int>::f() key functions?
+> 
+> By the letter of the ABI they are, since each of them is the first
+> non-inline non-pure virtual function of its class.
+
+Yes, this has bothered me for a while.  They are key functions, but is
+this useful?
+
+> But surely the spirit of the ABI is to use the key function as a
+> 'key' to identify a unique translation unit - but these functions
+> may be multiply defined.  So if the vtables for G_key_defined<int>
+> and G_key_nodef<int> are defined at all, they must be defined with
+> vague linkage.
+
+Yes, my interpretation is that the compiler must define the vtable every
+time it provides a definition of the key function, and that those
+vtables must have vague linkage.
+
+> Implementations (at least of the ARM variant of the ABI) seem to
+> differ about whether the code above should define the vtable for
+> G_key_nodef<int>.  GCC 4.4 for ARM does define the vtable - which
+> suggests it is not treating G_key_nodef<int>::f() as a key function
+> (if it did, it could rely on some other unit to be defining f(),
+> and hence the vtable).
+
+Given that there is vague linkage involved, how does this matter?  It
+sounds to me like GCC is being wasteful, in that it's defining a vtable
+not needed in this object file, and guaranteed to be present anyhow, but
+as vague linkage will collapse the definitions, it sounds like this is
+"just" a waste of space in object files, not in final executables.
+
+Even if -- as on Symbian, where I suspect this question arises :-) --
+the waste makes it into a DSO, how is that an ABI conformance problem?
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From crowl at google.com  Mon Feb 22 21:50:46 2010
+From: crowl at google.com (Lawrence Crowl)
+Date: Mon, 22 Feb 2010 13:50:46 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <4B82DDFF.4030604@codesourcery.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+	 <4B82DDFF.4030604@codesourcery.com>
+Message-ID: <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+
+On 2/22/10, Mark Mitchell <mark at codesourcery.com> wrote:
+> Alasdair Grant wrote:
+> > are G_key_defined<int>::f() and G_key_nodef<int>::f() key
+> > functions?
+> >
+> > By the letter of the ABI they are, since each of them is the
+> > first non-inline non-pure virtual function of its class.
+>
+> Yes, this has bothered me for a while.  They are key functions,
+> but is this useful?
+
+I don't think so.  The point of key functions is to prevent redundant
+virtual table generation by making their generation a side effect
+of something that is only done once.  That property doesn't exist
+with templates.
+
+> > But surely the spirit of the ABI is to use the key function
+> > as a 'key' to identify a unique translation unit - but these
+> > functions may be multiply defined.  So if the vtables for
+> > G_key_defined<int> and G_key_nodef<int> are defined at all,
+> > they must be defined with vague linkage.
+>
+> Yes, my interpretation is that the compiler must define the
+> vtable every time it provides a definition of the key function,
+> and that those vtables must have vague linkage.
+
+Plausible.
+
+> > Implementations (at least of the ARM variant of the ABI) seem
+> > to differ about whether the code above should define the vtable
+> > for G_key_nodef<int>.  GCC 4.4 for ARM does define the vtable -
+> > which suggests it is not treating G_key_nodef<int>::f() as a
+> > key function (if it did, it could rely on some other unit to
+> > be defining f(), and hence the vtable).
+>
+> Given that there is vague linkage involved, how does this matter?
+> It sounds to me like GCC is being wasteful, in that it's defining
+> a vtable not needed in this object file, and guaranteed to be
+> present anyhow, but as vague linkage will collapse the definitions,
+> it sounds like this is "just" a waste of space in object files,
+> not in final executables.
+>
+> Even if -- as on Symbian, where I suspect this question arises :-)
+> -- the waste makes it into a DSO, how is that an ABI conformance
+> problem?
+
+How about the following scenario?
+
+  A translation unit declares an "extern template" specialization
+  of G_key_defined<int>::f().  The compiler infers that the virtual
+  table need not be generated even though the translation unit
+  otherwise instantiates G_key_defined<int>.  The specialization of
+  f() is not subsequently used, and so the vtable will fail to exist.
+
+-- 
+Lawrence Crowl
+
+
+From zibi at ca.ibm.com  Mon Feb 22 23:18:17 2010
+From: zibi at ca.ibm.com (Zbigniew Sarbinowski)
+Date: Mon, 22 Feb 2010 18:18:17 -0500
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>	 <4B82DDFF.4030604@codesourcery.com> <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+Message-ID: <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com>
+
+Lawrence Crowl <crowl at google.com> wrote on 02/22/2010 04:50:46 PM:
+> On 2/22/10, Mark Mitchell <mark at codesourcery.com> wrote:
+> > Alasdair Grant wrote:
+> > > Implementations (at least of the ARM variant of the ABI) seem
+> > > to differ about whether the code above should define the vtable
+> > > for G_key_nodef<int>.  GCC 4.4 for ARM does define the vtable -
+> > > which suggests it is not treating G_key_nodef<int>::f() as a
+> > > key function (if it did, it could rely on some other unit to
+> > > be defining f(), and hence the vtable).
+> >
+> > Given that there is vague linkage involved, how does this matter?
+> > It sounds to me like GCC is being wasteful, in that it's defining
+> > a vtable not needed in this object file, and guaranteed to be
+> > present anyhow, but as vague linkage will collapse the definitions,
+> > it sounds like this is "just" a waste of space in object files,
+> > not in final executables.
+> >
+> > Even if -- as on Symbian, where I suspect this question arises :-)
+> > -- the waste makes it into a DSO, how is that an ABI conformance
+> > problem?
+>
+> How about the following scenario?
+>
+>   A translation unit declares an "extern template" specialization
+>   of G_key_defined<int>::f().  The compiler infers that the virtual
+>   table need not be generated even though the translation unit
+>   otherwise instantiates G_key_defined<int>.  The specialization of
+>   f() is not subsequently used, and so the vtable will fail to exist.
+
+I have a related issue for which I would like to get clarification.
+There seems to be a contradiction between ABI and C++ Standard.
+Given the following.
+
+/* t1.h */
+class A
+{
+ virtual int foo() = 0;
+ };
+
+ struct B : public A
+ {
+ int foo();
+ };
+
+/* t1.cpp */
+#include "t1.h"
+inline int B::foo() { return 55; }
+
+/* t2.cpp */::
+#include "t1.h"
+int main()
+{
+ B b; // this line forces to generate vft
+  return b.foo();
+}
+
+The g++ compiler will compile and link fine since B::foo() will be
+generated as part of t1.o.
+On the other hand, XL (IBM) compiler comes back with "Undefined
+symbol: .B::foo()".  This is because
+t1.o does not have its definition.  It was optimized out since XL didn't
+find any reference to it in t1.cpp.
+
+According to C++ Standard the above TC is invalid because it violates the
+last sentence from 3.2.3:
+"An inline function shall be defined in every translation unit in which it
+is used."
+
+However C++ABI by last sentence in sec. 5.2.3 (Virtual Tables) makes this
+TC valid.
+"Note that if the key function is not declared inline in the class
+definition, but its definition later is always declared inline, it will be
+emitted in every object containing the definition."
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100222/96c4ab1a/attachment.html>
+
+From mark at codesourcery.com  Mon Feb 22 23:19:10 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 22 Feb 2010 15:19:10 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>	 <4B82DDFF.4030604@codesourcery.com> <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+Message-ID: <4B8310EE.5090207@codesourcery.com>
+
+Lawrence Crowl wrote:
+
+>>> By the letter of the ABI they are, since each of them is the
+>>> first non-inline non-pure virtual function of its class.
+>> Yes, this has bothered me for a while.  They are key functions,
+>> but is this useful?
+> 
+> I don't think so.  The point of key functions is to prevent redundant
+> virtual table generation by making their generation a side effect
+> of something that is only done once.  That property doesn't exist
+> with templates.
+
+Well, yes and no.  You won't get a linker error, and you won't get
+wasted space in your final executable, but, without key functions, you
+will get bigger object files, slower compilers, and -- on a SVR4-ish
+system -- duplicate definitions in multiple shared objects.  Those
+duplicate definitions will be collapsed by the dynamic linker, but if
+they don't need to be there, you're still wasting space.
+
+>   A translation unit declares an "extern template" specialization
+>   of G_key_defined<int>::f().  The compiler infers that the virtual
+>   table need not be generated even though the translation unit
+>   otherwise instantiates G_key_defined<int>.  The specialization of
+>   f() is not subsequently used, and so the vtable will fail to exist.
+
+Is this a valid program?  If the vtable was created at the point it is
+referenced, it would reference the virtual function "f", not otherwise
+used, by hypothesis.  Are we allowed to instantiate the function at this
+point?  (This is not a rhetorical question; I don't recall what the
+standard says about the point of instantiation in this case.)
+
+In any cases, Alasdair is saying that G++ generates too many vtables,
+not too few; this seems potentially non-optimal, but I don't see how it
+breaks anything.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From mark at codesourcery.com  Mon Feb 22 23:26:43 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 22 Feb 2010 15:26:43 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>	 <4B82DDFF.4030604@codesourcery.com> <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com> <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com>
+Message-ID: <4B8312B3.5090202@codesourcery.com>
+
+Zbigniew Sarbinowski wrote:
+
+> However C++ABI by last sentence in sec. 5.2.3 (Virtual Tables) makes
+> this TC valid.
+
+That's not inherently a problem; as long as all ISO-valid programs work
+with the C++ ABI, the C++ ABI is OK, even if it makes some invalid
+programs work as well.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From crowl at google.com  Mon Feb 22 23:45:25 2010
+From: crowl at google.com (Lawrence Crowl)
+Date: Mon, 22 Feb 2010 15:45:25 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+	 <4B82DDFF.4030604@codesourcery.com>
+	 <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+	 <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com>
+Message-ID: <29bd08b71002221545v4a69e85fy17d70d2d5458c712@mail.gmail.com>
+
+On 2/22/10, Zbigniew Sarbinowski <zibi at ca.ibm.com> wrote:
+> Lawrence Crowl <crowl at google.com> wrote on 02/22/2010 04:50:46 PM:
+> > On 2/22/10, Mark Mitchell <mark at codesourcery.com> wrote:
+> > > Alasdair Grant wrote:
+> > > > Implementations (at least of the ARM variant of the ABI) seem
+> > > > to differ about whether the code above should define the vtable
+> > > > for G_key_nodef<int>.  GCC 4.4 for ARM does define the vtable -
+> > > > which suggests it is not treating G_key_nodef<int>::f() as a
+> > > > key function (if it did, it could rely on some other unit to
+> > > > be defining f(), and hence the vtable).
+> > >
+> > > Given that there is vague linkage involved, how does this matter?
+> > > It sounds to me like GCC is being wasteful, in that it's defining
+> > > a vtable not needed in this object file, and guaranteed to be
+> > > present anyhow, but as vague linkage will collapse the definitions,
+> > > it sounds like this is "just" a waste of space in object files,
+> > > not in final executables.
+> > >
+> > > Even if -- as on Symbian, where I suspect this question arises :-)
+> > > -- the waste makes it into a DSO, how is that an ABI conformance
+> > > problem?
+> >
+> > How about the following scenario?
+> >
+> >   A translation unit declares an "extern template" specialization
+> >   of G_key_defined<int>::f().  The compiler infers that the virtual
+> >   table need not be generated even though the translation unit
+> >   otherwise instantiates G_key_defined<int>.  The specialization of
+> >   f() is not subsequently used, and so the vtable will fail to exist.
+>
+> I have a related issue for which I would like to get clarification.
+> There seems to be a contradiction between ABI and C++ Standard.
+> Given the following.
+>
+> /* t1.h */
+> class A
+> {
+> virtual int foo() = 0;
+> };
+>
+> struct B : public A
+> {
+> int foo();
+> };
+>
+> /* t1.cpp */
+> #include "t1.h"
+> inline int B::foo() { return 55; }
+>
+> /* t2.cpp */
+> #include "t1.h"
+> int main()
+> {
+>   B b; // this line forces to generate vft
+>   return b.foo();
+> }
+>
+> The g++ compiler will compile and link fine since B::foo()
+> will be generated as part of t1.o.  On the other hand, XL (IBM)
+> compiler comes back with "Undefined symbol: .B::foo()".  This is
+> because t1.o does not have its definition.  It was optimized out
+> since XL didn't find any reference to it in t1.cpp.
+>
+> According to C++ Standard the above TC is invalid because it
+> violates the last sentence from 3.2.3: "An inline function shall
+> be defined in every translation unit in which it is used."
+>
+> However C++ABI by last sentence in sec. 5.2.3 (Virtual Tables)
+> makes this TC valid.  "Note that if the key function is not
+> declared inline in the class definition, but its definition later
+> is always declared inline, it will be emitted in every object
+> containing the definition."
+
+One could argue that it is not "always declared inline" because
+there is not inline declaration in t2.cpp.  That interpretation is
+consistent with the standard, so I wouldn't want to rule it out.
+
+-- 
+Lawrence Crowl
+
+
+From crowl at google.com  Mon Feb 22 23:52:53 2010
+From: crowl at google.com (Lawrence Crowl)
+Date: Mon, 22 Feb 2010 15:52:53 -0800
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <4B8310EE.5090207@codesourcery.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>
+	 <4B82DDFF.4030604@codesourcery.com>
+	 <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>
+	 <4B8310EE.5090207@codesourcery.com>
+Message-ID: <29bd08b71002221552t1b95ee0fw48490486a1f352fa@mail.gmail.com>
+
+On 2/22/10, Mark Mitchell <mark at codesourcery.com> wrote:
+> Lawrence Crowl wrote:
+> >  A translation unit declares an "extern template" specialization
+> >  of G_key_defined<int>::f().  The compiler infers that the virtual
+> >  table need not be generated even though the translation unit
+> >  otherwise instantiates G_key_defined<int>.  The specialization of
+> >  f() is not subsequently used, and so the vtable will fail to exist.
+>
+> Is this a valid program?
+
+Hm.  No.  If a class is used, its virtual functions must be defined
+even when not used, unlike non-virtual methods.
+
+> If the vtable was created at the point it is
+> referenced, it would reference the virtual function "f", not otherwise
+> used, by hypothesis.  Are we allowed to instantiate the function at this
+> point?  (This is not a rhetorical question; I don't recall what the
+> standard says about the point of instantiation in this case.)
+
+I don't think the standard is clear on that.  It says that "extern
+template" is an explicit instantiation declaration, but doesn't
+seem to say whether or not one is required to have an explicit
+instantiation definition to go with it.
+
+> In any cases, Alasdair is saying that G++ generates too many
+> vtables, not too few; this seems potentially non-optimal, but I
+> don't see how it breaks anything.
+
+Right, but I think the real question is "can we eliminate the
+redundancy without breaking the ABI?"
+
+-- 
+Lawrence Crowl
+
+
+From zibi at ca.ibm.com  Tue Feb 23 04:58:01 2010
+From: zibi at ca.ibm.com (Zbigniew Sarbinowski)
+Date: Mon, 22 Feb 2010 23:58:01 -0500
+Subject: [cxx-abi-dev] Key functions and templates
+In-Reply-To: <29bd08b71002221545v4a69e85fy17d70d2d5458c712@mail.gmail.com>
+References: <DEE44AFE682197449410588EB783A5140137991E76@BUNGLE.Emea.Arm.com>	 <4B82DDFF.4030604@codesourcery.com>
+	 <29bd08b71002221350p3d68aa78l213728fede19ffd4@mail.gmail.com>	 <OF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44@ca.ibm.com> <29bd08b71002221545v4a69e85fy17d70d2d5458c712@mail.gmail.com>
+Message-ID: <OFAEE3E99D.37C425FB-ON852576D3.0018D948-852576D3.001B48F2@ca.ibm.com>
+
+Lawrence Crowl <crowl at google.com> wrote on 02/22/2010 06:45:25 PM:
+> One could argue that it is not "always declared inline" because
+> there is not inline declaration in t2.cpp.  That interpretation is
+> consistent with the standard, so I wouldn't want to rule it out.
+
+Yeap, you're right but other interpretation could argue that since
+this function is considered inline but not used in t1.cpp why would
+we want to generate its body in this CU?
+
+Your argument also shows that this is invalid since no inline function
+used in t2.cpp should be defined either within the same CU or elsewhere as
+no
+inline function.  This comes down to inconsistency of marking this function
+as inline.
+
+If this function is inline in t1.cpp but not used nothing is stopping to
+not generate
+this function since we know that if it's used elsewhere (like in t2.cpp) it
+should also be
+defined there.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100222/9a3d9c0d/attachment.html>
+

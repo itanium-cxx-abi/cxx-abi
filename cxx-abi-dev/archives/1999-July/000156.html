@@ -1,0 +1,111 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> vtable heuristic
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20heuristic&In-Reply-To=%3C199907150920.CAA10492%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000154.html">
+   <LINK REL="Next"  HREF="000157.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>vtable heuristic</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20heuristic&In-Reply-To=%3C199907150920.CAA10492%40yorick.cygnus.com%3E"
+       TITLE="vtable heuristic">jason at cygnus.com
+       </A><BR>
+    <I>Thu Jul 15 09:20:16 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000154.html">vtable emission, COMDAT, and ELF
+</A></li>
+        <LI>Next message: <A HREF="000157.html">GNU constructor priority implementation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#156">[ date ]</a>
+              <a href="thread.html#156">[ thread ]</a>
+              <a href="subject.html#156">[ subject ]</a>
+              <a href="author.html#156">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The heuristic I suggested in the meeting last week for limiting the
+emission of vtables was to choose as a key the first non-abstract,
+non-inline virtual function in the class, as with the typical heuristic,
+and if that function should be redeclared as inline, just give up and emit
+the vtable everywhere it's used.  But this variant is similarly fragile:
+
+  foo.h:
+  struct A {
+    virtual void f ();
+    virtual void g ();
+  };
+
+  foo.C:
+  #include &quot;foo.h&quot;
+  inline void A::f () { }
+  void someotherfn () { }
+
+  bar.C:
+  #include &quot;foo.h&quot;
+  void A::g () { }
+
+  baz.C:
+  #include &quot;foo.h&quot;
+  int main()
+  {
+    A a;
+  }
+
+Here, both the typical heuristic and my suggested variant will break.  The
+typical heuristic will see that f is now inline and decide to use g
+instead.  But g doesn't know anything about that.  My suggestion breaks
+similarly, because the vtable user in main() doesn't know that f is
+inline.  But this code is ill-formed anyway; [basic.def.odr] says that a
+virtual function is used if it is not pure, and an inline function must be
+defined in every translation unit in which it is used, so A::f must be
+defined in all three translation units for the code to be valid.
+
+So I think the old heuristic is fine.
+
+The problem our customer was having with the old heuristic was as follows:
+They defined a proxy class in a shared library, and didn't export any of the
+symbols of its members or vtable from the shared object.  The client called
+some other API function to get a pointer to one of these objects, and called
+one of its inline member functions.  This broke, because the compiler was
+only emitting the inline functions for the class along with the vtable.  I
+think it makes more sense to emit inlines where they are referenced, which
+might be nowhere.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000154.html">vtable emission, COMDAT, and ELF
+</A></li>
+	<LI>Next message: <A HREF="000157.html">GNU constructor priority implementation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#156">[ date ]</a>
+              <a href="thread.html#156">[ thread ]</a>
+              <a href="subject.html#156">[ subject ]</a>
+              <a href="author.html#156">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

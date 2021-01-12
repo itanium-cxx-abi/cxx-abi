@@ -1,0 +1,639 @@
+From jason at redhat.com  Mon Mar  1 18:19:27 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 01 Mar 2010 13:19:27 -0500
+Subject: Mangling of member functions in decltype expressions
+In-Reply-To: <03EBEF16-F206-4277-8217-6383059D2942@edg.com>
+References: <03EBEF16-F206-4277-8217-6383059D2942@edg.com>
+Message-ID: <4B8C052F.60306@redhat.com>
+
+On 02/26/2010 03:56 PM, Mike Herrick wrote:
+> Consider:
+>
+>    struct A {
+>      void f(int);
+>    } a;
+>    template<class T>  auto f(T p1) ->  decltype(a.f(p1));
+>    int main() {
+>      f(0);
+>    }
+>
+> g++ 4.4.3 mangles f as "_Z1fIiEDTcldtL_Z1aEL_ZN1A1fEiEfp_EET_" which g++ demangles as:
+>
+> decltype ((a.(A::f(int)))(parm#1)) f<int>(int)
+>
+> However, I can't seem to demangle this with the existing IA-64 ABI rules.  Using:
+>
+>               ::= dt<expression>  <unqualified-name>               # expr.name
+>
+> I'm able to match "L_Z1aE" to<expression>, but<unqualified-name>  doesn't reduce to<expr-primary>  (which is what I presume "L_ZN1A1fEiE" represents).
+>
+> Do you consider this a g++ bug (and a qualified name should not be used), or a problem with the current IA-64 ABI specification?  What do you believe the correct mangling should be?
+
+I don't feel strongly one way or the other, but I think the G++ output 
+makes sense; I think there are other places we use the full mangled name 
+for non-dependent names, and a plain identifier for dependent ones.
+
+> Also, I ran into this:
+>
+>    struct A {} a;
+>    void (A::*pmf)(int);
+>    template<class T>  auto f1(T p1) ->  decltype((a.*pmf)(p1));
+>    int main() {
+>      f1(0);
+>    }
+>
+> dmf.c: In function 'int main()':
+> dmf.c:5: sorry, unimplemented: mangling dotstar_expr
+>
+> Were you considering proposing an addition to the ABI to support this?
+
+I hadn't considered that yet, but I would certainly support such an 
+addition.
+
+Jason
+
+
+From rjmccall at apple.com  Mon Mar  1 23:05:31 2010
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 1 Mar 2010 15:05:31 -0800
+Subject: [cxx-abi-dev] Re: Mangling of member functions in decltype expressions
+In-Reply-To: <4B8C052F.60306@redhat.com>
+References: <03EBEF16-F206-4277-8217-6383059D2942@edg.com> <4B8C052F.60306@redhat.com>
+Message-ID: <A6FD3422-3C13-4891-AD3F-1B992D0A909F@apple.com>
+
+
+On Mar 1, 2010, at 10:19 AM, Jason Merrill wrote:
+
+> On 02/26/2010 03:56 PM, Mike Herrick wrote:
+>> Consider:
+>> 
+>>   struct A {
+>>     void f(int);
+>>   } a;
+>>   template<class T>  auto f(T p1) ->  decltype(a.f(p1));
+>>   int main() {
+>>     f(0);
+>>   }
+>> 
+>> g++ 4.4.3 mangles f as "_Z1fIiEDTcldtL_Z1aEL_ZN1A1fEiEfp_EET_" which g++ demangles as:
+>> 
+>> decltype ((a.(A::f(int)))(parm#1)) f<int>(int)
+>> 
+>> However, I can't seem to demangle this with the existing IA-64 ABI rules.  Using:
+>> 
+>>              ::= dt<expression>  <unqualified-name>               # expr.name
+>> 
+>> I'm able to match "L_Z1aE" to<expression>, but<unqualified-name>  doesn't reduce to<expr-primary>  (which is what I presume "L_ZN1A1fEiE" represents).
+>> 
+>> Do you consider this a g++ bug (and a qualified name should not be used), or a problem with the current IA-64 ABI specification?  What do you believe the correct mangling should be?
+> 
+> I don't feel strongly one way or the other, but I think the G++ output makes sense; I think there are other places we use the full mangled name for non-dependent names, and a plain identifier for dependent ones.
+
+I think this can't just be <unqualified-name>:
+
+struct AmbiguousBase { int foo; };
+struct Edge1 : AmbiguousBase { float bar; };
+struct Edge2 : AmbiguousBase { double bar; };
+struct Derived : Edge1, Edge2 {};
+Derived object;
+
+So we need to represent the qualifier / base-path somehow.  The obvious choice for the dependent case is to use <unqualified-name> | <nested-name>, which is still unambiguous.  I think the ambiguous base problem strongly recommends the same solution in the non-dependent case, but I'm willing to consider using something like <expr-primary> when it's unambiguous, although that does seem like a lot of potential analysis for the mangler.
+
+Clang is currently mangling these as <unqualified-name> | <nested-name>, but we're obviously not constrained by the existence of users yet. :)
+
+John.
+
+From daveed at edg.com  Tue Mar  2 16:31:02 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 2 Mar 2010 11:31:02 -0500
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <4D54575D-22D2-4D53-860F-B41E6AF80850@edg.com>
+References: <4D54575D-22D2-4D53-860F-B41E6AF80850@edg.com>
+Message-ID: <5CFE7707-7027-4D6D-85E2-74643E6D3D02@edg.com>
+
+
+On Sep 18, 2009, at 6:15 PM, David Vandevoorde wrote:
+
+> C++0x defines a typedef std::nullptr_t which aliases a unique (but unnamed) fundamental type.  That type needs a mangling code.
+> 
+> How about "Dn"?  I.e., adding the production
+> 
+> 	<builtin-type> ::= Dn
+> 
+> in the spec?
+
+In addition to the mangling for std::nullptr_t, we also need an RTTI representation.  Since nullptr_t has special conversion requirements (e.g., throwing a nullptr_t value can be caught as a pointer or pointer-to-member value), we propose to add a new simple __nullptr_type_info class (no additional members), rather than e.g. trying to reuse __fundamental_type_info.
+
+Attached are proposed diffs against the current spec.
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: nullptr.diffs
+Type: application/octet-stream
+Size: 2921 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100302/4ed2b110/attachment.obj>
+-------------- next part --------------
+
+
+
+From jason at redhat.com  Tue Mar  2 16:34:11 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 02 Mar 2010 11:34:11 -0500
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <5CFE7707-7027-4D6D-85E2-74643E6D3D02@edg.com>
+References: <4D54575D-22D2-4D53-860F-B41E6AF80850@edg.com> <5CFE7707-7027-4D6D-85E2-74643E6D3D02@edg.com>
+Message-ID: <4B8D3E03.6080603@redhat.com>
+
+On 03/02/2010 11:31 AM, David Vandevoorde wrote:
+> In addition to the mangling for std::nullptr_t, we also need an RTTI representation.  Since nullptr_t has special conversion requirements (e.g., throwing a nullptr_t value can be caught as a pointer or pointer-to-member value), we propose to add a new simple __nullptr_type_info class (no additional members), rather than e.g. trying to reuse __fundamental_type_info.
+
+Makes sense to me.
+
+Jason
+
+
+From dhandly at cup.hp.com  Wed Mar  3 01:49:45 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 2 Mar 2010 17:49:45 -0800 (PST)
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+Message-ID: <201003030149.RAA27035@hpcll183.cup.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>> 	<builtin-type> ::= Dn
+
+>In addition to the mangling for std::nullptr_t, we also need an RTTI
+>representation.  Since nullptr_t has special conversion requirements
+>(e.g., throwing a nullptr_t value can be caught as a pointer or
+>pointer-to-member value), we propose to add a new simple
+>__nullptr_type_info class (no additional members), rather than e.g.
+>trying to reuse __fundamental_type_info.
+
+I don't see why we would have a RTTI type that doesn't match the mangled name?
+Or are you planning to have both a _ZTIDn but it's virtual table is
+this new __nullptr_type_info?
+
+This wastes storage.  Instead of just a type_info and string, we now have
+to have a virtual table for __nullptr_type_info, and another type_info for
+that.  I.e. instead of using virtual function dispatch, we should consider
+looking at the typeid.
+
+It seems the only special case now is for void, _ZTIv, for catch(...).
+Why not follow the same path?
+   if (catch_type == typeid(void))
+   if (catch_type == typeid(std::nullptr_t))
+
+
+From jason at redhat.com  Wed Mar  3 20:57:11 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 03 Mar 2010 15:57:11 -0500
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <201003030149.RAA27035@hpcll183.cup.hp.com>
+References: <201003030149.RAA27035@hpcll183.cup.hp.com>
+Message-ID: <4B8ECD27.1010300@redhat.com>
+
+On 03/02/2010 08:49 PM, Dennis Handly wrote:
+> I don't see why we would have a RTTI type that doesn't match the mangled name?
+> Or are you planning to have both a _ZTIDn but it's virtual table is
+> this new __nullptr_type_info?
+
+Huh?  None of the RTTI types match the mangled names of types that use them.
+
+> This wastes storage.  Instead of just a type_info and string, we now have
+> to have a virtual table for __nullptr_type_info, and another type_info for
+> that.  I.e. instead of using virtual function dispatch, we should consider
+> looking at the typeid.
+>
+> It seems the only special case now is for void, _ZTIv, for catch(...).
+
+We (G++) don't use typeid(void) for catch(...), we use a null catch type.
+
+I notice that there is currently no specification of the EH data 
+structures in the abi-eh.html; that seems like a major omission...
+
+> Why not follow the same path?
+>     if (catch_type == typeid(std::nullptr_t))
+
+I suppose this would also work, and would indeed save us a few words of 
+space in the runtime library.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Mar  4 08:45:03 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 4 Mar 2010 00:45:03 -0800 (PST)
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+Message-ID: <201003040845.AAA04118@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>None of the RTTI types match the mangled names of types that use them.
+
+Sorry.  I meant it matches except for the _ZTI prefix:
+_ZTIl == type info of long
+
+>> Why not follow the same path?
+>>     if (catch_type == typeid(std::nullptr_t))
+
+>I suppose this would also work, and would indeed save us a few words of 
+>space in the runtime library.
+Jason
+
+It also saves typing in that new class in the header file.  :-)
+But it saves a vtable and type_info for that class.
+
+We have a demamgler library using lots of virtual functions and it has
+over 19 Kb of C++ metadata.  Where adding a simple tag (with lots of switches)
+would save lots of data space.
+
+With the typeid(std::nullptr_t) new case, you probably only need to check
+in a few places.
+
+
+From jason at redhat.com  Thu Mar  4 15:03:29 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 04 Mar 2010 10:03:29 -0500
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <201003040845.AAA04118@hpcll183.cup.hp.com>
+References: <201003040845.AAA04118@hpcll183.cup.hp.com>
+Message-ID: <4B8FCBC1.1040407@redhat.com>
+
+On 03/04/2010 03:45 AM, Dennis Handly wrote:
+>> From: Jason Merrill<jason at redhat.com>
+>> None of the RTTI types match the mangled names of types that use them.
+>
+> Sorry.  I meant it matches except for the _ZTI prefix:
+> _ZTIl == type info of long
+
+How is "l" == "__fundamental_type_info"?
+
+> With the typeid(std::nullptr_t) new case, you probably only need to check
+> in a few places.
+
+Yep.
+
+Jason
+
+
+From dhandly at cup.hp.com  Fri Mar  5 03:06:18 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 4 Mar 2010 19:06:18 -0800 (PST)
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+Message-ID: <201003050306.TAA07616@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>> I meant it matches except for the _ZTI prefix:
+>> _ZTIl == type info of long
+
+>How is "l" == "__fundamental_type_info"?
+
+_ZTIl (for long) is an object whose type is __fundamental_type_info.
+
+
+From jason at redhat.com  Fri Mar  5 17:50:14 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Mar 2010 12:50:14 -0500
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <201003050306.TAA07616@hpcll183.cup.hp.com>
+References: <201003050306.TAA07616@hpcll183.cup.hp.com>
+Message-ID: <4B914456.9070807@redhat.com>
+
+On 03/04/2010 10:06 PM, Dennis Handly wrote:
+>> From: Jason Merrill<jason at redhat.com>
+>>> I meant it matches except for the _ZTI prefix:
+>>> _ZTIl == type info of long
+>
+>> How is "l" == "__fundamental_type_info"?
+>
+> _ZTIl (for long) is an object whose type is __fundamental_type_info.
+
+Yes. I still don't see the distinction between that and
+
+_ZTIDn (for std::nullptr_t) is an object whose type is __nullptr_type_info.
+
+I understand your argument that we don't need a new type, I was just 
+confused by the talk about a mismatch between the type and the mangled name.
+
+Jason
+
+
+From dhandly at cup.hp.com  Tue Mar  9 06:33:37 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 8 Mar 2010 22:33:37 -0800 (PST)
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+Message-ID: <201003090633.WAA25255@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>On 03/04/2010 10:06 PM, Dennis Handly wrote:
+>>> From: Jason Merrill<jason at redhat.com>
+>>> How is "l" == "__fundamental_type_info"?
+>>
+>> _ZTIl (for long) is an object whose type is __fundamental_type_info.
+
+>I still don't see the distinction between that and _ZTIDn
+> (for std::nullptr_t) is an object whose type is __nullptr_type_info.
+
+Probably because we used that typeid(void) comparison trick for (...)
+so it was more obvious that we could do the same trick, rather than
+use virtual dispatch to identify the special case.
+
+>I understand your argument that we don't need a new type, I was just 
+>confused by the talk about a mismatch between the type and the mangled name.
+Jason
+
+That's the main point, we don't need a new derived type_info type.
+
+
+From jason at redhat.com  Tue Mar  9 13:07:51 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 09 Mar 2010 08:07:51 -0500
+Subject: Lambda conversion
+Message-ID: <4B964827.9000702@redhat.com>
+
+So, the upshot of the committee discussion yesterday was that we keep 
+the conversion, and it and the op() are non-static member functions. 
+Implementation seems pretty straightforward: the conversion returns the 
+address of a static member function (call it __fn), and either the op() 
+calls __fn or __fn calls op() with a null object argument.
+
+Anyone object to "__fn" as the name of the static member function?
+
+Any preference as to which way the call goes?  I suppose we need to take 
+the address of __fn in either case, which would argue for making op() 
+the wrapper.  OTOH, it might be a bit easier to implement leaving op() 
+alone and adding a function that calls it later.
+
+Jason
+
+
+From gdr at integrable-solutions.net  Tue Mar  9 17:36:54 2010
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 9 Mar 2010 11:36:54 -0600
+Subject: [cxx-abi-dev] Lambda conversion
+In-Reply-To: <4B964827.9000702@redhat.com>
+References: <4B964827.9000702@redhat.com>
+Message-ID: <206fcf961003090936i72241f5ct2f5558813ab9b7e6@mail.gmail.com>
+
+On Tue, Mar 9, 2010 at 7:07 AM, Jason Merrill <jason at redhat.com> wrote:
+> So, the upshot of the committee discussion yesterday was that we keep the
+> conversion, and it and the op() are non-static member functions.
+
+sad. operator() should have been allowed to be static.
+
+> Implementation seems pretty straightforward: the conversion returns the
+> address of a static member function (call it __fn), and either the op()
+> calls __fn or __fn calls op() with a null object argument.
+>
+> Anyone object to "__fn" as the name of the static member function?
+
+I would probably suggest making the string 1 longer: "__fun".
+
+>
+> Any preference as to which way the call goes? ?I suppose we need to take the
+> address of __fn in either case, which would argue for making op() the
+> wrapper. ?OTOH, it might be a bit easier to implement leaving op() alone and
+> adding a function that calls it later.
+
+Is there any middle-end issue with a 'null object argument'?
+(the middle-end seems to be getting clever every day.)
+If yes, that would argue for 'op()' being the wrapper.
+
+
+>
+> Jason
+>
+
+
+From jason at redhat.com  Mon Mar 22 20:57:58 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 22 Mar 2010 16:57:58 -0400
+Subject: [cxx-abi-dev] Lambda conversion
+In-Reply-To: <206fcf961003090936i72241f5ct2f5558813ab9b7e6@mail.gmail.com>
+References: <4B964827.9000702@redhat.com> <206fcf961003090936i72241f5ct2f5558813ab9b7e6@mail.gmail.com>
+Message-ID: <4BA7D9D6.1080900@redhat.com>
+
+On 03/09/2010 12:36 PM, Gabriel Dos Reis wrote:
+> On Tue, Mar 9, 2010 at 7:07 AM, Jason Merrill<jason at redhat.com>  wrote:
+
+>> Implementation seems pretty straightforward: the conversion returns the
+>> address of a static member function (call it __fn), and either the op()
+>> calls __fn or __fn calls op() with a null object argument.
+>>
+>> Anyone object to "__fn" as the name of the static member function?
+>
+> I would probably suggest making the string 1 longer: "__fun".
+
+I'm currently using _FUN to avoid a potential name clash with data 
+members (which I rename by adding __ at the beginning so that the 
+debugger can show something useful).
+
+>> Any preference as to which way the call goes?  I suppose we need to take the
+>> address of __fn in either case, which would argue for making op() the
+>> wrapper.  OTOH, it might be a bit easier to implement leaving op() alone and
+>> adding a function that calls it later.
+>
+> Is there any middle-end issue with a 'null object argument'?
+> (the middle-end seems to be getting clever every day.)
+
+I can't imagine why; the op() doesn't touch *this.
+
+It occurred to me while implementing this that the obvious thunk-like 
+implementation breaks down for variadic op() just like it does for 
+covariant thunks.  I think I'd rather have that be a problem for the 
+conversion rather than for direct calls to op().
+
+Next issue: should _FUN share a comdat group with op() to allow it to be 
+an alternate entry point?  I suppose so.
+
+Jason
+
+
+From gdr at integrable-solutions.net  Mon Mar 22 21:37:40 2010
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Mon, 22 Mar 2010 16:37:40 -0500
+Subject: [cxx-abi-dev] Lambda conversion
+In-Reply-To: <4BA7D9D6.1080900@redhat.com>
+References: <4B964827.9000702@redhat.com>
+	 <206fcf961003090936i72241f5ct2f5558813ab9b7e6@mail.gmail.com>
+	 <4BA7D9D6.1080900@redhat.com>
+Message-ID: <206fcf961003221437r1122c48eya24bef1035637aa5@mail.gmail.com>
+
+On Mon, Mar 22, 2010 at 3:57 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 03/09/2010 12:36 PM, Gabriel Dos Reis wrote:
+>>
+>> On Tue, Mar 9, 2010 at 7:07 AM, Jason Merrill<jason at redhat.com> ?wrote:
+>
+>>> Implementation seems pretty straightforward: the conversion returns the
+>>> address of a static member function (call it __fn), and either the op()
+>>> calls __fn or __fn calls op() with a null object argument.
+>>>
+>>> Anyone object to "__fn" as the name of the static member function?
+>>
+>> I would probably suggest making the string 1 longer: "__fun".
+>
+> I'm currently using _FUN to avoid a potential name clash with data members
+> (which I rename by adding __ at the beginning so that the debugger can show
+> something useful).
+
+that sounds good to me.
+
+>
+>>> Any preference as to which way the call goes? ?I suppose we need to take
+>>> the
+>>> address of __fn in either case, which would argue for making op() the
+>>> wrapper. ?OTOH, it might be a bit easier to implement leaving op() alone
+>>> and
+>>> adding a function that calls it later.
+>>
+>> Is there any middle-end issue with a 'null object argument'?
+>> (the middle-end seems to be getting clever every day.)
+>
+> I can't imagine why; the op() doesn't touch *this.
+
+I was thinking of optimizers/transformations that would (that would one way
+or the other) take advantage of the fact 'this' is never null.  But
+you are correct
+that the ABI could just mandate that does not matter.
+
+>
+> It occurred to me while implementing this that the obvious thunk-like
+> implementation breaks down for variadic op() just like it does for covariant
+> thunks. ?I think I'd rather have that be a problem for the conversion rather
+> than for direct calls to op().
+>
+> Next issue: should _FUN share a comdat group with op() to allow it to be an
+> alternate entry point? ?I suppose so.
+
+I agree.
+
+-- Gaby
+
+
+From daveed at edg.com  Mon Mar 22 22:15:55 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 22 Mar 2010 18:15:55 -0400
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <201003040845.AAA04118@hpcll183.cup.hp.com>
+References: <201003040845.AAA04118@hpcll183.cup.hp.com>
+Message-ID: <52598EAD-285A-40C0-ADF8-8C8D19892F8C@edg.com>
+
+Attached are diffs for a revised proposal: There is no longer a separate type_info variant for nullptr_t.  I did make it more explicit that fundamental types have __fundamental_type_info entries.
+
+	Daveed
+
+ 
+On Mar 4, 2010, at 3:45 AM, Dennis Handly wrote:
+
+>> From: Jason Merrill <jason at redhat.com>
+>> None of the RTTI types match the mangled names of types that use them.
+> 
+> Sorry.  I meant it matches except for the _ZTI prefix:
+> _ZTIl == type info of long
+> 
+>>> Why not follow the same path?
+>>>    if (catch_type == typeid(std::nullptr_t))
+> 
+>> I suppose this would also work, and would indeed save us a few words of 
+>> space in the runtime library.
+> Jason
+> 
+> It also saves typing in that new class in the header file.  :-)
+> But it saves a vtable and type_info for that class.
+> 
+> We have a demamgler library using lots of virtual functions and it has
+> over 19 Kb of C++ metadata.  Where adding a simple tag (with lots of switches)
+> would save lots of data space.
+> 
+> With the typeid(std::nullptr_t) new case, you probably only need to check
+> in a few places.
+
+
+
+From daveed at edg.com  Tue Mar 23 00:50:24 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 22 Mar 2010 20:50:24 -0400
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+In-Reply-To: <52598EAD-285A-40C0-ADF8-8C8D19892F8C@edg.com>
+References: <201003040845.AAA04118@hpcll183.cup.hp.com> <52598EAD-285A-40C0-ADF8-8C8D19892F8C@edg.com>
+Message-ID: <2FCC46DC-2D1D-4DB2-B8C2-0497D211657B@edg.com>
+
+Oops, I apparently didn't attach the diffs after all.  Hopefully, they're really there this time.
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: nullptr.diffs
+Type: application/octet-stream
+Size: 2331 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100322/8250b1f4/attachment.obj>
+-------------- next part --------------
+
+
+On Mar 22, 2010, at 6:15 PM, David Vandevoorde wrote:
+
+> Attached are diffs for a revised proposal: There is no longer a separate type_info variant for nullptr_t.  I did make it more explicit that fundamental types have __fundamental_type_info entries.
+> 
+> 	Daveed
+> 
+> 
+> On Mar 4, 2010, at 3:45 AM, Dennis Handly wrote:
+> 
+>>> From: Jason Merrill <jason at redhat.com>
+>>> None of the RTTI types match the mangled names of types that use them.
+>> 
+>> Sorry.  I meant it matches except for the _ZTI prefix:
+>> _ZTIl == type info of long
+>> 
+>>>> Why not follow the same path?
+>>>>   if (catch_type == typeid(std::nullptr_t))
+>> 
+>>> I suppose this would also work, and would indeed save us a few words of 
+>>> space in the runtime library.
+>> Jason
+>> 
+>> It also saves typing in that new class in the header file.  :-)
+>> But it saves a vtable and type_info for that class.
+>> 
+>> We have a demamgler library using lots of virtual functions and it has
+>> over 19 Kb of C++ metadata.  Where adding a simple tag (with lots of switches)
+>> would save lots of data space.
+>> 
+>> With the typeid(std::nullptr_t) new case, you probably only need to check
+>> in a few places.
+> 
+> 
+
+
+From dhandly at cup.hp.com  Tue Mar 23 02:00:26 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 22 Mar 2010 19:00:26 -0700 (PDT)
+Subject: [cxx-abi-dev] A mangling for std::nullptr_t
+Message-ID: <201003230200.TAA27091@hpcll183.cup.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>I apparently didn't attach the diffs after all.
+
+Some typos.
+
+--Apple-Mail-6--1059551338
+Content-Disposition: attachment; filename=nullptr.diffs
+>! for every X in: void, std::nulptr_t,
+Typo                     ^^^^^^^^^^^^^
+Is this a typo or a correction??
+
+>+ Each of the type_info objects for X shall have type
+>+ <code>abi::__fundamental_type_info</code> (or a type derived therefrom),
+
+Do you see any cases where it would be derived and you are just being
+flexible?
+
+>+ whereas the objects corresponding to X* and X const* hal have type
+typo?? (hal?"                                           ^^^
+
+

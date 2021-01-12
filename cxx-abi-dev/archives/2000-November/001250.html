@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> RTTI portability
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20portability&In-Reply-To=%3C200011040428.UAA46648%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>RTTI portability</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20portability&In-Reply-To=%3C200011040428.UAA46648%40baalbek.engr.sgi.com%3E"
+       TITLE="RTTI portability">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Sat Nov  4 04:28:40 UTC 2000</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001256.html">RTTI portability
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1250">[ date ]</a>
+              <a href="thread.html#1250">[ thread ]</a>
+              <a href="subject.html#1250">[ subject ]</a>
+              <a href="author.html#1250">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A> Tue Oct 17 01:31:43 2000
+</I>&gt;<i> 
+</I>&gt;<i> Jim Dehnert wrote:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; That solution implies a statement that the non-Standard-defined parts
+</I>&gt;<i> &gt; of the hierarchy are not available to users.  Fine with me, but someone
+</I>&gt;<i> &gt; wanted to make the field names in the hierarchy normative, which has no
+</I>&gt;<i> &gt; point unless they expected them to be used outside the target runtime.
+</I>&gt;<i> &gt; In the absence of allowing user access, you're right -- there's no
+</I>&gt;<i> &gt; problem.
+</I>&gt;<i> 
+</I>&gt;<i> Yup, though I'd been assuming that allowing user access, was just allowing
+</I>&gt;<i> read access to those fields, or the creation of objects of types within
+</I>&gt;<i> the abi heirarchy. Allowing that would not create a problem.
+</I>&gt;<i> 
+</I>&gt;<i> Whether we permit users to derive from those types is a different question,
+</I>&gt;<i> and would create difficulty with the current spec. Do we really want to do
+</I>&gt;<i> that too?
+</I>&gt;<i> 
+</I>&gt;<i> We could allow read access to compiler generated type_info objects, and
+</I>&gt;<i> prevent user creation/derivation of those types by making the dtors
+</I>&gt;<i> private in the most derived types, and protected in the intermediate ones.
+</I>
+Someone's confused here (it might be me).  The problem with user access
+arises if (and only if, I believe) the user (a) makes the reference
+using a header file for the type_info structures that is not an
+accurate description of the runtime library actually present on the
+target system when his program runs, and (b) the fields referenced are
+in different places in the two versions.  This can happen with either
+data member references (if data members have been added or deleted), or
+with virtual function references (if virtual functions have been
+changed, or other vtable layout changes have occurred).  Users deriving
+types may be more likely to have problems since their new members will
+go at the end of the structures, but any reference is subject to a
+potential problem if the vendors rearrange the structure by adding
+members.
+
+The key observation is that user references generally start with a
+fixed offset based on the compiler's view of the class declarations in
+the header file, not on the actual runtime structure used by the
+library.
+
+In fact, since the user creates RTTI structures for user types, this
+may be an issue even if there are no explicit references to the members
+in the user source, if any data members change.
+
+So it seems to me that we must at least require that the data members
+not change between implementations, which allows their names to be
+normative if we like.  We need not make any requirements about virtual
+functions, unless we allow users to call them, or to derive from the
+classes.  Does anyone think we should not forbid this?
+
+Am I confused?  I know the above discussion didn't arrive at quite the
+place I expected when I started...
+
+&gt;<i> &gt; It is a traditional part of the SysV ABI that libc is _always_ a DSO.
+</I>&gt;<i> &gt; I presume that we're extending that assumption to libcxa, though I
+</I>&gt;<i> &gt; guess we'd better say so.
+</I>&gt;<i>
+</I>&gt;<i> Yes, I think we'd better ...
+</I>
+Upon looking, we already say so (in 1.4.1).
+
+
+
+&gt;<i> From <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A> Tue Oct 17 04:40:48 2000
+</I>&gt;<i> From: Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt; How does this help? Given Martin's -Bsymbolic example we'd just get
+</I>&gt;<i> &gt; different versions of __cxa_aux_type_info in FOO and the runtime. The
+</I>&gt;<i> &gt; same problem would still be manifest.
+</I>&gt;<i> 
+</I>&gt;<i> Indeed. I see no advantage of adding an implementation defined field
+</I>&gt;<i> over allowing implementation-defined virtual functions.
+</I>
+The advantage is that it allows the implementation some flexibility
+with absolutely no modification of the RTTI class or its virtual table.
+Perhaps it's not an important advantage...
+
+
+&gt;<i> From: Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt; &gt; A) a user program derives from abi::pointer_type_info and then attempts
+</I>&gt;<i> &gt; &gt; to use objects of that class within the type_info system?
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; B) parts of the program other than those in libcxa.so attempt to use
+</I>&gt;<i> &gt; &gt; the implentation defined entry points?
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; I am concerned about both.
+</I>&gt;<i> 
+</I>&gt;<i> Why is that a concern? If a user inherits from abi::pointer_type_info,
+</I>&gt;<i> what undesirable effects could come out of that?
+</I>
+If the definition doesn't match what's in the library at runtime, and
+he creates a vtable that isn't correct that ends up being referenced by
+the runtime library, he won't be a happy camper.
+
+&gt;<i> I was more concerned about having the compiler-provided code in a
+</I>&gt;<i> static library which then gets integrated into somebody's shared
+</I>&gt;<i> library (as gcc's libgcc.a gets integrated into every shared library,
+</I>&gt;<i> likewise libCrun.a and libCstd.a of Sun CC).
+</I>
+As noted above, the vendor libcxa.so is required to be a DSO.  If you
+integrate a non-shared library into your program, there are no
+portability guarantees.
+
+&gt;<i> &gt; That solution implies a statement that the non-Standard-defined parts
+</I>&gt;<i> &gt; of the hierarchy are not available to users.  Fine with me, but someone
+</I>&gt;<i> &gt; wanted to make the field names in the hierarchy normative, which has no
+</I>&gt;<i> &gt; point unless they expected them to be used outside the target
+</I>&gt;<i> &gt; runtime.
+</I>&gt;<i> 
+</I>&gt;<i> Used in the sense of being accessed - yes, why not? However, I would
+</I>&gt;<i> not expect users ever to create typeinfo objects.
+</I>
+They will certainly create typeinfo objects, for their user-defined
+classes.
+
+&gt;<i> &gt; I personally believe that anyone who links the system libraries into
+</I>&gt;<i> &gt; their program is tying his program to a particular implementation, and
+</I>&gt;<i> &gt; had better use only pieces from that implementation (if it's supported
+</I>&gt;<i> &gt; at all, which I wouldn't, and SGI traditionally hasn't).  So, ... no
+</I>&gt;<i> &gt; problem.
+</I>&gt;<i> 
+</I>&gt;<i> The problem is that there is a difference between system libraries and
+</I>&gt;<i> the C++ runtime library - those typically come with the C++ compiler,
+</I>&gt;<i> not (necessarily) with the system.
+</I>
+Yes, I suppose this is ambiguous.  View the &quot;system&quot; as the runtime C++
+system, including the target processor support and the C++ support
+being used on top of it.  The latter will most often come from the
+system vendor, but might not, e.g. g++.
+
+
+So, after all the above, I suggest the following actions:
+
+- Remove the statement that data member names are not normative.
+
+- Add a statement that the data members must be exactly as specified.
+
+- Leave the statement that the user may not reference the virtual
+  functions.  (Since the destructor is virtual, does this effectively
+  forbit deriving from the classes?)
+
+Does this create problems for anyone?
+
+Jim
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001256.html">RTTI portability
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1250">[ date ]</a>
+              <a href="thread.html#1250">[ thread ]</a>
+              <a href="subject.html#1250">[ subject ]</a>
+              <a href="author.html#1250">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

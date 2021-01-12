@@ -1,0 +1,113 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Unwind API for EH
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20API%20for%20EH&In-Reply-To=%3C200009011623.JAA25472%40adlmail.cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001179.html">
+   <LINK REL="Next"  HREF="001183.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Unwind API for EH</H1>
+    <B>Cary Coutant</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20API%20for%20EH&In-Reply-To=%3C200009011623.JAA25472%40adlmail.cup.hp.com%3E"
+       TITLE="Unwind API for EH">cary at cup.hp.com
+       </A><BR>
+    <I>Fri Sep  1 16:20:28 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001179.html">RTTI data member names, NTBS COMDAT
+</A></li>
+        <LI>Next message: <A HREF="001183.html">COMDAT
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1182">[ date ]</a>
+              <a href="thread.html#1182">[ thread ]</a>
+              <a href="subject.html#1182">[ subject ]</a>
+              <a href="author.html#1182">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>I don't really like this, either.  The problem here is now the unwinder is 
+</I>&gt;<i> given the power to choose how to set up the processor for the landing 
+</I>&gt;<i>pad.  I'd  rather that this be in the control of the language vendor, 
+</I>&gt;<i>since we're making a  transfer of control to their code, under very 
+</I>&gt;<i>special circumstances - they know about their  unwind data structures, and 
+</I>&gt;<i>the unwinder doesn't.  So the implementation should be  free to choose 
+</I>&gt;<i>specifics about the processor here that make for the best transfer of  
+</I>&gt;<i>control they can manage.
+</I>
+Yes, I agree, and this was the original idea behind using the more 
+generic interface. The problem with that, however, was that we ended up 
+asking the unwind API to provide the capability to set four scratch 
+registers that it otherwise would never have had anything to do with -- 
+the unwind library does not normally need to track scratch registers, and 
+it would be wasteful to require it to provide space in the unwind context 
+record for all scratch registers. Thus, the restriction was born that the 
+API worked only for these four registers. Now, we're back to what we were 
+trying to avoid in the first place -- the unwind library now has to know 
+the details of the landing pad interface, so that it knows what registers 
+to support. Now, the contract is among three parties instead of two. I 
+argue that it's better to architect those registers at this level, and 
+abstract the interface between the personality routine and the unwind 
+library.
+
+At the risk of drawing this discussion on longer than it deserves, let me 
+float an alternative, that lets the contract remain between the 
+personality routine and the landing pad (i.e., compiler). The personality 
+routine, when it returns with _URC_INSTALL_CONTEXT, needs to be able to 
+specify a full context -- e.g., an mcontext_t -- not just an unwind 
+context, which contains only the preserved register state. We could 
+provide an additional by-reference parameter to the personality routine 
+interface that allows this. The personality routine could then allocate 
+an mcontext_t, initialize it with the unwind context (presumably with a 
+new API), modify that mcontext_t as desired (presumably with another new 
+API), and return the pointer to it.
+
+A simplification of the above mechanism might be to allow the personality 
+routine to return a list of pairs -- register number and value -- that 
+need to be installed along with the unwind context.
+
+Either of these proposals let us keep unneeded state information out of 
+the unwind context record. (And size *does* matter, which is what led me 
+to bring this up in the first place.)
+
+I still prefer my original suggestion, however. It's the simplest, and 
+it's a small change. It keeps the number of parties involved in the 
+contract down to two, even though it may not be the ideal two. And I 
+don't think the advantage of leaving the landing pad parameter passing 
+convention unarchitected is that great. 
+
+-cary
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001179.html">RTTI data member names, NTBS COMDAT
+</A></li>
+	<LI>Next message: <A HREF="001183.html">COMDAT
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1182">[ date ]</a>
+              <a href="thread.html#1182">[ thread ]</a>
+              <a href="subject.html#1182">[ subject ]</a>
+              <a href="author.html#1182">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,821 @@
+From rjmccall at apple.com  Sat May  2 07:52:48 2015
+From: rjmccall at apple.com (John McCall)
+Date: Sat, 2 May 2015 00:52:48 -0700
+Subject: [cxx-abi-dev] Seeking clarification about mangling nested
+	template specializations
+In-Reply-To: <DD87E6ED-F24C-4349-843B-A643D4E111EA@edg.com>
+References: <0C7913DC-086B-41B3-9958-E782586146F9@apple.com>
+	<DD87E6ED-F24C-4349-843B-A643D4E111EA@edg.com>
+Message-ID: <82A878C9-5AB0-46FE-9CC0-66771D12AF8D@apple.com>
+
+> On Apr 27, 2015, at 4:57 AM, Mike Herrick <mjh at edg.com> wrote:
+>> On Apr 26, 2015, at 4:07 AM, John McCall <rjmccall at apple.com> wrote:
+>> 
+>> Here?s a concrete example using a member class template:
+>> 
+>> struct A {
+>> template <unsigned I> class B {};
+>> };
+>> template <class T> void bar(T t, A::B<0> x = {}, A::B<1> y = {}) {}
+>> int main() { bar(0); }
+>> 
+>> A compiler which always mangles member templates as nested-names
+>> will mangle this as:
+>> _Z3barIiEvT_N1A1BILj0EEENS2_ILj1EEE
+>> 
+>> A compiler which uses the unscoped mangling when a substitution
+>> already exists will mangle this as:
+>> _Z3barIiEvT_N1A1BILj0EEES2_ILj1EE
+>> 
+>> Unless somebody finds a compiler that actually does the latter, I think
+>> this is just a specification bug and we?ve always meant the former.
+>> I?m in the middle of rewriting the prose in this section anyway; if nobody
+>> objects in the next week or so, I?ll just fix this while I?m there.
+> 
+> EDG gets the same mangling for this example; thanks for fixing the wording.
+
+Okay, we seem to have consensus on this, thanks.  I?ve committed the
+rewrite, together with a resolution to an ambiguity in <prefix> that Richard
+suggested quite some time ago.
+
+John.
+
+From marc.glisse at inria.fr  Sat May  2 08:28:59 2015
+From: marc.glisse at inria.fr (Marc Glisse)
+Date: Sat, 2 May 2015 10:28:59 +0200
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+In-Reply-To: <CAMBqOsjb+-CK93myaXg--2x=stYuJvaceXd=DGZpeM4dcfXGDg@mail.gmail.com>
+References: <201504240251.t3O2pdO04574@adlwrk06.cce.hp.com>
+	<CAGL0aWc=64_-8wCK17cu_n3qG5qY6EXttr=VPAKbiaY78Rb2RQ@mail.gmail.com>
+	<CAMBqOsjb+-CK93myaXg--2x=stYuJvaceXd=DGZpeM4dcfXGDg@mail.gmail.com>
+Message-ID: <alpine.DEB.2.11.1505020959110.1874@laptop-mg.saclay.inria.fr>
+
+On Wed, 29 Apr 2015, Marshall Clow wrote:
+
+> nullptr_t may not be a pointer type, but everyone thinks of it as one.
+
+Please don't over-generalize. Some people (an undefined, non-empty set), 
+see it as an empty, placeholder type. It is useful as syntactic sugar, but 
+any space it uses at runtime is wasted. Filling it with 0 (as at least 
+clang and gcc do) is also a waste of time. (then again, gcc doesn't handle 
+empty types any better, but at least clang does)
+
+> I would go with the "principle of least astonishment" here, and say that it
+> should be aligned like a pointer.
+> (Especially since sizeof(nullptr_t) == sizeof(void *))
+
+Sure, once sizeof is based on void*, alignof should be too for 
+consistency, and we might as well write a 0 in there for binary 
+compatibility with a function taking a void*...
+
+-- 
+Marc Glisse
+
+From jason at redhat.com  Tue May  5 22:00:23 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 5 May 2015 17:00:23 -0500
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+Message-ID: <55493D77.7090501@redhat.com>
+
+ia32 targets support a variety of calling conventions, which correspond 
+to various attributes (cdecl, stdcall, regparm, etc.).  Currently these 
+are not represented in mangling, which leads to problems with template 
+instantiation; I'm thinking about starting to treat them as vendor 
+qualifiers, so given
+
+extern "C" void abort();
+template <typename F, typename T>
+void IndirectExternCall(F f, T t1, T t2) {
+   typedef F (*WrapF)(F);
+   f (t1, t2);
+}
+
+__attribute__((regparm(3), stdcall))
+void regparm_func (int i, int j)
+{
+   if (i != 24 || j != 42)
+     abort();
+}
+
+void normal_func (int i, int j)
+{
+   if (i != 24 || j != 42)
+     abort();
+}
+
+int main()
+{
+   IndirectExternCall (regparm_func, 24, 42);
+   IndirectExternCall (normal_func, 24, 42);
+}
+
+the two instantiations of IndirectExternCall would be mangled 
+differently.  Currently my prototype mangles stdcall as U7stdcall and 
+regparm(3) as U11regparmLi3E, i.e. mangling the attribute argument like 
+a template argument.
+
+Any thoughts?
+
+Jason
+
+From jason at redhat.com  Tue May  5 22:02:27 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 5 May 2015 17:02:27 -0500
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55493D77.7090501@redhat.com>
+References: <55493D77.7090501@redhat.com>
+Message-ID: <55493DF3.9020403@redhat.com>
+
+On 05/05/2015 05:00 PM, Jason Merrill wrote:
+> ia32 targets support a variety of calling conventions, which correspond
+> to various attributes (cdecl, stdcall, regparm, etc.).  Currently these
+> are not represented in mangling, which leads to problems with template
+> instantiation; I'm thinking about starting to treat them as vendor
+> qualifiers, so given
+>
+> extern "C" void abort();
+> template <typename F, typename T>
+> void IndirectExternCall(F f, T t1, T t2) {
+>    typedef F (*WrapF)(F);
+>    f (t1, t2);
+> }
+>
+> __attribute__((regparm(3), stdcall))
+> void regparm_func (int i, int j)
+> {
+>    if (i != 24 || j != 42)
+>      abort();
+> }
+>
+> void normal_func (int i, int j)
+> {
+>    if (i != 24 || j != 42)
+>      abort();
+> }
+>
+> int main()
+> {
+>    IndirectExternCall (regparm_func, 24, 42);
+>    IndirectExternCall (normal_func, 24, 42);
+> }
+>
+> the two instantiations of IndirectExternCall would be mangled
+> differently.  Currently my prototype mangles stdcall as U7stdcall and
+> regparm(3) as U11regparmLi3E, i.e. mangling the attribute argument like
+> a template argument.
+
+So the first instantiation is
+
+_Z18IndirectExternCallIPU7stdcallU11regparmLi3EFviiEiEvT_T0_S3_
+
+Jason
+
+
+From rjmccall at apple.com  Tue May  5 22:31:01 2015
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 5 May 2015 15:31:01 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55493DF3.9020403@redhat.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+Message-ID: <5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+
+> On May 5, 2015, at 3:02 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 05/05/2015 05:00 PM, Jason Merrill wrote:
+>> ia32 targets support a variety of calling conventions, which correspond
+>> to various attributes (cdecl, stdcall, regparm, etc.).  Currently these
+>> are not represented in mangling, which leads to problems with template
+>> instantiation; I'm thinking about starting to treat them as vendor
+>> qualifiers, so given
+>> 
+>> extern "C" void abort();
+>> template <typename F, typename T>
+>> void IndirectExternCall(F f, T t1, T t2) {
+>>   typedef F (*WrapF)(F);
+>>   f (t1, t2);
+>> }
+>> 
+>> __attribute__((regparm(3), stdcall))
+>> void regparm_func (int i, int j)
+>> {
+>>   if (i != 24 || j != 42)
+>>     abort();
+>> }
+>> 
+>> void normal_func (int i, int j)
+>> {
+>>   if (i != 24 || j != 42)
+>>     abort();
+>> }
+>> 
+>> int main()
+>> {
+>>   IndirectExternCall (regparm_func, 24, 42);
+>>   IndirectExternCall (normal_func, 24, 42);
+>> }
+>> 
+>> the two instantiations of IndirectExternCall would be mangled
+>> differently.  Currently my prototype mangles stdcall as U7stdcall and
+>> regparm(3) as U11regparmLi3E, i.e. mangling the attribute argument like
+>> a template argument.
+> 
+> So the first instantiation is
+> 
+> _Z18IndirectExternCallIPU7stdcallU11regparmLi3EFviiEiEvT_T0_S3_
+
+Okay.  So, basically a qualifier on the function type itself?  Seems reasonable to me.
+
+These qualifiers aren?t order-sensitive, so we need to specify the order; alphabetical order is the most obvious, which I think would make this mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+
+For member pointer types, this would become part of the member type.  That?s also where we put ref-qualifiers and CV-qualifiers, so we need to specify an order; I suggest putting these attributes after the CV/ref qualifiers.
+
+Should we mangle these as part of an entity?s type?  It?s not possible to directly overload using the CC of a function itself, so it?s not strictly necessary.  There?s a general issue with overloading function templates by the types of non-type template parameters, but I don?t think it affects us in this specific case because the argument itself resolves the ambiguity.
+
+John.
+
+From richardsmith at googlers.com  Tue May  5 23:40:13 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Tue, 5 May 2015 16:40:13 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55493D77.7090501@redhat.com>
+References: <55493D77.7090501@redhat.com>
+Message-ID: <CAGL0aWcYZHeprDSJvhpihpgMH93oyu5z1rXrKt6COqAqWWtq6A@mail.gmail.com>
+
+On 5 May 2015 at 15:00, Jason Merrill <jason at redhat.com> wrote:
+
+> ia32 targets support a variety of calling conventions, which correspond to
+> various attributes (cdecl, stdcall, regparm, etc.).  Currently these are
+> not represented in mangling, which leads to problems with template
+> instantiation; I'm thinking about starting to treat them as vendor
+> qualifiers, so given
+>
+> extern "C" void abort();
+> template <typename F, typename T>
+> void IndirectExternCall(F f, T t1, T t2) {
+>   typedef F (*WrapF)(F);
+>   f (t1, t2);
+> }
+>
+> __attribute__((regparm(3), stdcall))
+> void regparm_func (int i, int j)
+> {
+>   if (i != 24 || j != 42)
+>     abort();
+> }
+>
+> void normal_func (int i, int j)
+> {
+>   if (i != 24 || j != 42)
+>     abort();
+> }
+>
+> int main()
+> {
+>   IndirectExternCall (regparm_func, 24, 42);
+>   IndirectExternCall (normal_func, 24, 42);
+> }
+>
+> the two instantiations of IndirectExternCall would be mangled
+> differently.  Currently my prototype mangles stdcall as U7stdcall and
+> regparm(3) as U11regparmLi3E, i.e. mangling the attribute argument like a
+> template argument.
+>
+
+It seems a little weird to nest a mangling within a source-name like that.
+We had some previous discussion of arguments for vendor extensions here:
+
+http://sourcerytools.com/pipermail/cxx-abi-dev/2014-January/002660.html
+
+It looks like we ended up mangling
+
+  void f(bool b) __attribute__((enable_if(b, "foo"))) {}
+
+as
+
+  _Z1fUa9enable_ifIXfL0p_EEb
+
+... where Ua means roughly "vendor attribute", and is followed by
+<source-name> <template-args>. With that approach, those attributes would
+mangle as Ua7regparmIXLi3EE and Ua7stdcallIE
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150505/89fbe6d1/attachment.html>
+
+From jason at redhat.com  Wed May  6 01:17:35 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 5 May 2015 20:17:35 -0500
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+Message-ID: <55496BAF.1000600@redhat.com>
+
+On 05/05/2015 05:31 PM, John McCall wrote:
+> These qualifiers aren?t order-sensitive, so we need to specify the order; alphabetical order is the most obvious, which I think would make this mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+
+> For member pointer types, this would become part of the member type.  That?s also where we put ref-qualifiers and CV-qualifiers, so we need to specify an order; I suggest putting these attributes after the CV/ref qualifiers.
+
+I was working from the passage in the ABI that says, "In cases where 
+multiple order-insensitive qualifiers are present, they should be 
+ordered 'K' (closest to the base type), 'V', 'r', and 'U' (farthest from 
+the base type), with the 'U' qualifiers in alphabetical order by the 
+vendor name (with alphabetically earlier names closer to the base type)."
+
+So I think reverse alphabetical order before the CV-qualifiers is what 
+we want.
+
+> Should we mangle these as part of an entity?s type?  It?s not possible to directly overload using the CC of a function itself, so it?s not strictly necessary.  There?s a general issue with overloading function templates by the types of non-type template parameters, but I don?t think it affects us in this specific case because the argument itself resolves the ambiguity.
+
+Microsoft mangles functions differently based on the calling convention, 
+but I agree that it doesn't seem to be necessary.
+
+On 05/05/2015 06:40 PM, Richard Smith wrote:
+> It seems a little weird to nest a mangling within a source-name like that.
+
+Fair enough, I was experimenting with something that wouldn't require 
+any changes to the ABI or demanglers.
+
+> We had some previous discussion of arguments for vendor extensions here:
+>
+> http://sourcerytools.com/pipermail/cxx-abi-dev/2014-January/002660.html
+
+Thanks for the reminder.
+
+> It looks like we ended up mangling
+>
+>   void f(bool b) __attribute__((enable_if(b, "foo"))) {}
+>
+> as
+>
+>   _Z1fUa9enable_ifIXfL0p_EEb
+>
+> ... where Ua means roughly "vendor attribute", and is followed by
+> <source-name> <template-args>. With that approach, those attributes would
+> mangle as Ua7regparmIXLi3EE and Ua7stdcallIE
+
+What I see in that thread is "U", not "Ua".  And indeed, that seems 
+unambiguous; no type can begin with 'I'.  So, changing
+  ::= U <source-name> <type>	# vendor extended type qualifier
+to
+  ::= U <source-name> <type> [ <template-args> ]
+
+Also, I think the 3 should use the expr-primary mangling, and it doesn't 
+seem necessary to attach the "IE" to stdcall.  So,
+
+U7regparmILi3EE
+U7stdcall
+
+Make sense?
+
+Jason
+
+
+From rjmccall at apple.com  Wed May  6 01:22:31 2015
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 5 May 2015 18:22:31 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55496BAF.1000600@redhat.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+Message-ID: <C5552BF6-C5BF-4525-83FF-466794F5B2A8@apple.com>
+
+> On May 5, 2015, at 6:17 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 05/05/2015 05:31 PM, John McCall wrote:
+>> These qualifiers aren?t order-sensitive, so we need to specify the order; alphabetical order is the most obvious, which I think would make this mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+> 
+>> For member pointer types, this would become part of the member type.  That?s also where we put ref-qualifiers and CV-qualifiers, so we need to specify an order; I suggest putting these attributes after the CV/ref qualifiers.
+> 
+> I was working from the passage in the ABI that says, "In cases where multiple order-insensitive qualifiers are present, they should be ordered 'K' (closest to the base type), 'V', 'r', and 'U' (farthest from the base type), with the 'U' qualifiers in alphabetical order by the vendor name (with alphabetically earlier names closer to the base type)."
+> 
+> So I think reverse alphabetical order before the CV-qualifiers is what we want.
+
+Oh, yes, I?d forgotten we?d specified it that way, makes sense.
+
+John.
+
+From richardsmith at googlers.com  Wed May  6 13:49:58 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Wed, 6 May 2015 06:49:58 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55496BAF.1000600@redhat.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+Message-ID: <CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+
+On 5 May 2015 at 18:17, Jason Merrill <jason at redhat.com> wrote:
+
+> On 05/05/2015 05:31 PM, John McCall wrote:
+>
+>> These qualifiers aren?t order-sensitive, so we need to specify the order;
+>> alphabetical order is the most obvious, which I think would make this
+>> mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+>>
+>
+>  For member pointer types, this would become part of the member type.
+>> That?s also where we put ref-qualifiers and CV-qualifiers, so we need to
+>> specify an order; I suggest putting these attributes after the CV/ref
+>> qualifiers.
+>>
+>
+> I was working from the passage in the ABI that says, "In cases where
+> multiple order-insensitive qualifiers are present, they should be ordered
+> 'K' (closest to the base type), 'V', 'r', and 'U' (farthest from the base
+> type), with the 'U' qualifiers in alphabetical order by the vendor name
+> (with alphabetically earlier names closer to the base type)."
+>
+> So I think reverse alphabetical order before the CV-qualifiers is what we
+> want.
+>
+>  Should we mangle these as part of an entity?s type?  It?s not possible to
+>> directly overload using the CC of a function itself, so it?s not strictly
+>> necessary.  There?s a general issue with overloading function templates by
+>> the types of non-type template parameters, but I don?t think it affects us
+>> in this specific case because the argument itself resolves the ambiguity.
+>>
+>
+> Microsoft mangles functions differently based on the calling convention,
+> but I agree that it doesn't seem to be necessary.
+>
+> On 05/05/2015 06:40 PM, Richard Smith wrote:
+>
+>> It seems a little weird to nest a mangling within a source-name like that.
+>>
+>
+> Fair enough, I was experimenting with something that wouldn't require any
+> changes to the ABI or demanglers.
+>
+>  We had some previous discussion of arguments for vendor extensions here:
+>>
+>> http://sourcerytools.com/pipermail/cxx-abi-dev/2014-January/002660.html
+>>
+>
+> Thanks for the reminder.
+>
+>  It looks like we ended up mangling
+>>
+>>   void f(bool b) __attribute__((enable_if(b, "foo"))) {}
+>>
+>> as
+>>
+>>   _Z1fUa9enable_ifIXfL0p_EEb
+>>
+>> ... where Ua means roughly "vendor attribute", and is followed by
+>> <source-name> <template-args>. With that approach, those attributes would
+>> mangle as Ua7regparmIXLi3EE and Ua7stdcallIE
+>>
+>
+> What I see in that thread is "U", not "Ua".  And indeed, that seems
+> unambiguous; no type can begin with 'I'.
+
+
+The reason we chose Ua rather than U was that the ABI suggests that U4blah
+should demangle as 'blah', whereas we want something that demanglers know
+should become '__attribute__((blah))'. I have no particular strong feelings
+here.
+
+
+> So, changing
+>  ::= U <source-name> <type>     # vendor extended type qualifier
+> to
+>  ::= U <source-name> <type> [ <template-args> ]
+>
+> Also, I think the 3 should use the expr-primary mangling, and it doesn't
+> seem necessary to attach the "IE" to stdcall.  So,
+>
+> U7regparmILi3EE
+> U7stdcall
+>
+> Make sense?
+>
+> Jason
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150506/f3c0e11f/attachment.html>
+
+From daveed at edg.com  Wed May  6 14:33:35 2015
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 6 May 2015 10:33:35 -0400
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+	<CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+Message-ID: <6F57C4AA-BC7A-4953-997A-6042946514B4@edg.com>
+
+
+> On May 6, 2015, at 9:49 AM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 5 May 2015 at 18:17, Jason Merrill <jason at redhat.com <mailto:jason at redhat.com>> wrote:
+> On 05/05/2015 05:31 PM, John McCall wrote:
+> These qualifiers aren?t order-sensitive, so we need to specify the order; alphabetical order is the most obvious, which I think would make this mangling U11regparmLi3EU7stdcallFviiE rather than the other way around.
+> 
+> For member pointer types, this would become part of the member type.  That?s also where we put ref-qualifiers and CV-qualifiers, so we need to specify an order; I suggest putting these attributes after the CV/ref qualifiers.
+> 
+> I was working from the passage in the ABI that says, "In cases where multiple order-insensitive qualifiers are present, they should be ordered 'K' (closest to the base type), 'V', 'r', and 'U' (farthest from the base type), with the 'U' qualifiers in alphabetical order by the vendor name (with alphabetically earlier names closer to the base type)."
+> 
+> So I think reverse alphabetical order before the CV-qualifiers is what we want.
+> 
+> Should we mangle these as part of an entity?s type?  It?s not possible to directly overload using the CC of a function itself, so it?s not strictly necessary.  There?s a general issue with overloading function templates by the types of non-type template parameters, but I don?t think it affects us in this specific case because the argument itself resolves the ambiguity.
+> 
+> Microsoft mangles functions differently based on the calling convention, but I agree that it doesn't seem to be necessary.
+> 
+> On 05/05/2015 06:40 PM, Richard Smith wrote:
+> It seems a little weird to nest a mangling within a source-name like that.
+> 
+> Fair enough, I was experimenting with something that wouldn't require any changes to the ABI or demanglers.
+> 
+> We had some previous discussion of arguments for vendor extensions here:
+> 
+> http://sourcerytools.com/pipermail/cxx-abi-dev/2014-January/002660.html <http://sourcerytools.com/pipermail/cxx-abi-dev/2014-January/002660.html>
+> 
+> Thanks for the reminder.
+> 
+> It looks like we ended up mangling
+> 
+>   void f(bool b) __attribute__((enable_if(b, "foo"))) {}
+> 
+> as
+> 
+>   _Z1fUa9enable_ifIXfL0p_EEb
+> 
+> ... where Ua means roughly "vendor attribute", and is followed by
+> <source-name> <template-args>. With that approach, those attributes would
+> mangle as Ua7regparmIXLi3EE and Ua7stdcallIE
+> 
+> What I see in that thread is "U", not "Ua".  And indeed, that seems unambiguous; no type can begin with 'I'.
+> 
+> The reason we chose Ua rather than U was that the ABI suggests that U4blah should demangle as 'blah', whereas we want something that demanglers know should become '__attribute__((blah))'. I have no particular strong feelings here.
+
+I think that?s a worthwhile addition to the mangling vocabulary.
+
+	Daveed
+
+
+>  
+> So, changing
+>  ::= U <source-name> <type>     # vendor extended type qualifier
+> to
+>  ::= U <source-name> <type> [ <template-args> ]
+> 
+> Also, I think the 3 should use the expr-primary mangling, and it doesn't seem necessary to attach the "IE" to stdcall.  So,
+> 
+> U7regparmILi3EE
+> U7stdcall
+> 
+> Make sense?
+> 
+> Jason
+> 
+> 
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com <mailto:cxx-abi-dev at codesourcery.com>
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev <http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev>
+> 
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com <mailto:cxx-abi-dev at codesourcery.com>
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev <http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150506/769483cb/attachment-0001.html>
+
+From jason at redhat.com  Wed May  6 14:57:00 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 6 May 2015 09:57:00 -0500
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+References: <55493D77.7090501@redhat.com>	<55493DF3.9020403@redhat.com>	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>	<55496BAF.1000600@redhat.com>
+	<CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+Message-ID: <554A2BBC.4000508@redhat.com>
+
+On 05/06/2015 08:49 AM, Richard Smith wrote:
+> The reason we chose Ua rather than U was that the ABI suggests that U4blah
+> should demangle as 'blah', whereas we want something that demanglers know
+> should become '__attribute__((blah))'. I have no particular strong feelings
+> here.
+
+Hmm, I don't think this is a useful distinction; what matters is the 
+calling convention, not whether it was written with a GNU __attribute, a 
+C++11 [[attribute]], a decl-specifier, or whatever.
+
+Jason
+
+
+From richardsmith at google.com  Wed May 13 00:29:13 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 12 May 2015 17:29:13 -0700
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+
+Another item for the Itanium C++ ABI version 2 list:
+
+The ABI currently specifies that the initial guard variable load is an
+acquire load (3.3.2, "An implementation supporting thread-safety on
+multiprocessor systems must also guarantee that references to the
+initialized object do not occur before the load of the initialization flag.
+On Itanium, this can be done by using a ld1.acq operation to load the
+flag.").
+
+This is inefficient on systems where an acquire load requires a fence.
+Using an algorithm due to Mike Burrows (described in the appendix of
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm) the same
+interface can be implemented starting with a relaxed load, where the
+acquire operation is performed only the first time each thread hits the
+initialization.
+
+On 19 November 2013 at 17:57, Richard Smith <richardsmith at google.com> wrote:
+
+> Hi,
+>
+> There are a few things in the current ABI which are known to be
+> suboptimal, but we cannot change because doing so would introduce an ABI
+> break. However, vendors sometimes get an opportunity to break their ABI (or
+> are defining a new ABI), and for some vendors, this is a very common
+> occurrence. To this end, I think it would be valuable for the ABI document
+> to describe what we might want to put in a 'Version 2' of the ABI; that is,
+> a set of changes that we recommend be made whenever a vendor has a chance
+> to introduce an ABI break.
+>
+> (Or perhaps this should be viewed from the opposite perspective: we could
+> make improvements to the ABI, with an annex listing changes that old
+> platforms must make for compatibility.)
+>
+> Would there be support for this idea?
+>
+>
+> In off-line discussion with John McCall, we came up with the following
+> list of potential changes that might be made (sorry if I forgot any):
+>
+>  * Make constructors and destructors return 'this' instead of returning
+> 'void', in order to allow callers to avoid a reload in common cases and to
+> allow more tail calls.
+>  * Simplify case 2b in non-POD class layout.
+>  * Make virtual functions that are defined as 'inline' not be key functions
+>  * Fix the bug that -1 is both the null pointer-to-data-member value and
+> also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+>  * Relax the definition of POD used in the ABI, in order to allow more
+> class types to be passed in registers
+>
+> Are there any other things that it would make sense to change in a version
+> 2 of the ABI?
+>
+>
+> Also, would there be any support for documenting common deviations from
+> the ABI that platform vendors might want to consider when specifying their
+> own ABIs? In addition to some of the above, this would also include:
+>
+>  * Representation of pointers-to-member-functions (in particular, the
+> current representation assumes that the lowest bit of a function pointer is
+> unused, which isn't true in general)
+>  * Representation of guard variables (some platforms use the native word
+> size rather than forcing this to be 64 bits wide)
+>
+> Are there any others?
+>
+>
+> Thanks!
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150512/9bf70887/attachment.html>
+
+From jason at redhat.com  Mon May 18 19:54:06 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 18 May 2015 15:54:06 -0400
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <55496BAF.1000600@redhat.com>
+References: <55493D77.7090501@redhat.com>
+	<55493DF3.9020403@redhat.com>	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+Message-ID: <555A435E.6090402@redhat.com>
+
+On 05/05/2015 09:17 PM, Jason Merrill wrote:
+>   ::= U <source-name> <type> [ <template-args> ]
+
+Or, rather,
+
+     ::= U <source-name> [<template-args>] <type>
+
+I've submitted a pull request for this change.
+
+Jason
+
+
+From rjmccall at apple.com  Mon May 18 20:50:48 2015
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 18 May 2015 13:50:48 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <555A435E.6090402@redhat.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com> <555A435E.6090402@redhat.com>
+Message-ID: <198767B3-5403-4D77-A9E7-13670AF50561@apple.com>
+
+
+> On May 18, 2015, at 12:54 PM, Jason Merrill <jason at redhat.com> wrote:
+> 
+> On 05/05/2015 09:17 PM, Jason Merrill wrote:
+>>  ::= U <source-name> <type> [ <template-args> ]
+> 
+> Or, rather,
+> 
+>    ::= U <source-name> [<template-args>] <type>
+> 
+> I've submitted a pull request for this change.
+
+Applied, thanks!
+
+John.
+
+From nlewycky at google.com  Mon May 18 20:52:54 2015
+From: nlewycky at google.com (Nick Lewycky)
+Date: Mon, 18 May 2015 13:52:54 -0700
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <554A2BBC.4000508@redhat.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+	<CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+	<554A2BBC.4000508@redhat.com>
+Message-ID: <CADbEz-idkd1EXLS7ZpeVf+N6DgRrTKuWqiazqGtZ0XMvaekWKw@mail.gmail.com>
+
+On 6 May 2015 at 07:57, Jason Merrill <jason at redhat.com> wrote:
+
+> On 05/06/2015 08:49 AM, Richard Smith wrote:
+>
+>> The reason we chose Ua rather than U was that the ABI suggests that U4blah
+>> should demangle as 'blah', whereas we want something that demanglers know
+>> should become '__attribute__((blah))'. I have no particular strong
+>> feelings
+>> here.
+>>
+>
+> Hmm, I don't think this is a useful distinction; what matters is the
+> calling convention, not whether it was written with a GNU __attribute, a
+> C++11 [[attribute]], a decl-specifier, or whatever.
+
+
+The idea was to scope them, so Ua would be for attributes and we'd still
+have room for Uc for calling conventions if we want some day.
+
+
+>
+> Jason
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150518/3532af56/attachment.html>
+
+From jason at redhat.com  Wed May 20 14:18:28 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 20 May 2015 10:18:28 -0400
+Subject: [cxx-abi-dev] Mangling of calling convention attributes
+In-Reply-To: <CADbEz-idkd1EXLS7ZpeVf+N6DgRrTKuWqiazqGtZ0XMvaekWKw@mail.gmail.com>
+References: <55493D77.7090501@redhat.com> <55493DF3.9020403@redhat.com>
+	<5571CB08-C530-4186-A9AB-39F8DD65B85D@apple.com>
+	<55496BAF.1000600@redhat.com>
+	<CAGL0aWebosV3CKHWAm5eURoiNFBcov5n2F3GAHWYjCtdY-G8pw@mail.gmail.com>
+	<554A2BBC.4000508@redhat.com>
+	<CADbEz-idkd1EXLS7ZpeVf+N6DgRrTKuWqiazqGtZ0XMvaekWKw@mail.gmail.com>
+Message-ID: <555C97B4.20805@redhat.com>
+
+On 05/18/2015 04:52 PM, Nick Lewycky wrote:
+> On 6 May 2015 at 07:57, Jason Merrill <jason at redhat.com> wrote:
+>> On 05/06/2015 08:49 AM, Richard Smith wrote:
+>>
+>>> The reason we chose Ua rather than U was that the ABI suggests that U4blah
+>>> should demangle as 'blah', whereas we want something that demanglers know
+>>> should become '__attribute__((blah))'. I have no particular strong
+>>> feelings here.
+>>
+>> Hmm, I don't think this is a useful distinction; what matters is the
+>> calling convention, not whether it was written with a GNU __attribute, a
+>> C++11 [[attribute]], a decl-specifier, or whatever.
+>
+> The idea was to scope them, so Ua would be for attributes and we'd still
+> have room for Uc for calling conventions if we want some day.
+
+Yes, but why?  I don't see this scope as semantically meaningful, and 
+mangling is expressing the signature of a function, not trying to encode 
+the declaration syntax.
+
+Jason
+
+

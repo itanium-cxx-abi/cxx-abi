@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Issue C-2 comments: initialization priority
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Issue%20C-2%20comments%3A%20initialization%20priority&In-Reply-To=%3C199911110301.TAA81987%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000325.html">
+   <LINK REL="Next"  HREF="000327.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Issue C-2 comments: initialization priority</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Issue%20C-2%20comments%3A%20initialization%20priority&In-Reply-To=%3C199911110301.TAA81987%40baalbek.engr.sgi.com%3E"
+       TITLE="Issue C-2 comments: initialization priority">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Thu Nov 11 03:01:56 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000325.html">Unwind ABI specification
+</A></li>
+        <LI>Next message: <A HREF="000327.html">Special characters in mangled names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I said I would revisit my proposal, looking at two questions:
+
+  A) Can we sort based on section name instead of data?
+
+  B) Can we get less linker impact?
+
+I'll address them separately.
+
+----------------
+B) Linker impact
+----------------
+
+I believe the proposal made need have almost no linker impact.
+Consider the second suggested implementation scheme, based on IBM's
+description of their approach.
+
+A minimalist implementation (from the linker point of view)
+includes:
+
+1) The link components are bracketed (either by a driver constructing
+   the command line, or by implicit arguments generated within the
+   linker) by two INIT_ARRAY entries.  The first calls
+
+	__cxx_priority_init_begin()
+
+   The one at the end calls
+
+	__cxx_priority_init_end()
+
+   These are both in the implementation runtime.  The begin routine
+   determines the address and size of the SHT_CXX_PRIORITY_INIT section
+   (below).  It sorts the section by priority, and calls
+   __cxx_priority_init(addr,cnt) as described in the proposal with the
+   count of &lt;=0 entries.
+   
+   __cxx_priority_init_end calls __cxx_priority_init(addr,cnt) with the
+   address and count of &gt;0 entries.
+
+2) The linker simply concatenates the SHT_CXX_PRIORITY_INIT sections,
+   and emits markers (DT entries) that allow __cxx_priority_init_begin
+   to find the section and its size.  At the same time, it creates a
+   init_array section from other (i.e. non-constructor) entries as it
+   normally would, which of course gets bracketed by the entries
+   described above.
+
+3) At runtime, when loading the executable object, the init_array
+   entries are executed, thereby sorting the constructor entries,
+   executing the &lt;=0-priority entries, executing the non-constructor
+   entries, and finally executing the &gt;0-priority entries.
+
+My original proposal did not describe the dynamic tags to delimit the
+section, nor the __cxx_priority_init_&lt;begin,end&gt; routines.  Given such
+an approach, it's hard for me to imagine much less linker impact.
+
+Now suppose you want to minimize runtime instead of linker impact --
+the first suggested implementation scheme.  There are at least two
+approaches:
+
+ - The linker sorts the SHT_CXX_PRIORITY_INIT section after generating
+   it, and emits bracketing __cxx_priority_init_&lt;begin,end&gt; calls in
+   init_array entries itself.
+
+ - To make things even simpler for the runtime, the linker could also
+   convert init_array entries in the .o files to CXX_PRIORITY_INIT
+   section entries with priority zero, reducing everything to a single
+   init_array entry that calls __cxx_priority_init.
+
+One of my original objectives, and I think a key attribute of this
+proposal, is that this full range of possible implementations, from
+minimal linker impact to minimal runtime impact, makes absolutely no
+difference to the generated .o files -- compatibility between compilers
+does not depend on the chosen link-time implementation.
+
+
+-------------------
+A) Sorting approach
+-------------------
+
+Sorting is a more interesting issue.  I see four possibilities:
+
+1) No sorting -- the low-linker-impact approach above.
+
+2) Implicit sorting -- the low-runtime approach above, with knowledge
+   explicit in the linker about how to sort SHT_CXX_PRIORITY_INIT.
+
+3) Explicit sorting within a section, e.g. what my proposal described,
+   based on an explicit sorting specification that describes the size
+   of objects to be sorted and the key location.
+
+4) Explicit sorting of sections, based on a sort key encoded in the
+   section name (for example).
+
+I'll say up front that I think implicit sorting is adequate for the
+purpose at hand, and I'd like to understand other applications before
+I'd choose (3) or (4).
+
+There are two differences between (3) and (4):
+
+ - the unit of sorting (an object within a section, or a whole section)
+
+ - the sort key (part of the data, or separate from the data).
+
+Either would work for the application at hand.  Approach (3) would
+require only one SHT_CXX_PRIORITY_INIT section per .o file, while
+approach (4) would require up to one such section per constructor call
+(though only if the user used lots of different priorities).  I
+personally think sorting based on a data vector that's already been
+concatenated should be much more efficient, but it probably doesn't
+matter much.
+
+On the other hand, sorting an arbitrarily-sized section, based on an
+external key, is more flexible except that the keys may be more
+constrained.  So, again, I think the choice comes down to other
+applications of the feature.  Absent significant other demands, I'd
+just stick to implicit sorting (and optional at that) for now.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000325.html">Unwind ABI specification
+</A></li>
+	<LI>Next message: <A HREF="000327.html">Special characters in mangled names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

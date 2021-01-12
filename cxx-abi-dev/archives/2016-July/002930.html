@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] C++ ABI version 2
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B%20ABI%20version%202&In-Reply-To=%3CCAGL0aWdkEPoYHUvJEG7b8g-i%3DgDidG95p%2BBHJDCjwfGJL0hL-w%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002929.html">
+   <LINK REL="Next"  HREF="002931.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] C++ ABI version 2</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B%20ABI%20version%202&In-Reply-To=%3CCAGL0aWdkEPoYHUvJEG7b8g-i%3DgDidG95p%2BBHJDCjwfGJL0hL-w%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] C++ ABI version 2">richardsmith at google.com
+       </A><BR>
+    <I>Wed Jul 20 01:04:07 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002929.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+        <LI>Next message: <A HREF="002931.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2930">[ date ]</a>
+              <a href="thread.html#2930">[ thread ]</a>
+              <a href="subject.html#2930">[ subject ]</a>
+              <a href="author.html#2930">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Another item for the list:
+
+Variadic virtual functions with covariant return types are currently
+problematic: it's not possible in general to generate an adjustor thunk for
+them, because it's not possible in general to forward a (non-tail) varargs
+call. Similar problems exist for the conversion to function pointer in a
+non-capturing varargs lambda.
+
+We can fix this by changing the calling convention for varargs non-static
+member functions so that they are passed a va_list object directly (that
+is, effectively put the va_start / va_end into the caller, and convert a
+va_start in the callee into a va_copy from the va_list argument). Then
+forwarding the varargs become trivial.
+
+(It seems preferable to apply this change to all non-static member
+functions, not just virtual functions, so that we don't need to emit two
+quite different codepaths for a call through a pointer to member.)
+
+On 12 May 2015 at 17:29, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+
+&gt;<i> Another item for the Itanium C++ ABI version 2 list:
+</I>&gt;<i>
+</I>&gt;<i> The ABI currently specifies that the initial guard variable load is an
+</I>&gt;<i> acquire load (3.3.2, &quot;An implementation supporting thread-safety on
+</I>&gt;<i> multiprocessor systems must also guarantee that references to the
+</I>&gt;<i> initialized object do not occur before the load of the initialization flag.
+</I>&gt;<i> On Itanium, this can be done by using a ld1.acq operation to load the
+</I>&gt;<i> flag.&quot;).
+</I>&gt;<i>
+</I>&gt;<i> This is inefficient on systems where an acquire load requires a fence.
+</I>&gt;<i> Using an algorithm due to Mike Burrows (described in the appendix of
+</I>&gt;<i> <A HREF="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm">http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm</A>) the
+</I>&gt;<i> same interface can be implemented starting with a relaxed load, where the
+</I>&gt;<i> acquire operation is performed only the first time each thread hits the
+</I>&gt;<i> initialization.
+</I>&gt;<i>
+</I>&gt;<i> On 19 November 2013 at 17:57, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> Hi,
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> There are a few things in the current ABI which are known to be
+</I>&gt;&gt;<i> suboptimal, but we cannot change because doing so would introduce an ABI
+</I>&gt;&gt;<i> break. However, vendors sometimes get an opportunity to break their ABI (or
+</I>&gt;&gt;<i> are defining a new ABI), and for some vendors, this is a very common
+</I>&gt;&gt;<i> occurrence. To this end, I think it would be valuable for the ABI document
+</I>&gt;&gt;<i> to describe what we might want to put in a 'Version 2' of the ABI; that is,
+</I>&gt;&gt;<i> a set of changes that we recommend be made whenever a vendor has a chance
+</I>&gt;&gt;<i> to introduce an ABI break.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> (Or perhaps this should be viewed from the opposite perspective: we could
+</I>&gt;&gt;<i> make improvements to the ABI, with an annex listing changes that old
+</I>&gt;&gt;<i> platforms must make for compatibility.)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Would there be support for this idea?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> In off-line discussion with John McCall, we came up with the following
+</I>&gt;&gt;<i> list of potential changes that might be made (sorry if I forgot any):
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  * Make constructors and destructors return 'this' instead of returning
+</I>&gt;&gt;<i> 'void', in order to allow callers to avoid a reload in common cases and to
+</I>&gt;&gt;<i> allow more tail calls.
+</I>&gt;&gt;<i>  * Simplify case 2b in non-POD class layout.
+</I>&gt;&gt;<i>  * Make virtual functions that are defined as 'inline' not be key
+</I>&gt;&gt;<i> functions
+</I>&gt;&gt;<i>  * Fix the bug that -1 is both the null pointer-to-data-member value and
+</I>&gt;&gt;<i> also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+</I>&gt;&gt;<i>  * Relax the definition of POD used in the ABI, in order to allow more
+</I>&gt;&gt;<i> class types to be passed in registers
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Are there any other things that it would make sense to change in a
+</I>&gt;&gt;<i> version 2 of the ABI?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Also, would there be any support for documenting common deviations from
+</I>&gt;&gt;<i> the ABI that platform vendors might want to consider when specifying their
+</I>&gt;&gt;<i> own ABIs? In addition to some of the above, this would also include:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  * Representation of pointers-to-member-functions (in particular, the
+</I>&gt;&gt;<i> current representation assumes that the lowest bit of a function pointer is
+</I>&gt;&gt;<i> unused, which isn't true in general)
+</I>&gt;&gt;<i>  * Representation of guard variables (some platforms use the native word
+</I>&gt;&gt;<i> size rather than forcing this to be 64 bits wide)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Are there any others?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Thanks!
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160719/24141344/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160719/24141344/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002929.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+	<LI>Next message: <A HREF="002931.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2930">[ date ]</a>
+              <a href="thread.html#2930">[ thread ]</a>
+              <a href="subject.html#2930">[ subject ]</a>
+              <a href="author.html#2930">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

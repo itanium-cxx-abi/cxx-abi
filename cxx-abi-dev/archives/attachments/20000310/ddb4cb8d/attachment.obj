@@ -1,0 +1,351 @@
+#!/usr/bin/env python
+# Demangler for the draft C++ ABI, version 20000310
+# (C) Martin v. Löwis, 2000
+import string,sys
+
+operator_names={
+"nw":   "operator new",
+"na":   "operator new[]",
+"dl":   "operator delete",
+"da":   "operator delete[]",
+"ng":   "operator-",           # (unary)
+"ad":   "operator&",           # (unary)
+"de":   "operator*",           # (unary)
+"co":   "operator~",
+"pl":   "operator+",
+"mi":   "operator-",
+"ml":   "operator*",
+"dv":   "operator/",
+"rm":   "operator%",
+"an":   "operator&",
+"or":   "operator|",
+"eo":   "operator^",
+"aS":   "operator=",
+"pL":   "operator+=",
+"mI":   "operator-=",
+"mL":   "operator*=",
+"dV":   "operator/=",
+"rM":   "operator%=",
+"aN":   "operator&=",
+"oR":   "operator|=",
+"eO":   "operator^=",
+"ls":   "operator<<",
+"rs":   "operator>>",
+"lS":   "operator<<=",
+"rS":   "operator>>=",
+"eq":   "operator==",
+"ne":   "operator!=",
+"lt":   "operator<",
+"gt":   "operator>",
+"le":   "operator<=",
+"ge":   "operator>=",
+"nt":   "operator!",
+"aa":   "operator&&",
+"oo":   "operator||",
+"pp":   "operator++",
+"mm":   "operator--",
+"cm":   "operator,",
+"pm":   "operator->*",
+"pt":   "operator->",
+"cl":   "operator()",
+"ix":   "operator[]",
+"qu":   "operator?",
+"cv":   "(cast)",
+"sz":   "sizeof"
+}
+
+type_names={
+"v":"void",
+"w":"wchar_t",
+"b":"bool",
+"c":"char",
+"a":"signed char",
+"h":"unsigned char",
+"s":"short",
+"t":"unsigned short",
+"i":"int",
+"j":"unsigned int",
+"l":"long",
+"m":"unsigned long",
+"x":"long long",
+"y":"unsigned long long",
+"f":"float",
+"d":"double",
+"e":"long double",
+"z":"..."
+}
+
+inttypes = 'stijlmxy'
+
+qualifiers={
+    'P':'*',
+    'R':'&',
+    'K':' const',
+    'V':' volatile',
+    'r':' restrict'
+}
+
+class Demangler:
+    def __init__(self,n):
+        self.typelist = []  # least-recently defined types are at the end
+        self.targs = []     # template arguments of the function
+        self.n = n          # the remaining text
+        self.qual = ""      # the current qualifier
+        self.cvpr = ""      # the current cv, *, &, M:: suffix (for functions)
+
+    def skip(self,n):
+        "Skip n characters"
+        self.n=self.n[n:]
+
+    def getnumber(self):
+        "Retrieve a decimal number from the string"
+        str=""
+        for c in self.n:
+            if c not in string.digits:
+                break
+            str=str+self.n[0]
+        self.skip(len(str))
+        return string.atoi(str)
+
+    def first(self):
+        if self.n:
+            return self.n[0]
+        return None
+
+    def qualified(self,s):
+        "Return s with the current qualifier"
+        if self.qual:
+            return self.qual+"::"+s
+        return s
+
+    def done(self,recursive):
+        """Return 1 if at the end of the string, or at E in case of
+        nested demangling"""
+        if not self.n:
+            return 1
+        if recursive:
+            return self.n[0]=='E'
+        return 0
+        
+    def do_full(self,recursive=0):
+        """Demangle a full function or variable"""
+        if self.n[:2]!='_Z':
+            return self.n
+        self.skip(2)
+        result = self.do_name()
+        if self.done(recursive):
+            return result
+        if self.first()=='I':
+            result = result+self.do_targs()
+            result = self.do_type() + " " +result
+        args=[]
+        while not self.done(recursive):
+            args.append(self.do_type())
+        result = result + '(' + string.join(args,',') + ')'
+        return result
+
+    def do_name(self):
+        """Return the next name"""
+        if self.first()=='N':
+            return self.do_nested(ignore_last=1)
+        if self.first() in string.digits:
+            l = self.getnumber()
+            result=self.n[:l]
+            self.skip(l)
+            return result
+        try:
+            result = operator_names[self.n[:2]]
+            self.skip(2)
+            return result
+        except KeyError:
+            pass
+        raise "Unknown prefix",self.n
+
+    def do_type(self):
+        """Return the next type"""
+        # Primitive types
+        try:
+            result = type_names[self.n[0]]
+            self.skip(1)
+            self.typelist.append(result)
+            return result
+        except KeyError:
+            pass
+        # S<digit>_ shortcut
+        if self.first()=='S' and self.n[1] in string.digits:
+            self.skip(1)
+            l = self.getnumber()
+            if self.n[0]!='_':
+                raise "Incorrect shortcut",self.n
+            self.skip(1)
+            result = self.typelist[-l]
+            self.typelist.append(result)
+            return self.maybe_template(result)
+        # T<digit>_ template argument
+        if self.first()=='T':
+            self.skip(1)
+            l = self.getnumber()
+            if self.n[0]!='_':
+                raise "Incorrect template arg",self.n
+            self.skip(1)
+            result = '/*T%d=*/%s' % (l,self.targs[l-1])
+            self.typelist.append(result)
+            return self.maybe_template(result)
+        # F - function type
+        if self.first() == 'F':
+            self.skip(1)
+            ret = self.do_type()
+            args = []
+            while self.first()!='E':
+                args.append(self.do_type())
+            self.skip(1)
+            result = ret + "(" +self.cvpr + ")(" + string.join(args,',') + ")"
+            self.cvpr=""
+            self.typelist.append(result)
+            return result
+        # A - array type
+        if self.first() == 'A':
+            self.skip(1)
+            l = self.getnumber()
+            if self.first() != '_':
+                raise "Invalid Array encoding"
+            self.skip(1)
+            result = self.do_type() + "[" + str(l) + "]"
+            self.typelist.append(result)
+            return result
+        # M - pointer to member
+        if self.first() == 'M':
+            self.skip(1)
+            klass = self.do_type() + "::"
+            oldcv = self.cvpr
+            self.cvpr = klass + self.cvpr
+            result = self.do_type()
+            if self.cvpr:
+                result = result + " " + klass
+                self.cvpr = oldcv
+            self.typelist.append(result)
+            return result
+        # <digit>name class name
+        if self.first() in string.digits:
+            l = self.getnumber()
+            result = self.n[:l]
+            self.skip(l)
+            result = self.qualified(result)
+            self.typelist.append(result)
+            return self.maybe_template(result)
+        # cvr, *, &
+        try:
+            oldcv = self.cvpr
+            qual = qualifiers[self.first()]
+            self.cvpr = qual+self.cvpr
+            self.skip(1)
+            result = self.do_type()
+            if self.cvpr:
+                result = result + qual
+                self.cvpr = oldcv
+            self.typelist.append(result)
+            return result
+        except KeyError:
+            pass
+        if self.first()=='N':
+            return self.do_nested()
+        raise "Unknown type encoding",self.n
+
+    def maybe_template(self,prefix):
+        """If rest text starts with I, process targs"""
+        if self.first()!='I':
+            return prefix
+        # XXX: specialization really should appear after targs in typelist
+        self.typelist.append(prefix)
+        index = len(self.typelist)-1
+        prefix = prefix + self.do_targs()
+        self.typelist[index]=prefix
+        return prefix
+
+    def do_targs(self):
+        """Process targs, pointer is a I"""
+        self.skip(1)
+        args = []
+        while self.n[0]!='E':
+            if self.n[0]=='L':
+                targ = self.do_value()
+                self.targs.append(targ)
+            elif self.n[0]=='X':
+                targ = self.do_expr()
+                # XXX: add to targs list?
+            else:
+                targ = self.do_type()
+                self.targs.append(targ)
+            args.append(targ)
+        self.skip(1)
+        return '<' +string.join(args,',')+'>'
+
+    def do_nested(self,ignore_last=0):
+        """Process nested name, pointer is at N"""
+        self.skip(1)
+        self.qual = ""
+        while self.n[0]!='E':
+            result = self.qual = self.do_type()
+        if ignore_last:
+            self.typelist=self.typelist[:-1]
+        self.skip(1)
+        return result
+
+    def do_value(self):
+        """Process a template nontype argument"""
+        self.skip(1)
+        if self.n[0] in inttypes:
+            val = '('+self.do_type()+')'
+            # XXX: this is not an occurence of type???
+            self.typelist=self.typelist[:-1]
+            val = ""
+            if self.n[0]=='n':
+                val = val+'-'
+                self.skip(1)
+            while self.n[0] in string.digits:
+                val=val+self.n[0]
+                self.skip(1)
+        elif self.n[0]=='b':
+            if self.n[1]=='1':
+                val = 'true'
+            elif self.n[2]=='0':
+                val = 'false'
+            else:
+                raise 'Invalid boolean',self.n
+            self.skip(2)
+        elif self.n[0] in string.digits:
+            val = self.do_full(recursive=1)
+        if self.n[0]!='E':
+            raise "Invalid value",self.n
+        self.skip(1)
+        return val
+
+    def do_expr(self,start=1):
+        """Process an expression in a non-type argument"""
+        operator = operator_names[self.n[start:start+2]]
+        self.skip(start+2)
+        args=[]
+        while self.n[0]!='E':
+            if self.n[0]=='T':
+                self.skip(1)
+                l = self.getnumber()
+                args.append('T%d'%l)
+                if self.n[0]!='_':
+                    raise 'Invalid targ',self.n
+                self.skip(1)
+            elif self.n[0]=='L':
+                args.append(self.do_value())
+            else:
+                args.append(self.do_expr(start=0))
+        return operator+'('+string.join(args,',')+')'
+
+def main():
+    if len(sys.argv)==2:
+        d = Demangler(sys.argv[1])
+    else:
+        print "demangle <name>"
+        raise SystemExit
+    print d.do_full()
+
+if __name__=='__main__':
+    main()

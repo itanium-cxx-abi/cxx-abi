@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> C++0x std::rethrow_exception, data races and the Itanium ABI
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B0x%20std%3A%3Arethrow_exception%2C%20data%20races%20and%20the%20Itanium%20ABI&In-Reply-To=%3C4CE3933B.9070008%40justsoftwaresolutions.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002377.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>C++0x std::rethrow_exception, data races and the Itanium ABI</H1>
+    <B>Anthony Williams</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B0x%20std%3A%3Arethrow_exception%2C%20data%20races%20and%20the%20Itanium%20ABI&In-Reply-To=%3C4CE3933B.9070008%40justsoftwaresolutions.co.uk%3E"
+       TITLE="C++0x std::rethrow_exception, data races and the Itanium ABI">anthony at justsoftwaresolutions.co.uk
+       </A><BR>
+    <I>Wed Nov 17 08:32:59 UTC 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002377.html">Dangling reference
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+With the current draft of the upcoming C++0x standard, it is unclear 
+whether the exception thrown by std::rethrow_exception is the same 
+exception object that was originally thrown, or a copy thereof. Indeed, 
+different implementations do different things: gcc rethrows the same 
+exception object, and MSVC2010 throws a copy.
+
+I believe that this is a mistake; std::rethrow_exception should always 
+throw a copy. If it rethrows the same exception then the same exception 
+object may now become active in multiple threads. This then exposes the 
+**handlers** to data races should they catch by reference and call any 
+member functions that modify the exception object.
+
+One use case I have seen for this is to add call stack information to an 
+exception for logging purposes. e.g.
+
+void g();
+
+struct my_exception
+{
+     void add_caller(std::string const&amp; function_name,int arg1,int arg2);
+};
+
+void f(int arg1,int arg2){
+    try{
+       g();
+    catch(my_exception&amp; e)
+    {
+       e.add_caller(&quot;f(int,int)&quot;,arg1,arg2);
+       throw;
+    }
+}
+
+Under C++03, any exception thrown by g() must originate in this thread, 
+so there is no possibility of a data race in f(). Under C++0x we must 
+contend with the possibility that the exception originated in another 
+thread. e.g.
+
+std::mutex m;
+std::exception_ptr ep;
+
+void g()
+{
+     std::lock_guard&lt;std::mutex&gt; lk(m);
+     if(ep)
+         std::rethrow_exception(ep);
+}
+
+If multiple threads call g() they may thus each rethrow the same 
+exception. If this truly is the **same** exception object (and not a 
+copy) then callers such as f() have now been exposed to a data race, 
+**without changing f()**.
+
+Also, under the latitude provided by the C++0x draft, this behaviour may 
+vary from compiler to compiler. I can write some code that is race-free 
+under MSVC2010, but if I then recompile it with gcc then I have a data 
+race, **without any indication from the compiler**.
+
+I am aware that the reason for gcc's behaviour in this case is that the 
+Itanium ABI does not provide the necessary information to copy an 
+exception object, which is why I am posting here. I would like to 
+propose changing the Itanium ABI to provide the necessary information to 
+copy the exception object, **whilst remaining backwards compatible**.
+
+Based on the documentation at 
+<A HREF="http://www.codesourcery.com/public/cxx-abi/abi.html">http://www.codesourcery.com/public/cxx-abi/abi.html</A> I have a couple of 
+ideas on how this could be done.
+
+One option I see would be to add a new class derived from 
+abi::__class_type_info that had virtual member functions for the size 
+and copy constructor:
+
+class __copyable_class_type_info: public __class_type_info
+{
+public:
+     size_t __object_size;
+     virtual void __copy_construct(void* __source, void* __dest)=0;
+};
+
+You would need similar derived classes for __si_class_type_info and 
+__vmi_class_type_info.
+
+Because these are derived classes, they shouldn't affect the existing 
+ABI structures. The size of non-class types can be determined from the 
+type directly, since all pointers have the same size and fundamental 
+types have a fixed size under the ABI. Such types can also be copied 
+with memcpy(). The type_info for classes for which there is no public 
+copy constructor would not derive from these new type-info classes.
+
+rethrow_exception can then check the type_info pointed to by the 
+exceptionType member of the __cxa_exception header, and either
+
+(i) copy the exception with memcpy (because it's a fundamental type or 
+pointer)
+
+(ii) throw bad_alloc because this is an exception that cannot therefore 
+be copied (i.e. it has no public copy constructor, or because it is from 
+the old ABI)
+
+(iii) dynamic_cast the type info to __copyable_class_type_info use the 
+new __object_size and __copy_construct virtual functions to clone the 
+exception
+
+A second option is to add the size and copy construction functions to 
+the __cxa_exception header. The ABI says &quot;By convention, a 
+__cxa_exception pointer points at the C++ object representing the 
+exception being thrown, immediately following the header. The header 
+structure is accessed at a negative offset from the __cxa_exception 
+pointer. This layout allows consistent treatment of exception objects 
+from different languages (or different implementations of the same 
+language), and allows future extensions of the header structure while 
+maintaining binary compatibility. &quot;
+
+We could therefore take advantage of this leeway to &quot;extend the header 
+structure while maintaining binary compatibility&quot; to add the new size 
+and copy construction members. In this case, the stored copy constructor 
+could be NULL if there is no public copy constructor for the class.
+
+In either case, the intention is that old code would work without 
+recompilation even if the library code that it called was changed to use 
+the new ABI, and new code could take advantage of the ability to copy 
+exceptions where the exception was thrown from code that used the new ABI.
+
+What do you think? Are these options implementable in a 
+backwards-binary-compatible way? Is there an alternative implementation 
+option?
+
+Thanks,
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     <A HREF="http://www.stdthread.co.uk/book/">http://www.stdthread.co.uk/book/</A>
+just::thread C++0x thread library             <A HREF="http://www.stdthread.co.uk">http://www.stdthread.co.uk</A>
+Just Software Solutions Ltd       <A HREF="http://www.justsoftwaresolutions.co.uk">http://www.justsoftwaresolutions.co.uk</A>
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002377.html">Dangling reference
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

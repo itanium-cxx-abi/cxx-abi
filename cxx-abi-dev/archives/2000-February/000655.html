@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Do we need to reopen B1?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38B5A340.BF809D85%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000657.html">
+   <LINK REL="Next"  HREF="000656.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Do we need to reopen B1?</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38B5A340.BF809D85%40cup.hp.com%3E"
+       TITLE="Do we need to reopen B1?">ddd at cup.hp.com
+       </A><BR>
+    <I>Thu Feb 24 21:31:44 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000657.html">vtable notes
+</A></li>
+        <LI>Next message: <A HREF="000656.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#655">[ date ]</a>
+              <a href="thread.html#655">[ thread ]</a>
+              <a href="subject.html#655">[ subject ]</a>
+              <a href="author.html#655">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I believe in its current state, with my initial proposal for alternate entry
+points scrapped, I think the answer is yes (at least from my point of view).
+
+First, my proposal and Jason's are not opposed. Jason solved a case in virtual
+inheritance that I had overlooked, by introducing vcall offsets. So vcall
+offsets allow a same &quot;thunk&quot; to be shared between multiple subobjects in a class
+that has a virtual base.
+
+My proposal applies to the non-virtual multiple inheritance case, and allows a
+same thunk to be shared between multiple subobjects in a class that has no
+virtual base, as long as by the derived classes of that class, as long as they
+do not override the virtual function and do not themselves have virtual
+inheritance.
+
+
+In the absence of the &quot;adjusting entry points&quot; I proposed, you have to use
+thunks. Within a same class, of course, you can use the 'AddAddAdd' scheme,
+since you know the different offsets at compile time for the various subobjects
+that compose the class. However, a derived class cannot share this, because its
+vtable may very well be emitted in a different .o. For instance, consider:
+
+	struct A { virtual a(); int aa; };
+	struct B { virtual b(); int bb; };
+	struct C { virtual c(); int cc; };
+
+	struct D : A, B { virtual b(); int dd; }
+	struct E : D { /* Does not override b() */ }
+
+The primary vtable for D points to D::b, no adjustment required. The secondary
+vtable for B in D points to D::b with, say, an 'Add' adjustment, which would be
+of -16 (from the B* to the D*).
+
+When you emit the vtable for E, the good news is that the adjustment is the same
+(-16 from B* to D*). The bad news is that you don't know how to locate the thunk
+that adds -16 (unless we all agree on the algorithm for emitting this kind of
+&quot;AddAddAdd&quot; thunk, which we did not.) Since there is no relocation that says
+something like &quot;Copy contents of the D vtable at offset X&quot;, there is no way to
+build the vtable for E from a different translation unit so that is reuses the
+'Add' thunk. So you end up emitting a real thunk. I believe I demonstrated in
+another e-mail that these &quot;real&quot; thunks are bad for performance. They also cost
+a lot of space (16 bytes per thunk at least). 
+
+
+I also believe the problem gets only worse in the presence of shared libraries.
+We said that we would preload the GP from the call site. So now the E vtable
+entry for d() naively contains D's GP, but an E thunk. That E thunk needs to
+branch to another load module. We are out of luck: the data to branch to that
+other module (the function descriptor) is GP-relative, I believe, but relative
+to D's GP. So the E vtable entry really needs to contain the GP for E, which
+means that there is just no benefit in having the GP in the vtable. The E thunk
+itself also needs to pay the full penalty of loading a GP and doing an indirect
+branch. And I could not write it in less than 64 bytes.
+
+
+
+So my proposal is simply that, for the non-virtual multiple inheritance case, we
+have a this-pointer adjustment offset in each secondary vtable, that adjusts
+form the secondary vtable class to the function's target class.
+
+The algorithm I proposed to allocate these offsets was the following:
+
+- While defining class C, we allocate a single offset &quot;convert_to_C&quot;, that
+converts from the class of the seconday vtable in which it is stored to the C
+class.
+
+- The convert_to_C in the C primary vtable is theoretically present, but its
+value is zero, so it may be omitted.
+
+- For all other classes, the offset of 'convert_to_C' relative to the secondary
+vptr is constant. A naive algorithm to ensure that is that this offset is the
+first negative offset not used by a 'convert_to_X' in any of the bases. I
+acknoledge this generally may padding in the vtables, but I did not see a better
+way to do it, short of using a double indirection.
+
+This 'convert_to_C' is used by an adjusting entry point emitted immediatly prior
+to the main, non-adjusting entry point, which computes this += convert_to_C. If
+I use this secondary entry point at all, I know that the final overrider is
+C::f, and that the call was in the form bptr-&gt;f(), where bptr is a non-primary
+non-virtual base of C.
+
+The same 'convert_to_C' value is shared by different virtual functions overriden
+in C, no matter from which base they are overriden (the interesting case, of
+course, being when they are overriden from multiple bases). The reason is that
+if C::f override B::f, the delta is the same than if C::g overrides B::g. It may
+be different than the delta between C::g and B2::g, but then I am using B2's
+secondary vtable, which contains the B2-&gt;C conversion.
+
+
+This scheme has the following benefits:
+
+- For each virtual function, you emit a secondary entry point with a known size.
+The best possible size is 48 bytes, unless some magic predication thingie I did
+not think of can reduce that. No matter how many secondary vbases or how many
+derived classes reuse that function, the size is 48.
+
+- For each secondary base, you add 8 (or more if padding) bytes to the table.
+
+- This scheme works accross shared libraries, since the thunk used is always
+&quot;tied&quot; to the function.
+
+
+I hope I clarified...
+
+Best regards
+Christophe
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000657.html">vtable notes
+</A></li>
+	<LI>Next message: <A HREF="000656.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#655">[ date ]</a>
+              <a href="thread.html#655">[ thread ]</a>
+              <a href="subject.html#655">[ subject ]</a>
+              <a href="author.html#655">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

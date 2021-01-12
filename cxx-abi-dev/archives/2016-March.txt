@@ -1,0 +1,130 @@
+From jason at redhat.com  Tue Mar  1 01:03:30 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 29 Feb 2016 20:03:30 -0500
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <CAGL0aWe8JrnhWuuzZ30tJg4pF1eA80pmxbi5aF9f76T8EM7AnQ@mail.gmail.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com> <56D11FA2.3010408@redhat.com>
+	<CAAiZkiBFMhHfYuALkwvnPHmhWQbjMB3QCrB2JWq5X_vkRLZ8gQ@mail.gmail.com>
+	<56D3BA68.4070402@redhat.com>
+	<CAGL0aWe8JrnhWuuzZ30tJg4pF1eA80pmxbi5aF9f76T8EM7AnQ@mail.gmail.com>
+Message-ID: <56D4EA62.2060502@redhat.com>
+
+On 02/29/2016 02:10 AM, Richard Smith wrote:
+> On 28 February 2016 at 19:26, Jason Merrill <jason at redhat.com> wrote:
+>
+>> On 02/27/2016 02:57 AM, Gabriel Dos Reis wrote:
+>>
+>>> On Fri, Feb 26, 2016 at 8:01 PM, Jason Merrill <jason at redhat.com> wrote:
+>>>
+>>> On 12/11/2015 01:37 PM, Jason Merrill wrote:
+>>>>
+>>>> On 12/10/2015 07:32 PM, Richard Smith wrote:
+>>>>>
+>>>>> On 10 December 2015 at 16:15, John McCall <rjmccall at apple.com> wrote:
+>>>>>>
+>>>>>> On Dec 10, 2015, at 4:11 PM, Nelson, Clark <clark.nelson at intel.com>
+>>>>>>
+>>>>>>>
+>>>>>>>> wrote:
+>>>>>>>
+>>>>>>>
+>>>>>>>> It has come to my attention that GCC and clang generate incompatible
+>>>>>>>> code
+>>>>>>>> for passing an argument of an empty class type.
+>>>>>>>>
+>>>>>>>> clang seems to completely ignore arguments and parameters of empty
+>>>>>>>> class
+>>>>>>>> type -- which seems to make a certain amount of sense.
+>>>>>>>>
+>>>>>>>> OTOH, as far as I understand it, GCC effectively treats an empty
+>>>>>>>> class
+>>>>>>>> equivalently to a class containing a single member with some
+>>>>>>>> character
+>>>>>>>> type -- which also seems pretty reasonable.
+>>>>>>>>
+>>>>>>>> Should the C++ ABI come down on one side or the other of this
+>>>>>>>> question?
+>>>>>>>>
+>>>>>>>> This is really the sort of question a psABI should settle. But of
+>>>>>>>> course
+>>>>>>>> the C language doesn't actually support a structure with no members,
+>>>>>>>> so
+>>>>>>>> it's not too surprising if a psABI doesn't nail down what should
+>>>>>>>> happen
+>>>>>>>> for this.
+>>>>>>>>
+>>>>>>>>
+>>>>>>> It?s valid as a C extension in GCC.  If there are platforms where we
+>>>>>>> use a
+>>>>>>> different rule from GCC, we should come to some understanding with
+>>>>>>> them.
+>>>>>>>
+>>>>>>> Because of the GCC extension, C++ can?t really use different rules
+>>>>>>> from C.
+>>>>>>>
+>>>>>>>
+>>>>>>
+>>>>>> (For x86_64:) GCC uses different rules for C and C++. In C, they do not
+>>>>>> pass anything. In C++, they pass a 1-byte object on the stack. Clang
+>>>>>> uses
+>>>>>> the same rules for C and C++, passing nothing in both cases.
+>>>>>>
+>>>>>> A careful reading of the x86_64 psABI suggests that clang is right in
+>>>>>> both
+>>>>>> cases; the eightbyte corresponding to the 1-byte empty struct
+>>>>>> parameter is
+>>>>>> never classified (at all), so should occupy neither a register nor
+>>>>>> memory,
+>>>>>> but it's not really especially clear.
+>>>>>>
+>>>>>> In any case, I think GCC should be the one to change here, because its
+>>>>>> C
+>>>>>> and C++ ABIs don't match.
+>>>>>>
+>>>>>>
+>>>>> Agreed.
+>>>>>
+>>>>>
+>>>> On further discussion, it came up that the C and C++ ABIs really can't
+>>>> match.  In GNU C, an empty struct has size 0; in C++ it has size 1.  We
+>>>> could finesse this difference for argument passing, as suggested here,
+>>>> but
+>>>> we really can't paper over the difference in general.  What if you have a
+>>>> class containing an empty class?  GNU C still says that has size 0, but
+>>>> it's less clear that this makes sense for C++.  Significantly, this does
+>>>> not fit the ABI definition of an empty class.
+>>>>
+>>>
+>>> Five years ago, we determined that it would make sense (read: provably
+>>> safe) to optimize that case too -- even for arrays.  See section 6.2 of
+>>>         http://www.axiomatics.org/~gdr/formal-cxx/layout-popl11.pdf
+>>> for the "layman" summary.
+>>>
+>>
+>> Sure.  But my point is that this represents a change to the ABI, not a
+>> simple implementation bug as I initially thought.  If we want to omit
+>> passing some parameters, we need some specification of which parameters
+>> qualify, and I'm rather uncomfortable with that level of invention at this
+>> point.
+>
+> The x86_64 psABI already classifies an empty struct of size <= 16 as
+> NO_CLASS, so it is not passed in registers nor memory. The recent
+> discussion on the GCC and LLVM dev lists (subject line "Update Intel386,
+> x86-64 and IA MCU psABIs for passing/returning empty struct") concluded by
+> adding this rule to the i386, x86-64, and Itanium psABI documents:
+>
+> "An empty type is a type where it and all of its subobjects (recursively)
+> are of class, structure, union, or array type.  No memory slot nor register
+> should be used to pass or return an object of empty type."
+>
+> ... which effectively extends that rule to empty types of all sizes.
+
+Thanks for pointing me at that discussion.  I don't think that thread 
+has quite concluded, but that rule seems promising.
+
+Jason
+
+

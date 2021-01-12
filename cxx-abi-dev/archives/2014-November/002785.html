@@ -1,0 +1,98 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3CCAGL0aWd%2BYKJncJeSk4Br8i-bDt_-%3DfFOKjmSe%2BYd-sPAMhBa7g%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002784.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] N4198 and mangling for member pointer template	arguments</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3CCAGL0aWd%2BYKJncJeSk4Br8i-bDt_-%3DfFOKjmSe%2BYd-sPAMhBa7g%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] N4198 and mangling for member pointer template	arguments">richardsmith at google.com
+       </A><BR>
+    <I>Wed Nov 26 02:13:53 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002784.html">[cxx-abi-dev] Library ABI version markers
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2785">[ date ]</a>
+              <a href="thread.html#2785">[ thread ]</a>
+              <a href="subject.html#2785">[ subject ]</a>
+              <a href="author.html#2785">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>N4198 (accepted at Urbana) makes it possible for a template parameter of
+type T U::* to have a template argument of type T V::*, where V is a base
+class of U or vice versa. A naive attempt to apply the existing ABI rules
+leads to mangling collisions in cases like this:
+
+struct A { int n; };
+struct B : A {};
+template&lt;int A::*&gt; void f() {}
+template&lt;int B::*&gt; void f() {}
+void g() {
+  constexpr int A::*p = &amp;A::n;
+  constexpr int B::*q = p;
+  f&lt;p&gt;();
+  f&lt;q&gt;();
+}
+
+(Here, a naive approach would use XadL_ZN1A1nEEE as the template argument
+value in both calls.)
+
+In order to resolve this, I suggest we introduce a new mangling for the
+case of a member pointer template argument where the class containing the
+member is different from the class in the template parameter. The minimal
+information we'll need to include is the class in the template parameter
+and a designator if the base class is a repeated base class.
+
+One approach would be to use
+
+  sc &lt;type&gt; ad L&lt;member&gt;E
+
+and to explicitly include the final type plus those intermediate types that
+introduce multiple inheritance from the base class (that is, just enough to
+uniquely identify the path).
+
+Another would be to introduce a new mangling that incorporates the final
+type and an offset or discriminator.
+
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141125/11b89186/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141125/11b89186/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002784.html">[cxx-abi-dev] Library ABI version markers
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2785">[ date ]</a>
+              <a href="thread.html#2785">[ thread ]</a>
+              <a href="subject.html#2785">[ subject ]</a>
+              <a href="author.html#2785">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,173 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+   <meta name="GENERATOR" content="Mozilla/4.61 [en] (X11; I; OSF1 V4.0 alpha) [Netscape]">
+</head>
+<body>
+&nbsp;
+<h4>
+<font color="#000000"><font size=-1>VTT Order</font></font></h4>
+<font color="#000000"><font size=-1>An array of vtable addresses, called
+the VTT, is declared for each class type that needs a construction vtable.
+A class needs a construction vtable if it has indirect or direct virtual
+base classes.</font></font>
+<p><font size=-1>The elements of the VTT array are in this order:</font>
+<ol>
+<li>
+<font color="#006600"><font size=-1>Address of the primary vtable for the
+complete object,</font></font></li>
+
+<li>
+<font color="#006600"><font size=-1>For each non-virtual subobject that
+needs a construction vtable, provide</font></font></li>
+
+<ol>
+<li>
+<font color="#006600"><font size=-1>Address of the primary construction
+vtable for the subobject,</font></font></li>
+
+<li>
+<font color="#006600"><font size=-1>Address of any secondary construction
+vtable for the subobject that either has virtual bases or has a virtual
+function that is overridden along a virtual path in the complete object
+constructor.</font></font></li>
+</ol>
+<font color="#006600"><font size=-1>This step is recursive between 1 and
+2 -&nbsp; the addresses of construction vtables for each subobject include
+the addresses in 1 and 2 for each subobject class that has non-virtual
+subobjects that need construction vtables.</font></font>
+<li>
+<font color="#006600"><font size=-1>Addresses of secondary vtables that
+either have virtual bases or virtual functions overridden on a virtual
+path.</font></font></li>
+
+<li>
+<font color="#006600"><font size=-1>Addresses of construction vtables for
+each virtual subobject in initialization (DFS) order.&nbsp; These addresses
+are as in #2&nbsp; above, and can be recursive for non-virtual bases within
+the virtual base subobjects.&nbsp; The virtual VTT addresses are on the
+end because they are only passed to the virtual base class constructors
+for the complete object.</font></font></li>
+</ol>
+<font color="#000000"><font size=-1>All vtable addresses in the VTT point
+to the beginning address of the vtable, not the address that is assigned
+to the vptr.</font></font>
+<h4>
+<font color="#000000"><font size=-1>Construction VTABLE Layout</font></font></h4>
+<font size=-1><font color="#000000">The construction vtables for a complete
+object are appended to the vtable in the order of their appearance in the
+VTT array. </font><font color="#FF0000">So the vtable structures for a
+complete object of class C include:</font></font>
+<ol>
+<li>
+<font color="#FF0000"><font size=-1>the main vtable group for C, i.e. the
+vtable to which the primary vptr (at offset 0) points, along with its base
+class subobject vtables in order of allocation, including virtual base
+class subobject vtables;</font></font></li>
+
+<li>
+<font color="#FF0000"><font size=-1>the nonvirtual and virtual construction
+vtable groups; and</font></font></li>
+
+<li>
+<font size=-1><font color="#FF0000">the VTT array for C, providing location
+information for the above.</font><font color="#006600"> (Sounds like we
+decided to have a separate extern for this, so the VTT&nbsp;array itself
+does not need to be appended to the vtable.)</font></font></li>
+</ol>
+<font color="#000000"><font size=-1>Issues:</font></font>
+<ul>
+<li>
+<font color="#000000"><font size=-1>We could separate the VTT array from
+the vtable, and provide a new VTT data item. We will do so.</font></font></li>
+
+<li>
+<font size=-1><font color="#000000">We could also make the VTT static so
+it has no linkage and is created in the modules that define the constructors
+and destructor of a class. I don't think they would take that much space.
+We will not do this. To avoid replicating the </font><font color="#800080">construction
+vtables, which are big, we need to allocate them with the main vtable with
+a know interface. So there's no benefit to putting the VTT elsewhere.</font></font></li>
+
+<li>
+<font size=-1><font color="#000000">The subobject construction vtables
+do not need to be contiguous to the normal vtable, since they will be accessed
+via the VTT.</font><font color="#800080">We will do so.</font></font></li>
+</ul>
+
+<h4>
+<font color="#000000"><font size=-1>Construction VTABLE entries</font></font></h4>
+<font size=-1><font color="#000000">The construction vtable group for a
+base class subobject B (of derived class D) has the same entries in the
+same order as the main vtable group for a complete object B, as described
+in "Virtual Table Layout" above.</font><font color="#FF0000"> However,
+the values of some entries will differ from either the main vtable group
+for B or the vtable group for B-in-D, primarily because the virtual bases
+of B will be at different relative offsets in a D object than in a standalone
+B object, as follows:</font></font>
+<ol>
+<li>
+<font color="#FF0000"><font size=-1>Virtual base class offsets reflect
+the positions of the virtual base classes in the full D object.</font></font></li>
+
+<li>
+<font color="#FF0000"><font size=-1>Similarly, vcall offsets reflect the
+relative positions of the overridden and overriding classes within the
+complete object D.</font></font></li>
+
+<li>
+<font color="#FF0000"><font size=-1>The offset-to-top fields refer to B
+(and B's in particular will therefore be zero).</font></font></li>
+
+<li>
+<font color="#FF0000"><font size=-1>The RTTI pointers point to B's RTTI.</font></font></li>
+
+<li>
+<font color="#FF0000"><font size=-1>Only functions in B and its base classes
+are considered for virtual function resolution.</font></font></li>
+</ol>
+
+<h4>
+<font color="#000000"><font size=-1>Subobject Construction and Destruction</font></font></h4>
+<font color="#000000"><font size=-1>The complete object (in-charge) constructors
+and destructors find the VTT via its mangled name. They pass the address
+of the subobject entry in the VTT as a second parameter when calling the
+subobject (not-in-charge) constructors and destructors. The subobject ctor/dtors
+use the addresses passed to initialize the primary vptr and vptrs that
+point to the classes which either have virtual bases or override virtual
+functions with a virtual step (have vcall offsets needing adjustment).</font></font>
+<p><i><font color="#000000"><font size=-1>Note: The EDG compiler passes
+the constructor vtables by assigning them to the subobject vptr and the
+subobject constructors get the array address from the vptr. This doesn't
+work when an exception is raised during construction, and the destructor
+doesn't have the constructor vtable's address anymore. There may be a way
+to make this work with the landing pad model, but I haven't worked that
+out.</font></font></i>
+<p><font color="#000000"><font size=-1>Therefore the code for subobject
+constructor D which needs a construction vtable with one base class subobject
+B that needs a construction vtable would look like the following:</font></font>
+<pre><tt><font color="#006600"><font size=-1>&nbsp;&nbsp;&nbsp;&nbsp; static vtable *__VTT__1D[3] = {D primary vtable, ctorvtbl for B in D, D secondary vtables};</font></font></tt></pre>
+
+<pre>
+<tt><font size=-1><font color="#000000">&nbsp;&nbsp;&nbsp;&nbsp; D(D *this, vtable **ctorvtbls)&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp; {
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // Call subobject constructors with ctorvtbls index
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // if that base needs it.&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; B((B*)this, &amp;ctorvtbls[1]);&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // etc...&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // Initialize vptr with primary ctorvtbls address (first element)&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; this->vptr = ctorvtbls[0][n];&nbsp; // where n is the index of
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // first virtual function in vtbl.&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // Initialize vptrs of subobjects with ctorvtbls addresses
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // for the bases&nbsp;
+</font><font color="#006600">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ((B*)this)->vptr = ctorvtbls[2][m];
+</font><font color="#000000">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // where m is the index of the first virtual function&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // for base class subobject B&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; // Code for constructor.&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; }</font></font></tt></pre>
+<font size=-1><font color="#000000">A test program for this can be found
+in the</font><font color="#FF0000"><a href="http://reality.sgi.com/dehnert_engr/cxx/abi-examples.html#vtable-ctor">ABI
+Examples</a> </font><font color="#000000">document</font><font color="#FF0000">.</font></font>
+</body>
+</html>

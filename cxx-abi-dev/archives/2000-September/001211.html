@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual Calls: Make the ABI match the implementations
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20Calls%3A%20Make%20the%20ABI%20match%20the%20implementations&In-Reply-To=%3C200009262238.PAA38268%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001210.html">
+   <LINK REL="Next"  HREF="001212.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual Calls: Make the ABI match the implementations</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20Calls%3A%20Make%20the%20ABI%20match%20the%20implementations&In-Reply-To=%3C200009262238.PAA38268%40baalbek.engr.sgi.com%3E"
+       TITLE="Virtual Calls: Make the ABI match the implementations">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Sep 26 22:38:48 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001210.html">Meeting reminder
+</A></li>
+        <LI>Next message: <A HREF="001212.html">GR8 as a return value
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1211">[ date ]</a>
+              <a href="thread.html#1211">[ thread ]</a>
+              <a href="subject.html#1211">[ subject ]</a>
+              <a href="author.html#1211">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Having read through all the mail on this subject now, I think it
+reflects a fundamental erroneous assumption, namely that weak symbols
+will yield to strong symbols.  That is mostly true on Irix and Linux,
+but not on most other SVR4 implementations, and not even on Irix and
+Linux for delay-loaded DSO objects.  Most (all?) of them do that
+within a linked object, but once an object has been linked, the
+distinction between the two disappears, and the first one in search
+order is the one used when the program runs.  (This is true of SCO and
+AIX, and I thought of HPUX and Compaq, though the base ABI discussion
+of this was a year ago.)  That means that if the definitions are spread
+over DSO boundaries, the callsite definition (weak COMDAT) will
+override the &quot;primary&quot; definition with the class (strong non-COMDAT) if
+it comes first.  And since that will normally occur as a result of the
+class definition being in a library being used by the caller's module,
+this will be the rule rather than the exception.  So a &quot;pure weak&quot;
+model (i.e. Irix/Linux where weak always yields)
+
+This might be OK, if (a) it helped implementors a lot, and (b) there
+was a clear transition path to the desired endpoint.  But (b) presents
+a serious problem.  Even an optimized implementation that emits the
+thunks where they &quot;belong&quot; must continue to also emit them with the
+callers as long as there exist implementations which don't supply them
+with the class definitions, and therefore must suffer sub-optimal
+results even for their own code if they don't use the pure weak model.
+And as long as the sub-optimal model is considered ABI-compliant, we'll
+continue to have it indefinitely.
+
+As for being easier to implement, I just don't see it.  The thunks are
+trivial bits of code (worse perhaps if you fall through, but that's not
+required).  Compared to the other changes we've required, this one
+seems real minor.
+
+&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> Perhaps.  Christophe and I came up with this suggestion because it
+</I>&gt;<i> doesn't actually remove any of the benefits of the innovation.  For
+</I>&gt;<i> example, allowing virtual bases to be primary is a major change in
+</I>&gt;<i> everyone's compilers -- but it does also provide a big win for some
+</I>&gt;<i> code.  By simply mandating that compilers put out the old-style
+</I>&gt;<i> thunks, we'd cost only space in .o's -- a good compiler can override
+</I>&gt;<i> with the new-style thunks (modulo the linker issue you raised), and
+</I>&gt;<i> then the final executable will be precisely the same as currently
+</I>&gt;<i> specified.
+</I>
+As I explained above, this isn't true.  Most of the Unix systems out
+there treat weak symbols like strong ones once they're linked.
+
+&gt;<i> So, all we're suggesting is easing things for implementors without
+</I>&gt;<i> limiting the performance gains from the ABI at all.
+</I>&gt;<i> 
+</I>&gt;<i> It's not that -- it's the fact that the thunks you have to emit have a
+</I>&gt;<i> pretty different form from the usual thunks.  They have to look at
+</I>&gt;<i> vcall offsets too -- not just make the usual single this adjustment.
+</I>
+I guess I don't understand this comment.  Whether the thunk has to look
+at the vcall offset doesn't have anything to do with where it's
+emitted.  If you want to emit a thunk with a hard-coded offset, that's
+OK by the as-if rule, in either place.
+
+&gt;<i> The reason this particular issue is coming up (as opposed to, say,
+</I>&gt;<i> vcall offsets or virtual bases as priamry bases) is that it tends to
+</I>&gt;<i> impact compiler back-ends much more than most of our other changes.
+</I>&gt;<i> In a lot of organizations, the back-ends are much more separate from
+</I>&gt;<i> the front-ends than they are in GCC -- for example, maintained by an
+</I>&gt;<i> entirely different group with different management.  Interfaces
+</I>&gt;<i> between front-ends and back-ends have to change, optimizers have to be
+</I>&gt;<i> revalidated, all tools that process the back-end representation have
+</I>&gt;<i> to be recompiled, etc.
+</I>
+Why?  The thunk is just another (rather simple) function.  The front
+end should be able to produce it in its intermediate language if that's
+desirable, and leave the back end blissfully unaware.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001210.html">Meeting reminder
+</A></li>
+	<LI>Next message: <A HREF="001212.html">GR8 as a return value
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1211">[ date ]</a>
+              <a href="thread.html#1211">[ thread ]</a>
+              <a href="subject.html#1211">[ subject ]</a>
+              <a href="author.html#1211">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

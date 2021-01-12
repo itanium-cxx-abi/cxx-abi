@@ -1,0 +1,233 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call stuff, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C38B2E0AD.BB761E10%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000608.html">
+   <LINK REL="Next"  HREF="000633.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call stuff, again</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C38B2E0AD.BB761E10%40cup.hp.com%3E"
+       TITLE="Virtual function call stuff, again">ddd at cup.hp.com
+       </A><BR>
+    <I>Tue Feb 22 19:17:01 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000608.html">Virtual function call stuff, again
+</A></li>
+        <LI>Next message: <A HREF="000633.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#627">[ date ]</a>
+              <a href="thread.html#627">[ thread ]</a>
+              <a href="subject.html#627">[ subject ]</a>
+              <a href="author.html#627">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mark Mitchell wrote:
+&gt;<i> 
+</I>&gt;<i>   The discussion in the `callee' section on &quot;Virtual Function Calling
+</I>&gt;<i> Convention&quot; is very unclear.  For example, it's not explained which
+</I>&gt;<i> classes are bases of which others.
+</I>
+Mark, I did not find anything containing &quot;Virtual Function Calling Convention&quot;
+in the documentation. Could you specify an URL and quote the original text, it
+would help me locating it...
+
+
+&gt;<i>  Here's an attempted rewrite.
+</I>&gt;<i> Let's see if it's what y'all meant.
+</I>
+&gt;<i> 
+</I>&gt;<i>   o Suppose a class `A' defines a virtual function `A::f'.  The
+</I>&gt;<i>     primary vtable for `A' contains a pointer to an entry point
+</I>&gt;<i>     that performs no adjustment.
+</I>&gt;<i> 
+</I>&gt;<i>   o Suppose that a class `A' declares a virtual function `A::f',
+</I>&gt;<i>     and suppose that `A' is a base class in a hierarchy dominated
+</I>&gt;<i>     by another class `B'.  Suppose that the unique final overrider for
+</I>&gt;<i>     `A::f' in `B' is `C::f'.  We must determine what entry point
+</I>&gt;<i>     is used for `f' in the `A-in-B' secondary vtable.  Here is the
+</I>&gt;<i>     algorithm:
+</I>&gt;<i> 
+</I>&gt;<i>     - Find any path from `B' to `C' in the inheritance graph for `B'.
+</I>&gt;<i> 
+</I>&gt;<i>     - If there is no virtual base along the path, then create
+</I>&gt;<i>       an entry point which adjusts the `this' pointer from `A' to `C'.
+</I>&gt;<i>       This value can be computed statically when the `A-in-B' vtable
+</I>&gt;<i>       is created.  Then transfer control to the non-adjusting entry
+</I>&gt;<i>       point for `C::f'.
+</I>
+Yes. What's more, in that case, the offset is stored in the vtable at a
+(possibly large) constant negative offset from the vptr. We called this offset
+'convert_to_C', and it is used only when the final overrider is a C. The A-in-B
+vtable contains a 'convert_to_C' value that converts from an A* to a C*. The
+benefits are explained in
+<A HREF="http://reality.sgi.com/dehnert_engr/cxx/cxx-closed.html,">http://reality.sgi.com/dehnert_engr/cxx/cxx-closed.html,</A> section B-1.
+
+
+&gt;<i>     - If there is a virtual base along this path, let `V' be the
+</I>&gt;<i>       virtual base nearest to `C' along the path.  (In fact, `V'
+</I>&gt;<i>       will be `C' itself if `C' is a virtual base.)
+</I>
+You are considering a path between B and C, so V would be the closest between B
+and C. In which case I do not understand the adjustment below (&quot;Adjustment from
+'A' to 'V'&quot;). Either you are considering that V is between A and C, in which
+case you need to adjust from A to V, or you are considering that V is between C
+and B, in which case if you see it at call site, you would have to adjust from B
+to V. Did I misunderstand?
+
+
+&gt;<i> 
+</I>&gt;<i>       (Note that the choice of `V' is independent of the choice of path.
+</I>&gt;<i>       If there was more than one path, then there must have been a
+</I>&gt;<i>       virtual base along all of the paths, and there is a unique one
+</I>&gt;<i>       closest to `C'.)
+</I>&gt;<i> 
+</I>&gt;<i>       Now, create an entry point which first performs the adjustment
+</I>&gt;<i>       from `A' to `V'.  (This value can be computed statically, when
+</I>&gt;<i>       the `A-in-B' vtable is created.)  Then, adjust the `this'
+</I>&gt;<i>       pointer by the vcall offset stored in the secondary vtable for
+</I>&gt;<i>       `V' (i.e., the `V-in-B' vtable).  (This adjustment will adjust
+</I>&gt;<i>       the `this' pointer from `V' to `C'.)  Finally, transfer control
+</I>&gt;<i>       to the non-adjusting entry point for `C::f'.
+</I>&gt;<i> 
+</I>&gt;<i>   Is that correct?
+</I>
+Maybe, but I'm not sure I understood... :-)
+
+
+So, starting with your example again. Sorry for the verbiage...
+
+Case 1 is: V is between A and C.
+
+- If you call through an A*, you call through the A vtable, which points to a
+virtual-base-adjustment thunk. That thunk reads the C-to-A virtual base offset,
+and adds that to get a C*, and then jumps to the non-adjusting C::f. Of course,
+the C-to-A virtual base offset is not necessarily constant along the class
+hierarchy, so for instance the C-to-A virtual base offset in a C is not the same
+as the C-to-A virtual base offset in a B.
+
+- If you call through a C*, you call through the C vtable. In that case, you
+don't care if A is a virtual base, since C::f expects a C*. Virtual-base
+adjustment to A, if necessary, would be done inside C::f. So the C vtable points
+to the non-adjusting entry point.
+
+- If you call through a B*, you call through the C vtable (the final overrider
+for f), and you adjust to a C* statically.
+
+
+Case 2: V is between C and B:
+
+- If you call through an A*, you call through the A vtable. The offset from A to
+C is constant in the class hierarchy, but there may be multiple bases A1, A2,
+A3, with different offsets. The &quot;classical&quot; approach is to use multiple thunks
+that convert from A1 to C, from A2 to C, from A3 to C. Because of the high cache
+muss and branch misprediction penalty, I proposed that we rather have all
+vtables A1-in-C, A2-in-C, ... contain an offset, call it 'Convert_to_C', that
+adjusts from A1 to C, A2 to C, etc. This way, there can be a single adjusting
+entry point that does this adjustment (although you can still emit thunks)
+
+- If you call through a C*, you call through the C vtable, which points to the
+non-adjusting entry point C::f.
+
+- If you call through a B*, you need at call-site to convert from B* to C*,
+which involves a dynamic adjustment using the B-to-V virtual base offsets in B's
+vtable, followed by a static adjustment from V to C (which is known at
+compile-time).
+
+
+I'm not sure I clarified anything ;-)
+
+
+
+&gt;<i>   It seems like the scheme specified in the ABI is advantageous in a
+</I>&gt;<i> situation where `C' is the same as `A', and `A' is the same as `V'.
+</I>&gt;<i> (In other words, if `A' is a virtual base and `A::f' is not overriden
+</I>&gt;<i> in `B'.)  Then, by emitting the vcall-adjusting entry point right
+</I>&gt;<i> before the main entry point for `C::f', calling `f' requires only one
+</I>&gt;<i> branch (to the entry point specified in the vtable), rather than two
+</I>&gt;<i> (to a thunk, and then from the thunk to the main function).  Right?
+</I>
+First, note that the scheme is believed to be advantageous whenever there is no
+virtual inheritance, which I think is a frequent case. Cache locality plays a
+big role here.
+
+Second, in the virtual base case, there is no guarantee that the thunk will be
+right before the non-adjusting entry point: as Jason pointed out, you cannot
+find a single offset to use to perform the adjustment.
+
+Third, I do not understand in this statement whether you are calling through an
+A*, B* or C*.
+
+&gt;<i> 
+</I>&gt;<i>   I still can't see why it is a win to use vcall offsets in the case
+</I>&gt;<i> where `A' and `V' are not the same class.  You already have to do one
+</I>&gt;<i> static adjustment in the entry point -- why not just adjust all the
+</I>&gt;<i> way to `B' directly, without bothering to look up the vcall offset?
+</I>
+I did not understand this question :-( If you feel a static thunk is better than
+a dynamic lookup, then you can emit that thunk and point to it through the
+vtable, as Jason pointed out. The ABI allows you to do that.
+
+
+&gt;<i>   Furthermore, the actual algorithm used to perform the adjustments
+</I>&gt;<i> does not seem necessarily to be part of the ABI.  The layout of the
+</I>&gt;<i> vtables is certainly part of the ABI.  But, if one compiler wants to
+</I>&gt;<i> completely ignore the vcall offset entries in the vtables, and compute
+</I>&gt;<i> the entire adjustment statically, shouldn't that be permitted by the
+</I>&gt;<i> ABI, even though it might require one extra branch?  Surely that's
+</I>&gt;<i> just a quality-of-implementation issue?
+</I>
+Correct. Again, that seems clear to me from Jason's writeup:
+
+
+Note that the ABI only specifies the multiple entry points; how those entry
+points are provided is unspecified. An existing compiler which uses thunks could
+be converted to use this ABI by only adding support for the vcall offsets. A
+more efficient implementation would be to emit all of the thunks immediately
+before the non-adjusting entry point to the function. Another might use
+predication rather than branches to reach the main function. Another might emit
+a new copy of the function for each entry point; this is a quality of
+implementation issue.
+
+
+
+Regards
+Christophe &quot;This stuff is complicated&quot; de Dinechin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000608.html">Virtual function call stuff, again
+</A></li>
+	<LI>Next message: <A HREF="000633.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#627">[ date ]</a>
+              <a href="thread.html#627">[ thread ]</a>
+              <a href="subject.html#627">[ subject ]</a>
+              <a href="author.html#627">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

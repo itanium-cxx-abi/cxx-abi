@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Possibly%20ambiguous%20mangling%20of%20extern%20%22C%22%20functions&In-Reply-To=%3C29bd08b70808191646j711ce531x1b7f86f95dc6bf78%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002023.html">
+   <LINK REL="Next"  HREF="002018.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions</H1>
+    <B>Lawrence Crowl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Possibly%20ambiguous%20mangling%20of%20extern%20%22C%22%20functions&In-Reply-To=%3C29bd08b70808191646j711ce531x1b7f86f95dc6bf78%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions">crowl at google.com
+       </A><BR>
+    <I>Tue Aug 19 23:46:21 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002023.html">[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions
+</A></li>
+        <LI>Next message: <A HREF="002018.html">[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2020">[ date ]</a>
+              <a href="thread.html#2020">[ thread ]</a>
+              <a href="subject.html#2020">[ subject ]</a>
+              <a href="author.html#2020">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 8/19/08, Michael Wong &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">michaelw at ca.ibm.com</A>&gt; wrote:
+&gt;<i> The example in question is at the end of &quot;5.1.5 Type encodings&quot;.  of
+</I>&gt;<i> <A HREF="http://www.codesourcery.com/public/cxx-abi/abi.html.">http://www.codesourcery.com/public/cxx-abi/abi.html.</A>
+</I>&gt;<i>
+</I>&gt;<i> In this example, it is using an extern &quot;C&quot; function as a parameter to a
+</I>&gt;<i> class template. There are two problems:
+</I>&gt;<i> 1. Should there be full mangling, partial mangling, or no mangling of the
+</I>&gt;<i> extern 'C&quot; function as a template parameter?
+</I>&gt;<i> 2. Should there be an X...E (after the I and before the L) since there is a
+</I>&gt;<i> &lt;expr-primary&gt; production under &lt;template-arg&gt; that makes that the case.
+</I>&gt;<i>
+</I>&gt;<i> Here is the example I actually used:
+</I>&gt;<i>
+</I>&gt;<i> extern &quot;C&quot; bool IsEmpty(char *); // (un)mangled as IsEmpty
+</I>&gt;<i>  template&lt;bool (&amp;)(char *)&gt; struct CB { static int x; };
+</I>&gt;<i>  // CB&lt;IsEmpty&gt; is mangled as &quot;2CBIL_Z7IsEmptyEE&quot;
+</I>&gt;<i>  int *p = &amp;CB&lt;IsEmpty&gt;::x;
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The example is shown without any supporting rules in the spec which makes it
+</I>&gt;<i> hard to justify other then an intuition, and it is shown with just the _Z7
+</I>&gt;<i> prefix mangling on the function. It does not mangle the function parameter,
+</I>&gt;<i> which may be OK if the group decides it is so since extern &quot;C&quot; function
+</I>&gt;<i> can't be overloaded anyway and you can't have it with different parameters.
+</I>&gt;<i> But then why bother to mangle it at all?
+</I>
+The mangling must distinguish between an extern &quot;C&quot; function and an
+extern &quot;C++&quot; function of the same signature.  You cannot have both in
+the same translation unit, but you can have both in the same program.
+
+Some form of mangling for the C function is required to ensure that
+one can parse the containing name.
+
+&gt;<i>
+</I>&gt;<i> Checking various versions of GNU also shows different mangling with the
+</I>&gt;<i> latest that I have (4.1.2) deviating the most from the example. I show the
+</I>&gt;<i> example with and without the extern &quot;C&quot;.
+</I>&gt;<i>
+</I>&gt;<i> gcc (GCC) 4.1.2 20071124 (Red Hat 4.1.2-42)
+</I>&gt;<i> with extern &quot;C&quot;:
+</I>&gt;<i> _ZN2CBILZ7IsEmptyEE1xE &lt;== GCC missing X and has the Z (but no underscore)
+</I>&gt;<i>
+</I>&gt;<i> without extern &quot;C&quot;:
+</I>&gt;<i> _ZN2CBILZ7IsEmptyPcEE1xE &lt;=== This is close but it is still missing the X
+</I>&gt;<i> and has no _Z
+</I>&gt;<i>
+</I>&gt;<i> gcc (GCC) 3.3.4
+</I>&gt;<i> with extern &quot;C&quot;:
+</I>&gt;<i> _ZN2CBIXL7IsEmptyEEE1xE &lt;== Older GCC has the X, but leaves out the _Z or Z
+</I>&gt;<i> (same as us with extern &quot;C&quot;), indicating no mangling, but it has the 7
+</I>&gt;<i>
+</I>&gt;<i> without extern &quot;C&quot;:
+</I>&gt;<i> _ZN2CBIXL_Z7IsEmptyPcEEE1xE &lt;== This one looks OK, same as us without extern
+</I>&gt;<i> &quot;C&quot;
+</I>&gt;<i>
+</I>&gt;<i> Anybody can report what EDG/Intel generates? Thanks.
+</I>&gt;<i>
+</I>&gt;<i>  Michael Wong
+</I>&gt;<i>  XL C++ Compiler kernel Development
+</I>&gt;<i>  IBM Canada Ltd., C2/KD2/8200/MKM
+</I>&gt;<i>  8200 Warden Avenue
+</I>&gt;<i>  Markham, Ontario  L6G 1C7
+</I>&gt;<i>  W:905-413-3283 F:905-413-4839
+</I>&gt;<i>  Boost test results
+</I>&gt;<i> <A HREF="http://www-1.ibm.com/support/docview.wss?rs=2239&amp;context=SSJT9L&amp;uid=swg27006911">http://www-1.ibm.com/support/docview.wss?rs=2239&amp;context=SSJT9L&amp;uid=swg27006911</A>
+</I>&gt;<i>  C/C++ Compilers Support Page
+</I>&gt;<i> <A HREF="http://www.ibm.com/software/awdtools/ccompilers/support/">http://www.ibm.com/software/awdtools/ccompilers/support/</A>
+</I>&gt;<i>  C/C++ Feature Request Interface
+</I>&gt;<i> <A HREF="http://www.ibm.com/support/docview.wss?uid=swg27005811">http://www.ibm.com/support/docview.wss?uid=swg27005811</A>
+</I>&gt;<i>  XL Fortran Compiler Support Page
+</I>&gt;<i> <A HREF="http://www.ibm.com/software/awdtools/fortran/xlfortran/support/">http://www.ibm.com/software/awdtools/fortran/xlfortran/support/</A>
+</I>&gt;<i>  XL Fortran Feature Request Interface
+</I>&gt;<i> <A HREF="http://www.ibm.com/support/docview.wss?uid=swg27005812">http://www.ibm.com/support/docview.wss?uid=swg27005812</A>
+</I>
+
+-- 
+Lawrence Crowl
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002023.html">[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions
+</A></li>
+	<LI>Next message: <A HREF="002018.html">[cxx-abi-dev] Possibly ambiguous mangling of extern &quot;C&quot; functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2020">[ date ]</a>
+              <a href="thread.html#2020">[ thread ]</a>
+              <a href="subject.html#2020">[ subject ]</a>
+              <a href="author.html#2020">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2387 @@
+From mark at codesourcery.com  Fri Sep  1 02:04:09 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 31 Aug 2000 19:04:09 -0700
+Subject: Bug in definition of key function
+Message-ID: <20000831190409S.mitchell@codesourcery.com>
+
+
+In 5.2.3, the definition of key function should require a non-pure
+virtual function.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From samuel at codesourcery.com  Fri Sep  1 03:18:43 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Thu, 31 Aug 2000 20:18:43 -0700 (PDT)
+Subject: local names
+Message-ID: <14767.8211.413998.411521@watercress.indetermi.net>
+
+Jeffrey, Jim,
+
+I apologize for not being able to attend or call in today.
+
+I understand there was some confusion regarding the local namd issue.
+Let me see if I can clarify:
+
+Suppose you want to mangle the type of D in
+
+    void foo () {
+      class C {
+        class D {};
+      };
+    }
+
+As I understand it, you go through <class-enum-type> ::= <local-name>,
+since D is (indirectly) contained in a function scope.  This gives you
+
+    Z <function encoding> E <entity name>
+
+The <function encoding> for foo () is `3foov'.  Now, since D not in
+file scope, you use the production
+
+    <name> ::= <nested-name> ::=
+           ::= N <prefix> <component> E
+           ...
+           ::= N <component> <component> <component> E
+
+The innermost <component> is `1D', the next is `1C', and the outermost
+one is a <local-name> for foo, I think.  This is clearly not
+necessary, since the we've already encoded foo up front.  
+
+So, I think when we encode the <entity name> in the topmost
+<local-name> production, we should encode only up to, but not
+including, the innermost function scope, as if C::D was in file scope.
+There's no need for the <component> ::= <local-name> production.  This
+would yeild the mangling `Z3foovEN1C1DE'.
+
+Am I making any sense?
+
+Regards
+Alex
+
+
+
+From jason at redhat.com  Fri Sep  1 05:05:54 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 31 Aug 2000 22:05:54 -0700
+Subject: local names
+In-Reply-To: Alex Samuel's message of "Thu, 31 Aug 2000 20:18:43 -0700 (PDT)"
+References: <14767.8211.413998.411521@watercress.indetermi.net>
+Message-ID: <u9em341z2l.fsf@yorick.soma.redhat.com>
+
+>>>>> Alex Samuel <samuel at codesourcery.com> writes:
+
+ > The innermost <component> is `1D', the next is `1C', and the outermost
+ > one is a <local-name> for foo, I think.  This is clearly not
+ > necessary, since the we've already encoded foo up front.  
+
+Why not just put the foo inside the nested-name, rather than using the
+local-name production for local types?
+
+Jason
+
+
+
+From samuel at codesourcery.com  Fri Sep  1 05:24:39 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Thu, 31 Aug 2000 22:24:39 -0700 (PDT)
+Subject: local names
+In-Reply-To: <u9em341z2l.fsf@yorick.soma.redhat.com>
+References: <14767.8211.413998.411521@watercress.indetermi.net>
+	<u9em341z2l.fsf@yorick.soma.redhat.com>
+Message-ID: <14767.15767.39207.414982@watercress.indetermi.net>
+
+Jason Merrill <jason at redhat.com> writes:
+
+  Jason> Why not just put the foo inside the nested-name, rather than
+  Jason> using the local-name production for local types?
+
+I thought of that, but that leads to some funny-looking results.
+Suppose you have
+
+    class C {
+      void foo (int) {
+        class D {};
+      }
+    };
+
+The mangling for C::foo() is `_ZN1C3fooEi'.  Notice that the the
+parameter type (`i') is outside the `N...E'.  However, if you mangle
+the local type D, you would get something like `N1CZ3fooiE1DE'.  Now
+the parameter type has to go inside the `Z...E' since otherwise you
+can't tell where the function's signature ends.
+
+If the usual mangling for functions were delimited by `Z...E' instead
+of starting with `Z' but ending at the end-of-string, I'd definitely
+advocate encoding a function scope similarly to a class or namespace
+scope, in a <nested-name>.  But given the above issue (and the fact
+that we have currently two working mangling implementations and a
+working demangler), I'd strongly recommend leaving it as it is, which
+is correct and just as efficient.
+
+Regards
+Alex
+
+
+
+From mark at codesourcery.com  Fri Sep  1 05:48:16 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 31 Aug 2000 22:48:16 -0700
+Subject: COMDAT
+Message-ID: <20000831224816F.mitchell@codesourcery.com>
+
+
+When the ABI specifies that things must be placed in the same COMDAT
+group, does that really matter?
+
+For example, suppose that you put all virtual function thunks in
+COMDAT groups, using the mangled name of the thunk as the name of the
+COMDAT group.  (This is sub-optimal because you cannot use the
+fall-through implementation of thunks, but that's not an ABI issue.)
+Should this be allowed by the ABI?
+
+(Right now, the ABI specifies that you must put the virtual function in
+the same COMDAT group as the thunked-to function.)
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Fri Sep  1 09:06:51 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Fri, 1 Sep 2000 11:06:51 +0200 (MET DST)
+Subject: RTTI data member names, NTBS COMDAT
+In-Reply-To: <20000831141814I.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Thu, 31 Aug 2000 14:18:14 -0700)
+References: <200008310838.KAA09917@pandora.informatik.hu-berlin.de>
+	<20000831112826U.mitchell@codesourcery.com>
+	<200008311947.VAA08684@pandora.informatik.hu-berlin.de> <20000831141814I.mitchell@codesourcery.com>
+Message-ID: <200009010906.LAA08076@pandora.informatik.hu-berlin.de>
+
+> On the source file level:
+> 
+>   #define array_type_info ...
+
+On its own, it's not a problem to just have that define. You'd have to
+write
+
+#define base_type const int
+#include <cxxabi.h>
+
+int main(){}
+
+My point is that users have to make an explicit choice to use the
+header. When she does, she's responsible for respecting its
+requirements.
+
+I recently ran into the problem that a #define min(a,b) ... would
+conflict with numeric_limits::min(). As a user, if I chose to use some
+features, I have to accept the consequences.
+
+As a pointed out, there is no problem from a formal point of standards
+compliance. There is also likely no practical problem: Most users have
+the convention of writing #defines in all-uppercase. That won't
+conflict with our field names.
+
+To further strengthen my point, I tried to establish prior uses of the
+field names:
+
+type_name: gtk/gtktypeutils.h uses it as a field name
+           octave-2.0.16/ov-base.h as a method name
+flags:     member of ios_base
+context:   Parameter name in Xm/Xm.hbase_count
+base_type: RogueWave's C++ library uses this as a typedef name in many
+           places
+
+I could not find uses for the other names below, including no
+occurence in #define
+
+base_info flag_masks non_diamond_repeat_mask diamond_shaped_mask
+offset_flags offset_flags_masks virtual_mask public_mask offset_shift
+pointee const_mask volatile_mask restrict_mask incomplete_mask
+incomplete_class_mask
+
+So I think it would be formally acceptable, practically reasonable and
+convenient for users to change the names.
+
+Regards,
+Martin
+
+
+
+From jason at redhat.com  Fri Sep  1 09:12:47 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 01 Sep 2000 02:12:47 -0700
+Subject: COMDAT
+In-Reply-To: Mark Mitchell's message of "Thu, 31 Aug 2000 22:48:16 -0700"
+References: <20000831224816F.mitchell@codesourcery.com>
+Message-ID: <u966og1nn4.fsf@yorick.soma.redhat.com>
+
+>>>>> Mark Mitchell <mark at codesourcery.com> writes:
+
+ > When the ABI specifies that things must be placed in the same COMDAT
+ > group, does that really matter?
+
+I would say no.  If they are not in the proper COMDAT group, but are weak,
+the semantics should be the same other than a waste of space.
+
+Jason
+
+
+
+From mark at codesourcery.com  Fri Sep  1 15:32:26 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 01 Sep 2000 08:32:26 -0700
+Subject: COMDAT
+In-Reply-To: <u966og1nn4.fsf@yorick.soma.redhat.com>
+References: <20000831224816F.mitchell@codesourcery.com>
+	<u966og1nn4.fsf@yorick.soma.redhat.com>
+Message-ID: <20000901083226S.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> When the ABI specifies that things must be placed in the same
+    >> COMDAT group, does that really matter?
+
+    Jason> I would say no.  If they are not in the proper COMDAT
+    Jason> group, but are weak, the semantics should be the same other
+    Jason> than a waste of space.
+
+That was what I thought, too, but I was not 100% sure about the
+semantics of COMDAT.  Jim, if the changes this entails are too
+substantial, perhaps a single paragraph somewhere at the top saying
+something like:
+
+  In all cases where this document states that symbols be placed in
+  COMDAT groups with particular names, an implementation is free to
+  place the symbol in an alternate location, provided that the
+  symbol is weak.  This document describes a space-efficient
+  implementation, combining more than one entity into single COMDAT
+  groups in order to avoid wasting space, but separating those
+  entities into individual COMDAT groups or simply making the symbols
+  weak, but not a member of any COMDAT group, is also a correct
+  implementation of the ABI.
+
+Does that sound about right?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From cary at cup.hp.com  Fri Sep  1 16:20:28 2000
+From: cary at cup.hp.com (Cary Coutant)
+Date: Fri, 1 Sep 2000 09:20:28 -0700
+Subject: Unwind API for EH
+Message-ID: <200009011623.JAA25472@adlmail.cup.hp.com>
+
+>I don't really like this, either.  The problem here is now the unwinder is 
+> given the power to choose how to set up the processor for the landing 
+>pad.  I'd  rather that this be in the control of the language vendor, 
+>since we're making a  transfer of control to their code, under very 
+>special circumstances - they know about their  unwind data structures, and 
+>the unwinder doesn't.  So the implementation should be  free to choose 
+>specifics about the processor here that make for the best transfer of  
+>control they can manage.
+
+Yes, I agree, and this was the original idea behind using the more 
+generic interface. The problem with that, however, was that we ended up 
+asking the unwind API to provide the capability to set four scratch 
+registers that it otherwise would never have had anything to do with -- 
+the unwind library does not normally need to track scratch registers, and 
+it would be wasteful to require it to provide space in the unwind context 
+record for all scratch registers. Thus, the restriction was born that the 
+API worked only for these four registers. Now, we're back to what we were 
+trying to avoid in the first place -- the unwind library now has to know 
+the details of the landing pad interface, so that it knows what registers 
+to support. Now, the contract is among three parties instead of two. I 
+argue that it's better to architect those registers at this level, and 
+abstract the interface between the personality routine and the unwind 
+library.
+
+At the risk of drawing this discussion on longer than it deserves, let me 
+float an alternative, that lets the contract remain between the 
+personality routine and the landing pad (i.e., compiler). The personality 
+routine, when it returns with _URC_INSTALL_CONTEXT, needs to be able to 
+specify a full context -- e.g., an mcontext_t -- not just an unwind 
+context, which contains only the preserved register state. We could 
+provide an additional by-reference parameter to the personality routine 
+interface that allows this. The personality routine could then allocate 
+an mcontext_t, initialize it with the unwind context (presumably with a 
+new API), modify that mcontext_t as desired (presumably with another new 
+API), and return the pointer to it.
+
+A simplification of the above mechanism might be to allow the personality 
+routine to return a list of pairs -- register number and value -- that 
+need to be installed along with the unwind context.
+
+Either of these proposals let us keep unneeded state information out of 
+the unwind context record. (And size *does* matter, which is what led me 
+to bring this up in the first place.)
+
+I still prefer my original suggestion, however. It's the simplest, and 
+it's a small change. It keeps the number of parties involved in the 
+contract down to two, even though it may not be the ideal two. And I 
+don't think the advantage of leaving the landing pad parameter passing 
+convention unarchitected is that great. 
+
+-cary
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Sep  1 20:09:03 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 1 Sep 2000 13:09:03 -0700 (PDT)
+Subject: COMDAT
+Message-ID: <200009012009.NAA01333@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> When the ABI specifies that things must be placed in the same COMDAT
+> group, does that really matter?
+> 
+> For example, suppose that you put all virtual function thunks in
+> COMDAT groups, using the mangled name of the thunk as the name of the
+> COMDAT group.  (This is sub-optimal because you cannot use the
+> fall-through implementation of thunks, but that's not an ABI issue.)
+> Should this be allowed by the ABI?
+> 
+> (Right now, the ABI specifies that you must put the virtual function in
+> the same COMDAT group as the thunked-to function.)
+
+
+> From: Jason Merrill <jason at redhat.com>
+> 
+> ...  If they are not in the proper COMDAT group, but are weak,
+> the semantics should be the same other than a waste of space.
+
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> That was what I thought, too, but I was not 100% sure about the
+> semantics of COMDAT.  Jim, if the changes this entails are too
+> substantial, perhaps a single paragraph somewhere at the top saying
+> something like:
+> 
+>   In all cases where this document states that symbols be placed in
+>   COMDAT groups with particular names, an implementation is free to
+>   place the symbol in an alternate location, provided that the
+>   symbol is weak.  This document describes a space-efficient
+>   implementation, combining more than one entity into single COMDAT
+>   groups in order to avoid wasting space, but separating those
+>   entities into individual COMDAT groups or simply making the symbols
+>   weak, but not a member of any COMDAT group, is also a correct
+>   implementation of the ABI.
+> 
+> Does that sound about right?
+
+First, correctness.  The only problems I can think of would be
+(1) if a non-weak symbol caused a conflict with the "correct" version
+in the COMDAT group; or (2) if a COMDAT group with the specified name
+but missing some of the specified contents (e.g. because they had been
+put in different groups) prevented kept the "correct" version from
+being loaded, but didn't cause all of the required contents to be
+loaded.  I think your wording excludes the first problem, and could
+mostly be extended to avoid the second, although vendors' different
+definitions of how weak symbols behave in DSOs may prevent getting it
+right if the main executable has an incomplete set of weaks and a DSO
+has the full set in a COMDAT.
+
+However, with respect to what the ABI should say, I'd rather not.
+The reason is that the usual "as if" rule makes it unnecessary.  (We
+haven't explicitly stated the rule -- I always assume it -- but could.)
+And if we put in an explicit statement about a permissible alternative,
+that could be interpreted as allowing the alternative even if it turns
+out that it's not really equivalent for reasons we didn't anticipate.
+
+We do have the examples document, that includes some implementation
+suggestions.  I wouldn't mind putting something there about this, with
+sufficient caveats...
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Sep  1 20:52:06 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 1 Sep 2000 13:52:06 -0700 (PDT)
+Subject: local names
+References: <14767.8211.413998.411521@watercress.indetermi.net>
+    <u9em341z2l.fsf@yorick.soma.redhat.com>
+Message-ID: <200009012052.NAA01380@baalbek.engr.sgi.com>
+
+OK, now I think I understand the issue at least.  But I interpret what
+we have differently.  Consider the examples that have come up:
+
+    void foo () {
+      class C {
+        class D {};
+      };
+    }
+
+To mangle D here, I would use:
+
+  <encoding> ::- <name>
+	     ::- <local-name>
+	     ::- Z <function encoding> E <entity name>
+where:
+  <function encoding> ::- <name> <bare-function-type>
+		      ::- 3foo i
+  <entity name> ::- <nested-name>
+		...
+		::- N <component> <component> E
+		::- N 1C 1D E
+so the final result is:  Z 3foo i E N 1C 1D E
+
+The key difference from the original "problem" is, I think, that I do
+not think that the base function name should be considered part of the
+entity name.  Even if the latter is a compound name within the function,
+the entity name doesn't have foo as a compound component.
+
+
+The next example is analogous:
+
+    class C {
+      void foo (int) {
+        class D {};
+      }
+    };
+
+To mangle D here, <encoding> starts off the same, but
+  <function encoding> ::- <name> <bare-function-type>
+		      ::- <nested-name> <bare-function-type>
+		      ...
+		      ::- N <component> <component> E <bare-function-type>
+		      ::- N 1C 3foo E i
+  <entity name> ::- <name>
+		::- 1D
+so the final result is:  Z N 1C 3foo E i E 1D
+
+
+Finally, Mark's original example, which has two <local-name> levels:
+
+  void foo () {
+    struct C {
+      void bar () {
+	struct D {
+	  void baz() { }
+	}
+      }
+    }
+  }
+
+To mangle baz here, I would use:
+
+  <encoding> ::- <name>
+	     ::- <local-name>
+	     ::- Z <function encoding> E <entity name>
+where:
+  <function encoding> ::- <name> <bare-function-type>	 (bar)
+		      ::- <local-name> v
+		      ::- Z <function encoding> E <entity name> v
+		      ::- Z <name> <bare-function-type> E <nested-name> v
+		      ...
+		      ::- Z 3foo v E N 1C 3bar E v
+  <entity name> ::- <function name>
+		::- <function name> <bare-function-type>
+		::- <nested-name> <bare-function-type>
+		...
+		::- N <component> <component> E <bare-function-type>
+		::- N 1D 3baz E v
+yielding the final result:
+	Z Z 3foo v E N 1C 3bar E v E N 1D 3baz E v
+
+
+I think this works, using the current definitions and just
+understanding that the <entity name> in a <local-name> is always
+relative to the immediately enclosing function.  And there's no
+duplication here.  Although it might be slightly more efficient trying
+to integrate the function names into the <nested-name> component list,
+I'd be worried about conflicts with non-local names, and I'd rather not
+deal with the complications just to save some (presumably rare) nested
+Z-E pairs.
+
+Am I confused?  Or confusing?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From samuel at indetermi.net  Fri Sep  1 22:51:25 2000
+From: samuel at indetermi.net (Alex Samuel)
+Date: Fri, 1 Sep 2000 15:51:25 -0700 (PDT)
+Subject: local names
+In-Reply-To: <200009012052.NAA01380@baalbek.engr.sgi.com>
+References: <14767.8211.413998.411521@watercress.indetermi.net>
+	<u9em341z2l.fsf@yorick.soma.redhat.com>
+	<200009012052.NAA01380@baalbek.engr.sgi.com>
+Message-ID: <14768.13037.69125.710880@watercress.indetermi.net>
+
+Jim,
+
+I think we're in violent agreement -- at least on the mangling scheme,
+if not how to express it in writing.  I come up with all the same
+manglings you do for your examples.
+
+For instance,
+
+  Jim> Finally, Mark's original example, which has two <local-name>
+  Jim> levels:
+  ...
+  Jim> yielding the final result:
+  Jim>	Z Z 3foo v E N 1C 3bar E v E N 1D 3baz E v
+
+this is the same mangling I submitted with this example.  (I was the
+one who invented this monstrosity -- does Mark automatically get
+blamed for all the horrendous pathological cases now? ;)
+
+My point is that in none of your three examples did you use the
+production <component> ::= <local-name> (unless I am egregiously
+misinterpreting your notation), and I maintain it's not necessary.  It
+only confuses the issue that you address with
+
+  Jim> The key difference from the original "problem" is, I think,
+  Jim> that I do not think that the base function name should be
+  Jim> considered part of the entity name.
+
+That's what I meant in my first message about this when I wrote
+
+  Alex>  - When invoking <entity name> from <local-name>, the
+  Alex>    expansion of <name> needs to stop at the innermost
+  Alex>    function scope, to prevent an infinite recusion.
+
+In the first example, the <components> are (left to right) `1C' and
+`1D'.  In the second example, they are `1C', `3foo', and `1D'.  In the
+third example, they are `3foo', `1C', `3bar', `1D', and `3baz'.  None
+of these are <local-names>; observe that a <local-name> must begin
+with a `Z'.  Instead, they're just plain <source-name>s (via
+<unqualified-name>).
+
+Regards
+Alex
+
+
+
+From mark at codesourcery.com  Sat Sep  2 03:04:03 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 01 Sep 2000 20:04:03 -0700
+Subject: COMDAT
+In-Reply-To: <200009012009.NAA01333@baalbek.engr.sgi.com>
+References: <200009012009.NAA01333@baalbek.engr.sgi.com>
+Message-ID: <20000901200403K.mitchell@codesourcery.com>
+
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> not.  The reason is that the usual "as if" rule makes it
+    Jim> unnecessary.  (We haven't explicitly stated the rule -- I
+    Jim> always assume it -- but could.)
+
+Well, this goes a little beyond the normal as-if rule, which simply
+says that a program cannot detect the difference.  (For example, in
+C's abstract machine, if `x * 2' is implemented as `x + x', no
+conforming program can ever know how the operation was actually
+calculated.)
+
+But here, `nm' is certainly going to say something different about
+what's where.  So, I think there's a little more of an issue.
+
+Practically speaking, some vendors are not going to have COMDAT groups
+right away.  It would still be nice if they cna produce ABI-compliant
+binaries.  We have to be careful that we are not designing an ABI that
+will be slightly misimplemented in various incompatible ways -- it
+would be better to do something slightly less technically ambitious
+that permitted widespread implementation and interoperation.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Sep  2 07:49:38 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Sat, 2 Sep 2000 00:49:38 -0700 (PDT)
+Subject: COMDAT
+References: <200009012009.NAA01333@baalbek.engr.sgi.com>
+Message-ID: <200009020749.AAA02660@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+> 
+>     Jim> not.  The reason is that the usual "as if" rule makes it
+>     Jim> unnecessary.  (We haven't explicitly stated the rule -- I
+>     Jim> always assume it -- but could.)
+> 
+> Well, this goes a little beyond the normal as-if rule, which simply
+> says that a program cannot detect the difference.  (For example, in
+> C's abstract machine, if `x * 2' is implemented as `x + x', no
+> conforming program can ever know how the operation was actually
+> calculated.)
+> 
+> But here, `nm' is certainly going to say something different about
+> what's where.  So, I think there's a little more of an issue.
+
+I don't think nm's behavior is relevant.  The 'as if' rule involves
+whether the program itself can see a difference, not whether some
+external agent can see it.  After all, a debugger that looks at
+instructions can see the difference between x*2 and x+x.  And nm can
+see the difference when we inline all calls to a subprogram and remove
+the out-of-line version.  But we allow both of these.
+
+The reason this case seems more complicated is that its impact goes
+beyond the object file where it occurs, and needs to behave properly in
+the presence of objects from multiple compilers.  But the principle is
+the same -- if the program itself can't detect the difference, there is
+no difference.
+
+> Practically speaking, some vendors are not going to have COMDAT groups
+> right away.  It would still be nice if they cna produce ABI-compliant
+> binaries.  We have to be careful that we are not designing an ABI that
+> will be slightly misimplemented in various incompatible ways -- it
+> would be better to do something slightly less technically ambitious
+> that permitted widespread implementation and interoperation.
+
+I agree with this.  But I think it's better to suggest an alternate
+implementation in a separate document than in the ABI itself.  I guess
+I'm not convinced that we've thought of all the potential complications
+of mixed implementations.  And I know that I don't want to encourage a
+situation where, for instance, a carefully crafted fall-through
+alternate entry in a DSO is pre-empted by a weak thunk in the main
+executable.  The COMDAT stuff is new, but let's encourage its use, even
+while we recognize that, practically speaking, it will be phased in.
+Much of the rest of the ABI will be, too.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep  6 23:13:10 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 6 Sep 2000 16:13:10 -0700 (PDT)
+Subject: Page updates, scope section
+References: <200005160750.AAA10897@baalbek.engr.sgi.com>
+Message-ID: <200009062313.QAA14737@baalbek.engr.sgi.com>
+
+> From jason at redhat.com Thu Aug 31 00:58:05 2000
+> 
+> >>>>> Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+> 
+>  > I've updated the pages, to nearly reflect last week's meeting.
+>  > I would appreciate feedback especially on the new Section 1.4 on
+>  > Scope of the ABI, in which I've attempted to capture our deliberations
+>  > on the library interface and export templates.  It's not overly
+>  > precise, and perhaps can't be, but I'd like it to be a fair statement
+>  > of the situation.
+> 
+> I find the use of the term "runtime support library" confusing, as I
+> consider most of the ABI library to be runtime support (and, indeed, in gcc
+> this code is in the same library with software divide.
+> 
+> Particularly with EH, we need to define what goes where more specifically.
+
+I've attempted to clarify this somewhat, though I haven't yet mentioned
+EH specifically.  See if it's going in the right direction.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep  6 23:31:26 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 6 Sep 2000 16:31:26 -0700 (PDT)
+Subject: RTTI data member names
+References: <200008302311.QAA08436@baalbek.engr.sgi.com>
+Message-ID: <200009062331.QAA14764@baalbek.engr.sgi.com>
+
+Hi, all,
+
+I've updated all of the status pages _except_ the exception handling
+material (that's next), based on the last meeting.  Take a look.
+Note that the meeting next week has been cancelled, and the next one
+will be on 28 September.
+
+The following issue is one we didn't resolve in the meeting, and the
+discussion appears to have died down (can't have that, can we?) without
+an apparent concensus.  I find myself leaning towards Martin's
+suggestion that the RTTI members be given natural, normative names,
+due to his analysis of the downside below and the later observations
+that people typically use upper case for preprocessor macro names, and
+that most non-standard implementation-provided libraries do the same
+without ill effect.  It is clearly legal, and I doubt that it would
+cause problems in practice.  But my bias is very mild, and I'd rather
+not decide it.  Mark, has your opinion shifted during the discussion?
+Does anyone else oppose the suggestion who's just letting Mark present
+the case?
+
+Jim
+
+> From loewis at informatik.hu-berlin.de Thu Aug 31 01:38:04 2000
+> 
+> > Does anyone else have a comment on this issue?  Who suggested making
+> > RTTI names non-normative?  Why?
+> 
+> I think the way it is now, the names are quite clumsy to use, due to
+> the underscore business. So I propose two alternatives:
+> 
+> 1. make them non-normative. That leaves implementations the choice to
+>    expose them under more convenient names, or not to expose them.
+> 
+> 2. Review the decision to make use of reserved namespace.
+> 
+> I'd like to argue in favour of option 2. Reserved names are necessary
+> to avoid conflicts for strict conformance in the following situations:
+> 
+> 1. During linking, there may be conflicts with other symbols
+> 2. On the source level, there may be conflicts with other names in the
+>    same scope.
+> 3. There may be conflicts with preprocessor symbols.
+> 
+> Item 1 and item 2 are a non-issue. The names are already in the ABI
+> namespace, which has a reserved name in itself. So all names inside
+> that namespace automatically get a reserverd mangled name, and cannot
+> interfere with other names.
+> 
+> Item 3 is not a problem, because these names are available only
+> through cxxabi.h. Programs using that header are not strictly
+> conforming, and must play by the rules imposed by that header, namely,
+> not use these names as preprocessor symbols.
+> 
+> In short, my proposal is to remove the __ in all places, then make the
+> fields public.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Wed Sep  6 23:48:41 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 06 Sep 2000 16:48:41 -0700
+Subject: RTTI data member names
+In-Reply-To: <200009062331.QAA14764@baalbek.engr.sgi.com>
+References: <200008302311.QAA08436@baalbek.engr.sgi.com>
+	<200009062331.QAA14764@baalbek.engr.sgi.com>
+Message-ID: <20000906164841I.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> is very mild, and I'd rather not decide it.  Mark, has your
+    Jim> opinion shifted during the discussion? 
+
+I don't feel terribly strongly, but I still feel that it would be
+better to give these fields names that start with underscores.  Why
+risk a conflict, where we needn't have one?  
+
+Furthermore, I've got to say that at this point we're becoming
+frustrated with changes to the ABI that aren't absolutely essential.
+The current state is correct.  Every such change means that we'll have
+to go through and change two implementations of the library, three
+compiler implementations, the test suite, and so forth.
+
+Quite frankly, we've done a lot of work (by implementing the ABI) to
+flush out issues, and we feel that the existence of these
+implementations ought to be considered at this point.  In other words,
+we should transition from the mode of designing an ABI to the mode of
+finishing those bits that are still unspecified, clearing up
+ambiguities in the document, and so forth.  We now have existing
+practice, and we should standardize on that, unless there is a
+compelling reason to do otherwise.
+
+My two cents,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Sep  6 23:57:07 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 06 Sep 2000 16:57:07 -0700
+Subject: RTTI data member names
+In-Reply-To: Jim Dehnert's message of "Wed, 6 Sep 2000 16:31:26 -0700 (PDT)"
+References: <200008302311.QAA08436@baalbek.engr.sgi.com>
+	<200009062331.QAA14764@baalbek.engr.sgi.com>
+Message-ID: <u9og21qdkc.fsf@yorick.soma.redhat.com>
+
+I agree with Martin's suggestion.  We define the contents of cxxabi.h, so
+we can use any identifiers we like.  For public interfaces, we should use
+un-obfuscated names.
+
+Jason
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Sep  7 09:15:23 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Thu, 7 Sep 2000 11:15:23 +0200 (MET DST)
+Subject: RTTI data member names
+In-Reply-To: <20000906164841I.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Wed, 06 Sep 2000 16:48:41 -0700)
+References: <200008302311.QAA08436@baalbek.engr.sgi.com>
+	<200009062331.QAA14764@baalbek.engr.sgi.com> <20000906164841I.mitchell@codesourcery.com>
+Message-ID: <200009070915.LAA03298@pandora.informatik.hu-berlin.de>
+
+> Furthermore, I've got to say that at this point we're becoming
+> frustrated with changes to the ABI that aren't absolutely essential.
+
+I had the concerns about naming the RTTI types from the beginning; I
+apologize for not objecting earlier. I agree in principle that the ABI
+is in maintainence mode now; I disagree that such a change would have
+a serious impact.
+
+> Quite frankly, we've done a lot of work (by implementing the ABI) to
+> flush out issues, and we feel that the existence of these
+> implementations ought to be considered at this point.
+
+If you are thinking of the specific implementation I think you are
+thinking of, I'd volunteer to update that, provided there is agreement
+on the substance of the issue.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Thu Sep  7 16:30:19 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 07 Sep 2000 09:30:19 -0700
+Subject: RTTI data member names
+In-Reply-To: <200009070915.LAA03298@pandora.informatik.hu-berlin.de>
+References: <200009062331.QAA14764@baalbek.engr.sgi.com>
+	<20000906164841I.mitchell@codesourcery.com>
+	<200009070915.LAA03298@pandora.informatik.hu-berlin.de>
+Message-ID: <20000907093019Q.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+    Martin> beginning; I apologize for not objecting earlier. I agree
+    Martin> in principle that the ABI is in maintainence mode now; I
+
+Good.
+
+    Martin> disagree that such a change would have a serious impact.
+
+Yes, that's true -- but all the little changes add up.  Here, we're
+talking about several hours worth of work on several different
+compilers, and libraries.
+
+    >> Quite frankly, we've done a lot of work (by implementing the
+    >> ABI) to flush out issues, and we feel that the existence of
+    >> these implementations ought to be considered at this point.
+
+    Martin> If you are thinking of the specific implementation I think
+    Martin> you are thinking of, I'd volunteer to update that,
+    Martin> provided there is agreement on the substance of the issue.
+
+That's very kind; certainly above and beyond the call of duty.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Sep  7 22:31:47 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 7 Sep 2000 15:31:47 -0700 (PDT)
+Subject: Unwind API for EH
+References: <200008242136.OAA14410@adlmail.cup.hp.com>
+    <200008302331.QAA08550@baalbek.engr.sgi.com>
+    <39AE7148.125B65C7@inprise.com> <u9g0nl2qgr.fsf@yorick.soma.redhat.com>
+    <39AEB46A.CE2C5C65@inprise.com>
+Message-ID: <200009072231.PAA17179@baalbek.engr.sgi.com>
+
+OK, let's see if we can reach closure on this one.  I'll summarize the
+situation...
+
+We have three parties to the landing pad parameter passing:
+
+  PR (personality routine) generates the values, passes them to
+  UL (unwind library), which puts them where they are expected by
+  LP (landing pad).
+
+Now PR and LP need to know the semantics of the parameters, while
+UL and LP need to know what registers they're in (UL only because it
+needs to maintain space for them in its context record).  PR and LP are
+generated by the same compiler/implementation, while UL may come
+from a different implementation.
+
+The current interface definition adds the requirement that PR know which
+registers to use as well.
+
+Cary's proposal would remove this additional knowledge in PR (but not
+in LP, produced by the same implementation), with the benefit that PR
+could be somewhat less target-specific, and the PR-UL interface is
+trivially extensible to a different number of parameters (though the
+current interface just requires more or fewer _Unwind_SetGR calls).
+
+Personally, I think Cary's interface is marginally cleaner, but not
+significantly.  Given how late this is in the process, and the base
+psABI impact of a change, (and significant non-concensus,) I think it's
+better left as the status quo.  Does anyone have a major problem with
+this?
+
+However, the discussion does point out that the LP registers should be
+clearly identified in the ABI as the _only_ scratch registers that must
+be supported in the context.  Right?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Sep 12 00:03:12 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 11 Sep 2000 17:03:12 -0700 (PDT)
+Subject: Updates to exception handling
+Message-ID: <200009120003.RAA02549@baalbek.engr.sgi.com>
+
+I updated the exception handling page to include Jason's comments and
+meeting discussion, with two exceptions (due to lack of time, not lack
+of desire):
+
+  - I haven't moved anything to Level III yet (but will).
+
+  - I haven't done a specification of struct __cxa_throw_typeinfo,
+    used in the __cxa_exception definition (2.2.1) and as an argument
+    to __cxa_throw (2.4.3).  My notes on this one confuse me, but it
+    appears that we agreed that it should contain (or be?) a pointer
+    to a function returning a (std::type_info) void*.
+
+    Can anyone recall, or otherwise let me know the right answer?
+
+I'm leaving now -- back in two weeks.  Remember that the meeting on
+14 September is cancelled, and we'll meet next on 28 September.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From jason at redhat.com  Wed Sep 13 19:18:20 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 13 Sep 2000 12:18:20 -0700
+Subject: Updates to exception handling
+In-Reply-To: Jim Dehnert's message of "Mon, 11 Sep 2000 17:03:12 -0700 (PDT)"
+References: <200009120003.RAA02549@baalbek.engr.sgi.com>
+Message-ID: <u94s3km77n.fsf@yorick.soma.redhat.com>
+
+>>>>> Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+ >   - I haven't done a specification of struct __cxa_throw_typeinfo,
+ >     used in the __cxa_exception definition (2.2.1) and as an argument
+ >     to __cxa_throw (2.4.3).  My notes on this one confuse me, but it
+ >     appears that we agreed that it should contain (or be?) a pointer
+ >     to a function returning a (std::type_info) void*.
+
+ >     Can anyone recall, or otherwise let me know the right answer?
+
+struct __cxa_throw_typeinfo 
+{
+  std::type_info *tinfo;
+  void (*dtor)(void *); // in-charge, non-deleting
+};
+
+Jason
+
+
+
+From ddd at cup.hp.com  Fri Sep 15 22:18:39 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Fri, 15 Sep 2000 22:18:39 +0000
+Subject: Virtual Calls: Make the ABI match the implementations
+Message-ID: <39C2A03F.97D7B918@cup.hp.com>
+
+Folks,
+
+
+Mark and Christophe discussed the various existing implementations regarding the
+virtual call mechanism. The implementation of vcall offset thunks is additional
+work relative to existing practice. With a minor tweak, we can leave room for
+the proposed optimization while not implementing it right away.
+
+The proposal is that thunks are implemented as weak symbols (as they are
+generally today.) If an implementation decides to emit fall-through thunks, then
+it emits these thunks along with the function, as strong symbols. In that case,
+they will take precedence at link time.
+
+To allow for the "full" fall through optimization even in the case of virtual
+bases, vcall offsets are preserved. They will not be used in most
+implementations today, that emit weak thunks at call site, rather than strong
+thunks at callee site.
+
+This proposal is in-line with the current priority, which is to get the ABI to
+reflect what actual compilers will implement.
+
+
+The specific proposal is to rephrase the paragraph in 5.2.6:
+
+From:
+
+In such cases, where the need for a thunk is identified after the base function
+is declared, the thunk is emitted in a COMDAT group, identified by the (mangled)
+thunk name. It must be emitted in the object containing the key function
+definition for any class that causes it to be needed (D in the above example),
+or in all objects referencing it if there is no key function. Observe that
+different class hierarchies with the same virtual base may require override
+thunks for the same base function, which will coincide iff the adjustment
+offsets do.
+
+To:
+
+All thunks must be emitted in COMDAT groups in all object files which reference
+them.  As an optimization, thunks may be emitted as strong (non-COMDAT) symbols
+in the same object file as the function to which they ultimately transfer
+control.  This optimization permits the fall-through implementation of thunks
+described in the ABI Examples document.
+
+
+References to vcall offsets or vbase offsets at other places in the document are
+unchanged. Vcall offsets in particular are still needed to allow a complete
+fall-through optimization to happen in all cases.
+
+
+Mark and Christophe
+
+
+
+From jason at redhat.com  Tue Sep 19 03:33:49 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 18 Sep 2000 20:33:49 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Christophe de Dinechin's message of "Fri, 15 Sep 2000 22:18:39 +0000"
+References: <39C2A03F.97D7B918@cup.hp.com>
+Message-ID: <u94s3dkqci.fsf@yorick.soma.redhat.com>
+
+>>>>> Christophe de Dinechin <ddd at cup.hp.com> writes:
+
+ > The proposal is that thunks are implemented as weak symbols (as they are
+ > generally today.) If an implementation decides to emit fall-through thunks,
+ > then it emits these thunks along with the function, as strong symbols. In
+ > that case, they will take precedence at link time.
+
+Only if they are seen first.  Under the SVR4 ABI, a weak defn followed by a
+strong defn produces a multiply-defined symbol error.
+
+Many vendors break from this spec and allow the later strong defn to
+override the earlier weak, but not all.  SCO, for instance, doesn't.
+
+Perhaps the base ABI committee would consider changing this.
+
+Jason
+
+
+
+From drepper at redhat.com  Tue Sep 19 03:48:52 2000
+From: drepper at redhat.com (Ulrich Drepper)
+Date: 18 Sep 2000 20:48:52 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Jason Merrill's message of "18 Sep 2000 20:33:49 -0700"
+References: <39C2A03F.97D7B918@cup.hp.com>
+	<u94s3dkqci.fsf@yorick.soma.redhat.com>
+Message-ID: <m3wvg9m47v.fsf@otr.mynet.cygnus.com>
+
+Jason Merrill <jason at redhat.com> writes:
+
+> Perhaps the base ABI committee would consider changing this.
+
+I don't know whether this is true for SCO but the only other direct
+SysV derivate (Solaris) doesn't do it this way and allows weaks
+followed by strongs.  The subject of weak definition is something
+which will no be touched in the ABI group since there are too many
+differences.  We tried but gave up.
+
+-- 
+---------------.                          ,-.   1325 Chesapeake Terrace
+Ulrich Drepper  \    ,-------------------'   \  Sunnyvale, CA 94089 USA
+Red Hat          `--' drepper at redhat.com   `------------------------
+
+
+
+From ddd at cup.hp.com  Thu Sep 21 00:31:05 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Thu, 21 Sep 2000 00:31:05 +0000
+Subject: Wrong wording in 1.3 "Throwing an exception."
+Message-ID: <39C956C9.73E3372A@cup.hp.com>
+
+The current wording doesn't match the C++ standard:
+
+> If the unwinder encounters an unexpected error during phase 2,
+> the unwind runtime may have modified the stack, e.g. popped
+> frames from it, or landing pad code may have caused stack corruption.
+> As a result, the unwind library probably could not find a return address,
+> and the caller of _Unwind_RaiseException could make no assumptions about
+> the state of its stack. Rather than attempt to return, therefore, the unwind
+> library should use the exception_cleanup entry in the exception,
+> and then call abort(). 
+
+What C++ mandates in that case is calling terminate(), not abort(), and that's a
+decision that only the C++ runtime can make (it may be different for other
+languages).
+
+What's more, the justification doesn't apply very well on IA-64. There is only
+one return address for _RaiseException, and it is not on the stack but in a
+local register (br0). Therefore, _RaiseException has very good chances of being
+able to return to the C++ runtime, and from there, we move only downwards in the
+calls tack (terminate() which typically calls abort() itself).
+
+So the paragraph above should indicate that we return _URC_FATAL_PHASE2_ERROR.
+
+
+Thanks,
+Christophe
+
+
+
+From jason at redhat.com  Wed Sep 20 02:49:36 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 19 Sep 2000 19:49:36 -0700
+Subject: Unwind API for EH
+In-Reply-To: Jim Dehnert's message of "Thu, 7 Sep 2000 15:31:47 -0700 (PDT)"
+References: <200008242136.OAA14410@adlmail.cup.hp.com>
+	<200008302331.QAA08550@baalbek.engr.sgi.com>
+	<39AE7148.125B65C7@inprise.com>
+	<u9g0nl2qgr.fsf@yorick.soma.redhat.com>
+	<39AEB46A.CE2C5C65@inprise.com>
+	<200009072231.PAA17179@baalbek.engr.sgi.com>
+Message-ID: <u9wvg7bwvz.fsf@casey.soma.redhat.com>
+
+Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+> Personally, I think Cary's interface is marginally cleaner, but not
+> significantly.  Given how late this is in the process, and the base
+> psABI impact of a change, (and significant non-concensus,) I think it's
+> better left as the status quo.  Does anyone have a major problem with
+> this?
+
+Nope.
+ 
+> However, the discussion does point out that the LP registers should be
+> clearly identified in the ABI as the _only_ scratch registers that must
+> be supported in the context.  Right?
+
+Or alternately, specify which scratch registers are reserved for use
+by the unwinder itself.  I think that would be my preference.
+
+Jason
+
+
+
+From jason at redhat.com  Wed Sep 20 02:34:46 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 19 Sep 2000 19:34:46 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Christophe de Dinechin's message of "Fri, 15 Sep 2000 22:18:39 +0000"
+References: <39C2A03F.97D7B918@cup.hp.com>
+Message-ID: <u91yyfdc55.fsf@casey.soma.redhat.com>
+
+I have two problems with this proposal:
+
+1) In addition to the problem I mentioned before with weak followed by
+   strong, your proposal would end up with two copies of the thunk in
+   the executable: one weak copy in a COMDAT, and one strong outside.
+   I've encountered this problem when I tried to use the same trick in
+   gcc; I ended up giving up and not trying to generate strong
+   definitions.
+
+   One way to avoid this would be garbage collection, but that's not
+   going to happen.
+
+   Another way would be a 'choose me' bit in the COMDAT, but I believe
+   that idea was rejected when I brought it up long ago.
+
+2) I just don't see the point.  It doesn't seem hard to emit the
+   appropriate thunks with the function; they don't need to be written
+   to fall through, they just have to be in the same object file.
+
+Jason
+
+
+
+From ddd at cup.hp.com  Thu Sep 21 18:31:45 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Thu, 21 Sep 2000 18:31:45 +0000
+Subject: Virtual Calls: Make the ABI match the implementations
+References: <39C2A03F.97D7B918@cup.hp.com> <u91yyfdc55.fsf@casey.soma.redhat.com>
+Message-ID: <39CA5411.B326CBC4@cup.hp.com>
+
+Jason Merrill wrote:
+> 
+> 2) I just don't see the point.  It doesn't seem hard to emit the
+>    appropriate thunks with the function; they don't need to be written
+>    to fall through, they just have to be in the same object file.
+> 
+We indicated what the point was: it makes emitting 'strong' symbols optional,
+and makes all existing implementations compliant with their existing weak
+thunks.
+
+
+Christophe
+
+
+
+From jason at redhat.com  Fri Sep 22 19:58:51 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 22 Sep 2000 12:58:51 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Christophe de Dinechin's message of "Thu, 21 Sep 2000 18:31:45 +0000"
+References: <39C2A03F.97D7B918@cup.hp.com>
+	<u91yyfdc55.fsf@casey.soma.redhat.com> <39CA5411.B326CBC4@cup.hp.com>
+Message-ID: <u9r96c2o78.fsf@casey.soma.redhat.com>
+
+OK, what if the function is compiled with a compiler that emits the
+thunks on an ad-hoc basis, and a vtable that needs a thunk is compiled
+with a compiler that emits the thunks with the function?  Seems that
+it would lose.
+
+Jason
+
+
+
+From mark at codesourcery.com  Sat Sep 23 15:45:57 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sat, 23 Sep 2000 08:45:57 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: <u9r96c2o78.fsf@casey.soma.redhat.com>
+References: <u91yyfdc55.fsf@casey.soma.redhat.com>
+	<39CA5411.B326CBC4@cup.hp.com>
+	<u9r96c2o78.fsf@casey.soma.redhat.com>
+Message-ID: <20000923084557Y.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> OK, what if the function is compiled with a compiler that
+    Jason> emits the thunks on an ad-hoc basis, and a vtable that
+    Jason> needs a thunk is compiled with a compiler that emits the
+    Jason> thunks with the function?  Seems that it would lose.
+
+I think that will work under our proposal because our proposal
+requires all compilers to emit the thunks on an ad-hoc basis.  In
+other words, all compilers must emit the thunks wherever they are
+referenced, as COMDAT.  Optionally, a clever compiler may emit the
+thunks as strong symbols near the function to which control is
+transferred.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Sun Sep 24 19:02:57 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Sep 2000 12:02:57 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Mark Mitchell's message of "Sat, 23 Sep 2000 08:45:57 -0700"
+References: <u91yyfdc55.fsf@casey.soma.redhat.com>
+	<39CA5411.B326CBC4@cup.hp.com> <u9r96c2o78.fsf@casey.soma.redhat.com>
+	<20000923084557Y.mitchell@codesourcery.com>
+Message-ID: <u9lmwhipem.fsf@yorick.soma.redhat.com>
+
+>>>>> Mark Mitchell <mark at codesourcery.com> writes:
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+ Jason> OK, what if the function is compiled with a compiler that
+ Jason> emits the thunks on an ad-hoc basis, and a vtable that
+ Jason> needs a thunk is compiled with a compiler that emits the
+ Jason> thunks with the function?  Seems that it would lose.
+
+ > I think that will work under our proposal because our proposal
+ > requires all compilers to emit the thunks on an ad-hoc basis.  In
+ > other words, all compilers must emit the thunks wherever they are
+ > referenced, as COMDAT.
+
+Ah, I see.  I'm strongly opposed to requiring all compilers to do work to
+support their semi-compliant peers.
+
+Jason
+
+
+
+From mark at codesourcery.com  Sun Sep 24 20:37:09 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 24 Sep 2000 13:37:09 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: <u9lmwhipem.fsf@yorick.soma.redhat.com>
+References: <u9r96c2o78.fsf@casey.soma.redhat.com>
+	<20000923084557Y.mitchell@codesourcery.com>
+	<u9lmwhipem.fsf@yorick.soma.redhat.com>
+Message-ID: <20000924133709G.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> Ah, I see.  I'm strongly opposed to requiring all compilers
+    Jason> to do work to support their semi-compliant peers.
+
+Even if that means that fewer compilers are compliant?  In pratice,
+vendors have a unique opportunity here: because they are all shipping
+new systems and new compilers, they can break the ABI.  They will not
+want to do so subsequently.  They will not want to delay
+time-to-market in order to provide ABI compliance -- most vendors will
+not find the promise of interoperability that important.  So, the ABI
+will become less valuable -- many systems will not comply.
+
+This is a major philosophical question, and something that the ABI
+committee should have a cohesive position on.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Sun Sep 24 23:57:02 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Sep 2000 16:57:02 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: Mark Mitchell's message of "Sun, 24 Sep 2000 13:37:09 -0700"
+References: <u9r96c2o78.fsf@casey.soma.redhat.com>
+	<20000923084557Y.mitchell@codesourcery.com>
+	<u9lmwhipem.fsf@yorick.soma.redhat.com>
+	<20000924133709G.mitchell@codesourcery.com>
+Message-ID: <u97l81ibsh.fsf@yorick.soma.redhat.com>
+
+>>>>> Mark Mitchell <mark at codesourcery.com> writes:
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+ Jason> Ah, I see.  I'm strongly opposed to requiring all compilers
+ Jason> to do work to support their semi-compliant peers.
+
+ > Even if that means that fewer compilers are compliant?  In pratice,
+ > vendors have a unique opportunity here: because they are all shipping
+ > new systems and new compilers, they can break the ABI.  They will not
+ > want to do so subsequently.  They will not want to delay
+ > time-to-market in order to provide ABI compliance -- most vendors will
+ > not find the promise of interoperability that important.  So, the ABI
+ > will become less valuable -- many systems will not comply.
+
+ > This is a major philosophical question, and something that the ABI
+ > committee should have a cohesive position on.
+
+I agree, but it seems to me (judging from the amount of innovation in this
+ABI) that we decided long ago not to give a lot of weight to difficulty of
+implementation.  Perhaps that was the wrong decision, but it's a bit late
+to reconsider now.
+
+And I'm a bit puzzled why this issue is coming up with respect to this
+particular detail; it seems pretty easy to determine what thunks to emit
+with the function.  The fall-through implementation is hard, but we've
+already agreed that isn't necessary for compliance (by the as-if rule).
+
+Jason
+
+
+
+From mark at codesourcery.com  Mon Sep 25 01:26:26 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 24 Sep 2000 18:26:26 -0700
+Subject: Virtual Calls: Make the ABI match the implementations
+In-Reply-To: <u97l81ibsh.fsf@yorick.soma.redhat.com>
+References: <u9lmwhipem.fsf@yorick.soma.redhat.com>
+	<20000924133709G.mitchell@codesourcery.com>
+	<u97l81ibsh.fsf@yorick.soma.redhat.com>
+Message-ID: <20000924182626L.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+      Jason> I agree, but it seems to me (judging from the amount of 
+      Jason> innovation in this ABI) that we decided long ago not to 
+      Jason> give a lot of weight to difficulty of
+      Jason> implementation.  Perhaps that was the wrong decision, but 
+      Jason> it's a bit late to reconsider now.
+
+Perhaps.  Christophe and I came up with this suggestion because it
+doesn't actually remove any of the benefits of the innovation.  For
+example, allowing virtual bases to be primary is a major change in
+everyone's compilers -- but it does also provide a big win for some
+code.  By simply mandating that compilers put out the old-style
+thunks, we'd cost only space in .o's -- a good compiler can override
+with the new-style thunks (modulo the linker issue you raised), and
+then the final executable will be precisely the same as currently
+specified.
+
+So, all we're suggesting is easing things for implementors without
+limiting the performance gains from the ABI at all.
+
+    Jason> And I'm a bit puzzled why this issue is coming up with
+    Jason> respect to this particular detail; it seems pretty easy to
+    Jason> determine what thunks to emit with the function.  The
+
+It's not that -- it's the fact that the thunks you have to emit have a
+pretty different form from the usual thunks.  They have to look at
+vcall offsets too -- not just make the usual single this adjustment.
+
+The reason this particular issue is coming up (as opposed to, say,
+vcall offsets or virtual bases as priamry bases) is that it tends to
+impact compiler back-ends much more than most of our other changes.
+In a lot of organizations, the back-ends are much more separate from
+the front-ends than they are in GCC -- for example, maintained by an
+entirely different group with different management.  Interfaces
+between front-ends and back-ends have to change, optimizers have to be
+revalidated, all tools that process the back-end representation have
+to be recompiled, etc.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Sep 26 20:19:16 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 26 Sep 2000 13:19:16 -0700 (PDT)
+Subject: Meeting reminder
+Message-ID: <200009262019.NAA37944@baalbek.engr.sgi.com>
+
+Just a reminder -- we will meet this Thursday, 28 September, at 10.
+I hope to catch up on mail when I was gone and get an agenda out later
+today.  Most of the document updates were done when I left.
+
+Jim
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Sep 26 22:38:48 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 26 Sep 2000 15:38:48 -0700 (PDT)
+Subject: Virtual Calls: Make the ABI match the implementations
+Message-ID: <200009262238.PAA38268@baalbek.engr.sgi.com>
+
+Having read through all the mail on this subject now, I think it
+reflects a fundamental erroneous assumption, namely that weak symbols
+will yield to strong symbols.  That is mostly true on Irix and Linux,
+but not on most other SVR4 implementations, and not even on Irix and
+Linux for delay-loaded DSO objects.  Most (all?) of them do that
+within a linked object, but once an object has been linked, the
+distinction between the two disappears, and the first one in search
+order is the one used when the program runs.  (This is true of SCO and
+AIX, and I thought of HPUX and Compaq, though the base ABI discussion
+of this was a year ago.)  That means that if the definitions are spread
+over DSO boundaries, the callsite definition (weak COMDAT) will
+override the "primary" definition with the class (strong non-COMDAT) if
+it comes first.  And since that will normally occur as a result of the
+class definition being in a library being used by the caller's module,
+this will be the rule rather than the exception.  So a "pure weak"
+model (i.e. Irix/Linux where weak always yields)
+
+This might be OK, if (a) it helped implementors a lot, and (b) there
+was a clear transition path to the desired endpoint.  But (b) presents
+a serious problem.  Even an optimized implementation that emits the
+thunks where they "belong" must continue to also emit them with the
+callers as long as there exist implementations which don't supply them
+with the class definitions, and therefore must suffer sub-optimal
+results even for their own code if they don't use the pure weak model.
+And as long as the sub-optimal model is considered ABI-compliant, we'll
+continue to have it indefinitely.
+
+As for being easier to implement, I just don't see it.  The thunks are
+trivial bits of code (worse perhaps if you fall through, but that's not
+required).  Compared to the other changes we've required, this one
+seems real minor.
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> Perhaps.  Christophe and I came up with this suggestion because it
+> doesn't actually remove any of the benefits of the innovation.  For
+> example, allowing virtual bases to be primary is a major change in
+> everyone's compilers -- but it does also provide a big win for some
+> code.  By simply mandating that compilers put out the old-style
+> thunks, we'd cost only space in .o's -- a good compiler can override
+> with the new-style thunks (modulo the linker issue you raised), and
+> then the final executable will be precisely the same as currently
+> specified.
+
+As I explained above, this isn't true.  Most of the Unix systems out
+there treat weak symbols like strong ones once they're linked.
+
+> So, all we're suggesting is easing things for implementors without
+> limiting the performance gains from the ABI at all.
+> 
+> It's not that -- it's the fact that the thunks you have to emit have a
+> pretty different form from the usual thunks.  They have to look at
+> vcall offsets too -- not just make the usual single this adjustment.
+
+I guess I don't understand this comment.  Whether the thunk has to look
+at the vcall offset doesn't have anything to do with where it's
+emitted.  If you want to emit a thunk with a hard-coded offset, that's
+OK by the as-if rule, in either place.
+
+> The reason this particular issue is coming up (as opposed to, say,
+> vcall offsets or virtual bases as priamry bases) is that it tends to
+> impact compiler back-ends much more than most of our other changes.
+> In a lot of organizations, the back-ends are much more separate from
+> the front-ends than they are in GCC -- for example, maintained by an
+> entirely different group with different management.  Interfaces
+> between front-ends and back-ends have to change, optimizers have to be
+> revalidated, all tools that process the back-end representation have
+> to be recompiled, etc.
+
+Why?  The thunk is just another (rather simple) function.  The front
+end should be able to produce it in its intermediate language if that's
+desirable, and leave the back end blissfully unaware.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From ddd at cup.hp.com  Wed Sep 27 00:00:33 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Wed, 27 Sep 2000 00:00:33 +0000
+Subject: GR8 as a return value
+Message-ID: <39D138A1.E0FD438@cup.hp.com>
+
+Jim,
+
+
+(I thought I had sent an e-mail on this topic a while back, but I can't find it)
+
+You proposed a change to GR8 (instead of being an implicit "normal" parameter)
+for the return value of objects with non-trivial copy constructors, allegedly to
+make it similar to what C does. Do you mind backing-out that change?
+
+Our back-end (and I suspect many others) would have to special-case GR8 to do
+that, whereas whatever input argument was used before was seen by the back-end
+as any regular pointer argument.
+
+It also has a rather negative (if small) effect of performance. GR8 is very
+volatile, and is being destroyed by any function call. So this forces you to
+save it very early. On the other hand, something like GR32 which was used before
+is callee-save (through the register-stack engine), so it doesn't need to be
+saved until any time it is actually used to make the constructor call. For small
+functions with no stack frame of its own, there are fairly common cases where
+the register being used (GR32) would just "fall through".
+
+
+Thanks
+Christophe
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep 27 04:58:51 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 26 Sep 2000 21:58:51 -0700 (PDT)
+Subject: Agenda for 28 September meeting
+Message-ID: <200009270458.VAA39143@baalbek.engr.sgi.com>
+
+NOTE:  we have a new location, in SGI building 41 (see directions on
+the contact page and give yourself a few extra minutes to find it).
+The phone number has also changed, to (650) 933-7976.
+
+Following is an updated agenda.  The status pages are updated and on
+the web (HTML now, PDF tomorrow) at:
+
+      http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+As usual, most of the updates are in the ABI layout document, in red.
+I haven't yet moved things from Level II to Level III in the exception
+handling document, though.
+
+Please take a careful look at the colored text, and raise any issues
+you observe.
+
+Take a look at the material associated with the following issues.
+If you see something early, please send it by email.
+
+  1) RTTI -- should member names be normative or not?
+
+  2) G-4:  Thread-safe data initialization.  See 3.3.2.  Christophe
+     had some ideas for optimization here.  I've updated 3.3.2 a bit,
+     but the discussion of potential changes for Christophe's concerns
+     is in the open issues page for issue G-4.  Christophe, can you
+     take a look at it?
+
+  3) Exception handling (D-14):  I believe I've captured, in the Level
+     II chapter of the ABI exception handling spec, what needs to be
+     there from the HP document.  Please look it over carefully from
+     that standpoint -- does it include what is necessary to achieve a
+     consistent exception runtime library interface, but exclude what
+     needs only be agreed between the personality routine, the LSDA,
+     and the generated code (which all come from the same
+     implementation)?  I will next tackle a description of the LSDA in
+     the Level III chapter, but may or may not attempt to transfer the
+     rest of the HP document there, as opposed to just referencing it.
+     Does anyone think that would be significantly better?
+
+  4) C-18:  Result buffers.  We might discuss this again -- those of
+     you with implementations, please consider any issues you see.
+
+Note that it doesn't usually work to try to contact me by email
+or phone the morning of the meeting, as I come directly from home.  If
+you come in physically to the meeting, and the receptionist won't let
+you come back to the conference room on your own, have her call the
+conference room (it has a phone other than the one we use for the
+meeting).
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Sep 27 11:10:28 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 27 Sep 2000 13:10:28 +0200 (MET DST)
+Subject: Interoperability of RTTI information
+Message-ID: <200009271110.NAA24077@pandora.informatik.hu-berlin.de>
+
+I have concerns that the current RTTI spec does not allow
+implementations to interoperate. The core of the issue is whether
+there should be a vtable pointer in class type_info.
+
+The current (modified) draft specifies no virtual functions. I believe
+it is not possible to implement this specification: Inside
+__dynamic_cast, you need to know whether the __class_type_info is a
+__si_class_type_info or a __vmi_class_type_info. Likewise, in
+exception handling, you need to know whether the types are
+__pointer_type_info or not, and whether the __pointee field is a
+__class_type_info.
+
+In extension of what is specified, the current GCC adds a number of
+virtual functions to the derived type_info classes, such as
+__is_function_p, __do_catch, __pointer_catch, and so on. However,
+unless specified in the ABI, other compilers won't fill the vtable
+pointers of the derived classes to point to gcc's vtables. With the
+current spec, the other compilers won't even allocate a vtable field.
+
+Furthermore, there is currently no guarantee that there is only a
+single vtable per type_info class if objects from multiple compilers
+are mixed. For example, in gcc, these vtables live in libgcc.a, which
+is incorporated into any shared library. If a different compiler uses
+the same strategy, you'd end up with two definitions for, say, the
+__vmi_class_type_info vtable - and they would have a different layout.
+
+I see two solutions:
+a) specify exactly which virtual functions must be provided to
+   implement the routines mandated by the ABI (i.e. dynamic cast
+   and EH matching)
+b) provide some basic identification mechanism on top of which
+   these ABI routines can be implemented. 
+
+I favour alternative b), and propose the following definitions
+
+  namespace std{
+     class type_info {
+      private:
+        const char *__type_name;
+        virtual ~type_info(); /* to give it a vtable */
+     };
+  }
+
+   namespace abi{
+     enum ti_kind{ /* in the order of exposition in 2.9.5.3 */
+       /* type_info is abstract */
+       fundamental_type_kind = 0,
+       array_type_kind = 1,
+       function_type_kind = 2, 
+       enum_type_kind = 3,
+       /* __class_type_info is abstract */
+       si_class_type_kind = 4,
+       vmi_class_type_kind = 5,
+       /* __pbase_type_info is abstract */
+       pointer_type_kind = 6,
+       pointer_to_member_type_kind = 7,
+     }
+
+     class type_info: std::type_info {
+       virtual ti_kind kind();
+     };
+   }
+
+All other type info classes inherit from abi::type_info. The leaf
+types override the kind() function, so the implementation must provide
+a suitable vtable for them.
+
+Disclaimer: I haven't actually verified that __dynamic_cast can be
+implement on top of these informations. If required, I'll try to
+produce a sample implementation in gcc.
+
+Regards,
+Martin
+
+
+
+From nathan at codesourcery.com  Wed Sep 27 12:15:06 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 27 Sep 2000 13:15:06 +0100
+Subject: Interoperability of RTTI information
+References: <200009271110.NAA24077@pandora.informatik.hu-berlin.de>
+Message-ID: <39D1E4CA.A8831034@codesourcery.com>
+
+Martin von Loewis wrote:
+> 
+> I have concerns that the current RTTI spec does not allow
+> implementations to interoperate. The core of the issue is whether
+> there should be a vtable pointer in class type_info.
+there must be a vtable in type_info as [18.5.1] specifies that the
+dtor is virtual. (i.e. your alternative b's type_info definition
+is already mandated by the std) -- I see the ABI spec 2.9.5/3 is
+different though
+
+> The current (modified) draft specifies no virtual functions. I believe
+> it is not possible to implement this specification: Inside
+> __dynamic_cast, you need to know whether the __class_type_info is a
+> __si_class_type_info or a __vmi_class_type_info. Likewise, in
+> exception handling, you need to know whether the types are
+> __pointer_type_info or not, and whether the __pointee field is a
+> __class_type_info.
+IIR You can implement dynamic_cast without touching type_info itself, but
+you do need to add vfuncs to the __class_type_info heirarchy. Catch
+matching requires either vfuncs in type_info, or dynamic_casts
+to the pointer_type_info and class_type_info classes during the
+matching algorithm (an obvious performance penalty)
+
+
+> In extension of what is specified, the current GCC adds a number of
+> virtual functions to the derived type_info classes, such as
+> __is_function_p, __do_catch, __pointer_catch, and so on. However,
+> unless specified in the ABI, other compilers won't fill the vtable
+> pointers of the derived classes to point to gcc's vtables. 
+correct.
+
+> Furthermore, there is currently no guarantee that there is only a
+> single vtable per type_info class if objects from multiple compilers
+> are mixed. For example, in gcc, these vtables live in libgcc.a, which
+> is incorporated into any shared library. If a different compiler uses
+> the same strategy, you'd end up with two definitions for, say, the
+> __vmi_class_type_info vtable - and they would have a different layout.
+The intent of the info note at the end of 2.9.5 is to exclude this
+example, though looking at the wording it is insufficiently proscriptive.
+To guarantee only one copy of the vtables (and associated vfuncs) in the
+executable image requires that shared libraries cannot be statically
+linked with the runtime -- is that a problem?
+
+> I see two solutions:
+	a) would make it harder for implementations to differentiate
+themselves with faster algorithms.
+	b) is adding another, ad-hoc, typing mechanism
+I prefer a third solution
+	c) tighten the wording about place of emission of the type_info
+classes' vtables. tighten the wording about type_info's definition
+indicating the abi definition is in addition to that of the standard.
+Prohibit user derivation of those classes (that could be enforced by
+making the final dtor's private).
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Sep 27 13:05:01 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 27 Sep 2000 15:05:01 +0200 (MET DST)
+Subject: Interoperability of RTTI information
+In-Reply-To: <39D1E4CA.A8831034@codesourcery.com> (message from Nathan Sidwell
+	on Wed, 27 Sep 2000 13:15:06 +0100)
+References: <200009271110.NAA24077@pandora.informatik.hu-berlin.de> <39D1E4CA.A8831034@codesourcery.com>
+Message-ID: <200009271305.PAA24767@pandora.informatik.hu-berlin.de>
+
+> > I see two solutions:
+[...]
+> I prefer a third solution
+> 	c) tighten the wording about place of emission of the type_info
+> classes' vtables. tighten the wording about type_info's definition
+> indicating the abi definition is in addition to that of the standard.
+> Prohibit user derivation of those classes (that could be enforced by
+> making the final dtor's private).
+
+I can't picture how this solves the problem at hand. Under this
+solution, would it be allowed for implementations to add virtual
+functions to the classes beyond those (currently) specified by the
+standard and the ABI?
+
+If yes, how does it solve the problem of different implementations
+assuming different virtual functions?
+
+If not, how do you determine the dynamic type of a type_info? You
+could look at the type_info pointer inside the type_info's virtual
+table, and then check compare them with the type_infos for the
+well-known types.
+
+I'm not concerned about users inheriting from those classes - if they
+do, their compilers will never use the derived classes, so the C++
+runtime (__dynamic_cast) won't see instances of such derived classes.
+
+Regards,
+Martin
+
+
+
+
+From nathan at codesourcery.com  Wed Sep 27 15:29:00 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 27 Sep 2000 16:29:00 +0100
+Subject: Interoperability of RTTI information
+References: <200009271110.NAA24077@pandora.informatik.hu-berlin.de> <39D1E4CA.A8831034@codesourcery.com> <200009271305.PAA24767@pandora.informatik.hu-berlin.de>
+Message-ID: <39D2123C.8D904BE1@codesourcery.com>
+
+Martin von Loewis wrote:
+>
+> I can't picture how this solves the problem at hand. Under this
+> solution, would it be allowed for implementations to add virtual
+> functions to the classes beyond those (currently) specified by the
+> standard and the ABI?
+yes they can add functions
+> 
+> If yes, how does it solve the problem of different implementations
+> assuming different virtual functions?
+The only place these functions are assumed (and must be consistent
+between) are 
+A	emission of the vtables
+B	calling from within the ABI mandated entry points
+To achieve this we can emit both the vtables, the virtual functions and
+the ABI entry points in an implementation's runtime and ensure
+that no object file will
+	preempt only one of A or B
+	use an A and B different from the rest of the executable
+all will be well.
+
+The only place A or B will be emitted will be an implementation's runtime.
+If the runtime is dynamically linked the preemption problems do not exist.
+If the runtime is statically linked exactly once for an executable image
+they don't either.
+The only way to have multiple copies of the runtime is to statically link
+it into different libraries and then link those libraries together. Is
+this a situation which must be addressed, or can it be banned?
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Sep 27 15:34:07 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 27 Sep 2000 17:34:07 +0200 (MET DST)
+Subject: Interoperability of RTTI information
+In-Reply-To: <39D2123C.8D904BE1@codesourcery.com> (message from Nathan Sidwell
+	on Wed, 27 Sep 2000 16:29:00 +0100)
+References: <200009271110.NAA24077@pandora.informatik.hu-berlin.de> <39D1E4CA.A8831034@codesourcery.com> <200009271305.PAA24767@pandora.informatik.hu-berlin.de> <39D2123C.8D904BE1@codesourcery.com>
+Message-ID: <200009271534.RAA00957@pandora.informatik.hu-berlin.de>
+
+> To achieve this we can emit both the vtables, the virtual functions and
+> the ABI entry points in an implementation's runtime and ensure
+> that no object file will
+        [...]
+> 	use an A and B different from the rest of the executable
+> all will be well.
+
+I think this will be hard to assure. Users linking with -Bsymbolic and
+integrating the C++ runtime will manage to break that (or, rather, the
+ABI breaks -Bsymbolic ...)
+
+> The only way to have multiple copies of the runtime is to statically link
+> it into different libraries and then link those libraries together. Is
+> this a situation which must be addressed, or can it be banned?
+
+It might be a good idea to ban it. However, then I'd like to see an
+exact specification of what is being banned... (e.g. "no executable
+must include two different definition of the symbols ...") That would
+essentially means that some symbols must be provided by the operating
+system platform, rather than the C++ compiler implementation.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep 27 23:50:26 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 27 Sep 2000 16:50:26 -0700 (PDT)
+Subject: Status pages updated
+Message-ID: <200009272350.QAA41269@baalbek.engr.sgi.com>
+
+The C++ ABI status pages have been updated on the web, including PDF.
+Changes are minimal since two weeks ago, except that I've attempted to
+move material from Level II to Level III in the exception handling
+document (though I haven't cleaned up all the cross-references).
+
+See you all tomorrow.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mendell at ca.ibm.com  Thu Sep 28 20:14:19 2000
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Thu, 28 Sep 2000 16:14:19 -0400
+Subject: When should value parameters be destroyed?
+Message-ID: <OF99A2EAA7.9DC00F7A-ON85256968.006ECDCD@mkm.can.ibm.com>
+
+>From today's meeting, it turns out that g++ destroys value parameters in
+the called
+function, and that is what the current ABI states.  Our compiler (and I
+think HP's)
+destroyes them in the caller routine.  I asked our 'standards guy', and got
+back the
+following:
+
+   Sentence 3, paragraph 3 of 12.2: 'Temporary object are destroyed as the
+   last
+   step in evaluating the full-expression(1.8) that (lexically) contains
+   the point where
+    they were created.'
+
+   Also see paragraph 12 and 16 of 1.8 and the note associated with
+   paragraph 16.
+
+
+I believe that this implies that you are NOT allowed to destroy the
+temporary in the
+called routine, but must destroy it in the caller.    This would mean a
+change to
+our ABI, and would explain the reason that we pass classes with non-trivial
+destructors
+by reference (unlike g++).
+
+Mark
+
+
+
+
+
+From daveed at edg.com  Thu Sep 28 21:35:14 2000
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Thu, 28 Sep 2000 14:35:14 -0700
+Subject: When should value parameters be destroyed?
+References: <OF99A2EAA7.9DC00F7A-ON85256968.006ECDCD@mkm.can.ibm.com>
+Message-ID: <39D3B992.92BEFBE0@edg.com>
+
+It's most explicit in [expr.call] 5.2.2/4:
+
+	[...] The lifetime of a parameter ends when the function in which
+	it is defined returns. The initialization and destruction of each
+	parameter occurs within the context of the calling function. 
+	[Example: the access of the constructor, conversion functions or 
+	destructor is checked at the point of call in the calling function. 
+	If a constructor or destructor for a function parameter throws an 
+	exception, the search for a handler starts in the scope of the 
+	calling function; in particular, if the function called has a 
+	function-try-block (clause except) with a handler that could handle 
+	the exception, this handler is not considered. ]
+
+(It may not be the most optimal answer, but it seem pretty unambiguous.)
+
+	Daveed
+
+
+mendell at ca.ibm.com wrote:
+> 
+> >From today's meeting, it turns out that g++ destroys value parameters in the called
+> function, and that is what the current ABI states.  Our compiler (and I think HP's)
+> destroyes them in the caller routine.  I asked our 'standards guy', and got back the
+> following:
+> 
+>    Sentence 3, paragraph 3 of 12.2: 'Temporary object are destroyed as the
+>    last step in evaluating the full-expression(1.8) that (lexically) contains
+>    the point where they were created.'
+> 
+>    Also see paragraph 12 and 16 of 1.8 and the note associated with
+>    paragraph 16.
+> 
+> I believe that this implies that you are NOT allowed to destroy the temporary in the
+> called routine, but must destroy it in the caller.    This would mean a change to
+> our ABI, and would explain the reason that we pass classes with non-trivial
+> destructors by reference (unlike g++).
+> 
+> Mark
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Sep 28 22:22:01 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 28 Sep 2000 15:22:01 -0700 (PDT)
+Subject: When should value parameters be destroyed?
+Message-ID: <200009282222.PAA42169@baalbek.engr.sgi.com>
+
+Hi, folks,
+
+To elaborate for those of you who weren't there...
+
+At the meeting today, we took up C-18 again, i.e. how to return results
+of class types with non-trivial copy constructors.  We decided in
+principle to undo the C-18 decision, and return them (all sizes) via an
+implicit first parameter, which was how it was previously described.
+
+The question then arises:  which classes exactly are included?  We
+want, for simplicity, for the answer to be the same as which classes
+are passed by address when they are value parameters.  3.1.1 says this
+is those with non-trivial copy constructors _or_ destructors.  Those of
+us present could not remember why destructors were included here, and
+decided it was probably a mistake, and intend to remove it (for both
+value parameters and results), if a request for rationale yields
+nothing.  Consider this message such a request.  Mark's message is a
+response:
+
+> From: mendell at ca.ibm.com
+> 
+> From today's meeting, it turns out that g++ destroys value parameters in
+> the called
+> function, and that is what the current ABI states.  Our compiler (and I
+> think HP's)
+> destroyes them in the caller routine.  I asked our 'standards guy', and got
+> back the
+> following:
+> 
+>    Sentence 3, paragraph 3 of 12.2: 'Temporary object are destroyed as the
+>    last
+>    step in evaluating the full-expression(1.8) that (lexically) contains
+>    the point where
+>     they were created.'
+> 
+>    Also see paragraph 12 and 16 of 1.8 and the note associated with
+>    paragraph 16.
+> 
+> 
+> I believe that this implies that you are NOT allowed to destroy the
+> temporary in the
+> called routine, but must destroy it in the caller.    This would mean a
+> change to
+> our ABI, and would explain the reason that we pass classes with non-trivial
+> destructors
+> by reference (unlike g++).
+
+... and now that Mark brings it up, I do remember this discussion,
+albeit vaguely, and believe it was the basis for our current definition
+including destructors in the "qualifying" set for special treatment.
+
+As Jason points out, gcc currently destroys the value parameter in the
+callee, and has received no problem reports related to it.  We believe
+many other implementations do, too.  However, the Standard as quoted
+above appears to forbid that.  (I can imagine ways to write code that
+could tell, though I think they're in the "shoot the programmer"
+class.)
+
+So, we have two questions:
+
+ 1) Can anyone present any additional grounds for passing temporaries
+    of classes with destructors by address?
+
+ 2) Given the above (and anything additional resulting from (1)), would
+    anyone care to argue that we should specify that the destructor be
+    called from the callee (current practice)?  Otherwise, I think the
+    current definition in 3.1.1 stands, with corrections in the 4th
+    bullet (copy constructor -> destructor), and it will be used for a
+    revised specification in 3.1.4.
+
+Regards,
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Sep 29 00:51:52 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 28 Sep 2000 17:51:52 -0700 (PDT)
+Subject: Other results from today's meeting (28 Sept 2000)
+Message-ID: <200009290051.RAA44346@baalbek.engr.sgi.com>
+
+Other discussions that happened today:
+
+- RTTI field names:  Since those who cared most weren't in attendance,
+  we didn't get far with this issue.  I will add the Standard-required
+  function members to the std::type_info definition in the ABI, so it
+  will be clear that they are there, and this is a virtual class, and
+  I will also say so more clearly.
+
+  Should the names have leading underscores?  There appears to be a
+  strong desire for that, though I admit to agreeing that it should not
+  really be necessary and would not in practice be a problem.  So I
+  won't change this unless I see signs that those favoring them have
+  been browbeaten into submission.
+
+  Should the RTTI struct contents be normative?  I have heard a request
+  for that, and not really much against it beyond the original
+  suggestion that they not be.  Who cares?  Which do you prefer?  Why?
+
+- Mark, would you please verify the changes in 3.3.3?  (If you already
+  did, just tell me my memory's going, and that will suffice.)
+
+- I will fix __cxa_throw_type_info to be a struct containing both a
+  std::type_info and a pointer to a destructor.
+
+- Christophe will look at my suggested solution of the G-4 issue.
+
+- Jason is removing to Red Hat in Cambridge, and won't be at meetings
+  in the future.  Wish him bon voyage...
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From loewis at informatik.hu-berlin.de  Fri Sep 29 08:59:49 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Fri, 29 Sep 2000 10:59:49 +0200 (MET DST)
+Subject: When should value parameters be destroyed?
+In-Reply-To: <200009282222.PAA42169@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Thu, 28 Sep 2000 15:22:01 -0700 (PDT))
+References: <200009282222.PAA42169@baalbek.engr.sgi.com>
+Message-ID: <200009290859.KAA01778@pandora.informatik.hu-berlin.de>
+
+> Those of us present could not remember why destructors were included
+> here, and decided it was probably a mistake, and intend to remove it
+> (for both value parameters and results), if a request for rationale
+> yields nothing.  Consider this message such a request.
+
+Maybe that was an overlap in messages, but it appears that Daveed
+already pointed to the right place: 5.2.2/4 explains the life time of
+parameters. Mark's reference of 12.2/3 is not relevant - parameters
+are not temporaries; instead, temporaries may be used to initialize
+the parameters.
+
+The critical point is that access checks must be made in the caller,
+so
+
+struct A{
+private:
+  ~A();
+  friend void bar();
+};
+
+void foo(A a){
+}
+
+void bar(){
+  A a;
+  foo(a);
+}
+
+Since g++ invokes the destructor in the callee, it incorrectly rejects
+this code:
+
+a.cc: In function `void foo(A)':
+a.cc:3: `A::~A()' is private
+a.cc:7: within this context
+
+Of course, the compiler could *still* invoke the destructor in the
+callee under the as-if-rule, provided the access check occurs in the
+caller.
+
+That gets tricky since there are other conditions as well, e.g. that
+destruction must occur outside a function-try-block of the callee - so
+I'm in favour of having the caller destroy the object.
+
+I have also concerns about the callee invoking the copy constructor,
+if any. 8.5/12 states that parameter passing is copy-initialization,
+and 12.8.15 gives permission to elide the call to the copy
+constructor. Is this ABI giving the same permission to
+implementations?
+
+Consider
+
+struct A{
+  A(int);
+  A(const A&);
+  ~A();
+};
+
+void foo(A a){}
+
+int getint();
+
+void bar(){
+  foo(getint());
+}
+
+In C++, two sequences of calls are possible:
+
+1. getint, A(int), A(const A&), foo, ~A, ~A.
+2. geting, A(int), foo, ~A.
+
+It appears that the ABI mandates sequence A, since the copy ctor will
+be called inside foo. I think this is not desirable; furthermore, the
+same issue with access check and function-try-blocks arises.
+
+So I propose to take 5.2.2 literal, and require parameter ctors and
+dtors to be called *in* the caller.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Sep 29 19:15:24 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 29 Sep 2000 12:15:24 -0700 (PDT)
+Subject: When should value parameters be destroyed?
+References: <200009282222.PAA42169@baalbek.engr.sgi.com>
+Message-ID: <200009291915.MAA46046@baalbek.engr.sgi.com>
+
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> > Those of us present could not remember why destructors were included
+> > here, and decided it was probably a mistake, and intend to remove it
+> > (for both value parameters and results), if a request for rationale
+> > yields nothing.  Consider this message such a request.
+> 
+> Maybe that was an overlap in messages, but it appears that Daveed
+> already pointed to the right place: 5.2.2/4 explains the life time of
+> parameters. Mark's reference of 12.2/3 is not relevant - parameters
+> are not temporaries; instead, temporaries may be used to initialize
+> the parameters.
+
+Yes, it was an overlap.
+
+> The critical point is that access checks must be made in the caller,
+> so
+> 
+> struct A{
+> private:
+>   ~A();
+>   friend void bar();
+> };
+> 
+> void foo(A a){
+> }
+> 
+> void bar(){
+>   A a;
+>   foo(a);
+> }
+> 
+> Since g++ invokes the destructor in the callee, it incorrectly rejects
+> this code:
+> 
+> a.cc: In function `void foo(A)':
+> a.cc:3: `A::~A()' is private
+> a.cc:7: within this context
+> 
+> Of course, the compiler could *still* invoke the destructor in the
+> callee under the as-if-rule, provided the access check occurs in the
+> caller.
+
+But the access check is compile-time, right?  There's nothing to
+prevent a compiler from doing it at the call, but still calling the
+parameter destructor in the callee (without checking), right?
+Nevertheless:
+
+> That gets tricky since there are other conditions as well, e.g. that
+> destruction must occur outside a function-try-block of the callee - so
+> I'm in favour of having the caller destroy the object.
+
+This seems important to me.  One could still, I suppose, call the
+destructor in the callee, but outside its try-block if any.  But this
+gets to be a complicated implementation, and I don't think we want to
+require this treatment.  The ABI must choose one approach, so I guess
+I'm now convinced it should be to invoke the destructor in the caller.
+Anyone else have issues to raise before I make that explicit?
+
+> I have also concerns about the callee invoking the copy constructor,
+> if any. 8.5/12 states that parameter passing is copy-initialization,
+> and 12.8.15 gives permission to elide the call to the copy
+> constructor. Is this ABI giving the same permission to
+> implementations?
+
+Yes, it does.  The second bullet in 3.1.1 leaves parameter construction
+to the caller, which can elide it when allowed to do so, e.g. in your
+example below.  (The fourth bullet is a typo -- "copy constructor"
+should have read "destructor," and will soon.)
+
+> Consider
+> 
+> struct A{
+>   A(int);
+>   A(const A&);
+>   ~A();
+> };
+> 
+> void foo(A a){}
+> 
+> int getint();
+> 
+> void bar(){
+>   foo(getint());
+> }
+> 
+> In C++, two sequences of calls are possible:
+> 
+> 1. getint, A(int), A(const A&), foo, ~A, ~A.
+> 2. geting, A(int), foo, ~A.
+> 
+> It appears that the ABI mandates sequence A, since the copy ctor will
+> be called inside foo. I think this is not desirable; furthermore, the
+> same issue with access check and function-try-blocks arises.
+
+My mistake (editorial) -- see above.  The ABI doesn't mandate (1).
+
+> So I propose to take 5.2.2 literal, and require parameter ctors and
+> dtors to be called *in* the caller.
+
+Agreed.  If anyone feels differently about this, speak up now...
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From loewis at informatik.hu-berlin.de  Sat Sep 30 10:09:02 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sat, 30 Sep 2000 12:09:02 +0200 (MET DST)
+Subject: When should value parameters be destroyed?
+In-Reply-To: <200009291915.MAA46046@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Fri, 29 Sep 2000 12:15:24 -0700 (PDT))
+References: <200009282222.PAA42169@baalbek.engr.sgi.com> <200009291915.MAA46046@baalbek.engr.sgi.com>
+Message-ID: <200009301009.MAA13787@pandora.informatik.hu-berlin.de>
+
+> But the access check is compile-time, right?  There's nothing to
+> prevent a compiler from doing it at the call, but still calling the
+> parameter destructor in the callee (without checking), right?
+
+Exactly, yes.
+
+> Yes, it does.  The second bullet in 3.1.1 leaves parameter construction
+> to the caller, which can elide it when allowed to do so, e.g. in your
+> example below.  (The fourth bullet is a typo -- "copy constructor"
+> should have read "destructor," and will soon.)
+
+Sounds good, thanks.
+
+Martin
+
+
+

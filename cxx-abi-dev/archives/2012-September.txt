@@ -1,0 +1,2292 @@
+From mjh at edg.com  Tue Sep  4 13:39:59 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 4 Sep 2012 09:39:59 -0400
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+Message-ID: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+
+We don't seem to have a mangling for the new noexcept operator.  
+
+How's this:
+
+  <operator-name> ::= nx		# noexcept (an expression)
+
+For example:
+
+  void f(int) noexcept;
+  void f(float) throw (int);
+  template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+  int main() {
+    g(1);
+  }
+
+Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+
+Mike Herrick
+Edison Design Group
+
+From rjmccall at apple.com  Tue Sep  4 18:17:57 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 04 Sep 2012 11:17:57 -0700
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+In-Reply-To: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+References: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+Message-ID: <C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+
+On Sep 4, 2012, at 6:39 AM, Mike Herrick wrote:
+> We don't seem to have a mangling for the new noexcept operator.  
+> 
+> How's this:
+> 
+>  <operator-name> ::= nx		# noexcept (an expression)
+> 
+> For example:
+> 
+>  void f(int) noexcept;
+>  void f(float) throw (int);
+>  template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+>  int main() {
+>    g(1);
+>  }
+> 
+> Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+
+This seems like a fine mangling, but it shouldn't be an <operator-name>.
+Let's just do:
+  <expression> ::= nx <expression>
+
+John.
+
+From daveed at edg.com  Tue Sep  4 18:30:32 2012
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 4 Sep 2012 14:30:32 -0400
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+In-Reply-To: <C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+References: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+	<C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+Message-ID: <0AE0F6E3-1DFF-4E30-81A8-8FCA7B60342B@edg.com>
+
+
+On Sep 4, 2012, at 2:17 PM, John McCall wrote:
+
+> On Sep 4, 2012, at 6:39 AM, Mike Herrick wrote:
+>> We don't seem to have a mangling for the new noexcept operator.  
+>> 
+>> How's this:
+>> 
+>> <operator-name> ::= nx		# noexcept (an expression)
+>> 
+>> For example:
+>> 
+>> void f(int) noexcept;
+>> void f(float) throw (int);
+>> template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+>> int main() {
+>>   g(1);
+>> }
+>> 
+>> Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+> 
+> This seems like a fine mangling, but it shouldn't be an <operator-name>.
+> Let's just do:
+>  <expression> ::= nx <expression>
+
+It would be odd not to follow the pattern of sizeof and alignof here, no?
+
+(I can kind of see an argument to distinguish the "operators" that cannot be the basis of a <base-unresolved-name>, but I'm not sure it's worth the complication.)
+
+	Daveed
+
+
+From daveed at edg.com  Tue Sep  4 18:31:55 2012
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 4 Sep 2012 14:31:55 -0400
+Subject: [cxx-abi-dev] A proposed proposal process for the Itanium ABI
+In-Reply-To: <4117EAEC-4FBA-48B6-8F61-BDD9A1A969B7@apple.com>
+References: <8703818A-9A3C-42A4-8C71-E80131DA8955@apple.com>
+	<E599513F-5651-4271-90AA-6A2102E3A9ED@edg.com>
+	<4117EAEC-4FBA-48B6-8F61-BDD9A1A969B7@apple.com>
+Message-ID: <C846D74A-6358-40CC-A061-1D18CE9E8EC6@edg.com>
+
+My apologies for not getting back to this earlier:
+
+On Aug 24, 2012, at 6:12 PM, John McCall wrote:
+[...]
+>    So, the process is:  for any non-editorial changes, we'll make
+> sure that it's sent out in advance.  At some, when consensus seems to have
+> developed (and for a lot of the back-log items, that will probably be
+> "as part of the same email"), Mark or I will announce that it'll be committed
+> after <concrete period of time> if there aren't any more objections.  The
+> period of time will vary according to how major we think the change is, but
+> it'll never be less than two days, and it'll be at least two full weeks if there's
+> been serious debate on the list (for back-log changes, this includes at the
+> initial time of proposal).  Furthermore, anyone can ask us to hold off while
+> they investigate and/or draft a response.
+> 
+> To make the lifetime of a proposal as clear as possible, we'll also signal the
+> list after committing anything non-editorial, and we'll try not to have more than
+> two proposals under discussion at once.
+
+Sounds excellent to me.  Thanks!
+
+	Daveed
+
+
+From rjmccall at apple.com  Tue Sep  4 18:46:13 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 04 Sep 2012 11:46:13 -0700
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+In-Reply-To: <0AE0F6E3-1DFF-4E30-81A8-8FCA7B60342B@edg.com>
+References: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+	<C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+	<0AE0F6E3-1DFF-4E30-81A8-8FCA7B60342B@edg.com>
+Message-ID: <067D4BAD-0BED-4690-B12B-430272705EB9@apple.com>
+
+On Sep 4, 2012, at 11:30 AM, David Vandevoorde wrote:
+> On Sep 4, 2012, at 2:17 PM, John McCall wrote:
+>> On Sep 4, 2012, at 6:39 AM, Mike Herrick wrote:
+>>> We don't seem to have a mangling for the new noexcept operator.  
+>>> 
+>>> How's this:
+>>> 
+>>> <operator-name> ::= nx		# noexcept (an expression)
+>>> 
+>>> For example:
+>>> 
+>>> void f(int) noexcept;
+>>> void f(float) throw (int);
+>>> template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+>>> int main() {
+>>>  g(1);
+>>> }
+>>> 
+>>> Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+>> 
+>> This seems like a fine mangling, but it shouldn't be an <operator-name>.
+>> Let's just do:
+>> <expression> ::= nx <expression>
+> 
+> It would be odd not to follow the pattern of sizeof and alignof here, no?
+
+Heh.  I was following the pattern of typeid and throw. :)  I didn't actually notice that sizeof and alignof are only <expression>s directly in the type variant.
+
+> (I can kind of see an argument to distinguish the "operators" that cannot be the basis of a <base-unresolved-name>, but I'm not sure it's worth the complication.)
+
+Well, they also can't be the names of declarations, at least until the committee inevitably adds an operator sizeof. :)
+
+I withdraw my tweak, although I may just move these using editorial discretion unless you really object.  Neither seems inherently less complicated, and having (e.g.) both sizeof rules in the same place has some merit.
+
+John.
+
+From daveed at edg.com  Tue Sep  4 19:24:03 2012
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 4 Sep 2012 15:24:03 -0400
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+In-Reply-To: <067D4BAD-0BED-4690-B12B-430272705EB9@apple.com>
+References: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+	<C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+	<0AE0F6E3-1DFF-4E30-81A8-8FCA7B60342B@edg.com>
+	<067D4BAD-0BED-4690-B12B-430272705EB9@apple.com>
+Message-ID: <A179A825-4793-4D89-9283-7FCC92F4D1C0@edg.com>
+
+
+On Sep 4, 2012, at 2:46 PM, John McCall wrote:
+
+> On Sep 4, 2012, at 11:30 AM, David Vandevoorde wrote:
+>> On Sep 4, 2012, at 2:17 PM, John McCall wrote:
+>>> On Sep 4, 2012, at 6:39 AM, Mike Herrick wrote:
+>>>> We don't seem to have a mangling for the new noexcept operator.  
+>>>> 
+>>>> How's this:
+>>>> 
+>>>> <operator-name> ::= nx		# noexcept (an expression)
+>>>> 
+>>>> For example:
+>>>> 
+>>>> void f(int) noexcept;
+>>>> void f(float) throw (int);
+>>>> template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+>>>> int main() {
+>>>> g(1);
+>>>> }
+>>>> 
+>>>> Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+>>> 
+>>> This seems like a fine mangling, but it shouldn't be an <operator-name>.
+>>> Let's just do:
+>>> <expression> ::= nx <expression>
+>> 
+>> It would be odd not to follow the pattern of sizeof and alignof here, no?
+> 
+> Heh.  I was following the pattern of typeid and throw. :)
+
+
+Ah yes.
+
+>  I didn't actually notice that sizeof and alignof are only <expression>s directly in the type variant.
+
+Oops: So sizeof(type) and alignof(type) are there twice: Once under <operator-name> and once under <expression>.  :-(
+
+
+> 
+>> (I can kind of see an argument to distinguish the "operators" that cannot be the basis of a <base-unresolved-name>, but I'm not sure it's worth the complication.)
+> 
+> Well, they also can't be the names of declarations, at least until the committee inevitably adds an operator sizeof. :)
+> 
+> I withdraw my tweak, although I may just move these using editorial discretion unless you really object.  Neither seems inherently less complicated, and having (e.g.) both sizeof rules in the same place has some merit.
+
+I don't object.  It does look like some cleaning up would be nice there.
+
+	Daveed
+
+
+From mjh at edg.com  Thu Sep  6 12:46:43 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 6 Sep 2012 08:46:43 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+
+As part of the changes for C++11, there are new requirements on checking of the value of the expression in a new[] operation.  5.3.4p7 says:
+
+When the value of the expression in a noptr-new-declarator is zero, the allocation function is called to
+allocate an array with no elements. If the value of that expression is less than zero or such that the size
+of the allocated object would exceed the implementation-defined limit, or if the new-initializer is a
+braced-init-list for which the number of initializer-clauses exceeds the number of elements to initialize, no storage
+is obtained and the new-expression terminates by throwing an exception of a type that would match a
+handler (15.3) of type std::bad_array_new_length (18.6.2.2).
+
+We're wondering if there needs to be an ABI change here to support this.
+
+Here are some basic strategies for doing the run-time checking:
+
+1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+
+2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+
+3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+
+We're leaning towards the first option in the hopes that a back end can more easily optimize away some of the added checking, but perhaps someone with more back end experience can shed some light on which of these options would generate the best code.
+
+Mike Herrick
+Edison Design Group
+
+From mjh at edg.com  Thu Sep  6 13:23:58 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 6 Sep 2012 09:23:58 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <5048A168.3050609@redhat.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<5048A168.3050609@redhat.com>
+Message-ID: <A9ACEF9B-84B8-448A-A63F-1A723AC2406C@edg.com>
+
+
+On Sep 6, 2012, at 9:13 AM, Florian Weimer wrote:
+
+> On 09/06/2012 02:46 PM, Mike Herrick wrote:
+> 
+>> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+> 
+> You need two separate element counts which are multiplied by __cxa_vec_new_check with an overflow check, to cover cases like new T[n][5][3].  (The inner array lengths are constant and can be folded into a single factor by the compiler.)  The cookie size could be subtracted unconditionally, so it doesn't need to be passed as an argument.
+
+Yes, the inner array lengths also need to be taken into account (thanks for pointing that out), but those can be folded into the element_size argument (so that argument would be 5*3*sizeof(T) in this case -- and would need to be renamed since it's not really the element_size any longer).
+
+>  This approach does not work if the compiler supports heap allocation of C VLAs.
+> 
+> Does anybody actually use the __cxa_vec_new* interfaces?   I hope we'll patch libsupc++ to include checks in any case, but it would be interesting to know if it actually makes a difference.
+
+EDG uses all of the __cxa_vec_new* interfaces.
+
+Mike Herrick
+Edison Design Group
+
+From fweimer at redhat.com  Thu Sep  6 13:13:12 2012
+From: fweimer at redhat.com (Florian Weimer)
+Date: Thu, 06 Sep 2012 15:13:12 +0200
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+Message-ID: <5048A168.3050609@redhat.com>
+
+On 09/06/2012 02:46 PM, Mike Herrick wrote:
+
+> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+
+You need two separate element counts which are multiplied by 
+__cxa_vec_new_check with an overflow check, to cover cases like new 
+T[n][5][3].  (The inner array lengths are constant and can be folded 
+into a single factor by the compiler.)  The cookie size could be 
+subtracted unconditionally, so it doesn't need to be passed as an 
+argument.  This approach does not work if the compiler supports heap 
+allocation of C VLAs.
+
+Does anybody actually use the __cxa_vec_new* interfaces?   I hope we'll 
+patch libsupc++ to include checks in any case, but it would be 
+interesting to know if it actually makes a difference.
+
+-- 
+Florian Weimer / Red Hat Product Security Team
+
+From rjmccall at apple.com  Thu Sep  6 17:52:12 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 06 Sep 2012 10:52:12 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+Message-ID: <F948B75F-501A-4872-B4C8-C1A3628235FF@apple.com>
+
+On Sep 6, 2012, at 5:46 AM, Mike Herrick wrote:
+> As part of the changes for C++11, there are new requirements on checking of the value of the expression in a new[] operation.  5.3.4p7 says:
+> 
+> When the value of the expression in a noptr-new-declarator is zero, the allocation function is called to
+> allocate an array with no elements. If the value of that expression is less than zero or such that the size
+> of the allocated object would exceed the implementation-defined limit, or if the new-initializer is a
+> braced-init-list for which the number of initializer-clauses exceeds the number of elements to initialize, no storage
+> is obtained and the new-expression terminates by throwing an exception of a type that would match a
+> handler (15.3) of type std::bad_array_new_length (18.6.2.2).
+> 
+> We're wondering if there needs to be an ABI change here to support this.
+> 
+> Here are some basic strategies for doing the run-time checking:
+> 
+> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+
+Having such a function is a good idea anyway, because you can't always use one of the vec helpers, e.g. if the allocation function takes placement args.
+
+For what it's worth, clang has always done this overflow checking (counting negative counts as an overflow in the signed->unsigned computation), although we don't reliably cause the right exception to be thrown ? we simply pass (size_t) -1 to the allocation function.  Unfortunately, I think that's pretty obviously wrong under the standard, which seems to make it clear that we're not supposed to be calling the allocation function at all in this case.
+
+> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+
+Well, if we can use (size_t) -1 as a signal value, we don't need any new entrypoints.  That would be safe on any platform where there are values of size_t which cannot possibly be allocated;  of course, that property of size_t isn't guaranteed by the standard, although it's universally true these days, I think.
+
+Don't get me wrong, adding new entrypoints is definitely cleaner.  The main problem with adding and using new entrypoints is that it means that old, C++98-compliant code being recompiled will suddenly require new things from the runtime, which introduces deployment problems.  And these problems are arguably inherent.   std::bad_array_new_length doesn't even exist in a C++98 standard library, so it's not like we can just emit our own copy of __cxa_throw_bad_array_new_length when we're not sure it exists;  we'd potentially have to emit the class itself, which has all sorts of nasty problems (e.g. because the RTTI is almost certainly a strong symbol in the stdlib's shared library).  So in practice we're talking about emitting this code only if it's known that the deployment target can handle it;  this is is okay for me, because clang has a relatively rich deployment-target model, but I wanted to raise the point.
+
+> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.
+
+It would also need to know how much cookie to add.  The cookie causing an overflow would certainly be an example of "the value of that expression is ... such that the size of the allocated object would exceed the implementation-defined limit".
+
+Anyway, I don't think there's any advantage in adding a new entrypoint for just the check over adding some new vec helpers.
+
+John.
+
+From mjh at edg.com  Thu Sep  6 20:31:17 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 6 Sep 2012 16:31:17 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <F948B75F-501A-4872-B4C8-C1A3628235FF@apple.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<F948B75F-501A-4872-B4C8-C1A3628235FF@apple.com>
+Message-ID: <16D59288-42E0-4BB3-8CA3-9D7DDBAA763A@edg.com>
+
+
+On Sep 6, 2012, at 1:52 PM, John McCall wrote:
+
+> On Sep 6, 2012, at 5:46 AM, Mike Herrick wrote:
+>> Here are some basic strategies for doing the run-time checking:
+>> 
+>> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+> 
+> Having such a function is a good idea anyway, because you can't always use one of the vec helpers, e.g. if the allocation function takes placement args.
+
+Good point (though if we went with option 3 below it wouldn't be needed, but option 2 does not provide a complete solution).
+
+> 
+> For what it's worth, clang has always done this overflow checking (counting negative counts as an overflow in the signed->unsigned computation), although we don't reliably cause the right exception to be thrown ? we simply pass (size_t) -1 to the allocation function.  Unfortunately, I think that's pretty obviously wrong under the standard, which seems to make it clear that we're not supposed to be calling the allocation function at all in this case.
+> 
+>> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+> 
+> Well, if we can use (size_t) -1 as a signal value, we don't need any new entrypoints.  That would be safe on any platform where there are values of size_t which cannot possibly be allocated;  of course, that property of size_t isn't guaranteed by the standard, although it's universally true these days, I think.
+> 
+> Don't get me wrong, adding new entrypoints is definitely cleaner.  The main problem with adding and using new entrypoints is that it means that old, C++98-compliant code being recompiled will suddenly require new things from the runtime, which introduces deployment problems.  And these problems are arguably inherent.   std::bad_array_new_length doesn't even exist in a C++98 standard library, so it's not like we can just emit our own copy of __cxa_throw_bad_array_new_length when we're not sure it exists;  we'd potentially have to emit the class itself, which has all sorts of nasty problems (e.g. because the RTTI is almost certainly a strong symbol in the stdlib's shared library).  So in practice we're talking about emitting this code only if it's known that the deployment target can handle it;  this is is okay for me, because clang has a relatively rich deployment-target model, but I wanted to raise the point.
+
+One approach around the lack of std::bad_array_new_length could be to have __cxa_throw_bad_array_new_length throw std::bad_alloc as a stopgap solution.
+
+> 
+>> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.
+> 
+> It would also need to know how much cookie to add.  The cookie causing an overflow would certainly be an example of "the value of that expression is ... such that the size of the allocated object would exceed the implementation-defined limit".
+
+Agreed; padding_size should be an argument if we go this way.
+
+Mike.
+
+
+From dhandly at cup.hp.com  Thu Sep  6 23:35:41 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 6 Sep 2012 16:35:41 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209062335.q86NZfi17639@adlwrk05.cce.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>As part of the changes for C++11, there are new requirements on checking
+>of the value of the expression in a new[] operation.  5.3.4p7 says:
+>If the value of that expression is less than zero or such that the size
+>of the allocated object would exceed the implementation-defined limit,
+
+How does the runtime know the value is negative and not a large unsigned
+number?  Or this is moot, we treat it as large and if it is too big,
+we fail for that?
+
+It almost seems that only the compiler knows if the type is signed?
+
+And of course the mentioned (size_t)-1 would always be too big.
+
+>1) Have the compiler generate inline code to do the bounds checking before
+>calling the existing runtime routines.  The problem with this is that there
+>is no IA-64 ABI standard way to throw a std::bad_array_new_length exception
+>once a violation has been detected (so we'd need to add something like
+>__cxa_throw_bad_array_new_length).
+
+Sounds good, even if the runtime calls it directly.
+
+>2) Have the runtime libraries do the checking and throw
+>std::bad_array_new_length as needed.  In order to do this (in a backwards
+>compatible way) I think we'd need to add new versions of
+>__cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the
+>number of initializers in the array is passed as a new argument.
+
+It can't be signed.  I.e. we must allow for large unsigned values.  At least
+in 32 bit mode.
+
+3) A new routine, say __cxa_vec_new_check, that takes a signed
+
+>We're leaning towards the first option in the hopes that a back end can more
+>easily optimize away some of the added checking
+Mike Herrick Edison Design Group
+
+For constant values?  It can do that and so can the frontend.
+
+>From: Florian Weimer <fweimer at redhat.com>
+>On 09/06/2012 02:46 PM, Mike Herrick wrote:
+>> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count
+
+>You need two separate element counts which are multiplied by 
+>__cxa_vec_new_check with an overflow check
+
+It seems like it.
+
+>Does anybody actually use the __cxa_vec_new* interfaces?
+Florian Weimer / Red Hat Product Security Team
+
+I thought you just about had to use them, if you want compact code?
+
+
+>From: Mike Herrick <mjh at edg.com>
+>On Sep 6, 2012, at 1:52 PM, John McCall wrote:
+>> For what it's worth, clang has always done this overflow checking
+>>(counting negative counts as an overflow in the signed->unsigned
+>>computation),
+
+Do you handle large unsigned?  Or you don't have 32 bit?  Or you can't
+allocate 2Gb there?
+
+>>> 2) Have the runtime libraries do the checking and throw
+> 
+>> Well, if we can use (size_t) -1 as a signal value, we don't need any
+>>new entrypoints.  That would be safe on any platform where there are
+>>values of size_t which cannot possibly be allocated
+
+Right, for 32 bit, you have to have some bytes for instructions.  ;-)
+And for 64 bit, the hardware may not support all bits.
+
+>> Don't get me wrong, adding new entrypoints is definitely cleaner.  The
+>>main problem with adding and using new entrypoints is that it means that
+>>old, C++98-compliant code being recompiled will suddenly require new
+>>things from the runtime, which introduces deployment problems.
+
+Don't you have that for the new Standard, anyway?
+
+>One approach around the lack of std::bad_array_new_length could be to
+>have __cxa_throw_bad_array_new_length throw std::bad_alloc as a stopgap
+>solution.
+
+Sure.
+
+>>> 3) A new routine, say __cxa_vec_new_check, that takes a signed
+>>>> element_count
+>> 
+>> It would also need to know how much cookie to add.  The cookie causing
+>>an overflow would certainly be an example of "the value of that
+>>expression is ...  such that the size of the allocated object would
+>>exceed the implementation-defined limit".
+
+There is a problem with "implementation-defined limit".  For HP-UX there
+are secret hardware limits that the compiler doesn't want to know about.
+There are system config values that limit data allocation.  (Or is the latter
+just the same as bad_alloc and not the new bad_array_new_length?)
+
+Though I did have to do something tricky for the container member function
+max_size(), where I assume the max is 2**48 bytes divided by
+sizeof(value_type).
+
+From rjmccall at apple.com  Fri Sep  7 00:41:35 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 06 Sep 2012 17:41:35 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <201209062335.q86NZfi17639@adlwrk05.cce.hp.com>
+References: <201209062335.q86NZfi17639@adlwrk05.cce.hp.com>
+Message-ID: <57B967CE-6115-4F6E-A0ED-A1FE3CFDCE58@apple.com>
+
+On Sep 6, 2012, at 4:35 PM, Dennis Handly wrote:
+>> From: Mike Herrick <mjh at edg.com>
+>> On Sep 6, 2012, at 1:52 PM, John McCall wrote:
+>>> For what it's worth, clang has always done this overflow checking
+>>> (counting negative counts as an overflow in the signed->unsigned
+>>> computation),
+> 
+> Do you handle large unsigned?  Or you don't have 32 bit?  Or you can't
+> allocate 2Gb there?
+
+Clang handles large unsigned.  This is compiler-generated code, so
+we do know whether the value has signed type.  We currently do not
+take advantage of the __cxa_vec_new routines.
+
+>>>> 2) Have the runtime libraries do the checking and throw
+>> 
+>>> Well, if we can use (size_t) -1 as a signal value, we don't need any
+>>> new entrypoints.  That would be safe on any platform where there are
+>>> values of size_t which cannot possibly be allocated
+> 
+> Right, for 32 bit, you have to have some bytes for instructions.  ;-)
+> And for 64 bit, the hardware may not support all bits.
+
+Yeah, the assumption that SIZE_MAX is invalid to allocate is valid on
+basically every flat-addressed platform;  it's just not guaranteed by the
+standard.  But you can imagine a platform where individual allocations
+can't exceed some size that's significantly smaller than a pointer ?
+for example, on an architecture with segmented or distributed memory,
+or on a 64-bit platform that uses a 32-bit size_t because it doesn't care
+about supporting >4GB allocations.  It's not a possibility we should
+blithely assume away just because it's not true of common platforms.
+
+>>> Don't get me wrong, adding new entrypoints is definitely cleaner.  The
+>>> main problem with adding and using new entrypoints is that it means that
+>>> old, C++98-compliant code being recompiled will suddenly require new
+>>> things from the runtime, which introduces deployment problems.
+> 
+> Don't you have that for the new Standard, anyway?
+
+Not that I know of; we've been quite careful.  In fact, I know of one area
+where the Itanium ABI will probably have to forgo C++11 correctness in
+pursuit of our compatibility goals (because of the expansion of the POD
+definition).
+
+>>>> 3) A new routine, say __cxa_vec_new_check, that takes a signed
+>>>>> element_count
+>>> 
+>>> It would also need to know how much cookie to add.  The cookie causing
+>>> an overflow would certainly be an example of "the value of that
+>>> expression is ...  such that the size of the allocated object would
+>>> exceed the implementation-defined limit".
+> 
+> There is a problem with "implementation-defined limit".  For HP-UX there
+> are secret hardware limits that the compiler doesn't want to know about.
+> There are system config values that limit data allocation.  (Or is the latter
+> just the same as bad_alloc and not the new bad_array_new_length?)
+
+Good question.  I guess you could make an abstract argument that an
+array allocation which could have succeeded with a different bound
+should always produce std::bad_array_new_length, but that would be
+a very difficult (and expensive!) guarantee to make in practice.
+
+You could make a serious argument that the only allocations which
+*must* throw std::bad_array_new_length rather than just std::bad_alloc
+are the cases where you can't call the allocator because the size_t
+argument would be negative or otherwise mathematically wrong.
+Certainly that would be preferable ? if we're creating a new,
+constant-sized array of PODs, we should just be able to call the
+allocator instead of calling some entrypoint that will check the
+length against some implementation limit just so that we can throw
+the perfect exception type.
+
+John.
+
+From dhandly at cup.hp.com  Fri Sep  7 02:40:22 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 6 Sep 2012 19:40:22 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209070240.q872eMU18486@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>Clang handles large unsigned.  This is compiler-generated code, so
+>we do know whether the value has signed type.
+
+It seems strange that the code for signed is different than unsigned but
+the Standard says that signed could overflow and implementation defined.
+
+>Yeah, the assumption that SIZE_MAX is invalid to allocate is valid on
+>basically every flat-addressed platform;  it's just not guaranteed by the
+>standard.  But you can imagine a platform where individual allocations
+>can't exceed some size that's significantly smaller than a pointer ?
+
+I thought you got that backwards but if sizeof(size_t) is < sizeof(uintmax),
+then that would truncate that -1 to a much smaller.
+
+But do we care?  For that architecture, the implementation-defined limit
+can be set to < SIZE_MAX.
+
+>Not that I know of; we've been quite careful.
+
+Ok, I'm guessing I'm thinking of stuff that didn't get in that was discussed
+here.
+
+>I guess you could make an abstract argument that an
+>array allocation which could have succeeded with a different bound
+>should always produce std::bad_array_new_length
+
+But isn't that what bad_alloc also says, not enough memory, you greedy
+pig?
+
+Or is this the difference between "new []" and operator new/operator new[]?
+The latter two know nothing about "bounds".
+
+>You could make a serious argument that the only allocations which
+>*must* throw std::bad_array_new_length rather than just std::bad_alloc
+>are the cases where you can't call the allocator because the size_t
+>argument would be negative or otherwise mathematically wrong.
+
+Which means you have to be careful for overflows in the evaluation.
+
+>if we're creating a new, constant-sized array of PODs,
+
+(Compile time constant?)
+
+> we should just be
+>able to call the allocator instead of calling some entrypoint that will
+>check the length against some implementation limit just so that we can
+>throw the perfect exception type.
+John.
+
+Yes, just let malloc check.  ;-)
+
+From rjmccall at apple.com  Fri Sep  7 06:43:51 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 06 Sep 2012 23:43:51 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <201209070240.q872eMU18486@adlwrk05.cce.hp.com>
+References: <201209070240.q872eMU18486@adlwrk05.cce.hp.com>
+Message-ID: <FE6879B8-B769-4DAA-BDB2-6BB9BBF4C089@apple.com>
+
+On Sep 6, 2012, at 7:40 PM, Dennis Handly wrote:
+>> From: John McCall <rjmccall at apple.com>
+>> Clang handles large unsigned.  This is compiler-generated code, so
+>> we do know whether the value has signed type.
+> 
+> It seems strange that the code for signed is different than unsigned but
+> the Standard says that signed could overflow and implementation defined.
+
+This conversation is about how to handle various possible values that the
+first size expression in an array-new expression might take.  That expression
+must be of integer type, but it's permitted to have signed integer type, and
+so therefore can be negative.  In this case, C++11 demands that we throw
+an exception of a certain type, std::bad_array_new_length.
+
+This is unrelated to the semantics of overflow in signed arithmetic.
+
+>> Yeah, the assumption that SIZE_MAX is invalid to allocate is valid on
+>> basically every flat-addressed platform;  it's just not guaranteed by the
+>> standard.  But you can imagine a platform where individual allocations
+>> can't exceed some size that's significantly smaller than a pointer ?
+> 
+> I thought you got that backwards but if sizeof(size_t) is < sizeof(uintmax),
+> then that would truncate that -1 to a much smaller.
+> 
+> But do we care?  For that architecture, the implementation-defined limit
+> can be set to < SIZE_MAX.
+
+I'm not totally comfortable with the ABI making that decision;  it seems like
+a decision that platform owners should make.  On a platform where
+size_t is as large as the address space, sure.  On a platform with an
+intentionally constrained size_t, maybe not.
+
+>> I guess you could make an abstract argument that an
+>> array allocation which could have succeeded with a different bound
+>> should always produce std::bad_array_new_length
+> 
+> But isn't that what bad_alloc also says, not enough memory, you greedy
+> pig?
+
+The point is that if the spec says "throw a std::bad_array_new_length",
+we can't just throw a normal std::bad_alloc, because that's not compliant.
+A normal std::bad_alloc means "we couldn't allocate that for some reason";
+std::bad_array_new_length is basically a clarification that the failure was
+inherent and cannot possibly succeed.
+
+> Or is this the difference between "new []" and operator new/operator new[]?
+> The latter two know nothing about "bounds".
+
+It's part of the semantics of new[], yes.  operator new[] is not required to
+throw this specific exception type.  Also, as I read it, the standard implies
+that we shouldn't even be calling operator new[] if we have an invalid
+size, so we can't handle this by just having operator new[] always
+throw the more specific exception.
+
+>> You could make a serious argument that the only allocations which
+>> *must* throw std::bad_array_new_length rather than just std::bad_alloc
+>> are the cases where you can't call the allocator because the size_t
+>> argument would be negative or otherwise mathematically wrong.
+> 
+> Which means you have to be careful for overflows in the evaluation.
+> 
+>> if we're creating a new, constant-sized array of PODs,
+> 
+> (Compile time constant?)
+
+Possibly only constant after optimization, but yes, that's what I meant.
+
+John.
+
+From dhandly at cup.hp.com  Sat Sep  8 05:46:02 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 7 Sep 2012 22:46:02 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209080546.q885k2t09960@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>> It seems strange that the code for signed is different than unsigned but
+>> the Standard says that signed could overflow and implementation defined.
+
+>This conversation is about how to handle various possible values that the
+>first size expression in an array-new expression might take.  That expression
+>must be of integer type, but it's permitted to have signed integer type, and
+>so therefore can be negative.  In this case, C++11 demands that we throw
+>an exception of a certain type, std::bad_array_new_length.
+
+>This is unrelated to the semantics of overflow in signed arithmetic.
+
+I may been stretching it but I was suggesting that the Standard says
+signed and unsigned are different under overflow so that indexing for
+new with signed int could have negative values but not unsigned.
+
+>> But do we care?  For that architecture, the implementation-defined limit
+>> can be set to < SIZE_MAX.
+
+>On a platform with an intentionally constrained size_t, maybe not.
+
+But if it is constrained, then wouldn't (size_t)-1 would always be invalid?
+(Assuming size_t is constrained too.)
+
+>>> I guess you could make an abstract argument that an
+>>> array allocation which could have succeeded with a different bound
+>>> should always produce std::bad_array_new_length
+
+>The point is that if the spec says "throw a std::bad_array_new_length",
+>we can't just throw a normal std::bad_alloc, because that's not compliant.
+
+Yes, I was saying that the abstract argument wouldn't be valid because
+some bounds would be bad_array_new_length and other (smaller) could be
+bad_alloc.
+
+Basically I see these ranges, some overlap:
+
+1) allocation succeeds
+2) bad_alloc: fails but at one time it is possible
+3) bad_alloc: fails because of configuration limits or possible competing
+              processes
+4) bad_array_new_length: because just too big, overflow or negative
+
+I.e. the Standard should not force an implementation to tell the difference
+between 2) and 3).
+
+>as I read it, the standard implies that we shouldn't even be calling
+>operator new[] if we have an invalid size, so we can't handle this by
+>just having operator new[] always throw the more specific exception.
+
+Except operator new[] takes a size_t (which if unsigned) you would probably
+is always assume was valid (since it doesn't overflow), and just let
+the allocator check if too large.
+
+>Possibly only constant after optimization, but yes, that's what I meant.
+John.
+
+Ok, I was thinking of some type of inequality or range propagation that
+could possibly bless it.  Or other advanced AI technology.
+
+From mjh at edg.com  Mon Sep 10 13:07:05 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 10 Sep 2012 09:07:05 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+Message-ID: <7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+
+Getting back to the original proposals:
+
+On Sep 6, 2012, at 8:46 AM, Mike Herrick wrote:
+
+> 
+> Here are some basic strategies for doing the run-time checking:
+> 
+> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+> 
+> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+> 
+> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+
+It seems that option 2 is out (doesn't handle placement new[]), and option 3 has problems with signed/unsigned number of elements cases.  It appears that option 1 has had the most support (and gives the most flexibility).  Any objections (or other proposals)?
+
+Mike.
+
+From rjmccall at apple.com  Mon Sep 10 16:35:18 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 10 Sep 2012 09:35:18 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+Message-ID: <F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+
+On Sep 10, 2012, at 6:07 AM, Mike Herrick wrote:
+> Getting back to the original proposals:
+> 
+> On Sep 6, 2012, at 8:46 AM, Mike Herrick wrote:
+> 
+>> 
+>> Here are some basic strategies for doing the run-time checking:
+>> 
+>> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+>> 
+>> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+>> 
+>> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+> 
+> It seems that option 2 is out (doesn't handle placement new[]), and option 3 has problems with signed/unsigned number of elements cases.  It appears that option 1 has had the most support (and gives the most flexibility).  Any objections (or other proposals)?
+
+I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+
+Would you mind writing up a formal proposal (or even a patch)?  At a high level I think the required changes are:
+
+1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+
+2) Including this behavior in the specification for __cxa_vec_new{,2,3}.
+
+3) If desired, adding __cxa_vec_new_signed{,2,3}.
+
+John.
+
+From mjh at edg.com  Tue Sep 11 19:28:55 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 11 Sep 2012 15:28:55 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+Message-ID: <601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+
+
+On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+
+> On Sep 10, 2012, at 6:07 AM, Mike Herrick wrote:
+>> Getting back to the original proposals:
+>> 
+>> On Sep 6, 2012, at 8:46 AM, Mike Herrick wrote:
+>> 
+>>> 
+>>> Here are some basic strategies for doing the run-time checking:
+>>> 
+>>> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+>>> 
+>>> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+>>> 
+>>> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.  Compilers would insert a call to the new routine before any call to __cxa_vec_new* (when the number of elements isn't known at compile time).
+>> 
+>> It seems that option 2 is out (doesn't handle placement new[]), and option 3 has problems with signed/unsigned number of elements cases.  It appears that option 1 has had the most support (and gives the most flexibility).  Any objections (or other proposals)?
+> 
+> I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+> 
+> Would you mind writing up a formal proposal (or even a patch)?
+
+Not at all (assuming we can figure out what the best course of action is).
+
+>  At a high level I think the required changes are:
+> 
+> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+
+We agree that having the length argument is desirable from a user's point of view, but it seems rather difficult for the compiler to convey this value to a library routine given that its type may be signed or unsigned and it may or may not be larger than size_t/ptrdiff_t.
+
+> 
+> 2) Including this behavior in the specification for __cxa_vec_new{,2,3}.
+> 
+> 3) If desired, adding __cxa_vec_new_signed{,2,3}.
+
+
+We're thinking that (because of the difficulty mentioned above) it's best to make one change: namely to add __cxa_throw_bad_array_new_length(void).  This pushes the responsibility to the compiler (where the type is known), and hopefully results in generated code that can be more easily optimized.  The existing routines would be unchanged.
+
+Mike.
+
+
+From dhandly at cup.hp.com  Tue Sep 11 21:37:54 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 11 Sep 2012 14:37:54 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209112137.q8BLbsY04210@adlwrk05.cce.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+>> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a
+>>still an open question here, I think:  it's a better user experience if
+>>std::bad_array_new_length carries the length argument.  Unfortunately
+>>(a) that's a bit complicated to encode as an operand to the routine,
+>>because we'd also need to track whether that's signed or unsigned, and
+
+>We agree that having the length argument is desirable from a user's
+>point of view, but it seems rather difficult for the compiler to convey
+>this value to a library routine given that its type may be signed or
+>unsigned and it may or may not be larger than size_t/ptrdiff_t.
+
+There's a simple solution to this.  Use evil floating point, a double.
+While it isn't precise for allocation, it will be properly signed and at
+least handle large magnitude values for any error message.
+
+From rjmccall at apple.com  Wed Sep 12 00:44:36 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 11 Sep 2012 17:44:36 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+Message-ID: <F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+
+On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+> On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+>> I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+>> 
+>> Would you mind writing up a formal proposal (or even a patch)?
+> 
+> Not at all (assuming we can figure out what the best course of action is).
+
+Thanks!
+
+>> At a high level I think the required changes are:
+>> 
+>> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+> 
+> We agree that having the length argument is desirable from a user's point of view, but it seems rather difficult for the compiler to convey this value to a library routine given that its type may be signed or unsigned and it may or may not be larger than size_t/ptrdiff_t.
+
+I hadn't thought of the wider-than-size_t problem, although amusingly I did
+remember that case when writing the bounds checks in clang.
+
+Hmm.  At the risk of prescribing an overly complicated API, I would suggest:
+  void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+where 'flags' is:
+  (sizeof(size) << 1) | std::is_signed<decltype(size)>::value
+and where sizeData is either:
+ size, converted to a uintptr_t, if sizeof(size) <= sizeof(uintptr_t), or
+ &size otherwise (throwing it in some temporary memory).
+Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+
+In the common case, this should be a pretty small addition to the call
+sequence ? on x86-64, for example, it would be (at worst) a register-register
+move and a small immediate-to-register move.  I think that's a reasonable
+sacrifice for the benefit of letting the ABI library report useful information in
+the exception.
+
+(ABI libraries will probably just saturate the bound value when storing it
+in the exception, but this lets them decide how and when to do so.)
+
+>> 2) Including this behavior in the specification for __cxa_vec_new{,2,3}.
+>> 
+>> 3) If desired, adding __cxa_vec_new_signed{,2,3}.
+> 
+> We're thinking that (because of the difficulty mentioned above) it's best to make one change: namely to add __cxa_throw_bad_array_new_length(void).  This pushes the responsibility to the compiler (where the type is known), and hopefully results in generated code that can be more easily optimized.  The existing routines would be unchanged.
+
+Are you suggesting that the existing routines would not do this overflow
+checking?  That makes them much less valuable for their intended
+purposes of code-size optimization, because we'd still need several
+checks and a whole second call sequence in the generated code.
+
+I think the existing routines should do the check, assuming (as they must)
+that they were given a valid unsigned value that fits within a size_t.  In
+optimal code, this will just be some easily-predicted branch-on-overflow
+instructions after the existing arithmetic;  it's peanuts compared to the rest
+of the work.
+
+If we're not going to add signed/oversized variants ? both reasonable
+choices, in my view ? then the compiler can still use __cxa_vec_new*
+as long as as it puts an appropriate check in front if either:
+  - sizeof(size) > sizeof(size_t)
+  - decltype(size) is signed
+This check is required if __cxa_throw_bad_array_new_length takes
+any information about the size value and type.  I want it to take that
+information.  However, if the consensus goes the other way and
+__cxa_throw_bad_array_new_length does *not* take any information
+about the size value, we can avoid this extra call in the extremely
+common case that sizeof(element) > 1, because the overflow check
+in __cxa_vec_new* will automatically trigger for negative values.
+Thus we can skip all checking relating to "normal" signed size values,
+and for "oversized" size values we can simply saturate at -1 or some
+other value which is guaranteed to fail to allocate.
+
+John.
+
+From mjh at edg.com  Thu Sep 13 02:15:47 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 12 Sep 2012 22:15:47 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+Message-ID: <59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+
+
+On Sep 11, 2012, at 8:44 PM, John McCall wrote:
+
+> On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+>> On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+>>> I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+>>> 
+>>> Would you mind writing up a formal proposal (or even a patch)?
+>> 
+>> Not at all (assuming we can figure out what the best course of action is).
+> 
+> Thanks!
+> 
+>>> At a high level I think the required changes are:
+>>> 
+>>> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+>> 
+>> We agree that having the length argument is desirable from a user's point of view, but it seems rather difficult for the compiler to convey this value to a library routine given that its type may be signed or unsigned and it may or may not be larger than size_t/ptrdiff_t.
+> 
+> I hadn't thought of the wider-than-size_t problem, although amusingly I did
+> remember that case when writing the bounds checks in clang.
+> 
+> Hmm.  At the risk of prescribing an overly complicated API, I would suggest:
+>  void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+> where 'flags' is:
+>  (sizeof(size) << 1) | std::is_signed<decltype(size)>::value
+> and where sizeData is either:
+> size, converted to a uintptr_t, if sizeof(size) <= sizeof(uintptr_t), or
+> &size otherwise (throwing it in some temporary memory).
+> Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+
+I'm a little leery of passing size (sizeData) in this fashion.  [Also, std::uintptr_t appears to be optional in the standard.]
+
+If we went this route, I'd argue to separate flags above into two separate arguments.
+
+Any other opinions on whether we should try to save this value (and if so, in which manner)?
+
+> 
+> In the common case, this should be a pretty small addition to the call
+> sequence ? on x86-64, for example, it would be (at worst) a register-register
+> move and a small immediate-to-register move.  I think that's a reasonable
+> sacrifice for the benefit of letting the ABI library report useful information in
+> the exception.
+> 
+> (ABI libraries will probably just saturate the bound value when storing it
+> in the exception, but this lets them decide how and when to do so.)
+> 
+>>> 2) Including this behavior in the specification for __cxa_vec_new{,2,3}.
+>>> 
+>>> 3) If desired, adding __cxa_vec_new_signed{,2,3}.
+>> 
+>> We're thinking that (because of the difficulty mentioned above) it's best to make one change: namely to add __cxa_throw_bad_array_new_length(void).  This pushes the responsibility to the compiler (where the type is known), and hopefully results in generated code that can be more easily optimized.  The existing routines would be unchanged.
+> 
+> Are you suggesting that the existing routines would not do this overflow
+> checking?  That makes them much less valuable for their intended
+> purposes of code-size optimization, because we'd still need several
+> checks and a whole second call sequence in the generated code.
+> 
+> I think the existing routines should do the check, assuming (as they must)
+> that they were given a valid unsigned value that fits within a size_t.  In
+> optimal code, this will just be some easily-predicted branch-on-overflow
+> instructions after the existing arithmetic;  it's peanuts compared to the rest
+> of the work.
+
+I agree that the existing routines should be updated to do whatever checking they can (i.e., for overflow in the typical case where sizeof(size) <= sizeof(size_t) and decltype(size) is unsigned).
+
+> 
+> If we're not going to add signed/oversized variants ? both reasonable
+> choices, in my view ? then the compiler can still use __cxa_vec_new*
+> as long as as it puts an appropriate check in front if either:
+>  - sizeof(size) > sizeof(size_t)
+>  - decltype(size) is signed
+
+  - size < number_of_initialized_elements
+
+> This check is required if __cxa_throw_bad_array_new_length takes
+> any information about the size value and type.  I want it to take that
+> information.  However, if the consensus goes the other way and
+> __cxa_throw_bad_array_new_length does *not* take any information
+> about the size value, we can avoid this extra call in the extremely
+> common case that sizeof(element) > 1, because the overflow check
+> in __cxa_vec_new* will automatically trigger for negative values.
+> Thus we can skip all checking relating to "normal" signed size values,
+> and for "oversized" size values we can simply saturate at -1 or some
+> other value which is guaranteed to fail to allocate.
+
+Assuming there are no architectures where this doesn't hold true, it sounds good to me.
+
+Mike.
+
+
+From rjmccall at apple.com  Thu Sep 13 03:07:39 2012
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 12 Sep 2012 20:07:39 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+Message-ID: <D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+
+On Sep 12, 2012, at 7:15 PM, Mike Herrick wrote:
+> On Sep 11, 2012, at 8:44 PM, John McCall wrote:
+>> On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+>>> On Sep 10, 2012, at 12:35 PM, John McCall wrote:
+>>>> I wouldn't say option 2 is *out*, it's just not *sufficient*, in the same ways that __cxa_vec_new was never sufficient.
+>>>> 
+>>>> Would you mind writing up a formal proposal (or even a patch)?
+>>> 
+>>> Not at all (assuming we can figure out what the best course of action is).
+>> 
+>> Thanks!
+>> 
+>>>> At a high level I think the required changes are:
+>>>> 
+>>>> 1) Adding the new __cxa_throw_bad_array_new_length routine.  There's a still an open question here, I think:  it's a better user experience if std::bad_array_new_length carries the length argument.  Unfortunately (a) that's a bit complicated to encode as an operand to the routine, because we'd also need to track whether that's signed or unsigned, and (b) it looks like libc++ doesn't have space for carrying this information, and libstdc++ apparently hasn't been revised for this rule change yet.
+>>> 
+>>> We agree that having the length argument is desirable from a user's point of view, but it seems rather difficult for the compiler to convey this value to a library routine given that its type may be signed or unsigned and it may or may not be larger than size_t/ptrdiff_t.
+>> 
+>> I hadn't thought of the wider-than-size_t problem, although amusingly I did
+>> remember that case when writing the bounds checks in clang.
+>> 
+>> Hmm.  At the risk of prescribing an overly complicated API, I would suggest:
+>> void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+>> where 'flags' is:
+>> (sizeof(size) << 1) | std::is_signed<decltype(size)>::value
+>> and where sizeData is either:
+>> size, converted to a uintptr_t, if sizeof(size) <= sizeof(uintptr_t), or
+>> &size otherwise (throwing it in some temporary memory).
+>> Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+> 
+> I'm a little leery of passing size (sizeData) in this fashion.  [Also, std::uintptr_t appears to be optional in the standard.]
+
+Well, the simpler alternative is to saturate to a size_t/ssize_t (saturation being unnecessary unless the size is actually of a larger type than size_t) and just pass a flag indicating whether it's signed.  That inherently loses information, of course.
+
+I know there are platforms which don't provide std::uintptr_t, but are there platforms which *can't* support std::uintptr_t?  That is, is this a real limitation or a "some system headers are dumber than others" limitation?
+
+> If we went this route, I'd argue to separate flags above into two separate arguments.
+
+Is there a good reason to, other than to get a slightly prettier-looking API?  I know that minimizing function arguments seems like a micro-optimization, but I'm not sure that's inappropriate in this context;  we certainly already have users that begrudge us the size of array-new, and this entire discussion is about making it larger.  Every instruction helps.
+
+>> If we're not going to add signed/oversized variants ? both reasonable
+>> choices, in my view ? then the compiler can still use __cxa_vec_new*
+>> as long as as it puts an appropriate check in front if either:
+>> - sizeof(size) > sizeof(size_t)
+>> - decltype(size) is signed
+> 
+>  - size < number_of_initialized_elements
+
+Oh, yes, of course.  If it's a nested array allocation, we need to do that
+overflow check outside as well.
+
+>> This check is required if __cxa_throw_bad_array_new_length takes
+>> any information about the size value and type.  I want it to take that
+>> information.  However, if the consensus goes the other way and
+>> __cxa_throw_bad_array_new_length does *not* take any information
+>> about the size value, we can avoid this extra call in the extremely
+>> common case that sizeof(element) > 1, because the overflow check
+>> in __cxa_vec_new* will automatically trigger for negative values.
+>> Thus we can skip all checking relating to "normal" signed size values,
+>> and for "oversized" size values we can simply saturate at -1 or some
+>> other value which is guaranteed to fail to allocate.
+> 
+> Assuming there are no architectures where this doesn't hold true, it sounds good to me.
+
+We'd certainly have a lot more optimization flexibility if we don't try
+to preserve the bad size value.  My worry is that we'd be *forcing* a poor
+debugging experience on programmers ? they'd have to reproduce the
+problem in a debugger in order to have any idea what the bad value was.
+I'll readily grant that this is already true for a large class of other bugs in C++.
+
+Anyway, I've asked Howard Hinnant, Apple's C++ library maintainer, to
+catch up on the discussion and weigh in.
+
+John.
+
+From dhandly at cup.hp.com  Thu Sep 13 03:32:59 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 12 Sep 2012 20:32:59 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209130332.q8D3Wx212396@adlwrk05.cce.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>On Sep 11, 2012, at 8:44 PM, John McCall wrote:
+>> On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+>> I hadn't thought of the wider-than-size_t problem, although amusingly I did
+>> remember that case when writing the bounds checks in clang.
+>> 
+>> At the risk of prescribing an overly complicated API, I would suggest:
+>>  void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+>> where 'flags' is:
+>>  (sizeof(size) << 1) | std::is_signed<decltype(size)>::value
+>> and where sizeData is either:
+>> size, converted to a uintptr_t, if sizeof(size) <= sizeof(uintptr_t), or
+>> &size otherwise (throwing it in some temporary memory).
+>> Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+
+>Any other opinions on whether we should try to save this value (and if
+>so, in which manner)?
+Mike.
+
+Wouldn't using a double be good enough?
+
+>> I think that's a reasonable
+>> sacrifice for the benefit of letting the ABI library report useful
+>> information in the exception.
+
+I have code to print out the size of the bad_alloc request, as useful.
+I only print out the first value and don't handle threads perfectly.
+sounds good to me.
+
+From rjmccall at apple.com  Thu Sep 13 07:15:53 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 13 Sep 2012 00:15:53 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+	<F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+Message-ID: <12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+
+On Sep 12, 2012, at 9:23 PM, Howard Hinnant wrote:
+> On Sep 12, 2012, at 8:07 PM, John McCall <rjmccall at apple.com> wrote:
+>> Anyway, I've asked Howard Hinnant, Apple's C++ library maintainer, to
+>> catch up on the discussion and weigh in.
+> 
+> I'm just now catching up.  Sorry to be absent.
+> 
+> I think we need to take 3 steps back.
+> 
+> My impression is that bad_array_new_length is meant to catch the case where the compiler or the run-time is required to compute an allocation size by multiplying number of elements by element size and possibly add padding.  If that computation overflows, throw bad_array_new_length.  Otherwise send it on to operator new and let it throw bad_alloc if necessary.
+> 
+> I really don't think we want to get any more complicated than that.  I don't think the benefit/cost ratio would be high if we tried to encode the number of elements times element size plus padding into bad_array_new_length.  If you catch a bad_array_new_length, then you just know you've done something outrageous.  The precise numbers aren't important.  You've used uninitialized or compromised memory for the size or number of elements.  It doesn't really matter how much you're over.  What matters is that you have a logic bug.  And it is our job to stop the program.  If someone wants to catch bad_array_new_length and try to save the program, best of luck.
+
+I certainly agree that the goal shouldn't be to make recovery easier!  My goal was just to provide a more useful diagnostic when failing.  Programmers in managed languages find this very helpful:  knowing the exact failure condition often illuminates the problem and lets you bypass the need to reproduce.
+
+But this is hardly the only thing you'd want better information from.  I withdraw my idea;  let's go with a nullary __cxa_throw_bad_array_new_length.
+
+John.
+
+From mjh at edg.com  Thu Sep 13 12:57:14 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 13 Sep 2012 08:57:14 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <201209130332.q8D3Wx212396@adlwrk05.cce.hp.com>
+References: <201209130332.q8D3Wx212396@adlwrk05.cce.hp.com>
+Message-ID: <0F2DE889-0CFB-4F14-9887-D596442D7FB7@edg.com>
+
+
+On Sep 12, 2012, at 11:32 PM, Dennis Handly wrote:
+
+>> From: Mike Herrick <mjh at edg.com>
+>> On Sep 11, 2012, at 8:44 PM, John McCall wrote:
+>>> On Sep 11, 2012, at 12:28 PM, Mike Herrick wrote:
+>>> I hadn't thought of the wider-than-size_t problem, although amusingly I did
+>>> remember that case when writing the bounds checks in clang.
+>>> 
+>>> At the risk of prescribing an overly complicated API, I would suggest:
+>>> void __cxa_throw_bad_array_new_length(uintptr_t sizeData, int flags);
+>>> where 'flags' is:
+>>> (sizeof(size) << 1) | std::is_signed<decltype(size)>::value
+>>> and where sizeData is either:
+>>> size, converted to a uintptr_t, if sizeof(size) <= sizeof(uintptr_t), or
+>>> &size otherwise (throwing it in some temporary memory).
+>>> Converting to a uintptr_t means zero-extending or sign-extending as appropriate.
+> 
+>> Any other opinions on whether we should try to save this value (and if
+>> so, in which manner)?
+> Mike.
+> 
+> Wouldn't using a double be good enough?
+
+Unfortunately, I don't think so.  There are several problems with using double: it's not available on every platform, it doesn't handle the case where the sizeof(size) > sizeof(double), and even in cases where sizeof(double) >= sizeof(size), it can only represent integer values that fit in 53 bits.
+
+Mike.
+
+
+From mjh at edg.com  Thu Sep 13 13:00:37 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 13 Sep 2012 09:00:37 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+	<F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+	<12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+Message-ID: <F9B5A0B9-0525-4A0C-8E45-39C0E09A474A@edg.com>
+
+
+On Sep 13, 2012, at 3:15 AM, John McCall wrote:
+
+> On Sep 12, 2012, at 9:23 PM, Howard Hinnant wrote:
+>> On Sep 12, 2012, at 8:07 PM, John McCall <rjmccall at apple.com> wrote:
+>>> Anyway, I've asked Howard Hinnant, Apple's C++ library maintainer, to
+>>> catch up on the discussion and weigh in.
+>> 
+>> I'm just now catching up.  Sorry to be absent.
+>> 
+>> I think we need to take 3 steps back.
+>> 
+>> My impression is that bad_array_new_length is meant to catch the case where the compiler or the run-time is required to compute an allocation size by multiplying number of elements by element size and possibly add padding.  If that computation overflows, throw bad_array_new_length.  Otherwise send it on to operator new and let it throw bad_alloc if necessary.
+>> 
+>> I really don't think we want to get any more complicated than that.  I don't think the benefit/cost ratio would be high if we tried to encode the number of elements times element size plus padding into bad_array_new_length.  If you catch a bad_array_new_length, then you just know you've done something outrageous.  The precise numbers aren't important.  You've used uninitialized or compromised memory for the size or number of elements.  It doesn't really matter how much you're over.  What matters is that you have a logic bug.  And it is our job to stop the program.  If someone wants to catch bad_array_new_length and try to save the program, best of luck.
+> 
+> I certainly agree that the goal shouldn't be to make recovery easier!  My goal was just to provide a more useful diagnostic when failing.  Programmers in managed languages find this very helpful:  knowing the exact failure condition often illuminates the problem and lets you bypass the need to reproduce.
+> 
+> But this is hardly the only thing you'd want better information from.  I withdraw my idea;  let's go with a nullary __cxa_throw_bad_array_new_length.
+
+Okay, if there aren't any other objections/ideas, I'll come up with a patch.
+
+Mike.
+
+From mjh at edg.com  Thu Sep 13 14:00:32 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 13 Sep 2012 10:00:32 -0400
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <F9B5A0B9-0525-4A0C-8E45-39C0E09A474A@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+	<F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+	<12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+	<F9B5A0B9-0525-4A0C-8E45-39C0E09A474A@edg.com>
+Message-ID: <10F2720A-A3E9-4B1B-94F8-116DE75122B5@edg.com>
+
+
+On Sep 13, 2012, at 9:00 AM, Mike Herrick wrote:
+
+> Okay, if there aren't any other objections/ideas, I'll come up with a patch.
+
+Here's a proposed patch (against the current gh-pages branch at github):
+
+diff --git a/abi.html b/abi.html
+index fe5e72c..10f4ca5 100644
+--- a/abi.html
++++ b/abi.html
+@@ -3329,6 +3329,12 @@ not be called.</p>
+ 
+ <p>Neither <code>alloc</code> nor <code>dealloc</code> may be
+ <code>NULL</code>.</p>
++
++<p>If the computed size of the allocated array object (including
++space for a cookie, if specified) would exceed the
++implementation-defined limit, <code>std::bad_array_new_length</code>
++is thrown.</p>
++
+ </dd>
+ 
+ <dt><code><pre>
+@@ -3347,6 +3353,16 @@ function takes both the object address and its size.
+ </dd>
+ 
+ <dt><code><pre>
++extern "C" void __cxa_throw_bad_array_new_length (void);
++</pre></code></dt>
++<dd>
++Unconditionally throws <code>std::bad_array_new_length</code>.
++May be invoked by the compiler when the number of array elements
++expression of a <code>new[]</code> operation violates the requirements
++of the C++ standard.
++</dd>
++
++<dt><code><pre>
+ extern "C" void __cxa_vec_ctor (
+            void *array_address,
+            size_t element_count,
+
+Mike.
+
+
+
+From howard.hinnant at gmail.com  Thu Sep 13 04:23:50 2012
+From: howard.hinnant at gmail.com (Howard Hinnant)
+Date: Wed, 12 Sep 2012 21:23:50 -0700
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+Message-ID: <F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+
+On Sep 12, 2012, at 8:07 PM, John McCall <rjmccall at apple.com> wrote:
+
+> Anyway, I've asked Howard Hinnant, Apple's C++ library maintainer, to
+> catch up on the discussion and weigh in.
+
+I'm just now catching up.  Sorry to be absent.
+
+I think we need to take 3 steps back.
+
+My impression is that bad_array_new_length is meant to catch the case where the compiler or the run-time is required to compute an allocation size by multiplying number of elements by element size and possibly add padding.  If that computation overflows, throw bad_array_new_length.  Otherwise send it on to operator new and let it throw bad_alloc if necessary.
+
+I really don't think we want to get any more complicated than that.  I don't think the benefit/cost ratio would be high if we tried to encode the number of elements times element size plus padding into bad_array_new_length.  If you catch a bad_array_new_length, then you just know you've done something outrageous.  The precise numbers aren't important.  You've used uninitialized or compromised memory for the size or number of elements.  It doesn't really matter how much you're over.  What matters is that you have a logic bug.  And it is our job to stop the program.  If someone wants to catch bad_array_new_length and try to save the program, best of luck.
+
+Howard
+
+
+From dhandly at cup.hp.com  Thu Sep 13 21:02:45 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 13 Sep 2012 14:02:45 -0700 (PDT)
+Subject: [cxx-abi-dev] Run-time array checking
+Message-ID: <201209132102.q8DL2jK16590@adlwrk05.cce.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>it's not available on every platform
+
+Ok, that's why I said "evil".
+
+>it doesn't handle the case where the sizeof(size) > sizeof(double), and
+>even in cases where sizeof(double) >= sizeof(size), it can only represent
+>integer values that fit in 53 bits.
+Mike.
+
+These are non-issues.  In my mind, the only purpose of the double was for
+error reporting and those don't need the precision, just the sign and
+magnitude.
+
+From jason at redhat.com  Thu Sep 20 14:53:00 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 20 Sep 2012 10:53:00 -0400
+Subject: [cxx-abi-dev] thread_local destructors
+Message-ID: <505B2DCC.8040202@redhat.com>
+
+C++11 specifies that thread_local variables can have dynamic 
+initialization and destruction semantics, so we need to add that to the 
+existing TLS model.  As discussed in N2659 it is possible to support 
+dynamic initialization in just the compiler, but for destruction we need 
+a thread-local version of atexit.  This seems to call for a new runtime 
+entry point __cxa_thread_atexit.
+
+The question is, do we want to try to deal with the intersection of 
+threads and shared libraries?  If the user dlcloses a library with TLS 
+objects that have destructors in multiple threads, trying to arrange for 
+the affected threads to run the relevant destructors seems
+complex.  Are other people comfortable just saying "don't do that"?
+
+Jason
+
+From dhandly at cup.hp.com  Thu Sep 20 22:26:32 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 20 Sep 2012 15:26:32 -0700 (PDT)
+Subject: [cxx-abi-dev] thread_local destructors
+Message-ID: <201209202226.q8KMQWi28364@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>As discussed in N2659 it is possible to support 
+>dynamic initialization in just the compiler, but for destruction we need 
+>a thread-local version of atexit.  This seems to call for a new runtime 
+>entry point __cxa_thread_atexit.
+
+(Or spell it __cxa_atexit_thread.)
+
+Also, do we need a __cxa_finalize_thread function?
+And what happen when exit is called?  All existing object destroyed in order?
+
+Do we need a new data structure that will have:
+   address
+   dtor
+   __dso_handle
+   thread_id
+   next
+
+And __cxa_finalize & __cxa_finalize_thread will know how to handle it?
+(And too late to add an extra parm to __cxa_finalize.)
+
+>The question is, do we want to try to deal with the intersection of 
+>threads and shared libraries?
+
+We should at least provide the shared lib KEY (__dso_handle) to
+__cxa_thread_atexit, in case we want to try to handle it.
+
+>If the user dlcloses a library with TLS objects that have destructors in
+>multiple threads, trying to arrange for the affected threads to run the
+>relevant destructors seems complex.  Are other people comfortable just
+>saying "don't do that"?
+Jason
+
+Has anyone thought of a design?
+
+Would one of the "don't do that" responses be to at least dump a list of
+all of the TLS objects (addresses of object and dtor and the shlib KEY) that
+are affected, before aborting?
+
+From jason at redhat.com  Fri Sep 21 13:08:47 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 21 Sep 2012 09:08:47 -0400
+Subject: [cxx-abi-dev] thread_local destructors
+In-Reply-To: <201209202226.q8KMQWi28364@adlwrk05.cce.hp.com>
+References: <201209202226.q8KMQWi28364@adlwrk05.cce.hp.com>
+Message-ID: <505C66DF.1000200@redhat.com>
+
+On 09/20/2012 06:26 PM, Dennis Handly wrote:
+> Also, do we need a __cxa_finalize_thread function?
+
+That's not clear to me.  I've been experimenting with registering a 
+private finalize function as a pthread_key_create destructor; it seems 
+to work pretty well except that they don't get run for the main thread 
+unless it explicitly calls pthread_exit.
+
+> And what happen when exit is called?  All existing object destroyed in order?
+
+3.6.3:
+
+Destructors for initialized objects with thread storage duration within 
+a given thread are called as a result of returning from the initial 
+function of that thread and as a result of that thread calling 
+std::exit. The completions of the destructors for all initialized 
+objects with thread storage duration within that thread are sequenced
+before the initiation of the destructors of any object with static 
+storage duration.
+
+> Do we need a new data structure that will have:
+>     address
+>     dtor
+>     __dso_handle
+>     thread_id
+>     next
+
+The data structure can itself be thread_local, so we don't need to store 
+the thread_id.  But this is an internal detail that doesn't need to be 
+part of the ABI.
+
+> Would one of the "don't do that" responses be to at least dump a list of
+> all of the TLS objects (addresses of object and dtor and the shlib KEY) that
+> are affected, before aborting?
+
+That would be more user-friendly, yes.
+
+Jason
+
+
+From jason at redhat.com  Fri Sep 21 14:00:46 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 21 Sep 2012 10:00:46 -0400
+Subject: [cxx-abi-dev] thread_local destructors
+In-Reply-To: <505C66DF.1000200@redhat.com>
+References: <201209202226.q8KMQWi28364@adlwrk05.cce.hp.com>
+	<505C66DF.1000200@redhat.com>
+Message-ID: <505C730E.5070106@redhat.com>
+
+On 09/21/2012 09:08 AM, Jason Merrill wrote:
+> On 09/20/2012 06:26 PM, Dennis Handly wrote:
+>> Would one of the "don't do that" responses be to at least dump a list of
+>> all of the TLS objects (addresses of object and dtor and the shlib
+>> KEY) that are affected, before aborting?
+>
+> That would be more user-friendly, yes.
+
+Another possibility would be to lock affected shlibs in memory, such as 
+with the glibc RTLD_NODELETE flag to dlopen.
+
+Jason
+
+
+From dhandly at cup.hp.com  Sat Sep 22 04:42:08 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 21 Sep 2012 21:42:08 -0700 (PDT)
+Subject: [cxx-abi-dev] thread_local destructors
+Message-ID: <201209220442.q8M4g8005261@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>> do we need a __cxa_finalize_thread function?
+
+>I've been experimenting with registering a 
+>private finalize function as a pthread_key_create destructor;
+
+I guess its name is __cxa_finalize_thread.  :-)
+
+>except that they don't get run for the main thread 
+>unless it explicitly calls pthread_exit.
+
+And how to handle that?
+
+>3.6.3:
+>Destructors for initialized objects with thread storage duration within 
+>a given thread are called as a result of returning from the initial 
+>function of that thread and as a result of that thread calling 
+>std::exit.
+
+Nothing about pthread_exit or pthread_cancel.
+For the former, you get it.  For the latter, is that like _exit where you
+don't want to run them.
+
+Also, for the case of std::exit, would that have to sit on top of exit and
+do more work?
+
+I think for HP-UX, only one thread gets into exit, the rest are blocked if
+they try.
+
+>The completions of the destructors for all initialized 
+>objects with thread storage duration within that thread are sequenced
+>before the initiation of the destructors of any object with static 
+>storage duration.
+
+This would mean std::exit would have to kill all of the threads first?
+
+>But this is an internal detail that doesn't need to be part of the ABI.
+
+Ok, I thought we would need trickiness where we would need exposition.
+
+>From: Jason Merrill <jason at redhat.com>
+>> That would be more user-friendly, yes.
+
+>Another possibility would be to lock affected shlibs in memory, such as 
+>with the glibc RTLD_NODELETE flag to dlopen.
+
+Ok.  This is a user requirement?  Or we somehow "add" RTLD_NODELETE to
+the loaded shlib?
+
+From jason at redhat.com  Mon Sep 24 14:29:46 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 24 Sep 2012 10:29:46 -0400
+Subject: [cxx-abi-dev] thread_local destructors
+In-Reply-To: <201209220442.q8M4g8005261@adlwrk05.cce.hp.com>
+References: <201209220442.q8M4g8005261@adlwrk05.cce.hp.com>
+Message-ID: <50606E5A.9090700@redhat.com>
+
+On 09/22/2012 12:42 AM, Dennis Handly wrote:
+>> From: Jason Merrill <jason at redhat.com>
+>>> do we need a __cxa_finalize_thread function?
+>
+>> I've been experimenting with registering a
+>> private finalize function as a pthread_key_create destructor;
+>
+> I guess its name is __cxa_finalize_thread.  :-)
+
+In my prototype it's a static member function of a class in the unnamed 
+namespace.  :)
+
+>> except that they don't get run for the main thread
+>> unless it explicitly calls pthread_exit.
+>
+> And how to handle that?
+
+Well, one way would be to add to the normal atexit list a call to a 
+finalize function that operates on the list for whatever the current 
+thread is.  But to be conformant we would have to arrange for this 
+finalize function to always be the first thing on the list.
+
+For a longer-term solution I think we're leaning toward supporting this 
+stuff in glibc directly.
+
+>> 3.6.3:
+>> Destructors for initialized objects with thread storage duration within
+>> a given thread are called as a result of returning from the initial
+>> function of that thread and as a result of that thread calling
+>> std::exit.
+>
+> Nothing about pthread_exit or pthread_cancel.
+> For the former, you get it.  For the latter, is that like _exit where you
+> don't want to run them.
+
+I think it makes sense to run them for pthread_cancel as well, since 
+pthread_cancel runs pthread_cleanup_* cleanups.
+
+> Also, for the case of std::exit, would that have to sit on top of exit and
+> do more work?
+
+As above, it probably makes sense to integrate this with exit/__cxa_atexit.
+
+>> The completions of the destructors for all initialized
+>> objects with thread storage duration within that thread are sequenced
+>> before the initiation of the destructors of any object with static
+>> storage duration.
+>
+> This would mean std::exit would have to kill all of the threads first?
+
+No, exit only runs the destructors for the thread it's called from.  Any 
+other active threads don't run their destructors.
+
+>> Another possibility would be to lock affected shlibs in memory, such as
+>> with the glibc RTLD_NODELETE flag to dlopen.
+>
+> Ok.  This is a user requirement?  Or we somehow "add" RTLD_NODELETE to
+> the loaded shlib?
+
+I was thinking to add it somehow when we call the thread atexit.
+
+Jason
+
+
+From jason at redhat.com  Mon Sep 24 14:49:12 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 24 Sep 2012 10:49:12 -0400
+Subject: [cxx-abi-dev]  thread_local CONstructors
+In-Reply-To: <505B2DCC.8040202@redhat.com>
+References: <505B2DCC.8040202@redhat.com>
+Message-ID: <506072E8.20704@redhat.com>
+
+On 09/20/2012 10:53 AM, Jason Merrill wrote:
+> As discussed in N2659 it is possible to support
+> dynamic initialization in just the compiler
+
+...but there are major ABI implications for this as well.  Lazy 
+initialization of TLS objects would be very similar to initialization of 
+local statics, except that we need to initialize all the TLS objects in 
+the TU, not just a single one.  So, something like
+
+thread_local A a1, a2;
+...
+f(a1);
+
+becomes (pseudo-code):
+
+thread_local A_rep a1, a2;
+void tls_init()
+{
+   static bool done;
+   if (!done)
+     {
+       done = true;
+       a1.A::A();
+       __cxa_thread_atexit (A::~A, &a1);
+       a2.A::A();
+       __cxa_thread_atexit (A::~A, &a2);
+     }
+}
+
+A& a1_f() { tls_init(); return a1; }
+A& a2_f() { tls_init(); return a2; }
+...
+f(a1_f());
+
+Unfortunately, since there is no way to tell whether a thread_local 
+variable with external linkage has a dynamic initializer in another TU, 
+we need to do the a1 to a1_f() transformation even for variables of POD 
+type that are statically initialized.  I don't see a way to avoid this 
+except doing POD initialization at thread creation time rather than 
+lazily, which means significant changes outside the compiler.
+
+So, the ABI questions are:
+
+1) Do we want to do initialization lazily, at thread creation, or lazily 
+except for PODs?
+2) If lazy initialization, how do we mangle the singleton function a1_f?
+
+Jason
+
+
+From jason at redhat.com  Mon Sep 24 15:47:18 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 24 Sep 2012 11:47:18 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <20120924145750.GE1787@tucnak.redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+Message-ID: <50608086.2010208@redhat.com>
+
+On 09/24/2012 10:57 AM, Jakub Jelinek wrote:
+> You mean
+>    static thread_local bool done;
+> right?
+
+Yes, right.  Though you don't need the 'static' because 'thread_local' 
+implies it in function scope.
+
+> Though perhaps one could register just the TLS dtor
+> for the whole TU, and let it call the individual dtors in the right order
+> (and check the done TLS flag, if false and nothing has been initialized
+> in the current thread, just don't do anything).
+
+This would be wrong if the init function for another TU gets called in 
+the middle of this one.
+
+>> Unfortunately, since there is no way to tell whether a thread_local
+>> variable with external linkage has a dynamic initializer in another
+>> TU, we need to do the a1 to a1_f() transformation even for variables
+>> of POD type that are statically initialized.  I don't see a way to
+>> avoid this except doing POD initialization at thread creation time
+>> rather than lazily, which means significant changes outside the
+>> compiler.
+>
+> That would be a big problem with dlopen when there is more than
+> one thread in the process at the time when dlopen is called and one of the
+> dlopened libraries has some thread_local vars that need constructing.
+
+True.  I suppose we would have to reject the dlopen in that case, so 
+doing lazy initialization is probably better.  It just makes me sad to 
+have a runtime penalty even for variables that are statically initialized.
+
+> FOr destruction of thread_local vars, guess we can just make the
+> corresponding libraries non-dlclosable dynamically (as running destructors
+> in all threads upon dlclose would be a huge pain).
+
+Would implicitly adding RTLD_NODELETE have the semantics we want?
+
+Jason
+
+
+From jason at redhat.com  Mon Sep 24 15:57:37 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 24 Sep 2012 11:57:37 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <50608086.2010208@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com>
+Message-ID: <506082F1.1090008@redhat.com>
+
+On 09/24/2012 11:47 AM, Jason Merrill wrote:
+> It just makes me sad to have a runtime penalty even for variables that are statically initialized.
+
+And I guess this means that we can't treat thread_local and __thread as 
+equivalent; __thread will still need to require static initialization 
+for C compatibility.
+
+Jason
+
+
+From jakub at redhat.com  Mon Sep 24 14:57:50 2012
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Mon, 24 Sep 2012 16:57:50 +0200
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <506072E8.20704@redhat.com>
+References: <505B2DCC.8040202@redhat.com>
+ <506072E8.20704@redhat.com>
+Message-ID: <20120924145750.GE1787@tucnak.redhat.com>
+
+On Mon, Sep 24, 2012 at 10:49:12AM -0400, Jason Merrill wrote:
+> becomes (pseudo-code):
+> 
+> thread_local A_rep a1, a2;
+> void tls_init()
+> {
+>   static bool done;
+
+You mean
+  static thread_local bool done;
+right?  Though perhaps one could register just the TLS dtor
+for the whole TU, and let it call the individual dtors in the right order
+(and check the done TLS flag, if false and nothing has been initialized
+in the current thread, just don't do anything).
+
+> Unfortunately, since there is no way to tell whether a thread_local
+> variable with external linkage has a dynamic initializer in another
+> TU, we need to do the a1 to a1_f() transformation even for variables
+> of POD type that are statically initialized.  I don't see a way to
+> avoid this except doing POD initialization at thread creation time
+> rather than lazily, which means significant changes outside the
+> compiler.
+
+That would be a big problem with dlopen when there is more than
+one thread in the process at the time when dlopen is called and one of the
+dlopened libraries has some thread_local vars that need constructing.
+
+FOr destruction of thread_local vars, guess we can just make the
+corresponding libraries non-dlclosable dynamically (as running destructors
+in all threads upon dlclose would be a huge pain).
+
+	Jakub
+
+From jason at redhat.com  Tue Sep 25 03:49:52 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 24 Sep 2012 23:49:52 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <506082F1.1090008@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+Message-ID: <506129E0.3030904@redhat.com>
+
+On 09/24/2012 11:57 AM, Jason Merrill wrote:
+> And I guess this means that we can't treat thread_local and __thread as
+> equivalent; __thread will still need to require static initialization
+> for C compatibility.
+
+Jakub and I discussed this more on IRC today.  It occurred to me that if 
+we use a weak reference to the initialization function we can avoid 
+breaking compatibility with C code that uses __thread, at least for 
+variables that are statically initialized.  So a declaration
+
+extern thread_local int i;
+
+implies
+
+extern void i_init() __attribute__ ((weak));
+inline int& i_wrapper()
+{
+   if (i_init) i_init();
+   return i;
+}
+
+so uses of i are replaced with calls to i_wrapper, and when i is defined 
+we emit i_init iff i has a dynamic initializer.  For a statically 
+initialized variable, the runtime penalty is small (just comparing the 
+address of a symbol to zero).
+
+Jakub suggested that it would be more efficient for variables that do 
+need dynamic initialization to have the wrapper check a guard variable 
+before calling the init function rather than from within the init 
+function.  We could do that, too:
+
+extern void i_init() __attribute ((weak));
+extern thread_local bool i_done __attribute ((weak));
+inline int& i_wrapper()
+{
+   if (i_init && !i_done) i_init();
+   return i;
+}
+
+Note that we can't test the address of i_done to see if it's defined 
+because undefined weak TLS variables resolve to a non-null pointer 
+value.  So we test the address of i_init instead.
+
+Either of these maintains link-compatibility with __thread for 
+statically initialized variables (and even dynamically-initialized ones 
+as long as they are initialized before the C code tries to use them).
+
+Jason
+
+
+From rjmccall at apple.com  Tue Sep 25 09:03:03 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 25 Sep 2012 02:03:03 -0700
+Subject: [cxx-abi-dev] Mangling for noexcept operator
+In-Reply-To: <A179A825-4793-4D89-9283-7FCC92F4D1C0@edg.com>
+References: <E27D525A-13BC-4438-95A8-F48CFE0A077B@edg.com>
+	<C1DFD614-6AA0-419E-AB69-075AB0E1E7FD@apple.com>
+	<0AE0F6E3-1DFF-4E30-81A8-8FCA7B60342B@edg.com>
+	<067D4BAD-0BED-4690-B12B-430272705EB9@apple.com>
+	<A179A825-4793-4D89-9283-7FCC92F4D1C0@edg.com>
+Message-ID: <E14A4069-15CB-4C50-9B50-C906C97145B4@apple.com>
+
+On Sep 4, 2012, at 12:24 PM, David Vandevoorde wrote:
+> On Sep 4, 2012, at 2:46 PM, John McCall wrote:
+>> On Sep 4, 2012, at 11:30 AM, David Vandevoorde wrote:
+>>> On Sep 4, 2012, at 2:17 PM, John McCall wrote:
+>>>> On Sep 4, 2012, at 6:39 AM, Mike Herrick wrote:
+>>>>> We don't seem to have a mangling for the new noexcept operator.  
+>>>>> 
+>>>>> How's this:
+>>>>> 
+>>>>> <operator-name> ::= nx		# noexcept (an expression)
+>>>>> 
+>>>>> For example:
+>>>>> 
+>>>>> void f(int) noexcept;
+>>>>> void f(float) throw (int);
+>>>>> template <class T> auto g(T p) -> decltype((int (*)[noexcept(f(p))])0);
+>>>>> int main() {
+>>>>> g(1);
+>>>>> }
+>>>>> 
+>>>>> Which would provide a mangled name of: _Z1gIiEDTcvPAnxcl1ffp_E_iLi0EET_ for g.
+>>>> 
+>>>> This seems like a fine mangling, but it shouldn't be an <operator-name>.
+>>>> Let's just do:
+>>>> <expression> ::= nx <expression>
+>>> 
+>>> It would be odd not to follow the pattern of sizeof and alignof here, no?
+>> 
+>> Heh.  I was following the pattern of typeid and throw. :)
+> 
+> 
+> Ah yes.
+> 
+>> I didn't actually notice that sizeof and alignof are only <expression>s directly in the type variant.
+> 
+> Oops: So sizeof(type) and alignof(type) are there twice: Once under <operator-name> and once under <expression>.  :-(
+> 
+>>> (I can kind of see an argument to distinguish the "operators" that cannot be the basis of a <base-unresolved-name>, but I'm not sure it's worth the complication.)
+>> 
+>> Well, they also can't be the names of declarations, at least until the committee inevitably adds an operator sizeof. :)
+>> 
+>> I withdraw my tweak, although I may just move these using editorial discretion unless you really object.  Neither seems inherently less complicated, and having (e.g.) both sizeof rules in the same place has some merit.
+> 
+> I don't object.  It does look like some cleaning up would be nice there.
+
+This seemed totally uncontroversial, so (after much delay) I went ahead
+and committed the following patch:
+
+commit a4fdb4282645c1ed88249ceadc4a7fc56b929402
+Author: John McCall <rjmccall at apple.com>
+Date:   Tue Sep 25 01:37:45 2012 -0700
+
+    Remove the mangling entries for sizeof and alignof from the
+    operators section.  Add the sizeof/alignof expression cases
+    to the expressions section.  These are editorial changes.
+    
+    Also add Mike Herrick's proposed 'nx' mangling for noexcept.
+
+diff --git a/abi.html b/abi.html
+index fe5e72c..8262643 100644
+--- a/abi.html
++++ b/abi.html
+@@ -4090,10 +4090,6 @@ the first of which is lowercase.
+                  ::= cl        # ()            
+                  ::= ix        # []            
+                  ::= qu        # ?             
+-                 ::= st        # sizeof (a type)
+-                 ::= sz        # sizeof (an expression)
+-                  ::= at        # alignof (a type)
+-                  ::= az        # alignof (an expression)
+                  ::= cv &lt;type>      # (cast)        
+                  ::= v &lt;digit> &lt;source-name>     # vendor extended operator
+ </pre></font></code>
+@@ -4622,8 +4618,11 @@ arguments.
+                ::= cc &lt;type&gt; &lt;expression&gt;                               # const_cast&lt;type&gt; (expression)
+                ::= rc &lt;type&gt; &lt;expression&gt;                               # reinterpret_cast&lt;type&gt; (expression)
+                ::= st &lt;type&gt;                                            # sizeof (a type)
++               ::= sz &lt;expression&gt;                                      # sizeof (an expression)
+                ::= at &lt;type&gt;                                            # alignof (a type)
+-               ::= &lt;template-param>
++               ::= az &lt;expression&gt;                                      # alignof (an expression)
++               ::= nx &lt;expression&gt;                                      # noexcept (expression)
++               ::= &lt;template-param&gt;
+                ::= &lt;function-param&gt;
+                ::= dt &lt;expression&gt; &lt;unresolved-name&gt;                    # expr.name
+                ::= pt &lt;expression&gt; &lt;unresolved-name&gt;                    # expr-&gt;name
+
+John.
+
+From jakub at redhat.com  Wed Sep 26 15:03:28 2012
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Wed, 26 Sep 2012 17:03:28 +0200
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <50631860.3010202@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+Message-ID: <20120926150328.GR1787@tucnak.redhat.com>
+
+On Wed, Sep 26, 2012 at 07:59:44AM -0700, Richard Henderson wrote:
+> On 09/24/2012 08:49 PM, Jason Merrill wrote:
+> > Jakub suggested that it would be more efficient for variables that do need dynamic initialization to have the wrapper check a guard variable before calling the init function rather than from within the init function.  We could do that, too:
+> > 
+> > extern void i_init() __attribute ((weak));
+> > extern thread_local bool i_done __attribute ((weak));
+> > inline int& i_wrapper()
+> > {
+> >   if (i_init && !i_done) i_init();
+> >   return i;
+> > }
+> > 
+> > Note that we can't test the address of i_done to see if it's defined because undefined weak TLS variables resolve to a non-null pointer value.  So we test the address of i_init instead.
+> 
+> Given that I_DONE is thread_local, and could reside outside the current
+> DSO, it is almost certain to require the use of the global-dynamic TLS
+> model.  Which itself implies a function call to __tls_get_addr.
+
+For GD model sure, I was thinking about IE model, where it might be cheaper
+than the call.  But perhaps not significantly so.
+As we'll need to do that on every access to the TLS variable (well, first
+access in a function), it is going to be pretty expensive in any case.
+
+	Jakub
+
+From rth at redhat.com  Wed Sep 26 14:59:44 2012
+From: rth at redhat.com (Richard Henderson)
+Date: Wed, 26 Sep 2012 07:59:44 -0700
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <506129E0.3030904@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com>
+Message-ID: <50631860.3010202@redhat.com>
+
+On 09/24/2012 08:49 PM, Jason Merrill wrote:
+> Jakub suggested that it would be more efficient for variables that do need dynamic initialization to have the wrapper check a guard variable before calling the init function rather than from within the init function.  We could do that, too:
+> 
+> extern void i_init() __attribute ((weak));
+> extern thread_local bool i_done __attribute ((weak));
+> inline int& i_wrapper()
+> {
+>   if (i_init && !i_done) i_init();
+>   return i;
+> }
+> 
+> Note that we can't test the address of i_done to see if it's defined because undefined weak TLS variables resolve to a non-null pointer value.  So we test the address of i_init instead.
+
+Given that I_DONE is thread_local, and could reside outside the current DSO, it is almost certain to require the use of the global-dynamic TLS model.  Which itself implies a function call to __tls_get_addr.
+
+I think it likely that it would be more efficient to rely on I_INIT testing I_DONE at the start.  That's fewer symbols exported from a DSO, fewer runtime relocations, and since I_DONE can then be static, the use of the local-dynamic TLS model.  Which means that one call to __tls_get_addr can be shared for the lookup of I and I_DONE.
+
+
+r~
+
+From jason at redhat.com  Wed Sep 26 21:03:02 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 26 Sep 2012 17:03:02 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <50631860.3010202@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+Message-ID: <50636D86.2030706@redhat.com>
+
+On 09/26/2012 10:59 AM, Richard Henderson wrote:
+> Which means that one call to __tls_get_addr can be shared for the lookup of I and I_DONE.
+
+I suppose tweaking the wrapper to
+
+extern int& i_init() __attribute__ ((weak));
+inline int& i_wrapper()
+{
+   if (i_init)
+     return i_init();
+   else
+     return i;
+}
+
+would avoid looking up the TLS address on both sides of the call to i_init.
+
+Jason
+
+
+From jason at redhat.com  Thu Sep 27 12:54:04 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 27 Sep 2012 08:54:04 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <50636D86.2030706@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+	<50636D86.2030706@redhat.com>
+Message-ID: <50644C6C.20405@redhat.com>
+
+On 09/26/2012 05:03 PM, Jason Merrill wrote:
+> On 09/26/2012 10:59 AM, Richard Henderson wrote:
+>> Which means that one call to __tls_get_addr can be shared for the
+>> lookup of I and I_DONE.
+>
+> I suppose tweaking the wrapper to
+>
+> extern int& i_init() __attribute__ ((weak));
+> inline int& i_wrapper()
+> {
+>    if (i_init)
+>      return i_init();
+>    else
+>      return i;
+> }
+>
+> would avoid looking up the TLS address on both sides of the call to i_init.
+
+On further consideration, I guess this wouldn't really be a win; it 
+would prevent making i_init an alias to the whole-TU init function, and 
+then you'd need to look up i in both i_init and the TU init fn.
+
+Jason
+
+
+From jakub at redhat.com  Thu Sep 27 13:22:50 2012
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Thu, 27 Sep 2012 15:22:50 +0200
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <50644C6C.20405@redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+	<50636D86.2030706@redhat.com> <50644C6C.20405@redhat.com>
+Message-ID: <20120927132250.GX1787@tucnak.redhat.com>
+
+On Thu, Sep 27, 2012 at 08:54:04AM -0400, Jason Merrill wrote:
+> On 09/26/2012 05:03 PM, Jason Merrill wrote:
+> >On 09/26/2012 10:59 AM, Richard Henderson wrote:
+> >>Which means that one call to __tls_get_addr can be shared for the
+> >>lookup of I and I_DONE.
+> >
+> >I suppose tweaking the wrapper to
+> >
+> >extern int& i_init() __attribute__ ((weak));
+> >inline int& i_wrapper()
+> >{
+> >   if (i_init)
+> >     return i_init();
+> >   else
+> >     return i;
+> >}
+> >
+> >would avoid looking up the TLS address on both sides of the call to i_init.
+> 
+> On further consideration, I guess this wouldn't really be a win; it
+> would prevent making i_init an alias to the whole-TU init function,
+> and then you'd need to look up i in both i_init and the TU init fn.
+
+BTW, there is another problem with the initialization of whole TU TLS.
+If some of the TLS vars are exported from a shared library, they might be
+overriden by some other definition in another shared library.  At that point
+we could initialize one TLS var twice.  Or is that an ODR violation we just
+don't care about?
+a.h:
+struct S { S (); ~S (); int s; };
+extern thread_local S s1, s2, s3;
+liba.C:
+#include "a.h"
+thread_local S s1, s2;
+libb.C:
+#include "a.h"
+thread_local S s2, s3;
+main.C:
+#include "a.h"
+int
+main ()
+{
+  s1.s++;
+  s2.s++;
+  s3.s++;
+}
+g++ -shared -fpic -o liba.so liba.C
+g++ -shared -fpic -o libb.so libb.C
+g++ -o main main.C ./liba.so ./libb.so
+s2 symbol will resolve to liba.so's copy, not libb.so's copy...
+
+	Jakub
+
+From jason at redhat.com  Thu Sep 27 15:55:28 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 27 Sep 2012 11:55:28 -0400
+Subject: [cxx-abi-dev] thread_local CONstructors
+In-Reply-To: <20120927132250.GX1787@tucnak.redhat.com>
+References: <505B2DCC.8040202@redhat.com> <506072E8.20704@redhat.com>
+	<20120924145750.GE1787@tucnak.redhat.com>
+	<50608086.2010208@redhat.com> <506082F1.1090008@redhat.com>
+	<506129E0.3030904@redhat.com> <50631860.3010202@redhat.com>
+	<50636D86.2030706@redhat.com> <50644C6C.20405@redhat.com>
+	<20120927132250.GX1787@tucnak.redhat.com>
+Message-ID: <506476F0.4010708@redhat.com>
+
+On 09/27/2012 09:22 AM, Jakub Jelinek wrote:
+> BTW, there is another problem with the initialization of whole TU TLS.
+> If some of the TLS vars are exported from a shared library, they might be
+> overriden by some other definition in another shared library.  At that point
+> we could initialize one TLS var twice.
+
+This doesn't seem unique to TLS variables; normal variables with static 
+storage duration have the same issue.  We assume that this won't happen 
+unless the variable is comdat, in which case it has its own guard.
+
+Jason
+
+

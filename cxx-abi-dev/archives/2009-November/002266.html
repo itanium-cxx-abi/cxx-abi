@@ -1,0 +1,100 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Non-cloned [cd]tors
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Non-cloned%20%5Bcd%5Dtors&In-Reply-To=%3C4B04579A.3060200%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002259.html">
+   <LINK REL="Next"  HREF="002267.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Non-cloned [cd]tors</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Non-cloned%20%5Bcd%5Dtors&In-Reply-To=%3C4B04579A.3060200%40redhat.com%3E"
+       TITLE="Non-cloned [cd]tors">jason at redhat.com
+       </A><BR>
+    <I>Wed Nov 18 20:22:50 UTC 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002259.html">mangling template-id
+</A></li>
+        <LI>Next message: <A HREF="002267.html">[cxx-abi-dev] Non-cloned [cd]tors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2266">[ date ]</a>
+              <a href="thread.html#2266">[ thread ]</a>
+              <a href="subject.html#2266">[ subject ]</a>
+              <a href="author.html#2266">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>As I recall, the ABI was intended to allow the various [cd]tor variants 
+to be implemented either as separate functions or multiple entry points 
+to the same function.  But the actual specification is a bit problematic 
+for the latter: it's a bit vague, but it seems to require that any vague 
+linkage [cd]tors be emitted as needed, each in their own COMDAT group.
+
+But if the two constructor variants are alternate entry points to the 
+same function, they can't go in different groups.  One could be 
+implemented as a jump to a different symbol in the other group, but that 
+breaks if the linker chooses a definition of the other group which 
+doesn't define this symbol.
+
+Does anyone remember how this was supposed to work?  It seems like the 
+only way to deal with it is to add a new COMDAT group, put all the 
+variants in there, and accept that if you're linking objects from 
+multiple compilers you may end up with dead code in the output.
+
+We're currently looking at changing G++ to only emit one version of 
+[cd]tors when they'll be identical (i.e. when the class has no virtual 
+bases), and in the non-COMDAT case making one symbol an alias to the 
+other.  This special case is not as problematic for the COMDAT case 
+either, as one function can just jump to the ABI-defined symbol for the 
+other.
+
+The only situation in which this could be a problem would be if one 
+compiler decided to make C1 jump to C2 and another compiler made C2 jump 
+to C1, and we choose one of each and end up with an infinite loop.  So 
+I'd like to specify which one will be the real function if a compiler 
+decides to do this.  I don't have a strong preference; the base variant 
+is conceptually a subroutine of the complete variant, but the complete 
+variant is going to be more commonly used.
+
+Adding an extra branch in the COMDAT case does have a performance 
+impact, so I'd like to do the redirection on the caller side.  Since the 
+two functions must be identical, I don't think there should be any 
+problem calling a different variant than specified by the ABI; does 
+anyone disagree?
+
+Jason
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002259.html">mangling template-id
+</A></li>
+	<LI>Next message: <A HREF="002267.html">[cxx-abi-dev] Non-cloned [cd]tors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2266">[ date ]</a>
+              <a href="thread.html#2266">[ thread ]</a>
+              <a href="subject.html#2266">[ subject ]</a>
+              <a href="author.html#2266">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

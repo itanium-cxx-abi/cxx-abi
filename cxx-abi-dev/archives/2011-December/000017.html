@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw	Processing
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Details%20missing%20for%20EH%202.4.1%20Overview%20of%20Throw%0A%09Processing&In-Reply-To=%3C201112160728.pBG7SNJ16892%40adlwrk05.cce.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000042.html">
+   <LINK REL="Next"  HREF="000046.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw	Processing</H1>
+    <B>Dennis Handly</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Details%20missing%20for%20EH%202.4.1%20Overview%20of%20Throw%0A%09Processing&In-Reply-To=%3C201112160728.pBG7SNJ16892%40adlwrk05.cce.hp.com%3E"
+       TITLE="[cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw	Processing">dhandly at cup.hp.com
+       </A><BR>
+    <I>Fri Dec 16 07:28:23 UTC 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000042.html">[cxx-abi-dev] Mangling of variadic arguments to alias template
+</A></li>
+        <LI>Next message: <A HREF="000046.html">[cxx-abi-dev] Details missing for EH 2.4.1 Overview of	Throw	Processing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17">[ date ]</a>
+              <a href="thread.html#17">[ thread ]</a>
+              <a href="subject.html#17">[ subject ]</a>
+              <a href="author.html#17">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm trying to see how the code for a throw is generated and to see if
+our compiler is compliant on various exception cases.
+
+2.4.1 Overview of Throw Processing
+
+  # Evaluate the thrown expression, and copy it into the buffer returned
+  by __cxa_allocate_exception, possibly using a copy constructor.  If
+  evaluation of the thrown expression exits by throwing an exception, that
+  exception will propagate instead of the expression itself.  Cleanup code
+  must ensure that __cxa_free_exception is called on the just allocated
+  exception object.  (If the copy constructor itself exits by throwing an
+  exception, terminate() is called.)
+
+Does the last sentence mean that if there is a catch for what the copy
+constructor is throwing, it is ignored?
+
+15.5.1 terminate function:
+footnote 134): ... if that copy constructor exits with an exception during
+a throw.
+
+
+Changing the example to throw something of class XX so we can get a
+throw while evaluating the thrown expression and another during the
+copy construction:
+
+	// Allocate -- never throws:
+	temp1 = __cxa_allocate_exception(sizeof(XX));
+
+	// Construct the exception object:
+try {
+	#if COPY_ELISION
+	  [evaluate XX() into temp1]
+	#else
+	  [evaluate XX() into temp2]
+     try {
+	  copy-constructor(temp1, temp2)
+     } catch(...) {
+	  // Landing Pad if this throws
+	__cxa_free_exception(temp1) // never throws
+        std::terminate();
+     }
+	#endif
+
+	// Pass the exception object to unwind library:
+	__cxa_throw(temp1, type_info&lt;X&gt;, destructor&lt;X&gt;); // Never returns
+} catch(...) {
+
+	// Landing pad for throw expression
+	L1: __cxa_free_exception(temp1) // never throws
+
+    throw;
+}
+
+Where an internal try around the copy-constructor is used to free the
+exception and also always call terminate?
+(Or ignore the free and just terminate?)
+
+
+2.4.3 Throwing the Exception Object
+
+  ...  _Unwind_RaiseException may return.  In that case, __cxa_throw will
+  call terminate, assuming that there was no handler for the exception.
+
+There is nothing here that indicates that __cxa_throw must call
+__cxa_begin_catch before calling terminate.
+
+This is mentioned in 2.5.3 Exception Handlers:
+  When the personality routine encounters a termination condition, it will
+  call __cxa_begin_catch() to mark the exception as handled and then call
+  terminate(), which shall not return to its caller.
+
+But we can't depend on the personality routine to do this because it has no
+idea the unwinder can't find a handler so it seems this must also be done
+in __cxa_throw.
+
+g++ 4.6.0 seems to do this.  It seems the ABI should mention this at the
+end of 2.4.3.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000042.html">[cxx-abi-dev] Mangling of variadic arguments to alias template
+</A></li>
+	<LI>Next message: <A HREF="000046.html">[cxx-abi-dev] Details missing for EH 2.4.1 Overview of	Throw	Processing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17">[ date ]</a>
+              <a href="thread.html#17">[ thread ]</a>
+              <a href="subject.html#17">[ subject ]</a>
+              <a href="author.html#17">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

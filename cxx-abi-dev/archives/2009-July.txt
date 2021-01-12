@@ -1,0 +1,1509 @@
+From daveed at edg.com  Tue Jul  7 21:22:39 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 7 Jul 2009 17:22:39 -0400
+Subject: [cxx-abi-dev] Deleted virtual functions
+In-Reply-To: <4A1FFE52.3090109@codesourcery.com>
+References: <OF762D46DE.EC2B255D-ON852575C5.00528015-852575C5.005314D0@ca.ibm.com> <366D0E86-5393-469B-846A-6521BF943AB9@edg.com> <4A1FFE52.3090109@codesourcery.com>
+Message-ID: <913BA6A7-2BBB-431A-8DA8-470F62C07C03@edg.com>
+
+
+On May 29, 2009, at 11:25 AM, Mark Mitchell wrote:
+
+> David Vandevoorde wrote:
+>
+>> I think the API functions should keep C linkage, but the vtable  
+>> should
+>> be allowed to point to a wrapper for these functions with C++  
+>> linkage.
+>
+> Yes -- provided you accept my view that the requirements on these
+> functions are merely that the run-time library must provide them.   
+> Then,
+> the compiler is free to put whatever it wants into the virtual table  
+> --
+> including, if necessary, a reference to a wrapper.
+
+
+Okay, this finally popped back up to the top of my to-do list.   
+Attached is the revised patch for the specs.
+
+	Daveed
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: deleted_funcs.diffs
+Type: application/octet-stream
+Size: 2180 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090707/93434e3d/attachment.obj>
+-------------- next part --------------
+
+
+From mark at codesourcery.com  Mon Jul 13 03:43:39 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 12 Jul 2009 20:43:39 -0700
+Subject: [cxx-abi-dev] Deleted virtual functions
+In-Reply-To: <913BA6A7-2BBB-431A-8DA8-470F62C07C03@edg.com>
+References: <OF762D46DE.EC2B255D-ON852575C5.00528015-852575C5.005314D0@ca.ibm.com> <366D0E86-5393-469B-846A-6521BF943AB9@edg.com> <4A1FFE52.3090109@codesourcery.com> <913BA6A7-2BBB-431A-8DA8-470F62C07C03@edg.com>
+Message-ID: <4A5AAD6B.4090806@codesourcery.com>
+
+David Vandevoorde wrote:
+
+> Okay, this finally popped back up to the top of my to-do list.  Attached
+> is the revised patch for the specs.
+
+Your patch looks reasonable to me.  I plan to apply it to the spec on
+July 15th, if nobody objects before that point.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Wed Jul 15 15:06:29 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 15 Jul 2009 17:06:29 +0200
+Subject: C++0x POD
+Message-ID: <4A5DF075.3060904@redhat.com>
+
+C++0x is changing the definition of POD again; most significantly, a POD 
+can now have non-public data members, base classes, and non-default/copy 
+constructors.
+
+How do we want to deal with this?
+
+Jason
+
+
+From mark at codesourcery.com  Wed Jul 15 16:32:39 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Jul 2009 09:32:39 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5DF075.3060904@redhat.com>
+References: <4A5DF075.3060904@redhat.com>
+Message-ID: <4A5E04A7.7040004@codesourcery.com>
+
+Jason Merrill wrote:
+> C++0x is changing the definition of POD again; most significantly, a POD
+> can now have non-public data members, base classes, and non-default/copy
+> constructors.
+
+I think we want to preserve ABI compatibility, even if that's suboptimal
+for performance in some way.  The ABI already has a definition of "POD
+for purpose of layout"; we should check that it still means what it
+defines the same set of types that it did before.  And, check that
+POD-ness doesn't appear elsewhere in the ABI.  (I couldn't find any
+other places with a quick check.)
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From gdr at integrable-solutions.net  Wed Jul 15 16:53:17 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Wed, 15 Jul 2009 11:53:17 -0500
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E04A7.7040004@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+Message-ID: <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+
+On Wed, Jul 15, 2009 at 11:32 AM, Mark Mitchell<mark at codesourcery.com> wrote:
+> Jason Merrill wrote:
+>> C++0x is changing the definition of POD again; most significantly, a POD
+>> can now have non-public data members, base classes, and non-default/copy
+>> constructors.
+>
+> I think we want to preserve ABI compatibility, even if that's suboptimal
+> for performance in some way. ?The ABI already has a definition of "POD
+> for purpose of layout"; we should check that it still means what it
+> defines the same set of types that it did before. ?And, check that
+> POD-ness doesn't appear elsewhere in the ABI. ?(I couldn't find any
+> other places with a quick check.)
+
+One of the purposes of the change is to have simple classes like
+complex<double> acts like PODs for argument function calls (e.g. use
+registers.) but without compromising guarantees made by C++03.
+
+-- Gaby
+
+
+From mark at codesourcery.com  Wed Jul 15 17:44:49 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Jul 2009 10:44:49 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com> <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+Message-ID: <4A5E1591.6000206@codesourcery.com>
+
+Gabriel Dos Reis wrote:
+
+>> I think we want to preserve ABI compatibility, even if that's suboptimal
+>> for performance in some way.  The ABI already has a definition of "POD
+>> for purpose of layout"; we should check that it still means what it
+>> defines the same set of types that it did before.  And, check that
+>> POD-ness doesn't appear elsewhere in the ABI.  (I couldn't find any
+>> other places with a quick check.)
+> 
+> One of the purposes of the change is to have simple classes like
+> complex<double> acts like PODs for argument function calls (e.g. use
+> registers.) but without compromising guarantees made by C++03.
+
+So, are you suggesting we *should* change the ABI, and thereby break
+binary compatibility for existing programs?
+
+If so, I disagree.  One of the biggest barriers to adoption of C++
+continues to be binary compatibility between different compilers and
+between releases of compilers.  If compiling programs that don't use
+C++0x features, or use C++0x features that don't require ABI changes,
+result in incompatible binaries, I think that would be unfortunate.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From gdr at integrable-solutions.net  Wed Jul 15 18:02:40 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Wed, 15 Jul 2009 13:02:40 -0500
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E1591.6000206@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+	 <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+	 <4A5E1591.6000206@codesourcery.com>
+Message-ID: <206fcf960907151102h44eee08fvfa44199113423818@mail.gmail.com>
+
+On Wed, Jul 15, 2009 at 12:44 PM, Mark Mitchell<mark at codesourcery.com> wrote:
+> Gabriel Dos Reis wrote:
+>
+>>> I think we want to preserve ABI compatibility, even if that's suboptimal
+>>> for performance in some way. ?The ABI already has a definition of "POD
+>>> for purpose of layout"; we should check that it still means what it
+>>> defines the same set of types that it did before. ?And, check that
+>>> POD-ness doesn't appear elsewhere in the ABI. ?(I couldn't find any
+>>> other places with a quick check.)
+>>
+>> One of the purposes of the change is to have simple classes like
+>> complex<double> acts like PODs for argument function calls (e.g. use
+>> registers.) but without compromising guarantees made by C++03.
+>
+> So, are you suggesting we *should* change the ABI, and thereby break
+> binary compatibility for existing programs?
+>
+> If so, I disagree. ?One of the biggest barriers to adoption of C++
+> continues to be binary compatibility between different compilers and
+> between releases of compilers. ?If compiling programs that don't use
+> C++0x features, or use C++0x features that don't require ABI changes,
+> result in incompatible binaries, I think that would be unfortunate.
+
+The POD change is a C++0x feature which was actively sought for.
+
+Moreover, my message was an explanation of some of the concrete
+motivations behind the C++0x change (some of them prompted by a
+dissatisfaction of some aspects of the current ABI which relies on
+the current POD definition).  Of course, people are free to ignore the
+feedback (through a change of POD definition).  Whether that would
+continue to hurt C++ more, given that the ABI would change anyway is
+something that we'd see in say 10 years.
+
+-- Gaby
+
+
+From daveed at edg.com  Wed Jul 15 19:33:49 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 15 Jul 2009 15:33:49 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E04A7.7040004@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+Message-ID: <069DA337-43E8-4A21-94CF-789D656251F4@edg.com>
+
+
+On Jul 15, 2009, at 12:32 PM, Mark Mitchell wrote:
+
+> Jason Merrill wrote:
+>> C++0x is changing the definition of POD again; most significantly,  
+>> a POD
+>> can now have non-public data members, base classes, and non-default/ 
+>> copy
+>> constructors.
+>
+> I think we want to preserve ABI compatibility, even if that's  
+> suboptimal
+> for performance in some way.  The ABI already has a definition of "POD
+> for purpose of layout"; we should check that it still means what it
+> defines the same set of types that it did before.  And, check that
+> POD-ness doesn't appear elsewhere in the ABI.  (I couldn't find any
+> other places with a quick check.)
+
+
+That's also my preference.
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Wed Jul 15 20:03:05 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 15 Jul 2009 22:03:05 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <069DA337-43E8-4A21-94CF-789D656251F4@edg.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+	 <069DA337-43E8-4A21-94CF-789D656251F4@edg.com>
+Message-ID: <24b520d20907151303q70bbb4dua47699bfeaff7273@mail.gmail.com>
+
+On Wed, Jul 15, 2009 at 9:33 PM, David Vandevoorde<daveed at edg.com> wrote:
+>
+> On Jul 15, 2009, at 12:32 PM, Mark Mitchell wrote:
+>
+>> Jason Merrill wrote:
+>>>
+>>> C++0x is changing the definition of POD again; most significantly, a POD
+>>> can now have non-public data members, base classes, and non-default/copy
+>>> constructors.
+>>
+>> I think we want to preserve ABI compatibility, even if that's suboptimal
+>> for performance in some way. ?The ABI already has a definition of "POD
+>> for purpose of layout"; we should check that it still means what it
+>> defines the same set of types that it did before. ?And, check that
+>> POD-ness doesn't appear elsewhere in the ABI. ?(I couldn't find any
+>> other places with a quick check.)
+>
+>
+> That's also my preference.
+
+Same here.
+
+  - Doug
+
+
+From jason at redhat.com  Wed Jul 15 21:21:38 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 15 Jul 2009 23:21:38 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E04A7.7040004@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+Message-ID: <4A5E4862.2080904@redhat.com>
+
+I'm trying to find the requirement in the standard referred to by 
+"Because the C++ standard requires that compilers not overlay the tail 
+padding in a POD, using the C++98 definition in this ABI would prevent a 
+conforming compiler from correctly implementing the TC1 version of the 
+C++ standard. Therefore, this ABI uses the TC1 definition of POD." to 
+see if the current draft has the same issue.
+
+But all I'm finding is:
+
+   For any POD type T, if two pointers to T point to distinct T objects 
+obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if 
+the value of obj1 is copied into obj2, using the std::memcpy library 
+function, obj2 shall subsequently hold the same value as obj1.
+
+It seems that the "where neither is a base-class subobject" means that 
+this doesn't actually impose any requirements on tail padding?
+
+Jason
+
+
+From mark at codesourcery.com  Wed Jul 15 21:29:33 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Jul 2009 14:29:33 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E4862.2080904@redhat.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com> <4A5E4862.2080904@redhat.com>
+Message-ID: <4A5E4A3D.5050802@codesourcery.com>
+
+Jason Merrill wrote:
+
+>   For any POD type T, if two pointers to T point to distinct T objects
+> obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if
+> the value of obj1 is copied into obj2, using the std::memcpy library
+> function, obj2 shall subsequently hold the same value as obj1.
+> 
+> It seems that the "where neither is a base-class subobject" means that
+> this doesn't actually impose any requirements on tail padding?
+
+That was the passage I remembered; it was something about using bitwise
+copying.  IIRC, Matt Austern was the one who made the observation that
+the standard prevented the use of tail padding.  I wonder if something
+changed in the standard after we drafted those words?
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Wed Jul 15 21:34:18 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 15 Jul 2009 23:34:18 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E4A3D.5050802@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com> <4A5E4862.2080904@redhat.com> <4A5E4A3D.5050802@codesourcery.com>
+Message-ID: <4A5E4B5A.9070906@redhat.com>
+
+On 07/15/2009 11:29 PM, Mark Mitchell wrote:
+> That was the passage I remembered; it was something about using bitwise
+> copying.  IIRC, Matt Austern was the one who made the observation that
+> the standard prevented the use of tail padding.  I wonder if something
+> changed in the standard after we drafted those words?
+
+Looks like the "other than a base class subobject" words were added by 
+the resolution for core issue 43.  So it was an issue for C++98, but we 
+didn't actually need to make the change for TC1.
+
+Jason
+
+
+From jason at redhat.com  Wed Jul 15 21:47:31 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 15 Jul 2009 23:47:31 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E04A7.7040004@codesourcery.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com>
+Message-ID: <4A5E4E73.3090502@redhat.com>
+
+On 07/15/2009 06:32 PM, Mark Mitchell wrote:
+> The ABI already has a definition of "POD for purpose of layout"
+
+The ABI says "However, a POD-struct or POD-union (in the sense of ISO 
+C++ [class]) with a bitfield member whose declared width is wider than 
+the declared type of the bitfield is not a POD for the purpose of layout."
+
+I didn't remember there being anything in G++ to implement that 
+exception, so I checked, and indeed we don't:  For
+
+struct A
+{
+   int d;
+   char c: 16;
+};
+
+struct B: A
+{
+   char c2;
+};
+
+We currently allocate 12 bytes for B, whereas it ought to be 8 if we put 
+c2 into the tail padding for A, as I would expect if we're saying A 
+isn't a POD for the purpose of layout.
+
+I thought this was just a bug, but I see that EDG also allocates 12 bytes.
+
+Do any current compilers make sizeof(B)==8?  Should we just remove that 
+sentence (and the one after)?
+
+Jason
+
+
+From mark at codesourcery.com  Wed Jul 15 21:54:43 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Jul 2009 14:54:43 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5E4E73.3090502@redhat.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com> <4A5E4E73.3090502@redhat.com>
+Message-ID: <4A5E5023.4080706@codesourcery.com>
+
+Jason Merrill wrote:
+
+> Do any current compilers make sizeof(B)==8?  Should we just remove that
+> sentence (and the one after)?
+
+We'd still need some special words, since in the POD case we fall back
+on the C ABI, and there is no C ABI for bitfields wider than their type;
+that's not valid C.  But, I fully agree with the spirit of your comment:
+at this point, if the ABI doesn't match implementation practice, we
+should change the ABI, not the implementations.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From mark at codesourcery.com  Wed Jul 15 23:02:17 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Jul 2009 16:02:17 -0700
+Subject: [cxx-abi-dev] Deleted virtual functions
+In-Reply-To: <913BA6A7-2BBB-431A-8DA8-470F62C07C03@edg.com>
+References: <OF762D46DE.EC2B255D-ON852575C5.00528015-852575C5.005314D0@ca.ibm.com> <366D0E86-5393-469B-846A-6521BF943AB9@edg.com> <4A1FFE52.3090109@codesourcery.com> <913BA6A7-2BBB-431A-8DA8-470F62C07C03@edg.com>
+Message-ID: <4A5E5FF9.8030500@codesourcery.com>
+
+David Vandevoorde wrote:
+
+> Okay, this finally popped back up to the top of my to-do list.  Attached
+> is the revised patch for the specs.
+
+As there were no comments, I've now applied this patch to the ABI.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Thu Jul 16 06:24:13 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 16 Jul 2009 08:24:13 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+References: <4A5DF075.3060904@redhat.com> <4A5E04A7.7040004@codesourcery.com> <206fcf960907150953l2253e3d9g9a9fa4e62738ad8a@mail.gmail.com>
+Message-ID: <4A5EC78D.6000105@redhat.com>
+
+On 07/15/2009 06:53 PM, Gabriel Dos Reis wrote:
+> One of the purposes of the change is to have simple classes like
+> complex<double>  acts like PODs for argument function calls (e.g. use
+> registers.) but without compromising guarantees made by C++03.
+
+Pass by invisible reference is triggered by a non-trivial copy 
+constructor, not whether or not something is POD.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Jul 16 08:06:58 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 16 Jul 2009 01:06:58 -0700 (PDT)
+Subject: [cxx-abi-dev] C++0x POD
+Message-ID: <200907160806.BAA10914@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>C++0x is changing the definition of POD again; most significantly, a POD 
+>can now have non-public data members, base classes, and non-default/copy 
+>constructors.
+>How do we want to deal with this?
+
+It seems we want to freeze the definition of a "POD" and use that.
+For our compiler, we don't care about non-public data members.
+But base classes, and non-default/copy constructors will make a difference.
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>I think we want to preserve ABI compatibility, even if that's suboptimal
+>for performance in some way.
+
+Right.  What cases do you think it will be suboptimal?
+
+>From: Gabriel Dos Reis <gdr at integrable-solutions.net>
+>One of the purposes of the change is to have simple classes like
+>complex<double> acts like PODs for argument function calls (e.g. use
+>registers.) but without compromising guarantees made by C++03.
+
+Why wouldn't this be a POD?  The copy constructor?
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>So, are you suggesting we *should* change the ABI, and thereby break
+>binary compatibility for existing programs?
+
+Right, that's not a good idea.
+
+>From: Jason Merrill <jason at redhat.com>
+>I'm trying to find the requirement in the standard referred to by 
+>"Because the C++ standard requires that compilers not overlay the tail 
+>padding in a POD, using the C++98 definition in this ABI would prevent a 
+
+I thought we need to fill in that padding?
+
+>From: Jason Merrill <jason at redhat.com>
+>but I see that EDG also allocates 12 bytes.
+
+Right.
+
+
+From crowl at google.com  Thu Jul 16 14:41:43 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Thu, 16 Jul 2009 07:41:43 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <200907160806.BAA10914@hpcll183.cup.hp.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+Message-ID: <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+
+With all the changes in the standard library, I do not see much
+value in preserving the ABI of the core language.  Programmers
+can reasonably expect some change to the ABI in a major release
+of the standard.
+
+With respect to the complex<> example, does the existing C++
+ABI match the C ABI for complex?  If we were to change the
+C++ ABI, would they match?
+
+-- 
+Lawrence Crowl
+
+
+From mark at codesourcery.com  Thu Jul 16 16:28:58 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Jul 2009 09:28:58 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+Message-ID: <4A5F554A.40603@codesourcery.com>
+
+Lawrence Crowl wrote:
+> With all the changes in the standard library, I do not see much
+> value in preserving the ABI of the core language.  Programmers
+> can reasonably expect some change to the ABI in a major release
+> of the standard.
+
+Not when they're not using the new features!
+
+If a user gets a new compiler, compiles their application without
+changes, and can't link with the library they have from a third-party
+provider, I think we've made a mistake.  Of course, I'm fine with the
+idea that using C++0x features causes the ABI to change.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Thu Jul 16 18:08:20 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 16 Jul 2009 20:08:20 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+Message-ID: <4A5F6C94.6000606@redhat.com>
+
+On 07/16/2009 04:41 PM, Lawrence Crowl wrote:
+> With respect to the complex<>  example, does the existing C++
+> ABI match the C ABI for complex?
+
+Yes, because complex<> has trivial copy constructor and destructor 
+(libstdc++ leaves out the copy constructor mentioned in the standard).
+
+Jason
+
+
+From crowl at google.com  Thu Jul 16 20:00:33 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Thu, 16 Jul 2009 13:00:33 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A5F554A.40603@codesourcery.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+	 <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+	 <4A5F554A.40603@codesourcery.com>
+Message-ID: <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+
+On 7/16/09, Mark Mitchell <mark at codesourcery.com> wrote:
+> Lawrence Crowl wrote:
+> > With all the changes in the standard library, I do not see much
+> > value in preserving the ABI of the core language.  Programmers
+> > can reasonably expect some change to the ABI in a major release
+> > of the standard.
+>
+> Not when they're not using the new features!
+>
+> If a user gets a new compiler, compiles their application without
+> changes, and can't link with the library they have from a third-party
+> provider, I think we've made a mistake.  Of course, I'm fine with the
+> idea that using C++0x features causes the ABI to change.
+
+The standard library uses new features of the language heavily.  Most
+programs use the standard library, and will therefore use the new
+features of the language.
+
+My understanding is that in some cases, compiling existing code with
+the new standard library results in calling new functions.  The most
+prominent class is the move functions.  Among other things, this change
+means that some calls within inline functions in the third-party library
+headers will be calling one function in the user's code and another
+function inside the library.  That is not binary compatible, independent
+of the mangling.  It may work by accident, but I wouldn't guarantee it.
+
+My understanding is that some functions in the C++03 standard library
+no longer exist in the C++0x standard library, though the existing call
+expressions will continue to work.  Even so, the old third-party library
+will not link with the C++0x standard library.  My memory could be wrong
+(the library does change frequently), so I will need to verify that
+claim.  Anyway, if so, that is not binary compatible.
+
+There are some customers that do not use the standard library, and they
+could perhaps avoid an ABI change.  Is protecting those customers worth
+the long-term cost of a less efficient ABI?
+
+At the very least, I recommend keeping a list of possibilities and then
+if testing shows that the language-and-library combination is not
+compatible, going ahead and changing the language ABI.
+
+-- 
+Lawrence Crowl
+
+
+From dhandly at cup.hp.com  Thu Jul 16 21:22:12 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 16 Jul 2009 14:22:12 -0700 (PDT)
+Subject: [cxx-abi-dev] C++0x POD
+Message-ID: <200907162122.OAA13390@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>Yes, because complex<> has trivial copy constructor and destructor 
+>(libstdc++ leaves out the copy constructor mentioned in the standard).
+
+Any reason the Standard isn't fixed to remove this unneeded baggage?
+(Or at least make it implementation defined?)
+
+
+From daveed at edg.com  Thu Jul 16 21:59:59 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 16 Jul 2009 17:59:59 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com> <4A5F554A.40603@codesourcery.com> <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+Message-ID: <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com>
+
+
+On Jul 16, 2009, at 4:00 PM, Lawrence Crowl wrote:
+
+> On 7/16/09, Mark Mitchell <mark at codesourcery.com> wrote:
+>> Lawrence Crowl wrote:
+>>> With all the changes in the standard library, I do not see much
+>>> value in preserving the ABI of the core language.  Programmers
+>>> can reasonably expect some change to the ABI in a major release
+>>> of the standard.
+>>
+>> Not when they're not using the new features!
+>>
+>> If a user gets a new compiler, compiles their application without
+>> changes, and can't link with the library they have from a third-party
+>> provider, I think we've made a mistake.  Of course, I'm fine with the
+>> idea that using C++0x features causes the ABI to change.
+>
+> The standard library uses new features of the language heavily.  Most
+> programs use the standard library, and will therefore use the new
+> features of the language.
+>
+> My understanding is that in some cases, compiling existing code with
+> the new standard library results in calling new functions.  The most
+> prominent class is the move functions.  Among other things, this  
+> change
+> means that some calls within inline functions in the third-party  
+> library
+> headers will be calling one function in the user's code and another
+> function inside the library.  That is not binary compatible,  
+> independent
+> of the mangling.  It may work by accident, but I wouldn't guarantee  
+> it.
+>
+> My understanding is that some functions in the C++03 standard library
+> no longer exist in the C++0x standard library, though the existing  
+> call
+> expressions will continue to work.  Even so, the old third-party  
+> library
+> will not link with the C++0x standard library.  My memory could be  
+> wrong
+> (the library does change frequently), so I will need to verify that
+> claim.  Anyway, if so, that is not binary compatible.
+>
+> There are some customers that do not use the standard library, and  
+> they
+> could perhaps avoid an ABI change.  Is protecting those customers  
+> worth
+> the long-term cost of a less efficient ABI?
+>
+> At the very least, I recommend keeping a list of possibilities and  
+> then
+> if testing shows that the language-and-library combination is not
+> compatible, going ahead and changing the language ABI.
+
+
+I _think_ that now that concepts have been removed, many uses of the  
+standard library are binary compatible with C++03 as far as  
+establishing APIs.  I.e., the internal structure of the data types and  
+their mangled names are unchanged.  It's true that a caller might now  
+e.g. "move" and rvalue std::string to a caller instead of "copying" to  
+it, but that's done on the C++0x caller side, and the result can be a  
+blob of data that's perfectly compatible with C++03 std::string.
+
+       Daveed
+
+
+
+From gdr at integrable-solutions.net  Thu Jul 16 22:59:35 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Thu, 16 Jul 2009 17:59:35 -0500
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <200907162122.OAA13390@hpcll183.cup.hp.com>
+References: <200907162122.OAA13390@hpcll183.cup.hp.com>
+Message-ID: <206fcf960907161559p69abadb6t1b9d8d9ddf57c92d@mail.gmail.com>
+
+On Thu, Jul 16, 2009 at 4:22 PM, Dennis Handly<dhandly at cup.hp.com> wrote:
+>>From: Jason Merrill <jason at redhat.com>
+>>Yes, because complex<> has trivial copy constructor and destructor
+>>(libstdc++ leaves out the copy constructor mentioned in the standard).
+>
+> Any reason the Standard isn't fixed to remove this unneeded baggage?
+
+I tried, but failed.
+
+> (Or at least make it implementation defined?)
+>
+
+
+From gdr at integrable-solutions.net  Thu Jul 16 23:01:57 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Thu, 16 Jul 2009 18:01:57 -0500
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+	 <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+	 <4A5F554A.40603@codesourcery.com>
+	 <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+	 <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com>
+Message-ID: <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com>
+
+On Thu, Jul 16, 2009 at 4:59 PM, David Vandevoorde<daveed at edg.com> wrote:
+> On Jul 16, 2009, at 4:00 PM, Lawrence Crowl wrote:
+>
+>> On 7/16/09, Mark Mitchell <mark at codesourcery.com> wrote:
+>>>
+>>> Lawrence Crowl wrote:
+>>>>
+>>>> With all the changes in the standard library, I do not see much
+>>>> value in preserving the ABI of the core language. ?Programmers
+>>>> can reasonably expect some change to the ABI in a major release
+>>>> of the standard.
+>>>
+>>> Not when they're not using the new features!
+>>>
+>>> If a user gets a new compiler, compiles their application without
+>>> changes, and can't link with the library they have from a third-party
+>>> provider, I think we've made a mistake. ?Of course, I'm fine with the
+>>> idea that using C++0x features causes the ABI to change.
+>>
+>> The standard library uses new features of the language heavily. ?Most
+>> programs use the standard library, and will therefore use the new
+>> features of the language.
+>>
+>> My understanding is that in some cases, compiling existing code with
+>> the new standard library results in calling new functions. ?The most
+>> prominent class is the move functions. ?Among other things, this change
+>> means that some calls within inline functions in the third-party library
+>> headers will be calling one function in the user's code and another
+>> function inside the library. ?That is not binary compatible, independent
+>> of the mangling. ?It may work by accident, but I wouldn't guarantee it.
+>>
+>> My understanding is that some functions in the C++03 standard library
+>> no longer exist in the C++0x standard library, though the existing call
+>> expressions will continue to work. ?Even so, the old third-party library
+>> will not link with the C++0x standard library. ?My memory could be wrong
+>> (the library does change frequently), so I will need to verify that
+>> claim. ?Anyway, if so, that is not binary compatible.
+>>
+>> There are some customers that do not use the standard library, and they
+>> could perhaps avoid an ABI change. ?Is protecting those customers worth
+>> the long-term cost of a less efficient ABI?
+>>
+>> At the very least, I recommend keeping a list of possibilities and then
+>> if testing shows that the language-and-library combination is not
+>> compatible, going ahead and changing the language ABI.
+>
+>
+> I _think_ that now that concepts have been removed, many uses of the
+> standard library are binary compatible with C++03 as far as establishing
+> APIs.
+
+I'm not sure that is true given the addition of rvalue references  and the
+modification of the standard library -- clients don't change source code,
+but generated codes differ.
+
+I.e., the internal structure of the data types and their mangled
+> names are unchanged. ?It's true that a caller might now e.g. "move" and
+> rvalue std::string to a caller instead of "copying" to it, but that's done
+> on the C++0x caller side, and the result can be a blob of data that's
+> perfectly compatible with C++03 std::string.
+>
+> ? ? ?Daveed
+>
+>
+
+
+From gdr at integrable-solutions.net  Thu Jul 16 23:06:27 2009
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Thu, 16 Jul 2009 18:06:27 -0500
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+	 <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+Message-ID: <206fcf960907161606t77296f0by7d3434b532e69a38@mail.gmail.com>
+
+On Thu, Jul 16, 2009 at 9:41 AM, Lawrence Crowl<crowl at google.com> wrote:
+> With all the changes in the standard library, I do not see much
+> value in preserving the ABI of the core language. ?Programmers
+> can reasonably expect some change to the ABI in a major release
+> of the standard.
+>
+> With respect to the complex<> example, does the existing C++
+> ABI match the C ABI for complex?
+
+First, I would like to make sure that we don't think we have to change
+the ABI (or not!) just because of complex<double>.  It was just
+an example that I wanted people to consider when deciding one way of
+another, for C++0x ABI.
+
+Second, the C++03 specification explicitly list a copy constructor.
+I always considered that a mistake.  For libstdc++, I did rely on
+the implicitly generated copy constructor, which achieves the same
+effect, plus it makes complex<double> eligible for registers (where
+appropriate) in calls.
+
+> If we were to change the  C++ ABI, would they match?
+>
+> --
+> Lawrence Crowl
+>
+
+
+From crowl at google.com  Fri Jul 17 11:49:58 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Fri, 17 Jul 2009 04:49:58 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <206fcf960907161559p69abadb6t1b9d8d9ddf57c92d@mail.gmail.com>
+References: <200907162122.OAA13390@hpcll183.cup.hp.com>
+	 <206fcf960907161559p69abadb6t1b9d8d9ddf57c92d@mail.gmail.com>
+Message-ID: <29bd08b70907170449o4ae81a4i88656029d704e705@mail.gmail.com>
+
+On 7/16/09, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+> On Thu, Jul 16, 2009 at 4:22 PM, Dennis Handly<dhandly at cup.hp.com> wrote:
+> > From: Jason Merrill <jason at redhat.com>
+> > > Yes, because complex<> has trivial copy constructor and destructor
+> > > (libstdc++ leaves out the copy constructor mentioned in the standard).
+> >
+> > Any reason the Standard isn't fixed to remove this unneeded baggage?
+>
+> I tried, but failed.
+
+Hm.  Isn't that constructor constexpr or =default now?
+
+> > (Or at least make it implementation defined?)
+
+-- 
+Lawrence Crowl
+
+
+From crowl at google.com  Fri Jul 17 12:05:49 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Fri, 17 Jul 2009 05:05:49 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+	 <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+	 <4A5F554A.40603@codesourcery.com>
+	 <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+	 <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com>
+	 <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com>
+Message-ID: <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com>
+
+On 7/16/09, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+> On Thu, Jul 16, 2009 at 4:59 PM, David Vandevoorde<daveed at edg.com> wrote:
+> > On Jul 16, 2009, at 4:00 PM, Lawrence Crowl wrote:
+> >> On 7/16/09, Mark Mitchell <mark at codesourcery.com> wrote:
+> >>> Lawrence Crowl wrote:
+> >>>> With all the changes in the standard library, I do not see much
+> >>>> value in preserving the ABI of the core language.  Programmers
+> >>>> can reasonably expect some change to the ABI in a major release
+> >>>> of the standard.
+> >>>
+> >>> Not when they're not using the new features!
+> >>>
+> >>> If a user gets a new compiler, compiles their application without
+> >>> changes, and can't link with the library they have from a third-party
+> >>> provider, I think we've made a mistake.  Of course, I'm fine with the
+> >>> idea that using C++0x features causes the ABI to change.
+> >>
+> >> The standard library uses new features of the language heavily.  Most
+> >> programs use the standard library, and will therefore use the new
+> >> features of the language.
+> >>
+> >> My understanding is that in some cases, compiling existing code with
+> >> the new standard library results in calling new functions.  The most
+> >> prominent class is the move functions.  Among other things, this change
+> >> means that some calls within inline functions in the third-party library
+> >> headers will be calling one function in the user's code and another
+> >> function inside the library.  That is not binary compatible, independent
+> >> of the mangling.  It may work by accident, but I wouldn't guarantee it.
+> >>
+> >> My understanding is that some functions in the C++03 standard library
+> >> no longer exist in the C++0x standard library, though the existing call
+> >> expressions will continue to work.  Even so, the old third-party library
+> >> will not link with the C++0x standard library.  My memory could be wrong
+> >> (the library does change frequently), so I will need to verify that
+> >> claim.  Anyway, if so, that is not binary compatible.
+> >>
+> >> There are some customers that do not use the standard library, and they
+> >> could perhaps avoid an ABI change.  Is protecting those customers worth
+> >> the long-term cost of a less efficient ABI?
+> >>
+> >> At the very least, I recommend keeping a list of possibilities and then
+> >> if testing shows that the language-and-library combination is not
+> >> compatible, going ahead and changing the language ABI.
+> >
+> >
+> > I _think_ that now that concepts have been removed, many uses of the
+> > standard library are binary compatible with C++03 as far as establishing
+> > APIs.
+>
+> I'm not sure that is true given the addition of rvalue references  and the
+> modification of the standard library -- clients don't change source code,
+> but generated codes differ.
+>
+> > I.e., the internal structure of the data types and their mangled
+> > names are unchanged.  It's true that a caller might now e.g. "move" and
+> > rvalue std::string to a caller instead of "copying" to it, but that's done
+> > on the C++0x caller side, and the result can be a blob of data that's
+> > perfectly compatible with C++03 std::string.
+
+Remember that the internal implementation of std::string is part of the
+ABI because of the inline functions.  A consequences is that introducing
+the new implementation of string will break the ABI.  This new
+implementation is actually fairly important to my company, to the extent
+that we have redirected all our code to it, suffering interoperability
+problems with the current standard.
+
+The C++0x library now requires an O(1) size operator.  This will cause
+an ABI breaking change in something like half of the std::list
+implementations, one of which is gcc.  Other types are affected, though
+we don't know how many will actually change the ABI.
+
+Howard Hinnant informs me that Apple plans to not have any binary
+compatibility between the two versions of the standard, except that
+standard exceptions are binary compatible and hence can cross from one
+version to another.
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Fri Jul 17 14:12:33 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 17 Jul 2009 16:12:33 +0200
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907170449o4ae81a4i88656029d704e705@mail.gmail.com>
+References: <200907162122.OAA13390@hpcll183.cup.hp.com>	 <206fcf960907161559p69abadb6t1b9d8d9ddf57c92d@mail.gmail.com> <29bd08b70907170449o4ae81a4i88656029d704e705@mail.gmail.com>
+Message-ID: <4A6086D1.4070906@redhat.com>
+
+On 07/17/2009 01:49 PM, Lawrence Crowl wrote:
+> On 7/16/09, Gabriel Dos Reis<gdr at integrable-solutions.net>  wrote:
+>> On Thu, Jul 16, 2009 at 4:22 PM, Dennis Handly<dhandly at cup.hp.com>  wrote:
+>>> From: Jason Merrill<jason at redhat.com>
+>>>> Yes, because complex<>  has trivial copy constructor and destructor
+>>>> (libstdc++ leaves out the copy constructor mentioned in the standard).
+
+> Hm.  Isn't that constructor constexpr or =default now?
+
+It doesn't seem to have any specification other than the declaration in 
+the summary of the general template.  The specializations don't have a 
+declaration.
+
+Jason
+
+
+From daveed at edg.com  Sat Jul 18 09:53:08 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Sat, 18 Jul 2009 05:53:08 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com> <4A5F554A.40603@codesourcery.com> <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com> <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com> <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com> <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com>
+Message-ID: <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com>
+
+
+On Jul 17, 2009, at 8:05 AM, Lawrence Crowl wrote:
+[...]
+> Remember that the internal implementation of std::string is part of  
+> the
+> ABI because of the inline functions.
+
+It would be part of it even for non-inline functions: Both sides have  
+to agree on how to interpret the objects "blob of data".
+
+>  A consequences is that introducing
+> the new implementation of string will break the ABI.
+
+Most implementation don't have to change their internal representation.
+
+>  This new
+> implementation is actually fairly important to my company, to the  
+> extent
+> that we have redirected all our code to it, suffering interoperability
+> problems with the current standard.
+>
+> The C++0x library now requires an O(1) size operator.
+
+Not yet :-)  That will be voted on in a few hours (at the time of the  
+time of this writing).
+
+>  This will cause
+> an ABI breaking change in something like half of the std::list
+> implementations, one of which is gcc.
+
+
+The discussion at the Frankfurt meeting (yesterday, at the time of  
+this writing) suggested GCC was the _only_ implementation requiring a  
+change.
+
+>  Other types are affected, though
+> we don't know how many will actually change the ABI.
+
+
+Which types were you thinking of?
+
+> Howard Hinnant informs me that Apple plans to not have any binary
+> compatibility between the two versions of the standard, except that
+> standard exceptions are binary compatible and hence can cross from one
+> version to another.
+
+
+And certainly every vendor is at liberty to change their library  
+signatures.  However, some vendors also plan to  avoid breaking  
+library compatibility if they can and with the current standard  
+revision, that is entirely possible (because they already have an O(1)  
+std::list::size() and a non-reference-counted std::string).
+
+Even those vendors that will have to break compatibility may provide  
+binary compatibility options with e.g. inline namespaces.
+
+In either case, I am not willing to foil such goals by changing the  
+underlying ABI.
+
+     Daveed
+
+
+
+
+From crowl at google.com  Tue Jul 21 22:17:18 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Tue, 21 Jul 2009 15:17:18 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com>
+	 <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com>
+	 <4A5F554A.40603@codesourcery.com>
+	 <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com>
+	 <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com>
+	 <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com>
+	 <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com>
+	 <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com>
+Message-ID: <29bd08b70907211517i53418815n9905dbb60ae4f005@mail.gmail.com>
+
+On 7/18/09, David Vandevoorde <daveed at edg.com> wrote:
+> On Jul 17, 2009, at 8:05 AM, Lawrence Crowl wrote:
+> > Remember that the internal implementation of std::string is
+> > part of the ABI because of the inline functions.
+
+> It would be part of it even for non-inline functions: Both sides
+> have to agree on how to interpret the objects "blob of data".
+
+> > A consequences is that introducing the new implementation of
+> > string will break the ABI.
+
+> Most implementation don't have to change their internal
+> representation.
+
+> > This new implementation is actually fairly important to my
+> > company, to the extent that we have redirected all our code
+> > to it, suffering interoperability problems with the current
+> > standard.
+
+Yes, but gcc is one of those compilers that will need to change its
+string implementation.  My company is a heavy user of a non-standard
+string simply because the gcc standard string is reference counting.
+
+> > The C++0x library now requires an O(1) size operator.
+
+> Not yet :-) That will be voted on in a few hours (at the time of
+> the time of this writing).
+
+And that vote passed.  The requirement is now in the working draft.
+
+> > This will cause an ABI breaking change in something like half
+> > of the std::list implementations, one of which is gcc.
+
+> The discussion at the Frankfurt meeting (yesterday, at the time
+> of this writing) suggested GCC was the _only_ implementation
+> requiring a change.
+
+> > Other types are affected, though we don't know how many will
+> > actually change the ABI.
+
+> Which types were you thinking of?
+
+This conclusion came from discussions with Howard Hinnant, and he
+was not specific.
+
+> > Howard Hinnant informs me that Apple plans to not have any
+> > binary compatibility between the two versions of the standard,
+> > except that standard exceptions are binary compatible and hence
+> > can cross from one version to another.
+
+> And certainly every vendor is at liberty to change their library
+> signatures.  However, some vendors also plan to avoid breaking
+> library compatibility if they can and with the current standard
+> revision, that is entirely possible (because they already have
+> an O(1) std::list::size() and a non-reference-counted std::string).
+
+> Even those vendors that will have to break compatibility may
+> provide binary compatibility options with e.g. inline namespaces.
+
+> In either case, I am not willing to foil such goals by changing
+> the underlying ABI.
+
+First, let me note that I argued strongly in favor of taking some
+position on binary compatiblity, but was unable to get the committee
+to adopt a policy.  As a result, we have inconsistent expectations
+on compatiblity.
+
+Second, my concern is that we probably will not have effective
+binary compatibility anyway, and not taking advantage of that
+incompatibility has real performance costs.
+
+I would dearly like an experiment in compatibility between a fully
+baked C++0x implementation and a C++03 implementation.  I do not
+see that experiment happening any time soon.  On the other hand,
+we probably can defer binary compatibility decisions until later.
+
+-- 
+Lawrence Crowl
+
+
+From daveed at edg.com  Tue Jul 21 22:38:26 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 21 Jul 2009 18:38:26 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <29bd08b70907211517i53418815n9905dbb60ae4f005@mail.gmail.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com> <4A5F554A.40603@codesourcery.com> <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com> <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com> <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com> <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com> <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com> <29bd08b70907211517i53418815n9905dbb60ae4f005@mail.gmail.com>
+Message-ID: <69279DCF-79EB-4EA3-9CC3-49E359122A16@edg.com>
+
+
+On Jul 21, 2009, at 6:17 PM, Lawrence Crowl wrote:
+
+> On 7/18/09, David Vandevoorde <daveed at edg.com> wrote:
+>> On Jul 17, 2009, at 8:05 AM, Lawrence Crowl wrote:
+>
+[...]
+>>> The C++0x library now requires an O(1) size operator.
+>
+>> Not yet :-) That will be voted on in a few hours (at the time of
+>> the time of this writing).
+>
+> And that vote passed.  The requirement is now in the working draft.
+
+
+Indeed.
+
+[...]
+>>> Howard Hinnant informs me that Apple plans to not have any
+>>> binary compatibility between the two versions of the standard,
+>>> except that standard exceptions are binary compatible and hence
+>>> can cross from one version to another.
+>
+>> And certainly every vendor is at liberty to change their library
+>> signatures.  However, some vendors also plan to avoid breaking
+>> library compatibility if they can and with the current standard
+>> revision, that is entirely possible (because they already have
+>> an O(1) std::list::size() and a non-reference-counted std::string).
+>
+>> Even those vendors that will have to break compatibility may
+>> provide binary compatibility options with e.g. inline namespaces.
+>
+>> In either case, I am not willing to foil such goals by changing
+>> the underlying ABI.
+>
+> First, let me note that I argued strongly in favor of taking some
+> position on binary compatiblity, but was unable to get the committee
+> to adopt a policy.  As a result, we have inconsistent expectations
+> on compatiblity.
+>
+> Second, my concern is that we probably will not have effective
+> binary compatibility anyway, and not taking advantage of that
+> incompatibility has real performance costs.
+
+
+Maybe.  However, although concepts are out of C++0x, they are still  
+"on the horizon".  Concepts change the library-ABI very drastically.   
+I suspect that several vendors will therefore consider delaying other  
+ABI-breaking transitions to coincide with the implementation of  
+concepts (in whatever form they reappear).  (That's also why I voted  
+against the O(1) size change: I find it unwise to break the library  
+ABI piece-by-piece instead of wholesale at distant release points.)
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Wed Jul 22 00:56:51 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 21 Jul 2009 17:56:51 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <69279DCF-79EB-4EA3-9CC3-49E359122A16@edg.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com> <4A5F554A.40603@codesourcery.com> <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com> <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com> <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com> <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com> <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com> <29bd08b70907211517i53418815n9905dbb60ae4f005@mail.gmail.com> <69279DCF-79EB-4EA3-9CC3-49E359122A16@edg.com>
+Message-ID: <4A6663D3.7000104@codesourcery.com>
+
+David Vandevoorde wrote:
+
+> Maybe.  However, although concepts are out of C++0x, they are still "on
+> the horizon".  Concepts change the library-ABI very drastically.  I
+> suspect that several vendors will therefore consider delaying other
+> ABI-breaking transitions to coincide with the implementation of concepts
+> (in whatever form they reappear).
+
+There are of course significant users of C++ that make essentially no
+use of the standard library, particularly on embedded systems.
+
+I think the key point here is that we don't really know what's going on.
+ Lawrence may be right: implementing C++0x, particularly on the library
+side, so breaks everything that maintaining ABI compatibility is just
+impossible; you have to recompile your entire world.  Then again, maybe
+not.
+
+So, I think we should avoid making changes to the ABI that break
+compatibility.  The only harm is "opportunity cost"; we're leaving some
+performance on the table.  Not updating our definition of POD isn't
+going to make any existing programs slower, or break compatibility.  So,
+let's leave it alone.
+
+Then, if we wake up realizing that C++0x is a totally different language
+ with a totally incompatible library ABI, we can always make a C++0x
+version of the C++ ABI that is smarter about PODs.  At that point, we
+can overhaul other aspects of the C++ ABI that are suboptimal as well;
+we know, for example, that we ended up with suboptimal bits for virtual
+base classes, and I still think that hashing mangled names down to
+1024-bit hashes would win, and we've had ideas about implementing
+std::type_info, and the decision not to have constructors return "this"
+loses on some architectures and so forth...
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Wed Jul 22 13:37:14 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 22 Jul 2009 09:37:14 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <4A6663D3.7000104@codesourcery.com>
+References: <200907160806.BAA10914@hpcll183.cup.hp.com> <29bd08b70907160741s477a7683w5103cbca501e10@mail.gmail.com> <4A5F554A.40603@codesourcery.com> <29bd08b70907161300w680952d7sdd7e1d24520dac0b@mail.gmail.com> <F11683A7-58DE-4FE0-89B3-A47EA94859B3@edg.com> <206fcf960907161601g244e375fu4cb7b387e2331eeb@mail.gmail.com> <29bd08b70907170505s409d5bceq643fc66fa81edd2d@mail.gmail.com> <B50ACD9A-40B4-4E73-962F-E26A8115AF91@edg.com> <29bd08b70907211517i53418815n9905dbb60ae4f005@mail.gmail.com> <69279DCF-79EB-4EA3-9CC3-49E359122A16@edg.com> <4A6663D3.7000104@codesourcery.com>
+Message-ID: <A43DBDF1-B929-45D7-B87C-8063E288760D@edg.com>
+
+
+On Jul 21, 2009, at 8:56 PM, Mark Mitchell wrote:
+[...]
+Then, if we wake up realizing that C++0x is a totally different language
+> with a totally incompatible library ABI, we can always make a C++0x
+> version of the C++ ABI that is smarter about PODs.  At that point, we
+> can overhaul other aspects of the C++ ABI that are suboptimal as well;
+> we know, for example, that we ended up with suboptimal bits for  
+> virtual
+> base classes, and I still think that hashing mangled names down to
+> 1024-bit hashes would win, and we've had ideas about implementing
+> std::type_info, and the decision not to have constructors return  
+> "this"
+> loses on some architectures and so forth...
+
+
+If you're keeping a list: Let's make null pointer-to-data-members  
+actually be represented as 0.
+
+	Daveed
+
+
+From dhandly at cup.hp.com  Wed Jul 22 04:47:18 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 21 Jul 2009 21:47:18 -0700 (PDT)
+Subject: [cxx-abi-dev] C++0x POD
+Message-ID: <200907220447.VAA06944@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>I still think that hashing mangled names down to
+>1024-bit hashes would win
+
+Would we be able to demangle them?  Or would we have to keep a database of
+them?
+
+
+From mark at codesourcery.com  Wed Jul 22 15:18:52 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 22 Jul 2009 08:18:52 -0700
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <200907220447.VAA06944@hpcll183.cup.hp.com>
+References: <200907220447.VAA06944@hpcll183.cup.hp.com>
+Message-ID: <4A672DDC.4050301@codesourcery.com>
+
+Dennis Handly wrote:
+>> From: Mark Mitchell <mark at codesourcery.com>
+>> I still think that hashing mangled names down to
+>> 1024-bit hashes would win
+> 
+> Would we be able to demangle them?  Or would we have to keep a database of
+> them?
+
+No, you'd have an optional, unloaded ELF section with the full mangled
+names.  So, you could demangle unstripped binaries.  You'd win big on
+startup time with big hairy C++ applications using lots of big hairy C++
+libraries since your dynamic loader would never have to do comparisons
+on long names.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From dhandly at cup.hp.com  Wed Jul 22 21:17:29 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 22 Jul 2009 14:17:29 -0700 (PDT)
+Subject: [cxx-abi-dev] C++0x POD
+Message-ID: <200907222117.OAA07185@hpcll183.cup.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>If you're keeping a list: Let's make null pointer-to-data-members  
+>actually be represented as 0.
+
+Doesn't this depend on how many times you check for NULL vs how many times
+you add the offset to the start?
+
+
+From daveed at edg.com  Wed Jul 22 21:31:23 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 22 Jul 2009 17:31:23 -0400
+Subject: [cxx-abi-dev] C++0x POD
+In-Reply-To: <200907222117.OAA07185@hpcll183.cup.hp.com>
+References: <200907222117.OAA07185@hpcll183.cup.hp.com>
+Message-ID: <A978B291-3C31-4A73-BB41-C49A041AA233@edg.com>
+
+
+On Jul 22, 2009, at 5:17 PM, Dennis Handly wrote:
+
+>> From: David Vandevoorde <daveed at edg.com>
+>> If you're keeping a list: Let's make null pointer-to-data-members
+>> actually be represented as 0.
+>
+> Doesn't this depend on how many times you check for NULL vs how many  
+> times
+> you add the offset to the start?
+
+I suppose it's debatable, but I think that the inability to put  
+pointer-to-data-members (and aggregates containing such things)  
+in .bss is more of a pain in practice than the more traditional "-1"  
+adjustment.
+
+	Daveed
+
+
+
+From dhandly at cup.hp.com  Wed Jul 22 22:42:40 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 22 Jul 2009 15:42:40 -0700 (PDT)
+Subject: [cxx-abi-dev] C++0x POD
+Message-ID: <200907222242.PAA07720@hpcll183.cup.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>but I think that the inability to put pointer-to-data-members (and
+>aggregates containing such things) in .bss is more of a pain in practice
+
+I was also thinking about the debugger printing -1 for NULL or having to
+translate it.
+
+
+From daveed at edg.com  Tue Jul 28 20:37:40 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 28 Jul 2009 16:37:40 -0400
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <2DBA2615-6CD8-45FA-B146-81F9DD198CB7@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com> <20DEB312-E433-4847-9092-0208D3DD5660@edg.com> <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com> <49C27637.1090204@codesourcery.com> <04D69AFA-96FF-4612-98C2-072A562EB916@edg.com> <2DBA2615-6CD8-45FA-B146-81F9DD198CB7@edg.com>
+Message-ID: <167875D3-F9C9-4DD0-AFC5-522A881F99D9@edg.com>
+
+
+
+A couple of months ago I posted a patch for the ABI that would address  
+lambdas, but we quickly found some problems with that proposal.
+
+Finally, I've gotten back to that problem, and attached is the revised  
+proposal.  These diffs do a couple of things:
+
+1. They address the issues with local name discriminators that I  
+brought up in my message of June 22nd (subject "Local name  
+discriminators") by (a) enshrining the GCC approach to basing the  
+discriminators on the top-level local name only, and (b) introducing a  
+different discriminator encoding when more than one discriminator  
+digit is required (to avoid the ambiguity that otherwise ensues).
+
+2. They provide encodings for unnamed class/enum types with a "base  
+name" Ut<n> (<n> a small integer) in contexts where the C++0x ODR  
+requires them to be matched across translation units (because C++0x  
+allows such types to appear in linkable signatures both via decltype  
+and via template arguments).
+
+3. The provide encodings for closure types in contexts where the C++0x  
+ODR requires them to be matched across translation units, which  
+includes the usual inline and template function bodies, but also (a)  
+certain default and arguments and (b) certain class member  
+initializers.  (I've introduced a separate "Closure Types" subsection  
+for these.)
+
+4. I've replaced the examples in "Scope Encoding" (they contained  
+errors, and new examples were desirable anyway to illustrate some of  
+the points above).
+
+My colleague has implemented the encoding and decoding of these, and  
+after shaking down some subtleties, we think the proposed scheme is  
+solid (unambiguous and reversible, and allowing for useful information  
+when appearing in demangled form in diagnostics).
+
+Let me know if you see a problem with this.
+
+	Daveed
+
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ia64_lambda-2.diffs
+Type: application/octet-stream
+Size: 15761 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090728/894db08d/attachment.obj>
+
+From mark at codesourcery.com  Thu Jul 30 18:09:08 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 30 Jul 2009 11:09:08 -0700
+Subject: [cxx-abi-dev] decimal floating point support for C++
+In-Reply-To: <4A7876AB.7090606@redhat.com>
+References: <1249405778.6927.3.camel@janis-laptop> <4A7876AB.7090606@redhat.com>
+Message-ID: <4A71E1C4.9090909@codesourcery.com>
+
+Jason Merrill wrote:
+
+>> Given that libstdc++ is used with compilers other than G++, is it
+>> reasonable to depend on non-standard C++ compiler support?
+> 
+> The question for this list is, rather, do we want to standardise the
+> necessary compiler support?
+
+What support would we be standardizing?  Special handling of these
+classes, or some source-level attribute for passing these classes as if
+they were scalars, or ...?
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+

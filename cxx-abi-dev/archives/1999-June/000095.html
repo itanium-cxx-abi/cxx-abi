@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> thread-safe local static variable initialization
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20thread-safe%20local%20static%20variable%20initialization&In-Reply-To=%3C9906101554.ZM3948%40hoh.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000094.html">
+   <LINK REL="Next"  HREF="000096.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>thread-safe local static variable initialization</H1>
+    <B>Hans Boehm</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20thread-safe%20local%20static%20variable%20initialization&In-Reply-To=%3C9906101554.ZM3948%40hoh.engr.sgi.com%3E"
+       TITLE="thread-safe local static variable initialization">boehm at hoh.engr.sgi.com
+       </A><BR>
+    <I>Thu Jun 10 22:54:23 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000094.html">C++ standard library ABI
+</A></li>
+        <LI>Next message: <A HREF="000096.html">C++ ABI Summary and Open Issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#95">[ date ]</a>
+              <a href="thread.html#95">[ thread ]</a>
+              <a href="subject.html#95">[ subject ]</a>
+              <a href="author.html#95">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'd like to make some claims about function scope static constructor calls in
+multithreaded environments.  I personally can't recall ever having used
+such a construct, which somewhat substantiates my claims, but also implies
+some lack of certainty.  I'd be interested in hearing any arguments to the
+contrary.
+
+I believe that these arguments imply that this problem is not important
+enough to warrant added ABI complexity or overhead for sequential code.
+
+Consider the following skeletal example:
+
+f(int x) { static foo a(...); ... }
+
+1) If the constructor argument doesn't depend on the function parameter,
+and the code behaves reasonably, it should be possible to rewrite this as
+
+static foo a(...);
+
+f(int x) { ... }
+
+2) If I read the standard correctly (and that's a big disclaimer), the compiler
+is entitled to perform the above transformation under conditions that are
+usually true, but hard for the compiler to deduce.  Thus code that relies on
+the initialization occurring during the execution of f is usually broken.
+
+3) Thus the foo constructor cannot rely on its caller holding any locks.
+It must explicitly acquire any locks it needs.
+
+4) It is far preferable to write the transformed form with a file scope
+static variable to start with.  The initial form risks deadlock, since
+f may be called with locks held which the constructor can't assume are held.
+If it needs one of those locks it will need to reacquire it.  With default
+mutex semantics that results in deadlock with itself.
+(If locks may be reentered, it may fail in a more subtle manner since the
+foo constructor may acquire a monitor lock whose monitor invariant doesn't
+hold.)
+
+5) File scope static constructor calls aren't a problem and require no locking,
+since they are executed in a single thread before main is called or before
+dlopen returns.  (Forking a thread in a static constructor should probably
+be disallowed.  Threads may not have been fully initialized, among other
+issues.)
+
+6) Static function scope constructor calls which depend on function arguments
+are likely to involve a race condition anyway, if multiple instances of
+the function can be invoked concurrently.  Any of the calls might determine
+the constructor parameters.  Thus these aren't very interesting either.
+And if they are really needed, they can be replaced with a file scope static
+constructor call plus an assignment.
+
+-- 
+Hans-J. Boehm
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">boehm at sgi.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000094.html">C++ standard library ABI
+</A></li>
+	<LI>Next message: <A HREF="000096.html">C++ ABI Summary and Open Issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#95">[ date ]</a>
+              <a href="thread.html#95">[ thread ]</a>
+              <a href="subject.html#95">[ subject ]</a>
+              <a href="author.html#95">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

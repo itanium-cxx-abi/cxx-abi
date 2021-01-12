@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Placement of vtables, inlines and such
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3C199906250014.RAA03552%40cllmail.cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000124.html">
+   <LINK REL="Next"  HREF="000126.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Placement of vtables, inlines and such</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3C199906250014.RAA03552%40cllmail.cup.hp.com%3E"
+       TITLE="Placement of vtables, inlines and such">ddd at cup.hp.com
+       </A><BR>
+    <I>Fri Jun 25 00:14:39 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000124.html">Placement of vtables, inlines and such
+</A></li>
+        <LI>Next message: <A HREF="000126.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#125">[ date ]</a>
+              <a href="thread.html#125">[ thread ]</a>
+              <a href="subject.html#125">[ subject ]</a>
+              <a href="author.html#125">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at cygnus.com</A>&gt;
+&gt;<i>
+</I>&gt;<i> Christophe mentioned the other day that the HP compiler used the  
+</I>typical
+&gt;<i> heuristic above, and handled the case of different results by  
+</I>encoding the
+&gt;<i> key function in the vtable name.  But this seems unnecessary when  
+</I>we can
+&gt;<i> just choose one of multiple defns.
+</I>
+I think that the name of the vtable has to either contain the name  
+of the class or the (mangled) name of the key function. If there is a  
+key function, it does not harm to use that as the name (except that  
+it makes for a slightly longer symbol), and it sometimes catches some  
+broken makefiles that fail to recompile some .o file when a .h file  
+they include changed :-). I don't know if catching a problem  
+&quot;sometimes&quot; is better than &quot;never&quot;, or if it is actually worse...
+
+Also, HP uses COMDATs for the actual emission of the vtable,  
+out-of-line copies of inline functions, some cases of template  
+instantiations, etc. Our COMDAT key is the name alone. I don't think  
+we can have the linker check size or whatever. Note that it's hard to  
+believe that the content of a COMDAT section for code emitted by two  
+different compilers would have anything in common :-)
+
+&gt;<i> I propose that the ia64 base ABI be extended to provide for either  
+</I>COMDAT
+&gt;<i> sections or garbage collection, and that we use that support for vague 
+</I>&gt;<i> linkage.
+</I>
+It looks to me like garbage collection requires one extra operation,  
+namely selecting the &quot;blessed&quot; symbol that will not be discarded,  
+right? Isn't that some other form of COMDATing? In other words, isn't  
+garbage collection just an additional optimization which may be  
+placed on top of COMDATs?
+
+
+&gt;<i> I further propose that we not use heuristics to cut down the number of 
+</I>&gt;<i> copies ahead of time; they usually work fine, but can cause problems in 
+</I>&gt;<i> some situations, such as when not all of the class's members are in the 
+</I>&gt;<i> same symbol space.  Does the ia64 ABI provide for controlling  
+</I>which symbols
+&gt;<i> are exported from a shared library?
+</I>
+As you said, &quot;they usually work fine&quot;. In particular, without them,  
+you end up emitting the same vtables again and again, which is a  
+waste of time, disk space, etc. Just as a reminder, IA64 .o files are  
+not exactly small. Regarding the symbol spaces, did I misunderstand,  
+or are you talking about having some pathological case like (using  
+Microsoft's notations :-)
+
+	#if INCLUDED_FROM_FILE_1
+	__declspec(export)
+	#endif
+	inline void foo() { ... }
+
+That's just a bad idea. There may be other cases I did not think of,  
+but currently, I don't see this as a real issue.
+
+&gt;<i>
+</I>&gt;<i> A side issue: What do we want to do with dynamically-initialized  
+</I>variables?
+&gt;<i> The same thing, or use COMMON?  I propose COMMON.
+</I>
+The problem is that some compiler may be smarter at inlining that  
+another, and figure out that it actually can initialize it  
+statically. In that case, it cannot go into COMMON (or you force that  
+smart compiler to not do that optimization for binary compatibility  
+reasons...). For instance:
+
+	inline int f() { return 1; }
+	static int i = f();
+
+What is the problem with COMMON?
+
+
+&gt;<i> A side issue is how to handle local static variables in inlines.  G++ 
+</I>&gt;<i> currently avoids this issue by suppressing inlining of functions with 
+</I>&gt;<i> local statics, if we don't want to do that, we'll need to specify a 
+</I>&gt;<i> mangling for the statics, and handle multiple copies like we do above. 
+</I>
+Side issue of side issue: you are also supposed to name string  
+constants, because they are supposed to have the same address in  
+different inline functions ([7.1.2]/4 :-)
+
+
+Christophe
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000124.html">Placement of vtables, inlines and such
+</A></li>
+	<LI>Next message: <A HREF="000126.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#125">[ date ]</a>
+              <a href="thread.html#125">[ thread ]</a>
+              <a href="subject.html#125">[ subject ]</a>
+              <a href="author.html#125">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

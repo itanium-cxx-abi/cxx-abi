@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Non-trivial move constructor
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Non-trivial%20move%20constructor&In-Reply-To=%3C225867D4-033A-4AA5-8BD7-0741E22743DF%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002890.html">
+   <LINK REL="Next"  HREF="002901.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Non-trivial move constructor</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Non-trivial%20move%20constructor&In-Reply-To=%3C225867D4-033A-4AA5-8BD7-0741E22743DF%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Non-trivial move constructor">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Feb 25 06:41:06 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002890.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+        <LI>Next message: <A HREF="002901.html">[cxx-abi-dev] FW: Name Mangling for OpenCL and GCC vectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2891">[ date ]</a>
+              <a href="thread.html#2891">[ thread ]</a>
+              <a href="subject.html#2891">[ subject ]</a>
+              <a href="author.html#2891">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Feb 24, 2016, at 1:14 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+</I>&gt;<i> On 24 February 2016 at 12:56, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> On Feb 24, 2016, at 11:43 AM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> On 24 February 2016 at 05:54, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;&gt;<i> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+</I>&gt;&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;&gt;<i> in 3.1.1, we use &quot;In the special case where the parameter type has a
+</I>&gt;&gt;&gt;&gt;&gt;<i> non-trivial copy constructor or destructor&quot; to force passing by
+</I>&gt;&gt;&gt;&gt;&gt;<i> reference. It seems that for C++11, this should also include move
+</I>&gt;&gt;&gt;&gt;&gt;<i> constructors, for the same reasons.
+</I>&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> We talked about adding move constructors to that sentence years ago. Did it
+</I>&gt;&gt;&gt;&gt;<i> never make it into the spec?
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Looks like it didn't. The rule we ended up with was:
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> &quot;[Pass an object of class type by value if] every copy constructor and
+</I>&gt;&gt;&gt;<i> move constructor is deleted or trivial and at least one of them is not
+</I>&gt;&gt;&gt;<i> deleted, and the destructor is trivial.&#8221;
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> However, this seems overly-cautious to me; it would seem sufficient
+</I>&gt;&gt;&gt;<i> for there to be at least one copy or move constructor that is trivial
+</I>&gt;&gt;&gt;<i> and not deleted, and a trivial destructor. It's not really
+</I>&gt;&gt;&gt;<i> particularly plausible for there to be a trivial copy and a
+</I>&gt;&gt;&gt;<i> non-trivial move or vice versa, but it *is* plausible for there to be
+</I>&gt;&gt;&gt;<i> two non-deleted copy constructors -- a trivial one, and one that takes
+</I>&gt;&gt;&gt;<i> a const volatile reference -- and in that case, passing through
+</I>&gt;&gt;&gt;<i> registers seems completely reasonable. How about changing the rule in
+</I>&gt;&gt;&gt;<i> 3.1.1 bullet 1 to:
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> &quot;In the special case where the parameter type does not have both a
+</I>&gt;&gt;&gt;<i> trivial destructor and at least one trivial copy or move constructor
+</I>&gt;&gt;&gt;<i> that is not deleted, the caller must allocate space for a temporary
+</I>&gt;&gt;&gt;<i> copy, and pass the resulting copy by reference (below). Specifically
+</I>&gt;&gt;&gt;<i> [&#8230;]&quot;
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I agree with your proposal in theory, but I&#8217;m concerned about changing
+</I>&gt;&gt;<i> the ABI at this point.  We *are* talking about the language standard that was
+</I>&gt;&gt;<i> released six years ago, and an area of that standard that was theoretically
+</I>&gt;&gt;<i> fully implemented by compilers several years before that.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Do we understand the scope of the ABI disagreement between GCC and Clang here?
+</I>&gt;&gt;<i> What do other compilers do?
+</I>&gt;<i> 
+</I>&gt;<i> Clang's rule is the one in the ABI: a class is passed indirectly if it
+</I>&gt;<i> has a non-trivial destructor or a non-trivial copy constructor. This
+</I>&gt;<i> rule definitely needs some adjustment, because it's not meaningful to
+</I>&gt;<i> ask whether an implicitly-deleted function is trivial.
+</I>
+That sounds like it&#8217;s on us to fix.  Do GCC and other compilers correctly
+implement the rule that we agreed on?  If so, I&#8217;ll go ahead and apply
+the change to the ABI document, and we should fix this in clang.
+
+John.
+</PRE>
+
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002890.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+	<LI>Next message: <A HREF="002901.html">[cxx-abi-dev] FW: Name Mangling for OpenCL and GCC vectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2891">[ date ]</a>
+              <a href="thread.html#2891">[ thread ]</a>
+              <a href="subject.html#2891">[ subject ]</a>
+              <a href="author.html#2891">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

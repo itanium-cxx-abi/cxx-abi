@@ -1,0 +1,102 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> __cxa_finalize and `on_exit'
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912181858.TAA21772%40pandora%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000387.html">
+   <LINK REL="Next"  HREF="000392.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>__cxa_finalize and `on_exit'</H1>
+    <B>Martin von Loewis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912181858.TAA21772%40pandora%3E"
+       TITLE="__cxa_finalize and `on_exit'">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Sat Dec 18 18:58:35 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000387.html">__cxa_finalize and `on_exit'
+</A></li>
+        <LI>Next message: <A HREF="000392.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#391">[ date ]</a>
+              <a href="thread.html#391">[ thread ]</a>
+              <a href="subject.html#391">[ subject ]</a>
+              <a href="author.html#391">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> I believe I did; I just implemented this in GNU libc.  All of atexit,
+</I>&gt;<i> on_exit, and __cxa_atexit share the same list of exit functions.  When
+</I>&gt;<i> __cxa_finalize is called from a DSO, only __cxa_atexit functions are
+</I>&gt;<i> called.  When exit is called (on exit from the main executable), all
+</I>&gt;<i> of the functions are called, in reverse order of registration.  The
+</I>&gt;<i> main executable therefore does not call __cxa_finalize at all.  Works
+</I>&gt;<i> like a charm, as far as I can tell.
+</I>
+I believe the issue here is the support of non-integrated C and C++
+libraries. You've been modifying the C library, which is the right
+approach if possible. In some cases, it might not be feasible, and I
+believe Jim's proposal is to offer a fall-back for this case, with
+degraded functionality. I don't know whether this actually works,
+though.
+
+If you don't have integrated C and C++ libraries, you'll still have
+the need for cxa_atexit, but you can't put that into the C libraries'
+atexit. Fortunately, that is not required by the international
+standards - all that is required is interworking with std::atexit. So
+you have std::atexit invoke __cxa_atexit, and get the right
+interleaving. Of course, that won't cover atexit calls made from C
+objects, but that is not feasible, anyway.
+
+Then, of course, the question is how to run the __cxa_atexit list at
+the end of the program. To do so, the proposal is to put a
+__cxa_finalize call into the .fini section.
+
+Unfortunately, it seems that this approach breaks the case when you do
+integrate the C and C++ libraries; in this case, the extra call gets
+in the way of extern &quot;C&quot; atexit processing, which must be placed into
+the runtime system very cautiously.
+
+My proposal: it is left unspecified by the ABI how exactly the
+__cxa_atexit list is invoked - whoever provides the implementation of
+__cxa_atexit and __cxa_finalize is also responsible for having the
+finalizers called at the right point in time (i.e. as a result of
+std::exit invocation).
+
+Regards,
+Martin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000387.html">__cxa_finalize and `on_exit'
+</A></li>
+	<LI>Next message: <A HREF="000392.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#391">[ date ]</a>
+              <a href="thread.html#391">[ thread ]</a>
+              <a href="subject.html#391">[ subject ]</a>
+              <a href="author.html#391">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

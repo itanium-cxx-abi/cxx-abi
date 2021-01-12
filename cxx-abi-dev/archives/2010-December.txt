@@ -1,0 +1,154 @@
+From mjh at edg.com  Wed Dec  8 21:29:49 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 8 Dec 2010 16:29:49 -0500
+Subject: Additional mangled encodings for variadic templates
+In-Reply-To: <703DE2E0-9992-4605-A4F6-944CC830F727@edg.com>
+References: <703DE2E0-9992-4605-A4F6-944CC830F727@edg.com>
+Message-ID: <C819E88A-5AFA-43B4-9AE6-DC162B79F5C4@edg.com>
+
+
+On Nov 30, 2010, at 5:20 PM, Mike Herrick wrote:
+
+> It appears that there are a few missing encodings in the IA-64 ABI document having to do with variadic templates and function parameters.
+> 
+> Take for example:
+> 
+>  template<class T, class... U> auto f1(T x, U... y) -> decltype(sizeof...(y),x);
+>  int main() {
+>    f1(0, 'c');
+>  }
+> 
+> The only option to encode a sizeof...() expression is:
+> 
+>  <expression> ::= sZ <template-param>         # size of a parameter pack
+> 
+> but the argument to sizeof...() in f1 above is a function parameter, not a template parameter.  Similarly, in this example:
+> 
+>  template<class... T> void f(T... t);
+>  template<class T, class... U> auto f2(T x, U... y) -> decltype(f(y...),x);
+>  int main() {
+>    f2(0, 'c');
+>  }
+> 
+> there appears to be no encoding for the function parameter pack expansion (i.e., y...) in this context; the only pack expansion is in <template-arg>:
+> 
+>  <template-arg> ::= sp <expression>           # pack expansion (C++0x)
+> 
+> but y... is used in an <expression> context.
+> 
+> I think adding these two productions to <expression> will address these problems:
+> 
+>                 ::= sZ <function-param>       # size of a function parameter pack
+>                 ::= sp <expression>           # expression pattern expansion
+> 
+> g++ 4.5.1 seems to already be using the second of these; the "sZ" mangling doesn't appear to be implemented in g++ as yet.
+> 
+> We'd also like to propose removing this production:
+> 
+>  <template-arg> ::= sp <expression>           # pack expansion (C++0x)
+> 
+> from the existing grammar.  If needed, this can be mangled with the existing rule (and the newly proposed rule above):
+> 
+>                 ::= X <expression> E          # expression
+> 
+> Keeping the existing rule as it is eliminates any future use of "p" as a single-letter <type> code (since <template-arg> can also be a <type> and "s" is already a valid <type> encoding).  Currently "p" is one of the few single-letter <type> codes not in use.  We realize this may not be practical due to backward compatibility issues.
+> 
+> Is there any other implementation experience for these cases?
+
+Here's the diff for the proposed changes above:
+
+*** abi.orig.html       Wed Dec  8 14:26:04 2010
+--- abi.html    Wed Dec  8 14:29:12 2010
+***************
+*** 4600,4606 ****
+                   ::= X &lt;expression&gt; E                                   # expression
+                   ::= &lt;expr-primary>                                     # simple expressions
+                   ::= I &lt;template-arg&gt;* E                                # argument pack
+-                  ::= sp &lt;expression&gt;                                    # pack expansion (C++0x)
+  
+    &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+                 ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
+--- 4600,4605 ----
+***************
+*** 4630,4635 ****
+--- 4629,4636 ----
+                 ::= pt &lt;expression&gt; &lt;unresolved-name&gt;                    # expr-&gt;name
+                 ::= ds &lt;expression&gt; &lt;expression&gt;                         # expr.*expr
+                 ::= sZ &lt;template-param&gt;                                  # size of a parameter pack
++                ::= sZ &lt;function-param&gt;                                  # size of a function parameter pack
++                ::= sp &lt;expression&gt;                                      # pack expansion
+                 ::= tw &lt;expression&gt;                                      # throw expression
+                 ::= tr                                                   # throw with no operand (rethrow)
+                 ::= &lt;unresolved-name&gt;                                    # f(p), N::f(p), ::f(p),
+
+Are there any objections to removing the "sp" mangling from <template-arg> from vendors who might already have implemented this scheme?
+
+Mike.
+
+
+
+From mjh at edg.com  Mon Dec 20 17:41:17 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 20 Dec 2010 12:41:17 -0500
+Subject: Mangling ambiguity with argument packs in template argument lists
+Message-ID: <EC9B15D9-7580-47BF-93A8-68879CBC488A@edg.com>
+
+We ran into a mangling ambiguity with argument packs in template argument lists (where both use the letter "I"):
+
+  <template-args> ::= I <template-arg>+ E
+  <template-arg> ::= <type>                         # type or template
+                 ::= X <expression> E               # expression
+                 ::= <expr-primary>                 # simple expressions
+                 ::= I <template-arg>* E            # argument pack
+                 ::= sp <expression>                # pack expansion (C++0x)
+
+Here's an example where two different source constructs generate the same mangled name (_Z1fI1BI1AIiEEEDTcmfp_fp_ET_):
+
+$ cat foo.cpp
+  template <class T> auto f(T p1) -> decltype(p1, p1);
+  template <class T> struct A {};
+#if FOO
+  template <class T> struct B {};
+  B<A<int>> b;
+#else
+  template <template <class TT> class T, class ... U> struct B {};
+  B<A,int> b;
+#endif
+  int main() {
+    f(b);
+  }
+$ g++451 -DFOO -std=c++0x foo.cpp
+/tmp/ccOqFYBI.o(.text+0xc): In function `main':
+: undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+collect2: ld returned 1 exit status
+$ g++451 -UFOO -std=c++0x foo.cpp
+/tmp/cc448n5U.o(.text+0xc): In function `main':
+: undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+collect2: ld returned 1 exit status
+$ 
+
+When the demangler gets to the "I" after "1A", it's ambiguous whether the "I" represents an argument pack or a template argument (as noted by g++ 4.5.1 issuing the same demangled name for both cases).
+
+To address this, we propose changing the mangling for argument packs to use "J" rather than "I":
+
+  <template-arg> ::= J <template-arg>* E              # argument pack
+
+This change is not backward compatible.
+
+I'm attaching a patch that includes this change with the others that I've proposed.
+
+Thanks,
+
+Mike.
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi.html.patch
+Type: application/octet-stream
+Size: 3081 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20101220/bbab03cd/attachment.obj>
+-------------- next part --------------
+
+
+

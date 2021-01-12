@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Notes from 10 Feb meeting
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%2010%20Feb%20meeting&In-Reply-To=%3C10002101622.ZM144811%40isolde.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000565.html">
+   <LINK REL="Next"  HREF="000577.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Notes from 10 Feb meeting</H1>
+    <B>Matt Austern</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%2010%20Feb%20meeting&In-Reply-To=%3C10002101622.ZM144811%40isolde.engr.sgi.com%3E"
+       TITLE="Notes from 10 Feb meeting">austern at isolde.engr.sgi.com
+       </A><BR>
+    <I>Fri Feb 11 00:22:03 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000565.html">Static locals (Was: Updated mangling specs)
+</A></li>
+        <LI>Next message: <A HREF="000577.html">Notes from 10 Feb meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#570">[ date ]</a>
+              <a href="thread.html#570">[ thread ]</a>
+              <a href="subject.html#570">[ subject ]</a>
+              <a href="author.html#570">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>                      Notes from 10 Feb meeting
+
+                              NEW ISSUES
+
+&gt;<i>From HP:
+</I>HP will be supporting an ilp32 model as well as as an lp64 model.
+The ABI only discusses an lp64 model.  Do we want to support ilp32
+in any way?  What will we have to do to support (a) compatibility
+between different vendors' ipl32 compilers (b) compatibility between
+ilp32 and lp64.  HP has suggested, for example, modifying the mangling
+scheme so that long long in ipl32 is mangled the same way as long in
+lp64.  Is this enough to ensure ipl32/lp64 link compatibility, or
+would we need to make many other changes as well?
+
+&gt;<i>From Cygnus:
+</I>Users have access to types' mangled names via the standard type_info
+class.  Users may sometimes want to get demangled names.  Should
+we provide an entry point for calling a demangler?  This might be
+a standalone function, perhaps with an interface like that of EDG's
+demangle(), or it might be some kind of type_info extension.  If we
+do this, should we attempt to specify exactly what demangled names
+look like, or should we explicitly leave it unspecified and warn users
+not to depend on the exact format?
+
+                             ACTION ITEMS
+
+Christophe - Find out whether the base ABI nails down the sizes of all
+basic floating point types.  (Is long double always required to be 80
+bits?)  If not, we may have some issues here.
+
+Christophe - Write up a proposal for using incomplete_type_info
+rather than using the comdat proxy method.  (See A24 discussion
+below.)
+
+Matt - Write up detailed wording for Issue A21 Proposal C.
+
+Daveed - Update mangling document based on today's discussion.
+
+Coleen - Finish construction vtable writeup.
+
+                               MANGLING
+
+We have agreed that local statics and local classes must be mangled.
+We agreed that string literals should also be mangled even if linker
+features might make it unnecessary.  The motivation is a desire to
+support less capable linkers on other platforms.
+
+For local statics and local classes, the mangled name consists of the
+mangled function name, a sequence number, and the name of the local
+class/varaible.  For string literals the mangled name consists only of
+the mangled function name and the sequence number.
+
+(There was concern that this might prevent merging of identical string
+literals.  Jason believes it doesn't, that given a smart linker it
+will just result in multiple names for the same string literal.)
+
+Sequence numbers are assigned in lexical order within a function,
+starting at 1.  The entities that receive sequence numbers are local
+static variables, local classes, and string literals.  Other entities
+(e.g. automatic variables) do not receive or affect sequence numbers.
+
+Exception specification information must be part of the mangled name
+of a function.
+
+Special entities that need to receive mangled names, in addition to those
+mentioned in Daveed's document:
+
+ - Vtables (which should contain mangled name of complete type)
+ - Construction vtables probably do not require mangled names, and
+   table of vtables probably doesn't either.  Daveed will reserve
+   prefixes for them just in case.
+ - If we are using the comdat proxy method for class typeinfos,
+   then both class typeinfo objects and the comdat proxies must be
+   given mangled names.  We must ensure that the comdat proxy for
+   an incomplete class is the same as the one for a complete class
+   with the same name, and we must ensure that the typeinfo object
+   for an incomplete class is different from that of any complete
+   class.  (Either that, or make all typeinfo objects for incomplete
+   classes static.)
+
+Exported template may require other things to be mangled.  We don't
+have a detailed analysis.
+
+We discussed the idea of having a small dictionary of well known
+names, so that mangled names could be shorter.  Jason was concerned
+with readability of mangled names if we had too many things in this
+dictionary, and Daveed was concerned that a large dictionary wouldn't
+give enough of a space savings because an index would take too many
+bits.  If we have such a dictionary it will have very few names in
+it.  Some obvious candidates are
+  std
+  std::char_traits&lt;char&gt;
+  std::allocator&lt;char&gt;
+  std::basic_string&lt;char, char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;
+
+
+                        RTTI - A23 AND GENERAL
+
+Minor corrections to RTTI discussion in data layout document:
+In section 7c, which describes the vmi_flags, flag 0x01 is
+documented incorrectly.  It says &quot;class has non-diamond multiple
+inheritance&quot;, which isn't quite right.  We're really talking
+more about repeated inheritance: having multiple subobjects of
+the same type.
+
+Also in vmi_flags, Jason questions whether flags 0x04 and 0x08 are
+necessary.  What do we really need &quot;has virtual base(s)&quot; and &quot;has
+non-virtual base(s)&quot; for?  Jason has sent email to Nathan about
+this.
+
+Naming issue: we decided to put all of our type_info subclasses
+in namespace abi, not namespace std.  This means, of course,
+that they can't go in any of the standard headers.  Rather than
+inventing multiple header names, we would like to put everything
+(unwinding longjmp, type_info subclasses, etc.) into one quasi-
+standard header.  We propose the name &lt;ia64cxxabi&gt;.  Everything
+in that header will be in namespace abi.
+
+Issue A23 can almost be closed.  The only thing we need to
+resolve is whether to keep the two flags that Jason is unsure about.
+
+                              RTTI - A24
+
+The scheme we have been converging on: we extend __class_type_info
+by putting in a new field, id_proxy_ptr, of type char*.  It points
+to a one-byte comdat which serves only as a unique address.  (We
+don't see a strong need to ask the base ABI group to mandate a
+magic unique-address feature in the linker.  We may want to get input
+from our linker people, though.)
+
+A class's __class_type_info object and its comdat proxy both receive
+mangled names.  We must make sure that the proxy's mangled name is the
+same for all complete and incomplete declarations of a class, that the
+mangled name of the __class_type_info object is the same for all
+complete declarations of a class, and that the mangled name of the
+__class_type_info object is different for incomplete declarations than
+for complete declarations.  One way to achieve this is to make
+__class_type_info objects for incomplete declarations static.
+
+We add a new flag to __pointer_type_info; let's say bit 0x4.  If
+this is set, it means we have a pointer to an incomplete type (or
+pointer to pointer to incomplete type, etc.)
+
+We compare two __class_type_infos for equality by pointer comparison
+of the id_proxy_ptr fields.  We compare two __pointer_type_infos for
+equality by looking at the addresses of the type_info objects,
+*unless* the incomplete bit is set in at least one of them.  If the
+incomplete bit is set, we have to compare the pointed-to types.  For
+everything other than classes and pointers we can just use address
+equality of the type_info objects themselves.
+
+In response to Jason's 000129 question: we can't use gp-relative
+references for type_info objects because we're only using comdat
+proxies for __class_type_info, not for other kinds of type_info
+objects.
+
+In response to Nathan's 000130 question: this is the reason to
+give the complete and incomplete __class_type_info objects different
+mangled names.  That way a complete __class_type_info object in a
+DSO won't be overridden by an incomplete __class_type_info object
+in the executable.
+
+At the very end of this meeting we got a suggestion from Christophe
+for a complete different mechanism.  We agreed that we can't evaluate
+it without a writeup.  The suggestion: abandon these comdat proxies
+altogether.  Instead we have a new type_info class,
+__incomplete_class_type_info.  Comparisons involving two
+__class_type_info objects use address equality, comparisons involving
+two __incomplete_class_type_info objects, or a __class_type_info and
+an __incomplete_class_type_info, do string comparison on the name.  We
+still would have an incomplete bit in the __pointer_type_info class,
+which, again, we would use to determine whether two
+__pointer_type_info objects with different addresses might
+nevertheless represent the same pointer type.
+
+                       ARRAY OPERATOR NEW - A21
+
+We agreed that Proposal B, where ::operator new(size_t, void*) is
+a special case with no cookie, is preferable to Proposal A, where
+all versions of array new get cookies.
+
+We also agreed to the variation where we don't reserve space for a
+cookie if the type has no destructor.  We're calling it Proposal C.
+We need a writeup, but we should be able to close this issue next
+week.
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000565.html">Static locals (Was: Updated mangling specs)
+</A></li>
+	<LI>Next message: <A HREF="000577.html">Notes from 10 Feb meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#570">[ date ]</a>
+              <a href="thread.html#570">[ thread ]</a>
+              <a href="subject.html#570">[ subject ]</a>
+              <a href="author.html#570">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

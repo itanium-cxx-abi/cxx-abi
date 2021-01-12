@@ -1,0 +1,760 @@
+From nathan at codesourcery.com  Tue Jan 23 13:13:26 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 23 Jan 2001 13:13:26 +0000
+Subject: construction vtables broken
+Message-ID: <3A6D8376.B2B7F58C@codesourcery.com>
+
+Sadly, the VTT algorithms in the C++ abi are broken, and fail on diamond
+shaped graphs.
+
+The VTT only contains secondary vtable pointers for bases with virtual bases
+or with virtual functions overridden along a virtual path from that base to the
+base for which the VTT belongs. Unfortunately, that means bases within a virtual
+heirarchy can have an undefined vtable. This breaks dynamic_cast and typeid
+within the base under construction. Consider
+
+struct A {virtual void f();} // nearly empty
+struct B1 : virtual A {};	// A will be primary base
+struct B2 : virtual A { B2 ();}; // A will be primary base
+struct C : B1, B2 {};    // B1 will be primary base, A in B1 will be active
+B2::B2 ()
+{
+   A *aptr = this;
+   
+   assert (typeid (*aptr) == typeid (*this));
+   assert (dynamic_cast <void *> (aptr) == this);
+}
+
+
+both those asserts will fail, as virtual base A's vtable will not be initialized
+inside B2's ctor, and will have information remaining from B1's constructing.
+
+We need to change 2.6.2 part 3 to include secondary virtual pointers for
+each subobject X with either (a) virtual bases or (b) reachable via a virtual path
+from D. All the stuff about overriding virtual functions along a virtual path
+is unneeded.
+
+I attach a patch to abi.html to this effect. I've also added a note about primary
+virtual bases. It reworks the example given at the end of 2.6.2.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+-------------- next part --------------
+--- abi.html	Tue Jan 16 09:39:53 2001
++++ abi-new.html	Tue Jan 23 11:53:37 2001
+@@ -1479,7 +1479,11 @@
+ as each base class subobject is constructed.
+ RTTI queries in the base class constructor will return  
+ the type of the base class, and virtual calls will resolve to member  
+-functions of the base class rather than the complete class.
++functions of the base class rather than the complete class. RTTI queries,
++dynamic casts and virtual calls of the object under construction statically
++converted to bases of the base under construction will dynamically
++resolve to the type of the base under construction.
++
+ Normally,  this behavior is accomplished by setting,
+ in the base class constructor,
+ the object's virtual table pointers to the addresses of the
+@@ -1560,8 +1564,7 @@
+ <li>
+ <i>Secondary virtual pointers</i>:
+ For each subobject X with either (a) virtual bases
+-or (b) virtual function declarations overridden along a virtual path
+-between the declaration and D,
++or (b) reachable along a virtual path from D,
+ the address of the secondary virtual table for X-in-D.
+ These include virtual and non-virtual, direct and indirect subobjects,
+ with the exception of primary non-virtual bases.
+@@ -1573,22 +1576,24 @@
+ </i>
+ 
+ <p>
+-When constructing a sub-VTT for a subclass B of D in part 2 above,
+-the relevant condition (b) for the inclusion of a secondary virtual
+-pointer in the sub-VTT for B is the existence of a virtual function
+-declaration overridden along a virtual path between the declaration and B,
+-since otherwise the complete object virtual table for B is used
+-to initialize the B subobject.
+-
+-<p>
+ <img src=warning.gif alt="<b>NOTE</b>:">
+ <i>
+ "Along a virtual path" refers to the path in the inheritance graph
+-between the class that declares the overridden virtual function
+-and the class derived from it that declares the overriding virtual
+-function.
++between X and D.
+ This is considered a virtual path if one of the class derivations it
+-represents is from a virtual base.
++represents is a virtual base of D.
++</i>
++
++<p>
++<img src=warning.gif alt="<b>NOTE</b>:">
++<i>
++Primary virtual bases require a secondary virtual pointer in the VTT,
++as their placement is determined by the most derived object. If a primary
++virtual base is the active instance of that base within the most derived
++object, the VTT entry for it will be D-in-most derived's primary virtual
++table pointer. Should that primary virtual base not be the active
++instance within the most derived object, the secondary virtual pointer
++will be different.
+ </i>
+ 
+ <p>
+@@ -1671,14 +1676,20 @@
+   class A1 { int i; };
+   class A2 { int i; virtual void f(); };
+   class V1 : public A1, public A2 { int i; };
++	// A2 is primary base of V1, A1 is non-polymorphic
+   class B1 { int i; };
+   class B2 { int i; };
+-  class V2 : public B1, public B2, public virtual V1 { int i; virtual void f(); };
++  class V2 : public B1, public B2, public virtual V1 { int i; };
++	// V2 has no primary base, V1 is secondary base
++  class V3 {virtual void g(); };
+   class C1 : public virtual V1 { int i; };
+-  class C2 : public virtual V2 { int i; };
++	// C1 has no primary base, V2 is secondary base
++  class C2 : public virtual V3, virtual V2 { int i; };
++	// C2 has V3 primary (nearly-empty virtual) base, V2 is secondary base
+   class X1 { int i; };
+   class C3 : public X1 { int i; };
+-  class D : public C1, public C2, public C3 { int i; virtual void f(); };
++  class D : public C1, public C2, public C3 { int i;  };
++	// C1 is primary base, C2 is secondary base, C3 is non-polymorphic
+ 
+ </pre></code>
+ 
+@@ -1696,31 +1707,36 @@
+   [1]  C1 * (has virtual base)
+ 
+   [2]  C2 * (has virtual bases)
+-  [3]    V2-in-C2 in D (secondary vptr)
+-  [4]    V1-in-C2 in D (secondary vptr)
++  [3]    V3-in-C2 in D (primary vptr)
++  [4]    V2-in-C2 in D (secondary vptr)
++  [5]    V1-in-C2 in D (secondary vptr)
+ 
+   // 3. Secondary virtual pointers:
+     // (no C1-in-D -- primary base)
+-  [5]    V1-in-D (A2::f overridden in D)
+-  [6]  C2-in-D (preorder; has virtual bases)
+-  [7]    V2-in-D (V2::f overridden in D, has virtual base)
+-    // (For complete object D VTT, these can all point to the
+-    // secondary vtables in the D vtable.  In the sub-VTT for
++  [6]    V1-in-D (V1 is virtual)
++  [7]  C2-in-D (preorder; has virtual bases)
++  [8]    V3-in-D (V3 is virtual)
++  [9]    V2-in-D (V2 is virtual)
++    // (For complete object D VTT, these all can point to the
++    // secondary vtables in the D vtable, the V3-in-D entry
++    // will be the same as the C2-in-D entry, as that is the active
++    // V3 virtual base in the complete object D.  In the sub-VTT for
+     // D in a class derived from D, some might be construction
+     // virtual tables.)
+ 
+   // 4. Virtual VTTs:
+     // (V1 has no virtual bases).
+-  [8]  V2 * (V2::f overridden in D, has virtual base)
+-  [9]    V1-in-V2 in D * (secondary vptr, A2::f overridden in D)
++  [10] V2 * (V2 has virtual bases)
++  [11]   V1-in-V2 in D * (secondary vptr, V1 is virtual)
+ 	   (A2 is primary base of V1)
++    // (V3 has no virtual bases)
+ 
+ </pre></code>
+ 
+ <p>
+ <i>
+ If A2 is a virtual base of V1,
+-the VTT will contain 14 elements
++the VTT will contain more elements
+ (exercise left to the astute reader).
+ </i>
+ 
+
+From jason at redhat.com  Tue Jan 23 16:44:26 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 23 Jan 2001 16:44:26 +0000
+Subject: construction vtables broken
+In-Reply-To: <3A6D8376.B2B7F58C@codesourcery.com>
+References: <3A6D8376.B2B7F58C@codesourcery.com>
+Message-ID: <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> Sadly, the VTT algorithms in the C++ abi are broken, and fail on diamond
+> shaped graphs.
+
+> The VTT only contains secondary vtable pointers for bases with virtual
+> bases or with virtual functions overridden along a virtual path from that
+> base to the base for which the VTT belongs.
+
+Yes.  Basically, RTTI information needs to count as a virtual function
+which is overridden in every class.
+
+> We need to change 2.6.2 part 3 to include secondary virtual pointers for
+> each subobject X with either (a) virtual bases or (b) reachable via a
+> virtual path from D. All the stuff about overriding virtual functions
+> along a virtual path is unneeded.
+
+But it still needs to say something about having virtual functions (in
+order to have RTTI information).  It might be cleaner just to add the bit
+above about RTTI.
+
+Jason
+
+
+
+From mark at codesourcery.com  Tue Jan 23 18:06:51 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 23 Jan 2001 10:06:51 -0800
+Subject: construction vtables broken
+In-Reply-To: <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+References: <3A6D8376.B2B7F58C@codesourcery.com>
+	<u9u26q2p79.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010123100651N.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> But it still needs to say something about having virtual
+    Jason> functions (in order to have RTTI information).  It might be
+    Jason> cleaner just to add the bit above about RTTI.
+
+Are you trying to optimize the case where the vtable has only vbase
+offsets, but no virtual functions, and then not have VTT entries in
+that case?  Or am I lost? :-)
+
+I think that's over-optimization.  It will make things even *more*
+complicated, since you might still need an entry for a non-primary
+base of such a thing that did itself have virtual functions.  Ugh.
+
+I think Nathan's proposal is a winner: 
+
+  - Everything that has a virtual base
+  - Everything that is a base of a virtual base, including the
+    non-proper case of actually *being* a virtual base.
+
+That's simple, and optimal for almost every hierarchy.
+
+Or did I misunderstand?  Maybe you found *more* cases where we need a
+secondary VTT?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Tue Jan 23 18:15:22 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 23 Jan 2001 10:15:22 -0800
+Subject: `this' pointer vs. return pointer
+Message-ID: <20010123101522T.mitchell@codesourcery.com>
+
+
+Does anyone remember what the resolution was on wehther the `this'
+pointer comes before, or after, the pointer to structures returned by
+value?
+
+I don't think the document actually *says* at present.
+
+I think the buffer pointer should come first, and the `this' pointer
+should come afterwards.
+
+This makes sense because then the rule is:
+
+  - As a result of this language being C++, you add a `this' pointer.
+
+  - In your back-end, you notice that you've got a return by value,
+    so you add another parameter.
+
+Doing anything else is going to be next to impossible in GCC, I
+suspect.
+
+Thoughts?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mendell at ca.ibm.com  Tue Jan 23 18:14:58 2001
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Tue, 23 Jan 2001 13:14:58 -0500
+Subject: `this' pointer vs. return pointer
+Message-ID: <OF8F9C3191.C23F4572-ON852569DD.00642C5F@mkm.can.ibm.com>
+
+I believe that the latest C ABI passes the pointer to the struct return 
+value in r8, so this isn't a problem.
+
+Mark Mendell
+
+
+Please respond to Mark Mitchell <mark at codesourcery.com> 
+Sent by:        owner-cxx-abi at corp.sgi.com
+To:     cxx-abi at corp.sgi.com
+cc: 
+Subject:        `this' pointer vs. return pointer
+
+
+
+Does anyone remember what the resolution was on wehther the `this'
+pointer comes before, or after, the pointer to structures returned by
+value?
+
+I don't think the document actually *says* at present.
+
+I think the buffer pointer should come first, and the `this' pointer
+should come afterwards.
+
+This makes sense because then the rule is:
+
+  - As a result of this language being C++, you add a `this' pointer.
+
+  - In your back-end, you notice that you've got a return by value,
+    so you add another parameter.
+
+Doing anything else is going to be next to impossible in GCC, I
+suspect.
+
+Thoughts?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010123/69b20596/attachment.html>
+
+From dehnert at transmeta.com  Tue Jan 23 20:37:32 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Tue, 23 Jan 2001 12:37:32 -0800
+Subject: `this' pointer vs. return pointer
+References: <20010123101522T.mitchell@codesourcery.com>
+Message-ID: <3A6DEB8C.F54425C0@transmeta.com>
+
+
+
+Mark Mitchell wrote:
+> 
+> Does anyone remember what the resolution was on wehther the `this'
+> pointer comes before, or after, the pointer to structures returned by
+> value?
+> 
+> I don't think the document actually *says* at present.
+
+Sure it does.  Section 3.1.4:
+
+  In general, C++ return values are handled just like C return values.
+This includes
+  class type results returned in registers. However, if the return value
+type has a
+  non-trivial copy constructor or destructor, the caller allocates space
+for a
+  temporary, and passes a pointer to the temporary as an implicit first
+parameter
+  preceding both the this parameter and user parameters. The callee
+constructs the
+  return value into this temporary. On IA-64, the pointer is passed in
+out0,
+  different from other large class result buffer pointers, passed in r8. 
+
+> Doing anything else is going to be next to impossible in GCC, I
+> suspect.
+> 
+> Thoughts?
+
+It's a good thing it's that way, then.
+
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+
+From cary at cup.hp.com  Tue Jan 23 23:04:18 2001
+From: cary at cup.hp.com (Cary Coutant)
+Date: Tue, 23 Jan 2001 15:04:18 -0800
+Subject: `this' pointer vs. return pointer
+Message-ID: <200101232306.PAA07609@adlmail.cup.hp.com>
+
+>On IA-64, the pointer is passed in out0,
+>different from other large class result buffer pointers, passed in r8. 
+
+The current version of the common conventions document has a brief 
+section on C++, which is wrong on this point. I plan to replace that 
+section (which mentions only the "this" pointer and the return value with 
+non-trivial copy constructor) with a reference to the C++ ABI document.
+
+-cary
+
+
+
+From nathan at codesourcery.com  Wed Jan 24 11:22:14 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 24 Jan 2001 11:22:14 +0000
+Subject: construction vtables broken
+References: <3A6D8376.B2B7F58C@codesourcery.com> <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+Message-ID: <3A6EBAE6.2E8AFF68@codesourcery.com>
+
+Jason Merrill wrote:
+
+> Yes.  Basically, RTTI information needs to count as a virtual function
+> which is overridden in every class.
+That does seem a rather convoluted thought!
+
+> But it still needs to say something about having virtual functions (in
+> order to have RTTI information).  It might be cleaner just to add the bit
+> above about RTTI.
+I think `2.6.1 General' makes that clear enough.
+
+Mark Mitchell wrote:
+> Are you trying to optimize the case where the vtable has only vbase
+> offsets, but no virtual functions, and then not have VTT entries in
+> that case?
+But such a case would need a VTT entry to place those vbases, wouldn't it?
+
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From jason at redhat.com  Wed Jan 24 12:13:13 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Jan 2001 12:13:13 +0000
+Subject: construction vtables broken
+In-Reply-To: <20010123100651N.mitchell@codesourcery.com>
+References: <3A6D8376.B2B7F58C@codesourcery.com>
+	<u9u26q2p79.fsf@casey.cambridge.redhat.com>
+	<20010123100651N.mitchell@codesourcery.com>
+Message-ID: <u9bssx1cim.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+Jason> But it still needs to say something about having virtual
+Jason> functions (in order to have RTTI information).  It might be
+Jason> cleaner just to add the bit above about RTTI.
+
+> Are you trying to optimize the case where the vtable has only vbase
+> offsets, but no virtual functions, and then not have VTT entries in
+> that case?
+
+No, I'm thinking of the case where there is no vtable.  But perhaps it goes
+without saying that a base with no vptr won't need an entry in the VTT...
+
+> I think that's over-optimization.  It will make things even *more*
+> complicated, since you might still need an entry for a non-primary
+> base of such a thing that did itself have virtual functions.  Ugh.
+
+> I think Nathan's proposal is a winner: 
+
+>   - Everything that has a virtual base
+>   - Everything that is a base of a virtual base, including the
+>     non-proper case of actually *being* a virtual base.
+
+> That's simple, and optimal for almost every hierarchy.
+
+> Or did I misunderstand?  Maybe you found *more* cases where we need a
+> secondary VTT?
+
+We were tailking about secondary virtual pointers, not secondary VTTs.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Jan 24 17:05:40 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 24 Jan 2001 09:05:40 -0800
+Subject: construction vtables broken
+In-Reply-To: <u9bssx1cim.fsf@casey.cambridge.redhat.com>
+References: <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+	<20010123100651N.mitchell@codesourcery.com>
+	<u9bssx1cim.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010124090540V.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> No, I'm thinking of the case where there is no vtable.  But
+    Jason> perhaps it goes without saying that a base with no vptr
+    Jason> won't need an entry in the VTT...
+
+It did in my mind, but that's silly.  Thanks for being complete.
+
+I think we all agree, then.
+
+    Jason> We were tailking about secondary virtual pointers, not
+    Jason> secondary VTTs.
+
+Right, typo.
+
+Great, I think we've got a decision. 
+
+Alex is going to get the HTML up on our web-site this week.  Alex,
+will you incorporate Nathan's edits?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Jan 24 17:09:38 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Jan 2001 17:09:38 +0000
+Subject: construction vtables broken
+In-Reply-To: <3A6EBAE6.2E8AFF68@codesourcery.com>
+References: <3A6D8376.B2B7F58C@codesourcery.com>
+	<u9u26q2p79.fsf@casey.cambridge.redhat.com>
+	<3A6EBAE6.2E8AFF68@codesourcery.com>
+Message-ID: <u9d7ddyo1l.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> Jason Merrill wrote:
+>> Yes.  Basically, RTTI information needs to count as a virtual function
+>> which is overridden in every class.
+> That does seem a rather convoluted thought!
+
+Really?  It seems very clear to me.  Your testcase is testing RTTI.  The
+reason it doesn't work is because we forgot to treat the RTTI information
+like a virtual function.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Jan 24 18:28:11 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 24 Jan 2001 10:28:11 -0800
+Subject: construction vtables broken
+In-Reply-To: <u9d7ddyo1l.fsf@casey.cambridge.redhat.com>
+References: <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+	<3A6EBAE6.2E8AFF68@codesourcery.com>
+	<u9d7ddyo1l.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010124102811T.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> Really?  It seems very clear to me.  Your testcase is
+
+Yes, it's a nice way of thinking about it.
+
+But, I think the other nice thing about Nathan's observation is that
+it simplifies the whole criterion -- we had a special case for virtual
+functions overridden along virtual paths, and now there's an easier
+way to describe the whole process, without even mentioning the notion
+of a virtual path.  
+
+The criteria is now just "has a virtual base, or is a (morally)
+virtual base" which is a lot easier to understand!
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Jan 24 23:32:18 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Jan 2001 23:32:18 +0000
+Subject: construction vtables broken
+In-Reply-To: <20010124102811T.mitchell@codesourcery.com>
+References: <u9u26q2p79.fsf@casey.cambridge.redhat.com>
+	<3A6EBAE6.2E8AFF68@codesourcery.com>
+	<u9d7ddyo1l.fsf@casey.cambridge.redhat.com>
+	<20010124102811T.mitchell@codesourcery.com>
+Message-ID: <u94ryowrxg.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> But, I think the other nice thing about Nathan's observation is that
+> it simplifies the whole criterion -- we had a special case for virtual
+> functions overridden along virtual paths, and now there's an easier
+> way to describe the whole process, without even mentioning the notion
+> of a virtual path.  
+
+True enough.
+
+> The criteria is now just "has a virtual base, or is a (morally)
+> virtual base" which is a lot easier to understand!
+              ^with virtual functions
+
+:)
+
+Jason
+
+
+
+From jason at redhat.com  Wed Jan 24 23:32:14 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 24 Jan 2001 23:32:14 +0000
+Subject: Fwd: cxa_vec_dtor question
+In-Reply-To: <u9ofxvbg1i.fsf@casey.cambridge.redhat.com>
+References: <u9ofxvbg1i.fsf@casey.cambridge.redhat.com>
+Message-ID: <u9ofwwwzrp.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+> I think he's right; we can't use uncaught_exception to determine whether or
+> not we're actually being called for a cleanup.  I suppose we'll need a
+> different entry point.
+
+i.e., something like this:
+
+*** vec.cc.~1~	Sun Nov 19 20:21:52 2000
+--- vec.cc	Wed Jan 24 18:47:03 2001
+*************** __cxa_vec_ctor (void *array_address,
+*** 147,153 ****
+      {
+        {
+  	uncatch_exception ue;
+! 	__cxa_vec_dtor (array_address, ix, element_size, destructor);
+        }
+        throw;
+      }
+--- 147,153 ----
+      {
+        {
+  	uncatch_exception ue;
+! 	__cxa_vec_cleanup (array_address, ix, element_size, destructor);
+        }
+        throw;
+      }
+*************** __cxa_vec_cctor (void *dest_array,
+*** 178,184 ****
+      {
+        {
+  	uncatch_exception ue;
+! 	__cxa_vec_dtor (dest_array, ix, element_size, destructor);
+        }
+        throw;
+      }
+--- 178,184 ----
+      {
+        {
+  	uncatch_exception ue;
+! 	__cxa_vec_cleanup (dest_array, ix, element_size, destructor);
+        }
+        throw;
+      }
+*************** __cxa_vec_dtor (void *array_address,
+*** 195,201 ****
+      {
+        char *ptr = static_cast <char *> (array_address);
+        std::size_t ix = element_count;
+-       bool unwinding = std::uncaught_exception ();
+        
+        ptr += element_count * element_size;
+        
+--- 195,200 ----
+*************** __cxa_vec_dtor (void *array_address,
+*** 209,225 ****
+          }
+        catch (...)
+          {
+-           if (unwinding)
+-             // [except.ctor]/3 If a destructor called during stack unwinding
+-             // exits with an exception, terminate is called.
+-             std::terminate ();
+  	  {
+  	    uncatch_exception ue;
+! 	    __cxa_vec_dtor (array_address, ix, element_size,
+! 			    destructor);
+  	  }
+            throw;
+          }
+      }
+  }
+  
+--- 208,251 ----
+          }
+        catch (...)
+          {
+  	  {
+  	    uncatch_exception ue;
+! 	    __cxa_vec_cleanup (array_address, ix, element_size,
+! 			       destructor);
+  	  }
+            throw;
+          }
++     }
++ }
++ 
++ /* destruct array as a result of throwing an exception */
++ // [except.ctor]/3 If a destructor called during stack unwinding
++ // exits with an exception, terminate is called.
++ extern "C" void
++ __cxa_vec_cleanup (void *array_address,
++ 		   std::size_t element_count,
++ 		   std::size_t element_size,
++ 		   void (*destructor) (void *))
++ {
++   if (destructor)
++     {
++       char *ptr = static_cast <char *> (array_address);
++       std::size_t ix = element_count;
++ 
++       ptr += element_count * element_size;
++ 
++       try
++ 	{
++ 	  while (ix--)
++ 	    {
++ 	      ptr -= element_size;
++ 	      destructor (ptr);
++ 	    }
++ 	}
++       catch (...)
++ 	{
++ 	  std::terminate ();
++ 	}
+      }
+  }
+  
+
+
+
+From mark at codesourcery.com  Thu Jan 25 07:06:39 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 24 Jan 2001 23:06:39 -0800
+Subject: construction vtables broken
+In-Reply-To: <u94ryowrxg.fsf@casey.cambridge.redhat.com>
+References: <u9d7ddyo1l.fsf@casey.cambridge.redhat.com>
+	<20010124102811T.mitchell@codesourcery.com>
+	<u94ryowrxg.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010124230639U.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> The criteria is now just "has a virtual base, or is a (morally)
+    >> virtual base" which is a lot easier to understand!
+    Jason>               ^with virtual functions
+
+    Jason> :)
+
+:-(  For having to be corrected twice.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+

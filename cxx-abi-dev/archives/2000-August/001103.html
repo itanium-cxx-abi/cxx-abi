@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Automatic locking for C++ local static initialization
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C39885EEB.84778196%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001102.html">
+   <LINK REL="Next"  HREF="001115.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Automatic locking for C++ local static initialization</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C39885EEB.84778196%40cup.hp.com%3E"
+       TITLE="Automatic locking for C++ local static initialization">ddd at cup.hp.com
+       </A><BR>
+    <I>Wed Aug  2 17:48:27 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001102.html">Automatic locking for C++ local static initialization
+</A></li>
+        <LI>Next message: <A HREF="001115.html">Automatic locking for C++ local static initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1103">[ date ]</a>
+              <a href="thread.html#1103">[ thread ]</a>
+              <a href="subject.html#1103">[ subject ]</a>
+              <a href="author.html#1103">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jim,
+
+
+I am sorry, I should have described the HP scheme more in details earlier... As
+far as I can tell, we do not lock during the initialization of the object, we
+lock only during the manipulation of a global list of objects to destroy. I
+believe we don't have the problem Hans indicated.
+
+The calling sequence for initializing a static object is something like:
+
+	// Short circuit for the case where static is initialized
+	if (!flag.initialized) {
+		// Try to acquire the flag
+		if (__checkLocalStatic(&amp;flag)) {
+			Ctor();
+			__addLocalStatic(&amp;flag);
+		}
+	}
+
+If we get back to Hans' scenario, we have:
+
+        Thread 1                Thread 2
+        --------                --------
+        call h
+        acquire M
+                                call f
+				call checkLocalStatic
+                                acquire L
+				update f static state, &quot;in progress&quot;
+				release L
+				checkLocalStatic returns 1
+                                call g
+                                try to acquire M (wait, holding L)
+        call f
+	call checkLocalStatic
+	acquire L
+	wait while object state == &quot;in progress&quot;
+	timeout: emit error &quot;Recursive initialization&quot;.
+	checkLocalStatic returns 1
+	proceed to &quot;second&quot; initialization.
+
+
+As Dennis pointed out, I believe this is a correct behavior. The &quot;manual&quot;
+locking mechanism causes you to enter static initialization twice from two
+different threads, and according to the standard, this is illegal.
+
+Note that this also happens in the situation that Hans considers good, albeit
+silently.
+
+&gt;<i>         Thread 1                Thread 2
+</I>&gt;<i>         --------                --------
+</I>&gt;<i>         call h
+</I>&gt;<i>         acquire M
+</I>&gt;<i>                                 call f
+</I>&gt;<i>                                 call g
+</I>&gt;<i>                                 try to acquire M (wait)
+</I>&gt;<i>         call f
+</I>
+Here, we are starting to initialize the same object twice. In general, this is
+not good.
+
+&gt;<i>         call g
+</I>&gt;<i>         acquire M recursively
+</I>&gt;<i>         finish initialization
+</I>&gt;<i>         exit g, f
+</I>&gt;<i>         release M
+</I>&gt;<i>         exit h                  acquire M
+</I>&gt;<i>                                 initialization is done
+</I>&gt;<i>                                 release M
+</I>&gt;<i>                                 exit g, f
+</I>&gt;<i>
+</I>
+Of course, this is a matter of philosophy, but I believe aCC just identify a
+runtime mistake you made. Note that there is a simpler way to run into a similar
+problem:
+
+	struct X {
+		X(int i) { static X x(1); }
+	};
+
+This is considered valid by several compilers. aCC issues an error at runtime,
+&quot;recursive initialization of local static&quot;.
+
+
+Best regards
+Christophe
+
+Jim Dehnert wrote:
+&gt;<i> 
+</I>&gt;<i> As was suggested at the last meeting, I contacted Hans Boehm about
+</I>&gt;<i> initialization locking to try to clarify why he was opposed to
+</I>&gt;<i> automatic locking.  We (mostly Hans) worked up this example, which
+</I>&gt;<i> illustrates one point, that it can produce undeserved deadlocks.
+</I>&gt;<i> 
+</I>&gt;<i> Suppose we have a program written for a pthreads environment that
+</I>&gt;<i> supports recursive locks (common these days, but not necessary if one
+</I>&gt;<i> goes to a bit more trouble).  It contains a data cluster
+</I>&gt;<i> (i.e. a number of interconnected components) that the
+</I>&gt;<i> programmer wishes to initialize the first time it is referenced,
+</I>&gt;<i> and the first reference may come through a number of different paths.
+</I>&gt;<i> One of those paths enters through function f, which defines some static
+</I>&gt;<i> data, one of which is constructed using function g, which is part of
+</I>&gt;<i> the cluster; others enter elsewhere and eventually call f.
+</I>&gt;<i> 
+</I>&gt;<i> So the conscientious programmer sets up a mutex lock M, and acquires it
+</I>&gt;<i> at each potential entry to the cluster before proceeding, which
+</I>&gt;<i> includes g and some other function h.  Now consider the following
+</I>&gt;<i> execution sequence:
+</I>&gt;<i> 
+</I>&gt;<i>         Thread 1                Thread 2
+</I>&gt;<i>         --------                --------
+</I>&gt;<i>         call h
+</I>&gt;<i>         acquire M
+</I>&gt;<i>                                 call f
+</I>&gt;<i>                                 call g
+</I>&gt;<i>                                 try to acquire M (wait)
+</I>&gt;<i>         call f
+</I>&gt;<i>         call g
+</I>&gt;<i>         acquire M recursively
+</I>&gt;<i>         finish initialization
+</I>&gt;<i>         exit g, f
+</I>&gt;<i>         release M
+</I>&gt;<i>         exit h                  acquire M
+</I>&gt;<i>                                 initialization is done
+</I>&gt;<i>                                 release M
+</I>&gt;<i>                                 exit g, f
+</I>&gt;<i> 
+</I>&gt;<i> Everything has worked exactly as the programmer intended.
+</I>&gt;<i> 
+</I>&gt;<i> But now we add automatic locking for the static initialization in F,
+</I>&gt;<i> say using lock L.  What happens?
+</I>&gt;<i> 
+</I>&gt;<i>         Thread 1                Thread 2
+</I>&gt;<i>         --------                --------
+</I>&gt;<i>         call h
+</I>&gt;<i>         acquire M
+</I>&gt;<i>                                 call f
+</I>&gt;<i>                                 acquire L
+</I>&gt;<i>                                 call g
+</I>&gt;<i>                                 try to acquire M (wait, holding L)
+</I>&gt;<i>         call f
+</I>&gt;<i>         try to acquire L (wait, holding M)
+</I>&gt;<i> 
+</I>&gt;<i>                 DEADLOCK
+</I>&gt;<i> 
+</I>&gt;<i> So I think what we have here is reasonably designed initialization
+</I>&gt;<i> scenario (at least if you believe in recursive locking) that works as
+</I>&gt;<i> written, but fails when we insert automatic static initialization
+</I>&gt;<i> locks.
+</I>&gt;<i> 
+</I>&gt;<i> Other reasons raised earlier, and appearing in the G-4 commentary, are:
+</I>&gt;<i> 
+</I>&gt;<i>  1) There are more efficient methods available to a programmer than
+</I>&gt;<i>     per-object locks, and doing the latter automatically makes it hard
+</I>&gt;<i>     to optimize this.
+</I>&gt;<i> 
+</I>&gt;<i>  2) Mike Ball objects that interaction with exceptions can't be
+</I>&gt;<i>     Standard-conforming with automatic locks.
+</I>&gt;<i> 
+</I>&gt;<i>  3) Hans believes that there are complications with certain legal
+</I>&gt;<i>     optimizations of the function-scope object initialization.
+</I>&gt;<i> 
+</I>&gt;<i> It would be worth people re-familiarizing themselves with the
+</I>&gt;<i> commentary (in the Open Issues document) before the meeting.
+</I>&gt;<i> 
+</I>&gt;<i> Jim
+</I>&gt;<i> 
+</I>&gt;<i> -               Jim Dehnert  x3-4272
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001102.html">Automatic locking for C++ local static initialization
+</A></li>
+	<LI>Next message: <A HREF="001115.html">Automatic locking for C++ local static initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1103">[ date ]</a>
+              <a href="thread.html#1103">[ thread ]</a>
+              <a href="subject.html#1103">[ subject ]</a>
+              <a href="author.html#1103">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

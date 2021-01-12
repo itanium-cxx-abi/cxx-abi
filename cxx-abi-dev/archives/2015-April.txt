@@ -1,0 +1,717 @@
+From richardsmith at google.com  Thu Apr 23 18:35:55 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 23 Apr 2015 11:35:55 -0700
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+Message-ID: <CAGL0aWdW5roOD5a1go_sYTVOcewHzwK0YT236-ACWiHZqLj8zA@mail.gmail.com>
+
+The C++ standard requires that sizeof(nullptr) == sizeof(void*) (presumably
+to support programs that use sizeof(NULL) for some purpose) but does not
+appear to place any requirements on alignof(decltype(nullptr)). This
+clearly needs to be part of the ABI, and current implementations of the
+Itanium C++ ABI differ: Clang and EDG use alignof(void*). GCC uses 1.
+
+We should pick a value and specify it in the ABI. alignof(void*) seems like
+a better answer to me. Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150423/7a26c5a0/attachment.html>
+
+From rjmccall at apple.com  Thu Apr 23 18:43:37 2015
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 23 Apr 2015 11:43:37 -0700
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+In-Reply-To: <CAGL0aWdW5roOD5a1go_sYTVOcewHzwK0YT236-ACWiHZqLj8zA@mail.gmail.com>
+References: <CAGL0aWdW5roOD5a1go_sYTVOcewHzwK0YT236-ACWiHZqLj8zA@mail.gmail.com>
+Message-ID: <796C0178-AEF1-4CC9-8208-D1C68AA2FE4B@apple.com>
+
+> On Apr 23, 2015, at 11:35 AM, Richard Smith <richardsmith at google.com> wrote:
+> The C++ standard requires that sizeof(nullptr) == sizeof(void*) (presumably to support programs that use sizeof(NULL) for some purpose) but does not appear to place any requirements on alignof(decltype(nullptr)). This clearly needs to be part of the ABI, and current implementations of the Itanium C++ ABI differ: Clang and EDG use alignof(void*). GCC uses 1.
+> 
+> We should pick a value and specify it in the ABI. alignof(void*) seems like a better answer to me. Thoughts?
+
+I agree that alignof(void*) is the right answer, and it should probably even be standardized that way.
+
+John.
+
+From dhandly at cup.hp.com  Fri Apr 24 02:51:39 2015
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 23 Apr 2015 19:51:39 -0700
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+Message-ID: <201504240251.t3O2pdO04574@adlwrk06.cce.hp.com>
+
+>From: Richard Smith <richardsmith at google.com>
+>but does not appear to place any requirements on alignof(decltype(nullptr)).
+>Itanium C++ ABI differ: Clang and EDG use alignof(void*). GCC uses 1.
+
+Was this intentional or just an oversight, confusing the alignment of the
+pointer vs what it points to?
+
+>alignof(void*) seems like a better answer to me. Thoughts?
+
+Yes, all pointers should be aligned the same.  Unless there is short vs
+far, types.
+
+From richardsmith at google.com  Fri Apr 24 15:08:00 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 24 Apr 2015 08:08:00 -0700
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+In-Reply-To: <201504240251.t3O2pdO04574@adlwrk06.cce.hp.com>
+References: <201504240251.t3O2pdO04574@adlwrk06.cce.hp.com>
+Message-ID: <CAGL0aWc=64_-8wCK17cu_n3qG5qY6EXttr=VPAKbiaY78Rb2RQ@mail.gmail.com>
+
+On 23 April 2015 at 19:51, Dennis Handly <dhandly at cup.hp.com> wrote:
+
+> >From: Richard Smith <richardsmith at google.com>
+> >but does not appear to place any requirements on
+> alignof(decltype(nullptr)).
+> >Itanium C++ ABI differ: Clang and EDG use alignof(void*). GCC uses 1.
+>
+> Was this intentional or just an oversight, confusing the alignment of the
+> pointer vs what it points to?
+>
+> >alignof(void*) seems like a better answer to me. Thoughts?
+>
+> Yes, all pointers should be aligned the same.  Unless there is short vs
+> far, types.
+>
+
+Well, nullptr_t is not a pointer. There's really no need for us to make it
+have the same size and alignment as any particular pointer type, but if we
+choose to do so it makes sense to be consistent.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150424/01a1be18/attachment.html>
+
+From rjmccall at apple.com  Sun Apr 26 04:10:35 2015
+From: rjmccall at apple.com (John McCall)
+Date: Sat, 25 Apr 2015 21:10:35 -0700
+Subject: [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+Message-ID: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+
+The standard says that std::is_empty<T>::value is true if:
+  - T is a class type, but not a union type, with no non-static data members other than bit-fields of length 0, no virtual member functions, no virtual base classes, and no base class B for which is_empty<B>::value is false.
+
+The standard also says that array bounds must be greater than zero, but there?s a common extension to permit zero-length array types (hereafter, ZLATs).
+
+In GCC and Clang, at least, a ZLAT conventionally has size 0, both formally (as a result of sizeof) and for struct layout (a ZLAT field takes up no direct space, although it does cause the next offset to be rounded up to the field?s alignment).  Moreover, a ZLAT field inhibits the general rule rounding a class's size up to at least 1, recursively.
+
+Oddly, though, GCC and Clang also say that a struct containing a ZLAT is not empty, at least as far as std::is_empty is concerned.  On the other hand, ICC says that a struct containing only one (or more) ZLATs is empty; as does MSVC, for what it?s worth.
+
+This touches on the ABI because:
+  - the results of these metaprogramming traits can affect the ABI in a number of ways,
+  - class sizes are also obviously ABI, and
+  - whether a base class is empty dramatically affects Itanium class layout.
+
+The current Itanium definition mirrors the std::is_empty definition:
+  [a] class with no non-static data members other than zero-width bitfields, no virtual functions, no virtual base classes, and no non-empty non-virtual proper base classes.
+
+Now, of course, this is an extension, and we don?t have to standardize behavior on it; but my preference is to specify this sort of common extension wherever possible.
+
+I propose the following changes:
+
+1.  Add ?or members of zero-length array type? to the ABI definition of "empty class?.
+2.  Specify std::is_empty to behave as if the same clause were there.
+3.  Change the ABI class layout rule (in IV. Finalization) to not require sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace this sentence:
+  Round sizeof(C) up to a non-zero multiple of align(C). 
+with:
+  If C does not contain (recursively) a subobject of zero-length array type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+
+John.
+
+From rjmccall at apple.com  Sun Apr 26 08:07:57 2015
+From: rjmccall at apple.com (John McCall)
+Date: Sun, 26 Apr 2015 01:07:57 -0700
+Subject: [cxx-abi-dev] Seeking clarification about mangling nested template
+	specializations
+Message-ID: <0C7913DC-086B-41B3-9958-E782586146F9@apple.com>
+
+In the current ABI document, there?s this little bit:
+  
+  Names of objects nested in namespaces or classes are identified
+  as a delimited sequence of names identifying the enclosing scopes.
+  In addition, when naming a class member function, CV-qualifiers
+  and ref-qualifiers may be prefixed to the compound name, encoding
+  the this attributes. Note that if member function CV-qualifiers or a
+  ref-qualifier are required, the delimited form must be used even if
+  the remainder of the name is a single substitution.
+
+That last sentence is really weird, because the "delimited form" is
+<nested-name>, and the non-delimited form is either
+<unscoped-name> or <unscoped-template-name> <template-args>,
+and <unscoped-name> can never just be a single substitution.
+
+The only way I can make any sense from this is to read it as saying
+that, if you?re mangling a member function template specialization,
+and you already have a substitution for the member function
+template, but the member function template specialization has
+CV- or ref-qualifiers, you still need to use <nested-name> in order
+to mangle the CV- or ref-qualifiers.  As opposed to just using
+<unscoped-template-name> <template-args>.
+
+More concretely, suppose I have:
+  struct A {
+    template <class T> void foo() const;
+  };
+and I need to mangle a reference to A::foo<int>, and I?ve already
+decided that the template A::foo is S2_.  The sentence *might* be
+saying that I can?t just mangle this as ?S2_IiE", I have to mangle it
+as ?NKS2_IiEE?.
+
+But that implies that if the method weren?t const then I *could* mangle
+this as ?S2_IiE?, and that?s very strange, because I?ve always interpreted
+the general rule for substitutions as only allowing substitution if the
+unsubstituted entity would naturally end up in that production.  A member
+entity can?t normally be mangled as an unscoped name, so you don?t
+consider that production, so you don?t have the opportunity to apply
+the substitution for the template-name there.
+
+Abstractly, it?s not an unreasonable idea to use that mangling, since it
+does produce strictly shorter names, so I?m not completely opposed.
+But it does seem like a special-case rule that needs to be written explicitly.
+Also, neither Clang nor GCC actually does it this way, and I?m curious
+if anyone does.
+
+(Even if we adopted this rule, there?s still no reason for the qualifiers
+exception to it, since you can recover those qualifiers from the original
+place that gave rise to the substitution.)
+
+Here?s a concrete example using a member class template:
+
+struct A {
+  template <unsigned I> class B {};
+};
+template <class T> void bar(T t, A::B<0> x = {}, A::B<1> y = {}) {}
+int main() { bar(0); }
+
+A compiler which always mangles member templates as nested-names
+will mangle this as:
+  _Z3barIiEvT_N1A1BILj0EEENS2_ILj1EEE
+
+A compiler which uses the unscoped mangling when a substitution
+already exists will mangle this as:
+  _Z3barIiEvT_N1A1BILj0EEES2_ILj1EE
+
+Unless somebody finds a compiler that actually does the latter, I think
+this is just a specification bug and we?ve always meant the former.
+I?m in the middle of rewriting the prose in this section anyway; if nobody
+objects in the next week or so, I?ll just fix this while I?m there.
+
+John.
+
+From richardsmith at googlers.com  Sun Apr 26 21:26:57 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Sun, 26 Apr 2015 14:26:57 -0700
+Subject: [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+In-Reply-To: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+References: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+Message-ID: <CAGL0aWefT5wQ86rTANJMxOMt8MTfRjf26jmZTQmUTx+HYRy_Ag@mail.gmail.com>
+
+On 25 April 2015 at 21:10, John McCall <rjmccall at apple.com> wrote:
+
+> The standard says that std::is_empty<T>::value is true if:
+>   - T is a class type, but not a union type, with no non-static data
+> members other than bit-fields of length 0, no virtual member functions, no
+> virtual base classes, and no base class B for which is_empty<B>::value is
+> false.
+>
+> The standard also says that array bounds must be greater than zero, but
+> there?s a common extension to permit zero-length array types (hereafter,
+> ZLATs).
+>
+> In GCC and Clang, at least, a ZLAT conventionally has size 0, both
+> formally (as a result of sizeof) and for struct layout (a ZLAT field takes
+> up no direct space, although it does cause the next offset to be rounded up
+> to the field?s alignment).  Moreover, a ZLAT field inhibits the general
+> rule rounding a class's size up to at least 1, recursively.
+>
+> Oddly, though, GCC and Clang also say that a struct containing a ZLAT is
+> not empty, at least as far as std::is_empty is concerned.  On the other
+> hand, ICC says that a struct containing only one (or more) ZLATs is empty;
+> as does MSVC, for what it?s worth.
+>
+> This touches on the ABI because:
+>   - the results of these metaprogramming traits can affect the ABI in a
+> number of ways,
+>   - class sizes are also obviously ABI, and
+>   - whether a base class is empty dramatically affects Itanium class
+> layout.
+>
+> The current Itanium definition mirrors the std::is_empty definition:
+>   [a] class with no non-static data members other than zero-width
+> bitfields, no virtual functions, no virtual base classes, and no non-empty
+> non-virtual proper base classes.
+>
+> Now, of course, this is an extension, and we don?t have to standardize
+> behavior on it; but my preference is to specify this sort of common
+> extension wherever possible.
+>
+
+The point of is_empty is to allow detection of EBO opportunities, so I
+think it should return 'true' in all cases where EBO would apply. It seems
+reasonable (if not very worthwhile) to ignore ZLATs when determining
+whether we can apply EBO. And I think this is a common enough extension for
+the ABI to specify how it should behave.
+
+
+> I propose the following changes:
+>
+> 1.  Add ?or members of zero-length array type? to the ABI definition of
+> "empty class?.
+>
+
+Is it worth explicitly calling out that flexible array members and
+zero-length array members are handled the same in this regard?
+
+
+> 2.  Specify std::is_empty to behave as if the same clause were there.
+> 3.  Change the ABI class layout rule (in IV. Finalization) to not require
+> sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace
+> this sentence:
+>   Round sizeof(C) up to a non-zero multiple of align(C).
+> with:
+>   If C does not contain (recursively) a subobject of zero-length array
+> type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round
+> sizeof(C) up to a multiple of align(C).
+
+
+Perhaps:
+
+If sizeof(C) is 0 and C has no non-static data members and no base classes,
+set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of
+align(C).
+
+I think that's equivalent, and it seems simpler and more general.
+
+Another problem is in step 2 of the layout algorithm: "Place D at this
+offset unless doing so would result in two components (direct or indirect)
+of the same type having the same offset.". That does the wrong thing for:
+
+  struct A { int n[0]; int m[0]; };
+
+where sizeof(A) should be zero, but will be 4 with this algorithm because
+putting m at offset 0 gives two components of type 'int[0]' at the same
+offset. Perhaps replace "components (direct or indirect)" with "non-array
+subobjects"?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150426/32b791d0/attachment.html>
+
+From mjh at edg.com  Mon Apr 27 11:57:42 2015
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 27 Apr 2015 07:57:42 -0400
+Subject: [cxx-abi-dev] Seeking clarification about mangling nested
+	template specializations
+In-Reply-To: <0C7913DC-086B-41B3-9958-E782586146F9@apple.com>
+References: <0C7913DC-086B-41B3-9958-E782586146F9@apple.com>
+Message-ID: <DD87E6ED-F24C-4349-843B-A643D4E111EA@edg.com>
+
+
+> On Apr 26, 2015, at 4:07 AM, John McCall <rjmccall at apple.com> wrote:
+> 
+> Here?s a concrete example using a member class template:
+> 
+> struct A {
+>  template <unsigned I> class B {};
+> };
+> template <class T> void bar(T t, A::B<0> x = {}, A::B<1> y = {}) {}
+> int main() { bar(0); }
+> 
+> A compiler which always mangles member templates as nested-names
+> will mangle this as:
+>  _Z3barIiEvT_N1A1BILj0EEENS2_ILj1EEE
+> 
+> A compiler which uses the unscoped mangling when a substitution
+> already exists will mangle this as:
+>  _Z3barIiEvT_N1A1BILj0EEES2_ILj1EE
+> 
+> Unless somebody finds a compiler that actually does the latter, I think
+> this is just a specification bug and we?ve always meant the former.
+> I?m in the middle of rewriting the prose in this section anyway; if nobody
+> objects in the next week or so, I?ll just fix this while I?m there.
+
+EDG gets the same mangling for this example; thanks for fixing the wording.
+
+Mike.
+
+From rjmccall at apple.com  Mon Apr 27 20:23:02 2015
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Apr 2015 13:23:02 -0700
+Subject: [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+In-Reply-To: <CAGL0aWefT5wQ86rTANJMxOMt8MTfRjf26jmZTQmUTx+HYRy_Ag@mail.gmail.com>
+References: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+	<CAGL0aWefT5wQ86rTANJMxOMt8MTfRjf26jmZTQmUTx+HYRy_Ag@mail.gmail.com>
+Message-ID: <35C353B8-D0F6-41A6-B249-C2AAA6433D45@apple.com>
+
+
+> On Apr 26, 2015, at 2:26 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 25 April 2015 at 21:10, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> The standard says that std::is_empty<T>::value is true if:
+>   - T is a class type, but not a union type, with no non-static data members other than bit-fields of length 0, no virtual member functions, no virtual base classes, and no base class B for which is_empty<B>::value is false.
+> 
+> The standard also says that array bounds must be greater than zero, but there?s a common extension to permit zero-length array types (hereafter, ZLATs).
+> 
+> In GCC and Clang, at least, a ZLAT conventionally has size 0, both formally (as a result of sizeof) and for struct layout (a ZLAT field takes up no direct space, although it does cause the next offset to be rounded up to the field?s alignment).  Moreover, a ZLAT field inhibits the general rule rounding a class's size up to at least 1, recursively.
+> 
+> Oddly, though, GCC and Clang also say that a struct containing a ZLAT is not empty, at least as far as std::is_empty is concerned.  On the other hand, ICC says that a struct containing only one (or more) ZLATs is empty; as does MSVC, for what it?s worth.
+> 
+> This touches on the ABI because:
+>   - the results of these metaprogramming traits can affect the ABI in a number of ways,
+>   - class sizes are also obviously ABI, and
+>   - whether a base class is empty dramatically affects Itanium class layout.
+> 
+> The current Itanium definition mirrors the std::is_empty definition:
+>   [a] class with no non-static data members other than zero-width bitfields, no virtual functions, no virtual base classes, and no non-empty non-virtual proper base classes.
+> 
+> Now, of course, this is an extension, and we don?t have to standardize behavior on it; but my preference is to specify this sort of common extension wherever possible.
+> 
+> The point of is_empty is to allow detection of EBO opportunities, so I think it should return 'true' in all cases where EBO would apply. It seems reasonable (if not very worthwhile) to ignore ZLATs when determining whether we can apply EBO. And I think this is a common enough extension for the ABI to specify how it should behave.
+>  
+> I propose the following changes:
+> 
+> 1.  Add ?or members of zero-length array type? to the ABI definition of "empty class?.
+> 
+> Is it worth explicitly calling out that flexible array members and zero-length array members are handled the same in this regard?
+
+Yes, that?s probably a good idea.
+ 
+> 2.  Specify std::is_empty to behave as if the same clause were there.
+> 3.  Change the ABI class layout rule (in IV. Finalization) to not require sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace this sentence:
+>   Round sizeof(C) up to a non-zero multiple of align(C).
+> with:
+>   If C does not contain (recursively) a subobject of zero-length array type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+> 
+> Perhaps:
+> 
+> If sizeof(C) is 0 and C has no non-static data members and no base classes, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+
+Wouldn?t this trigger for a class with an empty base?
+
+> I think that's equivalent, and it seems simpler and more general.
+> 
+> Another problem is in step 2 of the layout algorithm: "Place D at this offset unless doing so would result in two components (direct or indirect) of the same type having the same offset.". That does the wrong thing for:
+> 
+>   struct A { int n[0]; int m[0]; };
+> 
+> where sizeof(A) should be zero, but will be 4 with this algorithm because putting m at offset 0 gives two components of type 'int[0]' at the same offset. Perhaps replace "components (direct or indirect)" with "non-array subobjects"?
+
+That seems reasonable.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150427/c581bfb3/attachment.html>
+
+From richardsmith at googlers.com  Mon Apr 27 20:33:16 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Mon, 27 Apr 2015 13:33:16 -0700
+Subject: [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+In-Reply-To: <35C353B8-D0F6-41A6-B249-C2AAA6433D45@apple.com>
+References: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+	<CAGL0aWefT5wQ86rTANJMxOMt8MTfRjf26jmZTQmUTx+HYRy_Ag@mail.gmail.com>
+	<35C353B8-D0F6-41A6-B249-C2AAA6433D45@apple.com>
+Message-ID: <CAGL0aWcpFbx-12S10nBEdnhvAg6_9v1jNoy0ag-3=d3ABHRyNg@mail.gmail.com>
+
+On 27 April 2015 at 13:23, John McCall <rjmccall at apple.com> wrote:
+
+>
+> On Apr 26, 2015, at 2:26 PM, Richard Smith <richardsmith at googlers.com>
+> wrote:
+>
+> On 25 April 2015 at 21:10, John McCall <rjmccall at apple.com> wrote:
+>
+>> The standard says that std::is_empty<T>::value is true if:
+>>   - T is a class type, but not a union type, with no non-static data
+>> members other than bit-fields of length 0, no virtual member functions, no
+>> virtual base classes, and no base class B for which is_empty<B>::value is
+>> false.
+>>
+>> The standard also says that array bounds must be greater than zero, but
+>> there?s a common extension to permit zero-length array types (hereafter,
+>> ZLATs).
+>>
+>> In GCC and Clang, at least, a ZLAT conventionally has size 0, both
+>> formally (as a result of sizeof) and for struct layout (a ZLAT field takes
+>> up no direct space, although it does cause the next offset to be rounded up
+>> to the field?s alignment).  Moreover, a ZLAT field inhibits the general
+>> rule rounding a class's size up to at least 1, recursively.
+>>
+>> Oddly, though, GCC and Clang also say that a struct containing a ZLAT is
+>> not empty, at least as far as std::is_empty is concerned.  On the other
+>> hand, ICC says that a struct containing only one (or more) ZLATs is empty;
+>> as does MSVC, for what it?s worth.
+>>
+>> This touches on the ABI because:
+>>   - the results of these metaprogramming traits can affect the ABI in a
+>> number of ways,
+>>   - class sizes are also obviously ABI, and
+>>   - whether a base class is empty dramatically affects Itanium class
+>> layout.
+>>
+>> The current Itanium definition mirrors the std::is_empty definition:
+>>   [a] class with no non-static data members other than zero-width
+>> bitfields, no virtual functions, no virtual base classes, and no non-empty
+>> non-virtual proper base classes.
+>>
+>> Now, of course, this is an extension, and we don?t have to standardize
+>> behavior on it; but my preference is to specify this sort of common
+>> extension wherever possible.
+>>
+>
+> The point of is_empty is to allow detection of EBO opportunities, so I
+> think it should return 'true' in all cases where EBO would apply. It seems
+> reasonable (if not very worthwhile) to ignore ZLATs when determining
+> whether we can apply EBO. And I think this is a common enough extension for
+> the ABI to specify how it should behave.
+>
+>
+>> I propose the following changes:
+>>
+>> 1.  Add ?or members of zero-length array type? to the ABI definition of
+>> "empty class?.
+>>
+>
+> Is it worth explicitly calling out that flexible array members and
+> zero-length array members are handled the same in this regard?
+>
+>
+> Yes, that?s probably a good idea.
+>
+>
+> 2.  Specify std::is_empty to behave as if the same clause were there.
+>> 3.  Change the ABI class layout rule (in IV. Finalization) to not require
+>> sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace
+>> this sentence:
+>>   Round sizeof(C) up to a non-zero multiple of align(C).
+>> with:
+>>   If C does not contain (recursively) a subobject of zero-length array
+>> type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round
+>> sizeof(C) up to a multiple of align(C).
+>
+>
+> Perhaps:
+>
+> If sizeof(C) is 0 and C has no non-static data members and no base
+> classes, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a
+> multiple of align(C).
+>
+>
+> Wouldn?t this trigger for a class with an empty base?
+>
+
+For an empty base class D of class C, step 3 says:
+
+"Once offset(D) has been chosen, update sizeof(C) to max (sizeof(C),
+offset(D)+sizeof(D)) and align(C) to max (alignof(C), nvalign(D))."
+
+So sizeof(C) == sizeof(D) in the case of an otherwise-empty class with one
+base class. Thus sizeof(C) == alignof(C) if D's size was made non-zero, and
+is 0 otherwise (if D had a ZLAT member).
+
+> I think that's equivalent, and it seems simpler and more general.
+>
+> Another problem is in step 2 of the layout algorithm: "Place D at this
+> offset unless doing so would result in two components (direct or indirect)
+> of the same type having the same offset.". That does the wrong thing for:
+>
+>   struct A { int n[0]; int m[0]; };
+>
+> where sizeof(A) should be zero, but will be 4 with this algorithm because
+> putting m at offset 0 gives two components of type 'int[0]' at the same
+> offset. Perhaps replace "components (direct or indirect)" with "non-array
+> subobjects"?
+>
+>
+> That seems reasonable.
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150427/f6b08621/attachment-0001.html>
+
+From rjmccall at apple.com  Mon Apr 27 20:37:11 2015
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Apr 2015 13:37:11 -0700
+Subject: [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+In-Reply-To: <CAGL0aWcpFbx-12S10nBEdnhvAg6_9v1jNoy0ag-3=d3ABHRyNg@mail.gmail.com>
+References: <722BA6B2-06CA-42C6-88E1-10EDA581B869@apple.com>
+	<CAGL0aWefT5wQ86rTANJMxOMt8MTfRjf26jmZTQmUTx+HYRy_Ag@mail.gmail.com>
+	<35C353B8-D0F6-41A6-B249-C2AAA6433D45@apple.com>
+	<CAGL0aWcpFbx-12S10nBEdnhvAg6_9v1jNoy0ag-3=d3ABHRyNg@mail.gmail.com>
+Message-ID: <31A5FD7F-372A-4B22-BCAB-07F271B0FE4C@apple.com>
+
+
+> On Apr 27, 2015, at 1:33 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 27 April 2015 at 13:23, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> 
+>> On Apr 26, 2015, at 2:26 PM, Richard Smith <richardsmith at googlers.com <mailto:richardsmith at googlers.com>> wrote:
+>> 
+>> On 25 April 2015 at 21:10, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> The standard says that std::is_empty<T>::value is true if:
+>>   - T is a class type, but not a union type, with no non-static data members other than bit-fields of length 0, no virtual member functions, no virtual base classes, and no base class B for which is_empty<B>::value is false.
+>> 
+>> The standard also says that array bounds must be greater than zero, but there?s a common extension to permit zero-length array types (hereafter, ZLATs).
+>> 
+>> In GCC and Clang, at least, a ZLAT conventionally has size 0, both formally (as a result of sizeof) and for struct layout (a ZLAT field takes up no direct space, although it does cause the next offset to be rounded up to the field?s alignment).  Moreover, a ZLAT field inhibits the general rule rounding a class's size up to at least 1, recursively.
+>> 
+>> Oddly, though, GCC and Clang also say that a struct containing a ZLAT is not empty, at least as far as std::is_empty is concerned.  On the other hand, ICC says that a struct containing only one (or more) ZLATs is empty; as does MSVC, for what it?s worth.
+>> 
+>> This touches on the ABI because:
+>>   - the results of these metaprogramming traits can affect the ABI in a number of ways,
+>>   - class sizes are also obviously ABI, and
+>>   - whether a base class is empty dramatically affects Itanium class layout.
+>> 
+>> The current Itanium definition mirrors the std::is_empty definition:
+>>   [a] class with no non-static data members other than zero-width bitfields, no virtual functions, no virtual base classes, and no non-empty non-virtual proper base classes.
+>> 
+>> Now, of course, this is an extension, and we don?t have to standardize behavior on it; but my preference is to specify this sort of common extension wherever possible.
+>> 
+>> The point of is_empty is to allow detection of EBO opportunities, so I think it should return 'true' in all cases where EBO would apply. It seems reasonable (if not very worthwhile) to ignore ZLATs when determining whether we can apply EBO. And I think this is a common enough extension for the ABI to specify how it should behave.
+>>  
+>> I propose the following changes:
+>> 
+>> 1.  Add ?or members of zero-length array type? to the ABI definition of "empty class?.
+>> 
+>> Is it worth explicitly calling out that flexible array members and zero-length array members are handled the same in this regard?
+> 
+> Yes, that?s probably a good idea.
+>  
+>> 2.  Specify std::is_empty to behave as if the same clause were there.
+>> 3.  Change the ABI class layout rule (in IV. Finalization) to not require sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace this sentence:
+>>   Round sizeof(C) up to a non-zero multiple of align(C).
+>> with:
+>>   If C does not contain (recursively) a subobject of zero-length array type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+>> 
+>> Perhaps:
+>> 
+>> If sizeof(C) is 0 and C has no non-static data members and no base classes, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+> 
+> Wouldn?t this trigger for a class with an empty base?
+> 
+> For an empty base class D of class C, step 3 says:
+> 
+> "Once offset(D) has been chosen, update sizeof(C) to max (sizeof(C), offset(D)+sizeof(D)) and align(C) to max (alignof(C), nvalign(D))."
+> 
+> So sizeof(C) == sizeof(D) in the case of an otherwise-empty class with one base class. Thus sizeof(C) == alignof(C) if D's size was made non-zero, and is 0 otherwise (if D had a ZLAT member).
+
+Ah, okay, makes sense.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150427/02bbb3b5/attachment.html>
+
+From mclow.lists at gmail.com  Wed Apr 29 16:31:24 2015
+From: mclow.lists at gmail.com (Marshall Clow)
+Date: Wed, 29 Apr 2015 09:31:24 -0700
+Subject: [cxx-abi-dev] What is alignof(decltype(nullptr))?
+In-Reply-To: <CAGL0aWc=64_-8wCK17cu_n3qG5qY6EXttr=VPAKbiaY78Rb2RQ@mail.gmail.com>
+References: <201504240251.t3O2pdO04574@adlwrk06.cce.hp.com>
+	<CAGL0aWc=64_-8wCK17cu_n3qG5qY6EXttr=VPAKbiaY78Rb2RQ@mail.gmail.com>
+Message-ID: <CAMBqOsjb+-CK93myaXg--2x=stYuJvaceXd=DGZpeM4dcfXGDg@mail.gmail.com>
+
+On Fri, Apr 24, 2015 at 8:08 AM, Richard Smith <richardsmith at google.com>
+wrote:
+
+> On 23 April 2015 at 19:51, Dennis Handly <dhandly at cup.hp.com> wrote:
+>
+>> >From: Richard Smith <richardsmith at google.com>
+>> >but does not appear to place any requirements on
+>> alignof(decltype(nullptr)).
+>> >Itanium C++ ABI differ: Clang and EDG use alignof(void*). GCC uses 1.
+>>
+>> Was this intentional or just an oversight, confusing the alignment of the
+>> pointer vs what it points to?
+>>
+>> >alignof(void*) seems like a better answer to me. Thoughts?
+>>
+>> Yes, all pointers should be aligned the same.  Unless there is short vs
+>> far, types.
+>>
+>
+> Well, nullptr_t is not a pointer. There's really no need for us to make it
+> have the same size and alignment as any particular pointer type, but if we
+> choose to do so it makes sense to be consistent.
+>
+>
+nullptr_t may not be a pointer type, but everyone thinks of it as one.
+I would go with the "principle of least astonishment" here, and say that it
+should be aligned like a pointer.
+(Especially since sizeof(nullptr_t) == sizeof(void *))
+
+-- Marshall
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150429/c01a36d1/attachment.html>
+
+From avi at cloudius-systems.com  Wed Apr 29 14:45:33 2015
+From: avi at cloudius-systems.com (Avi Kivity)
+Date: Wed, 29 Apr 2015 14:45:33 -0000
+Subject: [cxx-abi-dev] Long compile times due mangling of return types in
+	function templates
+Message-ID: <5540EE83.5060000@cloudius-systems.com>
+
+As per the Itanium ABI gcc mangles the return types of function 
+templates, so that we can see mangled names like
+
+_Z1hIiEDTplcl1fIT_EEcl1gIS0_EEEv
+
+which demangle to
+
+decltype (((f<int>)())+((g<int>)())) h<int>()
+
+In seastar [1] this causes serious compile-time performance problems.  
+Replacing complicated template argument dependent return types improves 
+compile time and object size by around 10%.
+
+What is the reason that the ABI mandates mangling the return type into 
+the function name?
+
+
+
+The patch below (replacing return types with auto) gave me about 10% 
+compile time improvement:
+
+--- a/core/future.hh
++++ b/core/future.hh
+@@ -460,7 +460,8 @@ private:
+    }
+     template <typename Ret, typename Func, typename Param>
+-   futurize_t<Ret> then(Func&& func, Param&& param) noexcept {
++   auto // futurize_t<Ret>
++   then(Func&& func, Param&& param) noexcept {
+        using futurator = futurize<Ret>;
+        using P = typename futurator::promise_type;
+        if (state()->available() && (++future_avail_count % 256)) {
+@@ -526,12 +527,14 @@ public:
+    }
+     template <typename Func>
+-   futurize_t<std::result_of_t<Func(T&&...)>> then(Func&& func) noexcept {
++   auto // futurize_t<std::result_of_t<Func(T&&...)>>
++   then(Func&& func) noexcept {
+        return 
+then<std::result_of_t<Func(T&&...)>>(std::forward<Func>(func), [] 
+(future_state<T...>&& state) { return state.get(); });
+    }
+     template <typename Func>
+-   futurize_t<std::result_of_t<Func(future<T...>)>>
++   auto
++   //futurize_t<std::result_of_t<Func(future<T...>)>>
+    then_wrapped(Func&& func) noexcept {
+        return 
+then<std::result_of_t<Func(future<T...>)>>(std::forward<Func>(func), [] 
+(future_state<T...>&& state) { return future(std::move(state)); });
+    }
+
+
+
+
+[1]https://github.com/cloudius-systems/seastar 
+<https://github.com/cloudius-systems/seastar>, specifically 
+future::then() in core/future.hh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150429/f6d88451/attachment-0001.html>
+

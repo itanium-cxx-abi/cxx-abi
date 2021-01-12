@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B0x%20std%3A%3Arethrow_exception%2C%20data%20races%20and%20the%0A%20Itanium%20ABI&In-Reply-To=%3C4D5CE24E.4010607%40justsoftwaresolutions.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002392.html">
+   <LINK REL="Next"  HREF="002394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI</H1>
+    <B>Anthony Williams</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B0x%20std%3A%3Arethrow_exception%2C%20data%20races%20and%20the%0A%20Itanium%20ABI&In-Reply-To=%3C4D5CE24E.4010607%40justsoftwaresolutions.co.uk%3E"
+       TITLE="[cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI">anthony at justsoftwaresolutions.co.uk
+       </A><BR>
+    <I>Thu Feb 17 08:54:38 UTC 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002392.html">[cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI
+</A></li>
+        <LI>Next message: <A HREF="002394.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 03/02/11 01:12, John McCall wrote:
+&gt;<i> On Feb 2, 2011, at 3:35 PM, Michael Wong wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Hi, I wonder if Nathan Sidwell, Mark Michell or others can comment on
+</I>&gt;&gt;<i> the feasibility of these 2 enhancement choices to enable copyable
+</I>&gt;&gt;<i> exception objects.
+</I>&gt;&gt;<i> A solution to this is required by C++0x LWG issue 1369 which is in
+</I>&gt;&gt;<i> review status now:
+</I>&gt;&gt;<i> <A HREF="http://lwg.github.com/issues/lwg-active.html#1369">http://lwg.github.com/issues/lwg-active.html#1369</A>
+</I>&gt;&gt;<i>
+</I>&gt;<i> Proposal 1 (RTTI enhancement).
+</I>&gt;<i>
+</I>&gt;<i> Adding a virtual method to RTTI objects is a non-starter.
+</I>
+OK.
+
+&gt;<i> There's a fix to this, which is to make this a function pointer in the
+</I>&gt;<i> RTTI object instead.
+</I>
+OK.
+
+&gt;<i> This proposal would require us to instantiate and emit the copy
+</I>&gt;<i> constructor of every class we emit RTTI for. This is actually prohibited
+</I>&gt;<i> by the current language spec, so we'd need language sanction for this.
+</I>&gt;<i> This is also a potentially significant code-size and compile-time issue.
+</I>
+Right. I had overlooked that.
+
+&gt;<i> Proposal 2 (prepending fields to the exception data).
+</I>&gt;<i>
+</I>&gt;<i> I think this is a somewhat more elegant implementation choice,
+</I>&gt;<i> particularly since the original design was intended to be extended in
+</I>&gt;<i> this way, and it's been done before on some major platforms (in service
+</I>&gt;<i> of std::rethrow_exception, in fact).
+</I>
+That's good to know, thanks.
+
+&gt;<i> We'd need a new __cxa_throw variant called something like
+</I>&gt;<i> __cxa_throw_copyable. I presume that throwing a trivially-copyable class
+</I>&gt;<i> would pass a null copy-ctor to the new variant, whereas throwing a class
+</I>&gt;<i> with an inaccessible or deleted copy ctor would just use __cxa_throw.
+</I>&gt;<i> Code throwing a non-class would still be allowed to throw with
+</I>&gt;<i> __cxa_throw, and std::rethrow_exception would just have to look for such
+</I>&gt;<i> types and DTRT.
+</I>
+Yes, that seems in keeping with my expectations.
+
+&gt;<i> Under either proposal, the C++0x standard library would need to export
+</I>&gt;<i> new symbols (either the new vtables or a new __cxa_throw variant) which
+</I>&gt;<i> would be used by a lot of code compiled for '0x regardless of whether
+</I>&gt;<i> that code actually used std::rethrow_exception. This means that programs
+</I>&gt;<i> compiled for '0x would not be able to link against an '03 standard
+</I>&gt;<i> library even if they didn't actually use any '0x features requiring
+</I>&gt;<i> runtime support, which is actually a pretty serious concern. It's a much
+</I>&gt;<i> bigger problem for Proposal 1, where all code emitting RTTI for classes
+</I>&gt;<i> with public copy ctors would suddenly use the new symbols, whereas
+</I>&gt;<i> Proposal 2 would only affect code that actually contains throws.
+</I>
+Yes, this would be the case. However, C++03 code should still be able to 
+link against the C++0x library unless there are other incompatible 
+changes, so replacing the standard library with the C++0x one would work 
+with all such code.
+
+In many cases, code compiled for C++0x will also use other C++0x 
+facilities that require the C++0x runtime anyway, but I accept that this 
+will not necessarily be the case for existing C++03 code recompiled with 
+the new compiler.
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     <A HREF="http://www.stdthread.co.uk/book/">http://www.stdthread.co.uk/book/</A>
+just::thread C++0x thread library             <A HREF="http://www.stdthread.co.uk">http://www.stdthread.co.uk</A>
+Just Software Solutions Ltd       <A HREF="http://www.justsoftwaresolutions.co.uk">http://www.justsoftwaresolutions.co.uk</A>
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002392.html">[cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI
+</A></li>
+	<LI>Next message: <A HREF="002394.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

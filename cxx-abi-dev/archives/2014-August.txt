@@ -1,0 +1,1120 @@
+From richardsmith at google.com  Mon Aug  4 03:31:44 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Sun, 3 Aug 2014 20:31:44 -0700
+Subject: [cxx-abi-dev] sizeof pack mangling vs alias templates
+Message-ID: <CAGL0aWd1FqmQ2J4bPHD8w1u=0FvefeiDoB8GzxtdpN9aYdaaAA@mail.gmail.com>
+
+Alias templates allow the production of new forms of sizeof... for which we
+have no specified mangling. Example:
+
+struct A {
+  template<typename...T> using N = int[sizeof...(T)];
+  template<typename...A, typename B, typename...C>
+      void f(N<A..., B, C...> &, B, C...);
+};
+void g(A a) { int arr[6]; a.f<int, int>(arr, 1, 2, 3, 4); }
+
+No implementation I have access to produces anything reasonable here:
+
+Clang currently produces a bogus RA3_i mangling for the type of the first
+parameter.
+GCC produces RAstDpT__i, that is, sizeof-type applied to pack expansion
+applied to template-parameter-0, which seems to be exposing a detail of
+their internal representation, and is in any case wrong since T_ is not
+enough to specify which packs are relevant.
+EDG rejects.
+
+Also of note: through alias templates, arbitrary template argument
+expressions can be incorporated into such a sizeof... expression (as can an
+implicit test that multiple packs are the same length), so it's not
+sufficient to merely encode a sequence of packs whose sizes should be
+added, along with an additional constant for packs of known size.
+
+Suggestion: extend the existing
+
+  sZ <template-param>
+  sZ <function-param>
+
+with
+
+  sZ J <template-arg>* E
+
+for the case of a sizeof... that cannot be expressed as sizeof...(T). So
+the above parameter would mangle as
+
+sZ J DpT_ T0_ DpT1_ E
+
+I've implemented this, and it seems to work fine. Does this seem OK?
+
+
+(Minor bug noticed in passing: template-args uses <template-arg>+ where it
+means <template-arg>*)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140803/3ea454a4/attachment.html>
+
+From daveed at edg.com  Mon Aug  4 13:50:52 2014
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 4 Aug 2014 09:50:52 -0400
+Subject: [cxx-abi-dev] sizeof pack mangling vs alias templates
+In-Reply-To: <CAGL0aWd1FqmQ2J4bPHD8w1u=0FvefeiDoB8GzxtdpN9aYdaaAA@mail.gmail.com>
+References: <CAGL0aWd1FqmQ2J4bPHD8w1u=0FvefeiDoB8GzxtdpN9aYdaaAA@mail.gmail.com>
+Message-ID: <C148ACB6-9193-467E-B1DF-81C938F5AE89@edg.com>
+
+
+On Aug 3, 2014, at 11:31 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> Alias templates allow the production of new forms of sizeof... for which we have no specified mangling. Example:
+> struct A {
+>   template<typename...T> using N = int[sizeof...(T)];
+>   template<typename...A, typename B, typename...C>
+>       void f(N<A..., B, C...> &, B, C...);
+> };
+> void g(A a) { int arr[6]; a.f<int, int>(arr, 1, 2, 3, 4); }
+> No implementation I have access to produces anything reasonable here:
+> 
+> Clang currently produces a bogus RA3_i mangling for the type of the first parameter.
+> GCC produces RAstDpT__i, that is, sizeof-type applied to pack expansion applied to template-parameter-0, which seems to be exposing a detail of their internal representation, and is in any case wrong since T_ is not enough to specify which packs are relevant.
+> EDG rejects.
+> 
+> Also of note: through alias templates, arbitrary template argument expressions can be incorporated into such a sizeof... expression (as can an implicit test that multiple packs are the same length), so it's not sufficient to merely encode a sequence of packs whose sizes should be added, along with an additional constant for packs of known size.
+> 
+> Suggestion: extend the existing
+> 
+>   sZ <template-param>
+>   sZ <function-param>
+> 
+> with
+> 
+>   sZ J <template-arg>* E
+> 
+> for the case of a sizeof... that cannot be expressed as sizeof...(T). So the above parameter would mangle as
+> 
+> sZ J DpT_ T0_ DpT1_ E
+> 
+> I've implemented this, and it seems to work fine. Does this seem OK?
+
+
+It looks reasonable.  Any motivation for choosing "sZJ"?  Could we use a two-letter code instead?  E.g., "sP <template-arg>* E"?
+
+	Daveed
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140804/77a6fa84/attachment.html>
+
+From richardsmith at google.com  Mon Aug  4 17:45:54 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 4 Aug 2014 10:45:54 -0700
+Subject: [cxx-abi-dev] sizeof pack mangling vs alias templates
+In-Reply-To: <C148ACB6-9193-467E-B1DF-81C938F5AE89@edg.com>
+References: <CAGL0aWd1FqmQ2J4bPHD8w1u=0FvefeiDoB8GzxtdpN9aYdaaAA@mail.gmail.com>
+	<C148ACB6-9193-467E-B1DF-81C938F5AE89@edg.com>
+Message-ID: <CAGL0aWcVwVdvc8BmB_XwGVtUUUrxE6M8rRzA-wNd3kDJRq_ttg@mail.gmail.com>
+
+On 4 August 2014 06:50, David Vandevoorde <daveed at edg.com> wrote:
+
+>
+> On Aug 3, 2014, at 11:31 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> Alias templates allow the production of new forms of sizeof... for which
+> we have no specified mangling. Example:
+>
+> struct A {
+>   template<typename...T> using N = int[sizeof...(T)];
+>   template<typename...A, typename B, typename...C>
+>       void f(N<A..., B, C...> &, B, C...);
+> };
+> void g(A a) { int arr[6]; a.f<int, int>(arr, 1, 2, 3, 4); }
+>
+> No implementation I have access to produces anything reasonable here:
+>
+> Clang currently produces a bogus RA3_i mangling for the type of the first
+> parameter.
+> GCC produces RAstDpT__i, that is, sizeof-type applied to pack expansion
+> applied to template-parameter-0, which seems to be exposing a detail of
+> their internal representation, and is in any case wrong since T_ is not
+> enough to specify which packs are relevant.
+> EDG rejects.
+>
+> Also of note: through alias templates, arbitrary template argument
+> expressions can be incorporated into such a sizeof... expression (as can an
+> implicit test that multiple packs are the same length), so it's not
+> sufficient to merely encode a sequence of packs whose sizes should be
+> added, along with an additional constant for packs of known size.
+>
+> Suggestion: extend the existing
+>
+>   sZ <template-param>
+>   sZ <function-param>
+>
+> with
+>
+>   sZ J <template-arg>* E
+>
+> for the case of a sizeof... that cannot be expressed as sizeof...(T). So
+> the above parameter would mangle as
+>
+> sZ J DpT_ T0_ DpT1_ E
+>
+> I've implemented this, and it seems to work fine. Does this seem OK?
+>
+>
+>
+> It looks reasonable.  Any motivation for choosing "sZJ"?
+>
+
+I really wanted to replace the existing rules with sZ <template-arg>... but
+that's backwards-incompatible for function parameter packs and non-type
+template parameter packs.
+
+Could we use a two-letter code instead?  E.g., "sP <template-arg>* E"?
+>
+
+Sure, works for me.
+
+(And for clarity:
+
+  template<typename ...T> using N = int[sizeof...(T)];
+  template<typename ...T> void f(N<T...> &);
+
+... should use the sZ mangling, not the sP mangling, since by 14.5.7/2, you
+can redeclare this template as 'f(int (&)[sizeof...(T)])'.)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140804/86bf9111/attachment.html>
+
+From rjmccall at apple.com  Mon Aug  4 20:18:47 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 04 Aug 2014 13:18:47 -0700
+Subject: [cxx-abi-dev] sizeof pack mangling vs alias templates
+In-Reply-To: <CAGL0aWcVwVdvc8BmB_XwGVtUUUrxE6M8rRzA-wNd3kDJRq_ttg@mail.gmail.com>
+References: <CAGL0aWd1FqmQ2J4bPHD8w1u=0FvefeiDoB8GzxtdpN9aYdaaAA@mail.gmail.com>
+	<C148ACB6-9193-467E-B1DF-81C938F5AE89@edg.com>
+	<CAGL0aWcVwVdvc8BmB_XwGVtUUUrxE6M8rRzA-wNd3kDJRq_ttg@mail.gmail.com>
+Message-ID: <4A8111F6-C847-4538-B298-3A6C0E04E608@apple.com>
+
+On Aug 4, 2014, at 10:45 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 4 August 2014 06:50, David Vandevoorde <daveed at edg.com> wrote:
+> 
+> On Aug 3, 2014, at 11:31 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+>> Alias templates allow the production of new forms of sizeof... for which we have no specified mangling. Example:
+>> struct A {
+>>   template<typename...T> using N = int[sizeof...(T)];
+>>   template<typename...A, typename B, typename...C>
+>>       void f(N<A..., B, C...> &, B, C...);
+>> };
+>> void g(A a) { int arr[6]; a.f<int, int>(arr, 1, 2, 3, 4); }
+>> No implementation I have access to produces anything reasonable here:
+>> 
+>> Clang currently produces a bogus RA3_i mangling for the type of the first parameter.
+>> GCC produces RAstDpT__i, that is, sizeof-type applied to pack expansion applied to template-parameter-0, which seems to be exposing a detail of their internal representation, and is in any case wrong since T_ is not enough to specify which packs are relevant.
+>> EDG rejects.
+>> 
+>> Also of note: through alias templates, arbitrary template argument expressions can be incorporated into such a sizeof... expression (as can an implicit test that multiple packs are the same length), so it's not sufficient to merely encode a sequence of packs whose sizes should be added, along with an additional constant for packs of known size.
+>> 
+>> Suggestion: extend the existing
+>> 
+>>   sZ <template-param>
+>>   sZ <function-param>
+>> 
+>> with
+>> 
+>>   sZ J <template-arg>* E
+>> 
+>> for the case of a sizeof... that cannot be expressed as sizeof...(T). So the above parameter would mangle as
+>> 
+>> sZ J DpT_ T0_ DpT1_ E
+>> 
+>> I've implemented this, and it seems to work fine. Does this seem OK?
+> 
+> 
+> It looks reasonable.  Any motivation for choosing "sZJ"?
+> 
+> I really wanted to replace the existing rules with sZ <template-arg>... but that's backwards-incompatible for function parameter packs and non-type template parameter packs.
+> 
+> Could we use a two-letter code instead?  E.g., "sP <template-arg>* E"?
+> 
+> Sure, works for me.
+> 
+> (And for clarity:
+> 
+>   template<typename ...T> using N = int[sizeof...(T)];
+>   template<typename ...T> void f(N<T...> &);
+> 
+> ... should use the sZ mangling, not the sP mangling, since by 14.5.7/2, you can redeclare this template as 'f(int (&)[sizeof...(T)])?.)
+
+This looks fine to me.  I?ll commit this in a week if there isn?t any further commentary.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140804/dfe75de4/attachment-0001.html>
+
+From jason at redhat.com  Tue Aug 12 19:48:18 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 12 Aug 2014 15:48:18 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <53EA6F82.2020708@redhat.com>
+
+In C++11 this is conditionally-supported with implementation-defined 
+behavior.  G++ has disallowed this via either runtime abort or error 
+since GCC 3.2, but a customer recently asked us to allow it, and it 
+occurs to me that the obvious way around the problems with bitwise 
+copying is to implement this as pass-by-invisible-reference, just like 
+normal value argument passing.  Any objections?
+
+Jason
+
+From jason at redhat.com  Wed Aug 13 03:49:08 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 12 Aug 2014 23:49:08 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <38C37E44FD352B44ABFC58410B0790D07EADAF8D@ORSMSX103.amr.corp.intel.com>
+References: <53EA6F82.2020708@redhat.com>
+	<38C37E44FD352B44ABFC58410B0790D07EADAF8D@ORSMSX103.amr.corp.intel.com>
+Message-ID: <53EAE034.40309@redhat.com>
+
+On 08/12/2014 07:06 PM, Nelson, Clark wrote:
+> The obvious next question is, exactly how would the implementation of va_arg work for non-trivial types?
+
+For GCC and clang at least, va_arg is just defined to __builtin_va_arg, 
+so it's easy for the compiler to do the right thing.
+
+Jason
+
+
+From rjmccall at apple.com  Wed Aug 13 17:37:47 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 13 Aug 2014 10:37:47 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <53EAE034.40309@redhat.com>
+References: <53EA6F82.2020708@redhat.com>
+	<38C37E44FD352B44ABFC58410B0790D07EADAF8D@ORSMSX103.amr.corp.intel.com>
+	<53EAE034.40309@redhat.com>
+Message-ID: <B450C21F-40D2-4FC0-B6BD-30E14D26FB26@apple.com>
+
+On Aug 12, 2014, at 8:49 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 08/12/2014 07:06 PM, Nelson, Clark wrote:
+>> The obvious next question is, exactly how would the implementation of va_arg work for non-trivial types?
+> 
+> For GCC and clang at least, va_arg is just defined to __builtin_va_arg, so it's easy for the compiler to do the right thing.
+
+Right.  I think we?d want it to return an l-value of the target type, which means the changes won?t be completely trivial, but I don?t see any fundamental obstacles here.
+
+John.
+
+From clark.nelson at intel.com  Tue Aug 12 23:06:49 2014
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Tue, 12 Aug 2014 23:06:49 +0000
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <53EA6F82.2020708@redhat.com>
+References: <53EA6F82.2020708@redhat.com>
+Message-ID: <38C37E44FD352B44ABFC58410B0790D07EADAF8D@ORSMSX103.amr.corp.intel.com>
+
+> In C++11 this is conditionally-supported with implementation-
+> defined
+> behavior.  G++ has disallowed this via either runtime abort or
+> error
+> since GCC 3.2, but a customer recently asked us to allow it, and
+> it
+> occurs to me that the obvious way around the problems with bitwise
+> copying is to implement this as pass-by-invisible-reference, just
+> like
+> normal value argument passing.  Any objections?
+
+The obvious next question is, exactly how would the implementation of va_arg work for non-trivial types? Would new magic be required? Or would the already-existing flavors of magic be enough? (Of course these are not strictly ABI questions.)
+
+Clark
+
+From dhandly at cup.hp.com  Wed Aug 13 21:38:45 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 13 Aug 2014 14:38:45 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+
+>From: "Nelson, Clark" <clark.nelson at intel.com>
+>> since GCC 3.2, but a customer recently asked us to allow it, and it
+>> occurs to me that the obvious way around the problems with bitwise
+>> copying is to implement this as pass-by-invisible-reference, just like
+>> normal value argument passing.  Any objections?
+
+Did the customer say how he was going to accept it on the callee side?
+If by invisible-reference, the user must cheat and treat as a pointer,
+then create the reference.
+
+So, if you want reference, the user can instead pass as a pointer.
+
+aCC6 allows it with a warning but the results are unpredictable:
+warning #3290-D:  Passing a non-POD object to a function with variable
+arguments has undefined behavior.  Object will be copied onto
+the stack instead of using a constructor.
+
+(This is a bitwise copy.)
+
+This warning can be made an error by the user.
+
+>The obvious next question is, exactly how would the implementation of
+>va_arg work for non-trivial types?  Would new magic be required?  Or
+>would the already-existing flavors of magic be enough?
+Clark
+
+I assume there is "magic" that assumes it is a POD?
+
+From jason at redhat.com  Wed Aug 13 21:51:48 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 13 Aug 2014 17:51:48 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+References: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+Message-ID: <53EBDDF4.2030700@redhat.com>
+
+On 08/13/2014 05:38 PM, Dennis Handly wrote:
+> Did the customer say how he was going to accept it on the callee side?
+
+My proposal is that this would all be handled transparently by the 
+compiler, which knows which types need to be handled this way.
+
+> aCC6 allows it with a warning but the results are unpredictable:
+> warning #3290-D:  Passing a non-POD object to a function with variable
+> arguments has undefined behavior.  Object will be copied onto
+> the stack instead of using a constructor.
+>
+> (This is a bitwise copy.)
+
+Ah, so my proposal would be incompatible with the current aCC behavior. 
+  Hmm.
+
+Jason
+
+
+From rjmccall at apple.com  Wed Aug 13 22:01:26 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 13 Aug 2014 15:01:26 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <53EBDDF4.2030700@redhat.com>
+References: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+	<53EBDDF4.2030700@redhat.com>
+Message-ID: <B36F9166-FFA5-400A-9BE3-99773EE66C0A@apple.com>
+
+On Aug 13, 2014, at 2:51 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 08/13/2014 05:38 PM, Dennis Handly wrote:
+>> Did the customer say how he was going to accept it on the callee side?
+> 
+> My proposal is that this would all be handled transparently by the compiler, which knows which types need to be handled this way.
+> 
+>> aCC6 allows it with a warning but the results are unpredictable:
+>> warning #3290-D:  Passing a non-POD object to a function with variable
+>> arguments has undefined behavior.  Object will be copied onto
+>> the stack instead of using a constructor.
+>> 
+>> (This is a bitwise copy.)
+> 
+> Ah, so my proposal would be incompatible with the current aCC behavior.  Hmm.
+
+I agree that this is a problem; we shouldn't ?standardize" something that a vendor doesn?t feel they can reasonably adopt.
+
+We could document it as a recommendation, I suppose.
+
+Out of curiosity, how does aCC handle destruction of the argument?  Does it call the destructor at the argument's original location or its new location in the arguments area?
+
+John.
+
+From clark.nelson at intel.com  Wed Aug 13 22:05:50 2014
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Wed, 13 Aug 2014 22:05:50 +0000
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <B36F9166-FFA5-400A-9BE3-99773EE66C0A@apple.com>
+References: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+	<53EBDDF4.2030700@redhat.com>
+	<B36F9166-FFA5-400A-9BE3-99773EE66C0A@apple.com>
+Message-ID: <38C37E44FD352B44ABFC58410B0790D07EADE56F@ORSMSX103.amr.corp.intel.com>
+
+> I agree that this is a problem; we shouldn't "standardize"
+> something that a vendor doesn't feel they can reasonably adopt.
+> 
+> We could document it as a recommendation, I suppose.
+
+Technically, if the ABI doesn't actually nail it down, then it's not really part of the ABI, is it?
+
+But it doesn't have to be part of the ABI for G++ to allow it and do something for it.
+
+Clark
+
+From rjmccall at apple.com  Wed Aug 13 22:12:18 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 13 Aug 2014 15:12:18 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <38C37E44FD352B44ABFC58410B0790D07EADE56F@ORSMSX103.amr.corp.intel.com>
+References: <201408132138.s7DLcjh01901@adlwrk05.cce.hp.com>
+	<53EBDDF4.2030700@redhat.com>
+	<B36F9166-FFA5-400A-9BE3-99773EE66C0A@apple.com>
+	<38C37E44FD352B44ABFC58410B0790D07EADE56F@ORSMSX103.amr.corp.intel.com>
+Message-ID: <98ADF40F-C0DB-4512-B9CE-DA104CAC1503@apple.com>
+
+On Aug 13, 2014, at 3:05 PM, Nelson, Clark <clark.nelson at intel.com> wrote:
+>> I agree that this is a problem; we shouldn't "standardize"
+>> something that a vendor doesn't feel they can reasonably adopt.
+>> 
+>> We could document it as a recommendation, I suppose.
+> 
+> Technically, if the ABI doesn't actually nail it down, then it's not really part of the ABI, is it?
+
+We?ve discussed having recommendations in the document before; I don?t recall what they were specifically for.
+
+> But it doesn't have to be part of the ABI for G++ to allow it and do something for it.
+
+This is clearly the right way for any vendor who wants to accept non-POD variadic arguments to do it: no solution involving memcpy can be correct for all types, and doing something MSVC-like but only for variadics would be very strange.  I think that?s worth documenting.
+
+John.
+
+From dhandly at cup.hp.com  Thu Aug 14 00:04:06 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 13 Aug 2014 17:04:06 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>My proposal is that this would all be handled transparently by the 
+>compiler, which knows which types need to be handled this way.
+
+Ah.  I was reading va_arg and thinking just the "..." caller side.
+
+>so my proposal would be incompatible with the current aCC behavior. 
+Jason
+
+Yes.  But I don't remember why we allowed it and what the user was doing on
+the callee side, since we didn't provide any help.
+Perhaps it was to a C function?  Or it goes back to cfront days.
+
+Going back to aCC1 in 1997 we had:
+Warning 400:  Passing an object with a copy constructor or virtual
+function to a function with variable arguments is not yet implemented.
+Object will be copied onto the stack instead of using a constructor.
+
+We later changed it to:
+Warning 400:  Passing an object with a copy constructor or virtual
+function to a function with variable arguments has undefined behavior.
+Object will be copied onto the stack instead of using a constructor.
+
+>From: John McCall <rjmccall at apple.com>
+>I agree that this is a problem; we shouldn't standardize" something that
+>a vendor doesn't feel they can reasonably adopt.
+
+True.
+
+>Out of curiosity, how does aCC handle destruction of the argument?  Does
+>it call the destructor at the argument's original location or its new
+>location in the arguments area?
+John.
+
+No, that's what "bitwise" means.  :-)
+No copy constructor or destructor.
+
+>From: John McCall <rjmccall at apple.com>
+>This is clearly the right way for any vendor who wants to accept non-POD
+>variadic arguments to do it:  no solution involving memcpy can be
+>correct for all types
+
+Yes, except will the callee side be allowed to modify the object?
+
+From rjmccall at apple.com  Thu Aug 14 00:26:03 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 13 Aug 2014 17:26:03 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+References: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+Message-ID: <EF6D546F-8F38-4A04-B1DD-090A7D964D2F@apple.com>
+
+On Aug 13, 2014, at 5:04 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>> From: Jason Merrill <jason at redhat.com>
+>> My proposal is that this would all be handled transparently by the 
+>> compiler, which knows which types need to be handled this way.
+> 
+> Ah.  I was reading va_arg and thinking just the "..." caller side.
+> 
+>> so my proposal would be incompatible with the current aCC behavior. 
+> Jason
+> 
+> Yes.  But I don't remember why we allowed it and what the user was doing on
+> the callee side, since we didn't provide any help.
+> Perhaps it was to a C function?  Or it goes back to cfront days.
+> 
+> Going back to aCC1 in 1997 we had:
+> Warning 400:  Passing an object with a copy constructor or virtual
+> function to a function with variable arguments is not yet implemented.
+> Object will be copied onto the stack instead of using a constructor.
+> 
+> We later changed it to:
+> Warning 400:  Passing an object with a copy constructor or virtual
+> function to a function with variable arguments has undefined behavior.
+> Object will be copied onto the stack instead of using a constructor.
+> 
+>> From: John McCall <rjmccall at apple.com>
+>> I agree that this is a problem; we shouldn't standardize" something that
+>> a vendor doesn't feel they can reasonably adopt.
+> 
+> True.
+
+I?d be happier if you disavowed the previous implementation of the
+extension, of course. :)
+
+>> Out of curiosity, how does aCC handle destruction of the argument?  Does
+>> it call the destructor at the argument's original location or its new
+>> location in the arguments area?
+> 
+> No, that's what "bitwise" means.  :-)
+> No copy constructor or destructor.
+
+So, you suppress destruction completely of the argument, and it potentially
+goes undestructed?
+
+>> From: John McCall <rjmccall at apple.com>
+>> This is clearly the right way for any vendor who wants to accept non-POD
+>> variadic arguments to do it:  no solution involving memcpy can be
+>> correct for all types
+> 
+> Yes, except will the callee side be allowed to modify the object?
+
+I don?t see how we can prevent it.  Even if va_arg returns an r-value
+(i.e. if the compiler generates an implicit copy out of the ?reference? that
+we pass through variadics), that copy constructor could mutate the
+object.  And it doesn?t really matter anyway ? the temporary whose
+address is passed would still be live in the caller?s frame.
+
+John.
+
+From jason at redhat.com  Thu Aug 14 00:36:54 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 13 Aug 2014 20:36:54 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+References: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+Message-ID: <53EC04A6.800@redhat.com>
+
+On 08/13/2014 08:04 PM, Dennis Handly wrote:
+>> From: Jason Merrill <jason at redhat.com>
+>> so my proposal would be incompatible with the current aCC behavior.
+>
+> Yes.  But I don't remember why we allowed it and what the user was doing on
+> the callee side, since we didn't provide any help.
+
+G++ 3.1 and earlier did the same bitwise copy, which makes sense for a C 
+legacy definition of va_arg like GCC had before 3.0:
+
+#define va_arg(AP, TYPE)                                              \
+  (AP = (__gnuc_va_list) ((char *) (AP) + __va_rounded_size (TYPE)),   \
+   *((TYPE *) (void *) ((char *) (AP) - __va_rounded_size (TYPE))))
+
+>> From: John McCall <rjmccall at apple.com>
+>> This is clearly the right way for any vendor who wants to accept non-POD
+>> variadic arguments to do it:  no solution involving memcpy can be
+>> correct for all types
+
+Yep.  The only question is whether it's better, for code that is in a 
+gray area of the standard, to stick with the broken historical practice 
+or do something more correct.
+
+> Yes, except will the callee side be allowed to modify the object?
+
+Whether the result of va_arg is modifiable (or even an lvalue) is 
+unspecified.  In this case it would be.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Aug 14 00:51:25 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 13 Aug 2014 17:51:25 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408140051.s7E0pPm03341@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>I?d be happier if you disavowed the previous implementation of the
+>extension, of course. :)
+
+Well, that's what "undefined" means.  :-)
+
+>So, you suppress destruction completely of the argument, and it potentially
+>goes undestructed?
+
+Yes, and since we don't call the copy constructor, everything is balanced.
+
+>I don?t see how we can prevent it
+John.
+
+You just say that this use of va_arg produces a const Foo& and don't allow
+Foo to be mentioned.  I suppose you could allow a "const Foo" too.
+
+With your current idea, did you plan to invoke copy constructor or copy
+assignment operator for:
+   Foo f = va_arg(ap, Foo);
+
+I would assume you would have to do that, since the user can "rewind" and
+use va_start ... va_end multiple times.
+
+From jason at redhat.com  Thu Aug 14 15:25:33 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 14 Aug 2014 11:25:33 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408140051.s7E0pPm03341@adlwrk05.cce.hp.com>
+References: <201408140051.s7E0pPm03341@adlwrk05.cce.hp.com>
+Message-ID: <53ECD4ED.2070005@redhat.com>
+
+On 08/13/2014 08:51 PM, Dennis Handly wrote:
+> You just say that this use of va_arg produces a const Foo& and don't allow
+> Foo to be mentioned.  I suppose you could allow a "const Foo" too.
+
+It's actually just Foo&.
+
+> With your current idea, did you plan to invoke copy constructor or copy
+> assignment operator for:
+>     Foo f = va_arg(ap, Foo);
+>
+> I would assume you would have to do that, since the user can "rewind" and
+> use va_start ... va_end multiple times.
+
+In that case they would get another (modifiable) lvalue for the same 
+object, which is also true of the bitwise-copy approach.
+
+Jason
+
+
+From jason at redhat.com  Wed Aug 20 20:57:53 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 20 Aug 2014 16:57:53 -0400
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <53EC04A6.800@redhat.com>
+References: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+	<53EC04A6.800@redhat.com>
+Message-ID: <53F50BD1.8080107@redhat.com>
+
+On 08/13/2014 08:36 PM, Jason Merrill wrote:
+>>> From: John McCall <rjmccall at apple.com>
+>>> This is clearly the right way for any vendor who wants to accept non-POD
+>>> variadic arguments to do it:  no solution involving memcpy can be
+>>> correct for all types
+>
+> Yep.  The only question is whether it's better, for code that is in a
+> gray area of the standard, to stick with the broken historical practice
+> or do something more correct.
+
+Any more opinions on this question?  I'm ambivalent.
+
+Since there is incompatible existing practice and the code is only 
+conditionally-supported anyway, perhaps sticking with existing practice 
+is the right answer even though it breaks the object model.
+
+On the other hand, perhaps since the code is only 
+conditionally-supported, compatibility with existing practice isn't as 
+important.
+
+Jason
+
+
+From rjmccall at apple.com  Wed Aug 20 21:55:54 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 20 Aug 2014 14:55:54 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <53F50BD1.8080107@redhat.com>
+References: <201408140004.s7E046903058@adlwrk05.cce.hp.com>
+	<53EC04A6.800@redhat.com> <53F50BD1.8080107@redhat.com>
+Message-ID: <91859FB8-76A7-45BF-ABAD-76F78A380C29@apple.com>
+
+On Aug 20, 2014, at 1:57 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 08/13/2014 08:36 PM, Jason Merrill wrote:
+>>>> From: John McCall <rjmccall at apple.com>
+>>>> This is clearly the right way for any vendor who wants to accept non-POD
+>>>> variadic arguments to do it:  no solution involving memcpy can be
+>>>> correct for all types
+>> 
+>> Yep.  The only question is whether it's better, for code that is in a
+>> gray area of the standard, to stick with the broken historical practice
+>> or do something more correct.
+> 
+> Any more opinions on this question?  I'm ambivalent.
+> 
+> Since there is incompatible existing practice and the code is only conditionally-supported anyway, perhaps sticking with existing practice is the right answer even though it breaks the object model.
+> 
+> On the other hand, perhaps since the code is only conditionally-supported, compatibility with existing practice isn't as important.
+
+I?m not sure we really do have ?existing practice? on this.  Dennis, I
+apologize if I?m misunderstanding you, but it sounds like you consider
+this to be undefined behavior (which is an allowed interpretation ? in fact,
+that was the explicit wording prior to C++11) and hence do not feel like
+you?ve made a promise to support users relying on aCC?s current
+behavior.  In that case, we can adopt Jason?s proposal, and aCC can
+freely choose whether to continue its current practice indefinitely
+(since how they implement undefined behavior is their own business)
+or move to Jason's proposed rule (since doing so wouldn't break
+compatibility with well-defined programs).
+
+John.
+
+From dhandly at cup.hp.com  Thu Aug 21 00:13:25 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 20 Aug 2014 17:13:25 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408210013.s7L0DPf29810@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>On 08/13/2014 08:36 PM, Jason Merrill wrote:
+>>>> From: John McCall <rjmccall at apple.com>
+>>>> This is clearly the right way for any vendor who wants to accept non-POD
+>>>> variadic arguments to do it:  no solution involving memcpy can be
+>>>> correct for all types
+>>
+>> Yep.  The only question is whether it's better, for code that is in a
+>> gray area of the standard, to stick with the broken historical practice
+>> or do something more correct.
+
+>Since there is incompatible existing practice and the code is only 
+>conditionally-supported anyway, perhaps sticking with existing practice 
+>is the right answer even though it breaks the object model.
+
+>On the other hand, perhaps since the code is only 
+>conditionally-supported, compatibility with existing practice isn't as 
+>important.
+Jason
+
+I wrote a better test case to test both caller and callee sides and also
+looked up the warning and found a test case from an important customer.
+So someone is using it.  :-)
+
+>From: John McCall <rjmccall at apple.com>
+>> On the other hand, perhaps since the code is only conditionally-supported, compatibility with existing practice isn't as important.
+
+>I'?m not sure we really do have ?existing practice? on this.  Dennis, I
+>apologize if I?m misunderstanding you, but it sounds like you consider
+>this to be undefined behavior
+
+Well the message indicates it.  And it won't work in all cases.  I.e.
+if you put the address inside itself, that won't match.
+
+But I did look up the warnings and found a test case from an important
+customer.
+
+(I'm not sure if there were other customers that had an actual but
+different use of this?)
+
+But looking real close at it, this won't be a problem, since used in
+template metaprogramming:
+
+char  tIsP(bool, tfoo);
+char* tIsP(bool, ...);
+template<class T>
+struct tIsPtr {
+ enum { tRet= (sizeof(tIsP(true,*(T*)0))== 1) };
+};
+
+
+>(which is an allowed interpretation  in fact,
+>that was the explicit wording prior to C++11) and hence do not feel like
+>you'?ve made a promise to support users relying on aCC?s current
+>behavior.
+
+Well for this customer we would have to.  :-)
+I.e. At least not give an error, since not really called.
+
+>In that case, we can adopt Jason?s proposal, and aCC can
+>freely choose whether to continue its current practice indefinitely
+>(since how they implement undefined behavior is their own business)
+>or move to Jason's proposed rule (since doing so wouldn't break
+>compatibility with well-defined programs).
+John.
+
+Sure.
+
+Here is my test case and the results:
+#include <stdio.h>
+#include <stdarg.h>
+struct foo {
+   foo() : i(88) {
+      printf("%p: foo ctor\n", this);
+   }
+   ~foo() {
+      printf("%p: foo dtor\n", this);
+   }
+   foo(const foo &that) : i(that.i + 1) {
+      printf("%p: foo cctor(%p)\n", this, &that);
+   }
+   int i;
+};
+
+int bar(int anchor, ...) {
+   va_list ap;
+   va_start(ap, anchor);
+
+   foo b = va_arg(ap, foo);
+   printf("bar's b.i is: %d\n", b.i);
+   return anchor;
+}
+
+int main() {
+   foo f;
+   f.i = 99;
+   printf("try this: %.16llx\n", f);
+   return bar(0, f);
+}
+
+"class_vararg.c", line 20: warning #3291-D: a non-POD class type cannot be
+          fetched by va_arg
+     foo b = va_arg(ap, foo);
+                        ^
+"class_vararg.c", line 28: warning #3290-D: Passing a non-POD object to a
+          function with variable arguments has undefined behavior.  Object
+          will be copied onto the stack instead of using a constructor.
+     printf("try this: %.16llx\n", f);
+                                   ^
+"class_vararg.c", line 28: warning #2181-D: argument is incompatible with
+          corresponding format string conversion
+     printf("try this: %.16llx\n", f);
+                                   ^
+"class_vararg.c", line 29: warning #3290-D: Passing a non-POD object to a
+          function with variable arguments has undefined behavior.  Object
+          will be copied onto the stack instead of using a constructor.
+     return bar(0, f);
+                   ^
+
+$ a.out
+7fffe7c0: foo ctor
+try this: 0000006300000000
+7fffe764: foo cctor(7fffe760)
+bar's b.i is: 100
+7fffe764: foo dtor
+7fffe7c0: foo dtor
+
+The ctors and dtors balance.
+
+From rjmccall at apple.com  Thu Aug 21 00:57:15 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 20 Aug 2014 17:57:15 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408210013.s7L0DPf29810@adlwrk05.cce.hp.com>
+References: <201408210013.s7L0DPf29810@adlwrk05.cce.hp.com>
+Message-ID: <276C8ADA-381D-4786-847C-29AAAAE37FCF@apple.com>
+
+On Aug 20, 2014, at 5:13 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>> From: Jason Merrill <jason at redhat.com>
+>> On 08/13/2014 08:36 PM, Jason Merrill wrote:
+>>>>> From: John McCall <rjmccall at apple.com>
+>>>>> This is clearly the right way for any vendor who wants to accept non-POD
+>>>>> variadic arguments to do it:  no solution involving memcpy can be
+>>>>> correct for all types
+>>> 
+>>> Yep.  The only question is whether it's better, for code that is in a
+>>> gray area of the standard, to stick with the broken historical practice
+>>> or do something more correct.
+> 
+>> Since there is incompatible existing practice and the code is only 
+>> conditionally-supported anyway, perhaps sticking with existing practice 
+>> is the right answer even though it breaks the object model.
+> 
+>> On the other hand, perhaps since the code is only 
+>> conditionally-supported, compatibility with existing practice isn't as 
+>> important.
+> Jason
+> 
+> I wrote a better test case to test both caller and callee sides and also
+> looked up the warning and found a test case from an important customer.
+> So someone is using it.  :-)
+> 
+>> From: John McCall <rjmccall at apple.com>
+>>> On the other hand, perhaps since the code is only conditionally-supported, compatibility with existing practice isn't as important.
+> 
+>> I'?m not sure we really do have ?existing practice? on this.  Dennis, I
+>> apologize if I?m misunderstanding you, but it sounds like you consider
+>> this to be undefined behavior
+> 
+> Well the message indicates it.  And it won't work in all cases.  I.e.
+> if you put the address inside itself, that won't match.
+> 
+> But I did look up the warnings and found a test case from an important
+> customer.
+> 
+> (I'm not sure if there were other customers that had an actual but
+> different use of this?)
+> 
+> But looking real close at it, this won't be a problem, since used in
+> template metaprogramming:
+
+Oh, yes, that?s definitely a language requirement: you can?t outright reject
+this construct if it?s not potentially-evaluated.  A lot of template
+metaprogramming tricks rely on overloads like this.  But it doesn?t affect
+whether you consider it undefined behavior when it *isn?t* potentially
+evaluated.
+
+John.
+
+From richardsmith at google.com  Thu Aug 21 02:14:34 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 20 Aug 2014 19:14:34 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <276C8ADA-381D-4786-847C-29AAAAE37FCF@apple.com>
+References: <201408210013.s7L0DPf29810@adlwrk05.cce.hp.com>
+	<276C8ADA-381D-4786-847C-29AAAAE37FCF@apple.com>
+Message-ID: <CAGL0aWfkW_N5QmKeKRKS8y+f2m3HBQDTXqv51ceRnthsyzssAQ@mail.gmail.com>
+
+On 20 August 2014 17:57, John McCall <rjmccall at apple.com> wrote:
+
+> On Aug 20, 2014, at 5:13 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+> >> From: Jason Merrill <jason at redhat.com>
+> >> On 08/13/2014 08:36 PM, Jason Merrill wrote:
+> >>>>> From: John McCall <rjmccall at apple.com>
+> >>>>> This is clearly the right way for any vendor who wants to accept
+> non-POD
+> >>>>> variadic arguments to do it:  no solution involving memcpy can be
+> >>>>> correct for all types
+> >>>
+> >>> Yep.  The only question is whether it's better, for code that is in a
+> >>> gray area of the standard, to stick with the broken historical practice
+> >>> or do something more correct.
+> >
+> >> Since there is incompatible existing practice and the code is only
+> >> conditionally-supported anyway, perhaps sticking with existing practice
+> >> is the right answer even though it breaks the object model.
+> >
+> >> On the other hand, perhaps since the code is only
+> >> conditionally-supported, compatibility with existing practice isn't as
+> >> important.
+> > Jason
+> >
+> > I wrote a better test case to test both caller and callee sides and also
+> > looked up the warning and found a test case from an important customer.
+> > So someone is using it.  :-)
+> >
+> >> From: John McCall <rjmccall at apple.com>
+> >>> On the other hand, perhaps since the code is only
+> conditionally-supported, compatibility with existing practice isn't as
+> important.
+> >
+> >> I'?m not sure we really do have ?existing practice? on this.  Dennis, I
+> >> apologize if I?m misunderstanding you, but it sounds like you consider
+> >> this to be undefined behavior
+> >
+> > Well the message indicates it.  And it won't work in all cases.  I.e.
+> > if you put the address inside itself, that won't match.
+> >
+> > But I did look up the warnings and found a test case from an important
+> > customer.
+> >
+> > (I'm not sure if there were other customers that had an actual but
+> > different use of this?)
+> >
+> > But looking real close at it, this won't be a problem, since used in
+> > template metaprogramming:
+>
+> Oh, yes, that?s definitely a language requirement: you can?t outright
+> reject
+> this construct if it?s not potentially-evaluated.
+
+
+FWIW, that was changed in C++11 (we're allowed to reject it now), but we
+still shouldn't do so in unevaluated operands, because...
+
+A lot of template
+> metaprogramming tricks rely on overloads like this.
+
+
+... of this.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140820/b92e015f/attachment-0001.html>
+
+From dhandly at cup.hp.com  Thu Aug 21 03:45:47 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 20 Aug 2014 20:45:47 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408210345.s7L3jlo01565@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>Oh, yes, that?s definitely a language requirement: you can?t outright reject
+>this construct if it?s not potentially-evaluated.  A lot of template
+>metaprogramming tricks rely on overloads like this.  But it doesn?t affect
+>whether you consider it undefined behavior when it *isn?t* potentially
+>evaluated.
+
+It turns out we fixed the compiler long ago to not warn for sizeof.
+So that leaves me with no bug test cases of a customer using it.
+But that's only negative evidence.
+
+From rjmccall at apple.com  Thu Aug 21 04:34:52 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 20 Aug 2014 21:34:52 -0700
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+In-Reply-To: <201408210345.s7L3jlo01565@adlwrk05.cce.hp.com>
+References: <201408210345.s7L3jlo01565@adlwrk05.cce.hp.com>
+Message-ID: <FA76D3B2-945F-4A57-88AA-074587ED2657@apple.com>
+
+On Aug 20, 2014, at 8:45 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>> From: John McCall <rjmccall at apple.com>
+>> Oh, yes, that?s definitely a language requirement: you can?t outright reject
+>> this construct if it?s not potentially-evaluated.  A lot of template
+>> metaprogramming tricks rely on overloads like this.  But it doesn?t affect
+>> whether you consider it undefined behavior when it *isn?t* potentially
+>> evaluated.
+> 
+> It turns out we fixed the compiler long ago to not warn for sizeof.
+> So that leaves me with no bug test cases of a customer using it.
+> But that's only negative evidence.
+
+To me, it sounds like aCC warning about the metaprogramming
+use case, you got a bug about it, and you fixed it, but that you never
+intended to support actually doing this at runtime.  But it?s your decision,
+or I should say HP?s.  If you feel comfortable saying that you do not
+currently support passing non-POD types through varargs, and that you
+consider it undefined behavior, then I think the best thing for the ABI
+is to say that vendors who choose to support non-POD varargs must
+follow Jason?s proposal.
+
+Otherwise, we?ll have to be much more weaselly about it. :)
+
+John.
+
+From dhandly at cup.hp.com  Thu Aug 21 08:01:28 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 21 Aug 2014 01:01:28 -0700 (PDT)
+Subject: [cxx-abi-dev] Passing non-trivial types through ...
+Message-ID: <201408210801.s7L81SM02883@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>To me, it sounds like aCC warning about the metaprogramming
+>use case, you got a bug about it, and you fixed it, but that you never
+>intended to support actually doing this at runtime.
+
+I don't think so.  ;-)
+
+It was supported with that test case back in 1996 but with the scary form
+of the warning.  Supported in that the test did exactly what the warnings
+said.
+
+I assume this functionality came from cfront or was built into the Taligent
+compiler.
+
+(I'm not sure how this was ported to the EDG compiler if we didn't have
+a functional test for it?  Or it's too hard to find.  :-)
+
+The test case that had the warning had nothing to do with it (since
+a decade later) but with placement delete.
+
+>But its your decision, or I should say HPs.  If you feel comfortable
+>saying that you do not currently support passing non-POD types through
+>varargs, and that you consider it undefined behavior,
+
+Undefined by the Standard but implemented with HP's definition of a bitwise
+copy.
+
+>then I think the best thing for the ABI is to say that vendors who
+>choose to support non-POD varargs must follow Jason's proposal.
+
+>Otherwise, we?ll have to be much more weaselly about it. :)
+John.
+
+I don't have any objections but Soumitra might.
+
+It would be nice to point to HP's aC++ and mention another way of doing it
+but it's not ideal.  :-)
+

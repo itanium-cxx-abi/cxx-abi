@@ -1,0 +1,1345 @@
+From rjmccall at apple.com  Mon Dec  1 20:02:06 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 1 Dec 2014 12:02:06 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer
+	template	arguments
+In-Reply-To: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+Message-ID: <D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+
+> On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+> N4198 (accepted at Urbana) makes it possible for a template parameter of type T U::* to have a template argument of type T V::*, where V is a base class of U or vice versa. A naive attempt to apply the existing ABI rules leads to mangling collisions in cases like this:
+> 
+> struct A { int n; };
+> struct B : A {};
+> template<int A::*> void f() {}
+> template<int B::*> void f() {}
+> void g() {
+>   constexpr int A::*p = &A::n;
+>   constexpr int B::*q = p;
+>   f<p>();
+>   f<q>();
+> }
+> 
+> (Here, a naive approach would use XadL_ZN1A1nEEE as the template argument value in both calls.)
+> 
+> In order to resolve this, I suggest we introduce a new mangling for the case of a member pointer template argument where the class containing the member is different from the class in the template parameter. The minimal information we'll need to include is the class in the template parameter and a designator if the base class is a repeated base class.
+> 
+> One approach would be to use
+> 
+>   sc <type> ad L<member>E
+> 
+> and to explicitly include the final type plus those intermediate types that introduce multiple inheritance from the base class (that is, just enough to uniquely identify the path).
+> 
+> Another would be to introduce a new mangling that incorporates the final type and an offset or discriminator.
+
+Do we have the same problem for references and pointers to base subobjects?  Okay, I see that the answer is ?no?, but only because you kept that restriction in N4198.  I think we can assume that that?s not permanent.
+
+I like the idea of using (possibly invented) static_casts; it?s not optimally compact, but it at least theoretically works with existing demanglers.  Have you checked to see if it actually works?
+
+I agree with only including those intermediate steps necessary to uniquely determine the path.
+
+We?d have to specify in what dependent situations we include the path.  ?Never? is the easiest answer, so that in
+  template <class T, int T::*member> void foo(decltype(T() + temp<&A::baz>());
+we?d mangle &A::baz without a path clarification even if we could type-check "temp<&A::baz>()? at template definition time.
+
+John.
+
+From richardsmith at google.com  Mon Dec  1 22:18:42 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 1 Dec 2014 14:18:42 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+Message-ID: <CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+
+On 1 December 2014 at 12:02, John McCall <rjmccall at apple.com> wrote:
+
+> > On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >
+> > N4198 (accepted at Urbana) makes it possible for a template parameter of
+> type T U::* to have a template argument of type T V::*, where V is a base
+> class of U or vice versa. A naive attempt to apply the existing ABI rules
+> leads to mangling collisions in cases like this:
+> >
+> > struct A { int n; };
+> > struct B : A {};
+> > template<int A::*> void f() {}
+> > template<int B::*> void f() {}
+> > void g() {
+> >   constexpr int A::*p = &A::n;
+> >   constexpr int B::*q = p;
+> >   f<p>();
+> >   f<q>();
+> > }
+> >
+> > (Here, a naive approach would use XadL_ZN1A1nEEE as the template
+> argument value in both calls.)
+> >
+> > In order to resolve this, I suggest we introduce a new mangling for the
+> case of a member pointer template argument where the class containing the
+> member is different from the class in the template parameter. The minimal
+> information we'll need to include is the class in the template parameter
+> and a designator if the base class is a repeated base class.
+> >
+> > One approach would be to use
+> >
+> >   sc <type> ad L<member>E
+> >
+> > and to explicitly include the final type plus those intermediate types
+> that introduce multiple inheritance from the base class (that is, just
+> enough to uniquely identify the path).
+> >
+> > Another would be to introduce a new mangling that incorporates the final
+> type and an offset or discriminator.
+>
+> Do we have the same problem for references and pointers to base
+> subobjects?  Okay, I see that the answer is ?no?, but only because you kept
+> that restriction in N4198.  I think we can assume that that?s not permanent.
+>
+
+I agree; I expect we'll eventually pare back the restrictions to something
+like "no pointers/references to union members, and no one-past-the-end
+pointers", or even remove all restrictions altogether if no-one gets upset
+that different template arguments can compare equal. (We've actually
+already crossed this bridge by specifying that pointers to members of a
+union compare equal even if they point to different members, but no-one has
+got upset about it yet...)
+
+I like the idea of using (possibly invented) static_casts; it?s not
+> optimally compact, but it at least theoretically works with existing
+> demanglers.  Have you checked to see if it actually works?
+>
+
+For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+
+GCC's c++filt gives void f<static_cast<int B::*>(&A::n)>()
+libc++abi's demangler gives void f<static_cast<int B::*>(&(A::n))>() ...
+which is wrong, but it's equally wrong without the static_cast.
+
+I agree with only including those intermediate steps necessary to uniquely
+> determine the path.
+>
+> We?d have to specify in what dependent situations we include the path.
+> ?Never? is the easiest answer, so that in
+>   template <class T, int T::*member> void foo(decltype(T() +
+> temp<&A::baz>());
+> we?d mangle &A::baz without a path clarification even if we could
+> type-check "temp<&A::baz>()? at template definition time.
+
+
+That seems reasonable to me, but I'm not exactly sure what classifies as a
+"dependent situation"; do you mean that we should mangle the path only if
+the <template-arg> is not nested within an instantiation-dependent
+<expression>?
+
+
+There's another issue that we should probably fix at the same time:
+qualification conversions are permitted in template arguments, and we
+currently mangle a signature that performs a qualification conversion the
+same way as we mangle a signature that does not. We could either fold the
+qualification conversion into the last (synthetic) static_cast, or add an
+explicit synthetic const_cast to model it. I'm inclined to favour the
+latter, even though it will give longer manglings in the (hopefully rare)
+case where both conversions occur (because it also works if the user has
+cast away constness, and because it's simpler). Example:
+
+// tu1
+extern int n;
+template<int*> void f() {}
+void g() { f<&n>(); }
+
+// tu2
+extern int n;
+template<const int*> void f() {}
+void h() { f<&n>(); }
+
+Here:
+g calls _Z1fIXadL_Z1nEEEvv
+h calls _Z1fIXccPKiadL_Z1nEEEvv
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141201/ddbc1a7d/attachment.html>
+
+From rjmccall at apple.com  Tue Dec  2 01:41:15 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 1 Dec 2014 17:41:15 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+Message-ID: <9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+
+> On Dec 1, 2014, at 2:18 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+> On 1 December 2014 at 12:02, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+> >
+> > N4198 (accepted at Urbana) makes it possible for a template parameter of type T U::* to have a template argument of type T V::*, where V is a base class of U or vice versa. A naive attempt to apply the existing ABI rules leads to mangling collisions in cases like this:
+> >
+> > struct A { int n; };
+> > struct B : A {};
+> > template<int A::*> void f() {}
+> > template<int B::*> void f() {}
+> > void g() {
+> >   constexpr int A::*p = &A::n;
+> >   constexpr int B::*q = p;
+> >   f<p>();
+> >   f<q>();
+> > }
+> >
+> > (Here, a naive approach would use XadL_ZN1A1nEEE as the template argument value in both calls.)
+> >
+> > In order to resolve this, I suggest we introduce a new mangling for the case of a member pointer template argument where the class containing the member is different from the class in the template parameter. The minimal information we'll need to include is the class in the template parameter and a designator if the base class is a repeated base class.
+> >
+> > One approach would be to use
+> >
+> >   sc <type> ad L<member>E
+> >
+> > and to explicitly include the final type plus those intermediate types that introduce multiple inheritance from the base class (that is, just enough to uniquely identify the path).
+> >
+> > Another would be to introduce a new mangling that incorporates the final type and an offset or discriminator.
+> 
+> Do we have the same problem for references and pointers to base subobjects?  Okay, I see that the answer is ?no?, but only because you kept that restriction in N4198.  I think we can assume that that?s not permanent.
+> 
+> I agree; I expect we'll eventually pare back the restrictions to something like "no pointers/references to union members, and no one-past-the-end pointers", or even remove all restrictions altogether if no-one gets upset that different template arguments can compare equal. (We've actually already crossed this bridge by specifying that pointers to members of a union compare equal even if they point to different members, but no-one has got upset about it yet...)
+> 
+> I like the idea of using (possibly invented) static_casts; it?s not optimally compact, but it at least theoretically works with existing demanglers.  Have you checked to see if it actually works?
+> 
+> For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+> 
+> GCC's c++filt gives void f<static_cast<int B::*>(&A::n)>()
+> libc++abi's demangler gives void f<static_cast<int B::*>(&(A::n))>() ... which is wrong, but it's equally wrong without the static_cast.
+
+Awesome.
+
+> I agree with only including those intermediate steps necessary to uniquely determine the path.
+> 
+> We?d have to specify in what dependent situations we include the path.  ?Never? is the easiest answer, so that in
+>   template <class T, int T::*member> void foo(decltype(T() + temp<&A::baz>());
+> we?d mangle &A::baz without a path clarification even if we could type-check "temp<&A::baz>()? at template definition time.
+> 
+> That seems reasonable to me, but I'm not exactly sure what classifies as a "dependent situation"; do you mean that we should mangle the path only if the <template-arg> is not nested within an instantiation-dependent <expression>?
+
+Good question.  We get this same issue with integer template arguments: the expression 1 has type int, but <1> (sometimes) gets mangled with the template parameter type to which it?s been coerced.  I don?t think the ABI completely specifies when to use one or the other ? it?s an example of one of the few places where ?mangle the token stream? isn?t really enough information ? but I feel like the same rule should clearly apply here.
+
+The simplest rule is probably ?only mangle using the coerced type when identifying a concrete specialization, as in the <name> of an <encoding>?.  However, I suspect that Clang, at least, probably aggressively uses the coerced type whenever it's already type-checked the template arguments, meaning probably whenever the reference isn?t (some kind of) dependent.
+
+> There's another issue that we should probably fix at the same time: qualification conversions are permitted in template arguments, and we currently mangle a signature that performs a qualification conversion the same way as we mangle a signature that does not. We could either fold the qualification conversion into the last (synthetic) static_cast, or add an explicit synthetic const_cast to model it. I'm inclined to favour the latter, even though it will give longer manglings in the (hopefully rare) case where both conversions occur (because it also works if the user has cast away constness, and because it's simpler). Example:
+> 
+> // tu1
+> extern int n;
+> template<int*> void f() {}
+> void g() { f<&n>(); }
+> 
+> // tu2
+> extern int n;
+> template<const int*> void f() {}
+> void h() { f<&n>(); }
+> 
+> Here:
+> g calls _Z1fIXadL_Z1nEEEvv
+> h calls _Z1fIXccPKiadL_Z1nEEEvv
+
+Is this a compatibility issue?  As in, aren?t qualification conversions already allowed in template arguments?  There might be a significant number of existing template arguments that, say, bind a non-const global to a const reference.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141201/0943620e/attachment-0001.html>
+
+From richardsmith at google.com  Tue Dec  2 19:46:55 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 2 Dec 2014 11:46:55 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+Message-ID: <CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+
+On 1 December 2014 at 17:41, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 1, 2014, at 2:18 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On 1 December 2014 at 12:02, John McCall <rjmccall at apple.com> wrote:
+>
+>> > On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> >
+>> > N4198 (accepted at Urbana) makes it possible for a template parameter
+>> of type T U::* to have a template argument of type T V::*, where V is a
+>> base class of U or vice versa. A naive attempt to apply the existing ABI
+>> rules leads to mangling collisions in cases like this:
+>> >
+>> > struct A { int n; };
+>> > struct B : A {};
+>> > template<int A::*> void f() {}
+>> > template<int B::*> void f() {}
+>> > void g() {
+>> >   constexpr int A::*p = &A::n;
+>> >   constexpr int B::*q = p;
+>> >   f<p>();
+>> >   f<q>();
+>> > }
+>> >
+>> > (Here, a naive approach would use XadL_ZN1A1nEEE as the template
+>> argument value in both calls.)
+>> >
+>> > In order to resolve this, I suggest we introduce a new mangling for the
+>> case of a member pointer template argument where the class containing the
+>> member is different from the class in the template parameter. The minimal
+>> information we'll need to include is the class in the template parameter
+>> and a designator if the base class is a repeated base class.
+>> >
+>> > One approach would be to use
+>> >
+>> >   sc <type> ad L<member>E
+>> >
+>> > and to explicitly include the final type plus those intermediate types
+>> that introduce multiple inheritance from the base class (that is, just
+>> enough to uniquely identify the path).
+>> >
+>> > Another would be to introduce a new mangling that incorporates the
+>> final type and an offset or discriminator.
+>>
+>> Do we have the same problem for references and pointers to base
+>> subobjects?  Okay, I see that the answer is ?no?, but only because you kept
+>> that restriction in N4198.  I think we can assume that that?s not permanent.
+>>
+>
+> I agree; I expect we'll eventually pare back the restrictions to something
+> like "no pointers/references to union members, and no one-past-the-end
+> pointers", or even remove all restrictions altogether if no-one gets upset
+> that different template arguments can compare equal. (We've actually
+> already crossed this bridge by specifying that pointers to members of a
+> union compare equal even if they point to different members, but no-one has
+> got upset about it yet...)
+>
+> I like the idea of using (possibly invented) static_casts; it?s not
+>> optimally compact, but it at least theoretically works with existing
+>> demanglers.  Have you checked to see if it actually works?
+>>
+>
+> For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+>
+> GCC's c++filt gives void f<static_cast<int B::*>(&A::n)>()
+> libc++abi's demangler gives void f<static_cast<int B::*>(&(A::n))>() ...
+> which is wrong, but it's equally wrong without the static_cast.
+>
+>
+> Awesome.
+>
+> I agree with only including those intermediate steps necessary to uniquely
+>> determine the path.
+>>
+>> We?d have to specify in what dependent situations we include the path.
+>> ?Never? is the easiest answer, so that in
+>>   template <class T, int T::*member> void foo(decltype(T() +
+>> temp<&A::baz>());
+>> we?d mangle &A::baz without a path clarification even if we could
+>> type-check "temp<&A::baz>()? at template definition time.
+>
+>
+> That seems reasonable to me, but I'm not exactly sure what classifies as a
+> "dependent situation"; do you mean that we should mangle the path only if
+> the <template-arg> is not nested within an instantiation-dependent
+> <expression>?
+>
+>
+> Good question.  We get this same issue with integer template arguments:
+> the expression 1 has type int, but <1> (sometimes) gets mangled with the
+> template parameter type to which it?s been coerced.  I don?t think the ABI
+> completely specifies when to use one or the other ? it?s an example of one
+> of the few places where ?mangle the token stream? isn?t really enough
+> information ? but I feel like the same rule should clearly apply here.
+>
+> The simplest rule is probably ?only mangle using the coerced type when
+> identifying a concrete specialization, as in the <name> of an <encoding>?.
+> However, I suspect that Clang, at least, probably aggressively uses the
+> coerced type whenever it's already type-checked the template arguments,
+> meaning probably whenever the reference isn?t (some kind of) dependent.
+>
+
+It's not just Clang that does this. Consider:
+
+template<int N, short S> struct X {};
+template<int N> void f(X<N, 5>) {}
+template void f<0>(X<0, 5>);
+
+Clang, GCC, and EDG all give _Z1fILi0EEv1XIXT_ELs5EE as the mangling.
+
+Here's a trickier case:
+
+template<int N, short S> struct X {};
+template<int ...N> void f(X<N..., 5>) {}
+template void f<int>(X<int, 5>);
+
+For this, GCC and clang give _Z1fIJLi0EEEv1XIXspT_ELi5EE, and EDG
+gives _Z1fIJLi0EEEv1XIXT_ELs5EE. I think EDG is wrong here, and we should
+not perform conversions on template arguments that appear at or after a
+pack expansion into a non-pack (because we don't know how template
+arguments and parameters correspond beyond that point).
+
+Presumably all implementations also skip canonicalization when the template
+parameter is dependent or the template argument is some kind of dependent
+(though maybe not the same kind).
+
+> There's another issue that we should probably fix at the same time:
+> qualification conversions are permitted in template arguments, and we
+> currently mangle a signature that performs a qualification conversion the
+> same way as we mangle a signature that does not. We could either fold the
+> qualification conversion into the last (synthetic) static_cast, or add an
+> explicit synthetic const_cast to model it. I'm inclined to favour the
+> latter, even though it will give longer manglings in the (hopefully rare)
+> case where both conversions occur (because it also works if the user has
+> cast away constness, and because it's simpler). Example:
+>
+> // tu1
+> extern int n;
+> template<int*> void f() {}
+> void g() { f<&n>(); }
+>
+> // tu2
+> extern int n;
+> template<const int*> void f() {}
+> void h() { f<&n>(); }
+>
+> Here:
+> g calls _Z1fIXadL_Z1nEEEvv
+> h calls _Z1fIXccPKiadL_Z1nEEEvv
+>
+>
+> Is this a compatibility issue?  As in, aren?t qualification conversions
+> already allowed in template arguments?  There might be a significant number
+> of existing template arguments that, say, bind a non-const global to a
+> const reference.
+>
+
+Yes, this is a pre-existing bug in the ABI; we have always been required to
+miscompile the above code. We could limit the scope of the damage by only
+applying this change to function templates.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/7813eb55/attachment.html>
+
+From rjmccall at apple.com  Tue Dec  2 21:58:33 2014
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 2 Dec 2014 13:58:33 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+Message-ID: <9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+
+> On Dec 2, 2014, at 11:46 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 1 December 2014 at 17:41, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> On Dec 1, 2014, at 2:18 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> 
+>> On 1 December 2014 at 12:02, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> > On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> >
+>> > N4198 (accepted at Urbana) makes it possible for a template parameter of type T U::* to have a template argument of type T V::*, where V is a base class of U or vice versa. A naive attempt to apply the existing ABI rules leads to mangling collisions in cases like this:
+>> >
+>> > struct A { int n; };
+>> > struct B : A {};
+>> > template<int A::*> void f() {}
+>> > template<int B::*> void f() {}
+>> > void g() {
+>> >   constexpr int A::*p = &A::n;
+>> >   constexpr int B::*q = p;
+>> >   f<p>();
+>> >   f<q>();
+>> > }
+>> >
+>> > (Here, a naive approach would use XadL_ZN1A1nEEE as the template argument value in both calls.)
+>> >
+>> > In order to resolve this, I suggest we introduce a new mangling for the case of a member pointer template argument where the class containing the member is different from the class in the template parameter. The minimal information we'll need to include is the class in the template parameter and a designator if the base class is a repeated base class.
+>> >
+>> > One approach would be to use
+>> >
+>> >   sc <type> ad L<member>E
+>> >
+>> > and to explicitly include the final type plus those intermediate types that introduce multiple inheritance from the base class (that is, just enough to uniquely identify the path).
+>> >
+>> > Another would be to introduce a new mangling that incorporates the final type and an offset or discriminator.
+>> 
+>> Do we have the same problem for references and pointers to base subobjects?  Okay, I see that the answer is ?no?, but only because you kept that restriction in N4198.  I think we can assume that that?s not permanent.
+>> 
+>> I agree; I expect we'll eventually pare back the restrictions to something like "no pointers/references to union members, and no one-past-the-end pointers", or even remove all restrictions altogether if no-one gets upset that different template arguments can compare equal. (We've actually already crossed this bridge by specifying that pointers to members of a union compare equal even if they point to different members, but no-one has got upset about it yet...)
+>> 
+>> I like the idea of using (possibly invented) static_casts; it?s not optimally compact, but it at least theoretically works with existing demanglers.  Have you checked to see if it actually works?
+>> 
+>> For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+>> 
+>> GCC's c++filt gives void f<static_cast<int B::*>(&A::n)>()
+>> libc++abi's demangler gives void f<static_cast<int B::*>(&(A::n))>() ... which is wrong, but it's equally wrong without the static_cast.
+> 
+> Awesome.
+> 
+>> I agree with only including those intermediate steps necessary to uniquely determine the path.
+>> 
+>> We?d have to specify in what dependent situations we include the path.  ?Never? is the easiest answer, so that in
+>>   template <class T, int T::*member> void foo(decltype(T() + temp<&A::baz>());
+>> we?d mangle &A::baz without a path clarification even if we could type-check "temp<&A::baz>()? at template definition time.
+>> 
+>> That seems reasonable to me, but I'm not exactly sure what classifies as a "dependent situation"; do you mean that we should mangle the path only if the <template-arg> is not nested within an instantiation-dependent <expression>?
+> 
+> Good question.  We get this same issue with integer template arguments: the expression 1 has type int, but <1> (sometimes) gets mangled with the template parameter type to which it?s been coerced.  I don?t think the ABI completely specifies when to use one or the other ? it?s an example of one of the few places where ?mangle the token stream? isn?t really enough information ? but I feel like the same rule should clearly apply here.
+> 
+> The simplest rule is probably ?only mangle using the coerced type when identifying a concrete specialization, as in the <name> of an <encoding>?.  However, I suspect that Clang, at least, probably aggressively uses the coerced type whenever it's already type-checked the template arguments, meaning probably whenever the reference isn?t (some kind of) dependent.
+> 
+> It's not just Clang that does this. Consider:
+> 
+> template<int N, short S> struct X {};
+> template<int N> void f(X<N, 5>) {}
+> template void f<0>(X<0, 5>);
+> 
+> Clang, GCC, and EDG all give _Z1fILi0EEv1XIXT_ELs5EE as the mangling.
+> 
+> Here's a trickier case:
+> 
+> template<int N, short S> struct X {};
+> template<int ...N> void f(X<N..., 5>) {}
+> template void f<int>(X<int, 5>);
+> 
+> For this, GCC and clang give _Z1fIJLi0EEEv1XIXspT_ELi5EE, and EDG gives _Z1fIJLi0EEEv1XIXT_ELs5EE. I think EDG is wrong here, and we should not perform conversions on template arguments that appear at or after a pack expansion into a non-pack (because we don't know how template arguments and parameters correspond beyond that point).
+> 
+> Presumably all implementations also skip canonicalization when the template parameter is dependent or the template argument is some kind of dependent (though maybe not the same kind).
+
+Hmm.  I?d prefer not to hard-code an order dependence, because I think it?s likely that the committee will eventually weaken the rules about where packs can appear in parameter lists (e.g. to allow templates to pull arguments off the end instead of the beginning).  So I think we either need to do what EDG does and heroically match later arguments which have to be part of the pack ? which may or may not work equally well with future pack-placement rules ? or pull back and say we?re completely blocked by the existence of dependent pack expansions.
+
+I think the ABI rule we?re looking at is something like this:  there are two kinds of template argument, dependent and non-dependent.  A template argument is dependent if:
+  - it is itself instantiation-dependent,
+  - the template name is dependent, or
+  - <some rule about dependent pack expansions?>.
+
+A dependent template argument should be mangled using its original value/type/template-name expression.  A non-dependent non-type template argument can always be matched with a corresponding template parameter type and should be mangled as a (possibly coerced) literal value.
+
+Right now, coercion only applies to non-type template arguments, but it?s also possible for it to apply to template template arguments in the future ? I was just thinking of passing
+  template <class T, class U=int> class A;
+to a parameter typed as:
+  template<class> class
+but Doug points out that you could also pass variadic templates, e.g.
+  template <class? T> class A;
+
+>> There's another issue that we should probably fix at the same time: qualification conversions are permitted in template arguments, and we currently mangle a signature that performs a qualification conversion the same way as we mangle a signature that does not. We could either fold the qualification conversion into the last (synthetic) static_cast, or add an explicit synthetic const_cast to model it. I'm inclined to favour the latter, even though it will give longer manglings in the (hopefully rare) case where both conversions occur (because it also works if the user has cast away constness, and because it's simpler). Example:
+>> 
+>> // tu1
+>> extern int n;
+>> template<int*> void f() {}
+>> void g() { f<&n>(); }
+>> 
+>> // tu2
+>> extern int n;
+>> template<const int*> void f() {}
+>> void h() { f<&n>(); }
+>> 
+>> Here:
+>> g calls _Z1fIXadL_Z1nEEEvv
+>> h calls _Z1fIXccPKiadL_Z1nEEEvv
+> 
+> Is this a compatibility issue?  As in, aren?t qualification conversions already allowed in template arguments?  There might be a significant number of existing template arguments that, say, bind a non-const global to a const reference.
+> 
+> Yes, this is a pre-existing bug in the ABI; we have always been required to miscompile the above code. We could limit the scope of the damage by only applying this change to function templates.
+
+Hmm, yes, that would help a lot.
+
+A fair amount of code relies on separate template instantiations being mangled consistently, but that code is generally either:
+  - using RTTI for a class temploid specialization,
+  - using a class template specialization as a parameter type, or
+  - using an explicit instantiation.
+The second is completely specific to class templates, the first is almost completely specific to class templates (the exception being local classes in a function template), and the third is mostly used for class templates.
+
+There?s relatively little code doing stuff like:
+  - putting a static local variable in a function template or
+  - using a function template specialization as a non-type template argument to a template that itself needs symbol consistency for some reason.
+
+So yes, if this only practically affects instantiations of function templates with non-type template parameters, and only when there?s a qualifier mismatch between the actual declaration and the parameter, then the overall impact should be tiny.
+
+Nonetheless, it?s an ABI break, and not just for a new feature but for existing code.  So it should be separately formally proposed.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/36013670/attachment-0001.html>
+
+From richardsmith at google.com  Tue Dec  2 23:51:40 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 2 Dec 2014 15:51:40 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+	<9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+Message-ID: <CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+
+On 2 December 2014 at 13:58, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 2, 2014, at 11:46 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+> On 1 December 2014 at 17:41, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 1, 2014, at 2:18 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 1 December 2014 at 12:02, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> > On Nov 25, 2014, at 6:13 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>> >
+>>> > N4198 (accepted at Urbana) makes it possible for a template parameter
+>>> of type T U::* to have a template argument of type T V::*, where V is a
+>>> base class of U or vice versa. A naive attempt to apply the existing ABI
+>>> rules leads to mangling collisions in cases like this:
+>>> >
+>>> > struct A { int n; };
+>>> > struct B : A {};
+>>> > template<int A::*> void f() {}
+>>> > template<int B::*> void f() {}
+>>> > void g() {
+>>> >   constexpr int A::*p = &A::n;
+>>> >   constexpr int B::*q = p;
+>>> >   f<p>();
+>>> >   f<q>();
+>>> > }
+>>> >
+>>> > (Here, a naive approach would use XadL_ZN1A1nEEE as the template
+>>> argument value in both calls.)
+>>> >
+>>> > In order to resolve this, I suggest we introduce a new mangling for
+>>> the case of a member pointer template argument where the class containing
+>>> the member is different from the class in the template parameter. The
+>>> minimal information we'll need to include is the class in the template
+>>> parameter and a designator if the base class is a repeated base class.
+>>> >
+>>> > One approach would be to use
+>>> >
+>>> >   sc <type> ad L<member>E
+>>> >
+>>> > and to explicitly include the final type plus those intermediate types
+>>> that introduce multiple inheritance from the base class (that is, just
+>>> enough to uniquely identify the path).
+>>> >
+>>> > Another would be to introduce a new mangling that incorporates the
+>>> final type and an offset or discriminator.
+>>>
+>>> Do we have the same problem for references and pointers to base
+>>> subobjects?  Okay, I see that the answer is ?no?, but only because you kept
+>>> that restriction in N4198.  I think we can assume that that?s not permanent.
+>>>
+>>
+>> I agree; I expect we'll eventually pare back the restrictions to
+>> something like "no pointers/references to union members, and no
+>> one-past-the-end pointers", or even remove all restrictions altogether if
+>> no-one gets upset that different template arguments can compare equal.
+>> (We've actually already crossed this bridge by specifying that pointers to
+>> members of a union compare equal even if they point to different members,
+>> but no-one has got upset about it yet...)
+>>
+>> I like the idea of using (possibly invented) static_casts; it?s not
+>>> optimally compact, but it at least theoretically works with existing
+>>> demanglers.  Have you checked to see if it actually works?
+>>>
+>>
+>> For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+>>
+>> GCC's c++filt gives void f<static_cast<int B::*>(&A::n)>()
+>> libc++abi's demangler gives void f<static_cast<int B::*>(&(A::n))>() ...
+>> which is wrong, but it's equally wrong without the static_cast.
+>>
+>>
+>> Awesome.
+>>
+>> I agree with only including those intermediate steps necessary to
+>>> uniquely determine the path.
+>>>
+>>> We?d have to specify in what dependent situations we include the path.
+>>> ?Never? is the easiest answer, so that in
+>>>   template <class T, int T::*member> void foo(decltype(T() +
+>>> temp<&A::baz>());
+>>> we?d mangle &A::baz without a path clarification even if we could
+>>> type-check "temp<&A::baz>()? at template definition time.
+>>
+>>
+>> That seems reasonable to me, but I'm not exactly sure what classifies as
+>> a "dependent situation"; do you mean that we should mangle the path only if
+>> the <template-arg> is not nested within an instantiation-dependent
+>> <expression>?
+>>
+>>
+>> Good question.  We get this same issue with integer template arguments:
+>> the expression 1 has type int, but <1> (sometimes) gets mangled with the
+>> template parameter type to which it?s been coerced.  I don?t think the ABI
+>> completely specifies when to use one or the other ? it?s an example of one
+>> of the few places where ?mangle the token stream? isn?t really enough
+>> information ? but I feel like the same rule should clearly apply here.
+>>
+>> The simplest rule is probably ?only mangle using the coerced type when
+>> identifying a concrete specialization, as in the <name> of an <encoding>?.
+>> However, I suspect that Clang, at least, probably aggressively uses the
+>> coerced type whenever it's already type-checked the template arguments,
+>> meaning probably whenever the reference isn?t (some kind of) dependent.
+>>
+>
+> It's not just Clang that does this. Consider:
+>
+> template<int N, short S> struct X {};
+> template<int N> void f(X<N, 5>) {}
+> template void f<0>(X<0, 5>);
+>
+> Clang, GCC, and EDG all give _Z1fILi0EEv1XIXT_ELs5EE as the mangling.
+>
+> Here's a trickier case:
+>
+> template<int N, short S> struct X {};
+> template<int ...N> void f(X<N..., 5>) {}
+> template void f<int>(X<int, 5>);
+>
+> For this, GCC and clang give _Z1fIJLi0EEEv1XIXspT_ELi5EE, and EDG
+> gives _Z1fIJLi0EEEv1XIXT_ELs5EE. I think EDG is wrong here, and we should
+> not perform conversions on template arguments that appear at or after a
+> pack expansion into a non-pack (because we don't know how template
+> arguments and parameters correspond beyond that point).
+>
+> Presumably all implementations also skip canonicalization when the
+> template parameter is dependent or the template argument is some kind of
+> dependent (though maybe not the same kind).
+>
+>
+> Hmm.  I?d prefer not to hard-code an order dependence, because I think
+> it?s likely that the committee will eventually weaken the rules about where
+> packs can appear in parameter lists (e.g. to allow templates to pull
+> arguments off the end instead of the beginning).
+>
+So I think we either need to do what EDG does and heroically match later
+> arguments which have to be part of the pack ? which may or may not work
+> equally well with future pack-placement rules ? or pull back and say we?re
+> completely blocked by the existence of dependent pack expansions.
+>
+
+EDG's approach is impossible to follow in some cases, such as:
+
+  template<int A, short B, int C = 0> struct X {};
+  template<int ...N> void f(X<N..., 5>) {}
+  template void f<0>(X<0, 5>);
+  template void f<0, 1>(X<0, 1, 5>);
+
+(EDG rejects this, which I suspect is related to their eager analysis of
+template arguments.)
+
+I think the ABI rule we?re looking at is something like this:  there are
+> two kinds of template argument, dependent and non-dependent.  A template
+> argument is dependent if:
+>   - it is itself instantiation-dependent,
+>   - the template name is dependent, or
+>   - <some rule about dependent pack expansions?>.
+>
+
+... or its corresponding template parameter is a non-type template
+parameter with a dependent type (or perhaps is an instantiation-dependent
+template template parameter).
+
+A dependent template argument should be mangled using its original
+> value/type/template-name expression.  A non-dependent non-type template
+> argument can always be matched with a corresponding template parameter type
+> and should be mangled as a (possibly coerced) literal value.
+>
+> Right now, coercion only applies to non-type template arguments, but it?s
+> also possible for it to apply to template template arguments in the future
+> ? I was just thinking of passing
+>   template <class T, class U=int> class A;
+> to a parameter typed as:
+>   template<class> class
+> but Doug points out that you could also pass variadic templates, e.g.
+>   template <class? T> class A;
+>
+
+The template template argument issue is not an "in the future" issue; we
+get this wrong today:
+
+  template<typename> struct X {};
+  template<template<typename> class> void f();
+  template<template<typename...> class> void f();
+
+Both f<X>s have the same mangling.
+
+This might be a somewhat unhelpful observation, but the root cause of the
+problem seems to be that our mangling of a function template misses out
+part of the signature (the template parameter list); consequently, if the
+name of a function template specialization is not dependent, we must put
+sufficient information in the template arguments to allow us to recover the
+template parameter list (at least to the point that we can distinguish
+between overloads).
+
+It looks like the template template parameter / template type parameter
+duality for injected-class-names can also theoretically cause problems, but
+you need to be a terrible person to observe it:
+
+  template<template<typename T> class> int f() {}
+  template<class> int g() {}
+  template<typename> struct A {
+    template<typename T> friend void h(decltype(T() + f<A>()) *,
+decltype(T() + g<A>()) *, T) {}
+    void x() { h(0, 0, this); }
+  };
+  void j() { A<int>().x(); }
+
+Here, GCC mangles f<A> and g<A> the same, even though one of them refers to
+A as a class template, and the other refers to A as a non-template
+injected-class-name. That might just be a GCC bug, though; its diagnostics
+suggest that it thinks the template argument for f is A<int> rather than A.
+
+> There's another issue that we should probably fix at the same time:
+>> qualification conversions are permitted in template arguments, and we
+>> currently mangle a signature that performs a qualification conversion the
+>> same way as we mangle a signature that does not. We could either fold the
+>> qualification conversion into the last (synthetic) static_cast, or add an
+>> explicit synthetic const_cast to model it. I'm inclined to favour the
+>> latter, even though it will give longer manglings in the (hopefully rare)
+>> case where both conversions occur (because it also works if the user has
+>> cast away constness, and because it's simpler). Example:
+>>
+>> // tu1
+>> extern int n;
+>> template<int*> void f() {}
+>> void g() { f<&n>(); }
+>>
+>> // tu2
+>> extern int n;
+>> template<const int*> void f() {}
+>> void h() { f<&n>(); }
+>>
+>> Here:
+>> g calls _Z1fIXadL_Z1nEEEvv
+>> h calls _Z1fIXccPKiadL_Z1nEEEvv
+>>
+>>
+>> Is this a compatibility issue?  As in, aren?t qualification conversions
+>> already allowed in template arguments?  There might be a significant number
+>> of existing template arguments that, say, bind a non-const global to a
+>> const reference.
+>>
+>
+> Yes, this is a pre-existing bug in the ABI; we have always been required
+> to miscompile the above code. We could limit the scope of the damage by
+> only applying this change to function templates.
+>
+>
+> Hmm, yes, that would help a lot.
+>
+> A fair amount of code relies on separate template instantiations being
+> mangled consistently, but that code is generally either:
+>   - using RTTI for a class temploid specialization,
+>   - using a class template specialization as a parameter type, or
+>   - using an explicit instantiation.
+> The second is completely specific to class templates, the first is almost
+> completely specific to class templates (the exception being local classes
+> in a function template), and the third is mostly used for class templates.
+>
+> There?s relatively little code doing stuff like:
+>   - putting a static local variable in a function template or
+>   - using a function template specialization as a non-type template
+> argument to a template that itself needs symbol consistency for some reason.
+>
+> So yes, if this only practically affects instantiations of function
+> templates with non-type template parameters, and only when there?s a
+> qualifier mismatch between the actual declaration and the parameter, then
+> the overall impact should be tiny.
+>
+> Nonetheless, it?s an ABI break, and not just for a new feature but for
+> existing code.  So it should be separately formally proposed.
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/1ff0a7b4/attachment-0001.html>
+
+From rjmccall at apple.com  Wed Dec  3 00:34:30 2014
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 2 Dec 2014 16:34:30 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+	<9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+	<CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+Message-ID: <10F26B98-CE61-445A-B097-C5A703CB5747@apple.com>
+
+> On Dec 2, 2014, at 3:51 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 2 December 2014 at 13:58, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> Hmm.  I?d prefer not to hard-code an order dependence, because I think it?s likely that the committee will eventually weaken the rules about where packs can appear in parameter lists (e.g. to allow templates to pull arguments off the end instead of the beginning).
+> So I think we either need to do what EDG does and heroically match later arguments which have to be part of the pack ? which may or may not work equally well with future pack-placement rules ? or pull back and say we?re completely blocked by the existence of dependent pack expansions.
+> 
+> EDG's approach is impossible to follow in some cases, such as:
+> 
+>   template<int A, short B, int C = 0> struct X {};
+>   template<int ...N> void f(X<N..., 5>) {}
+>   template void f<0>(X<0, 5>);
+>   template void f<0, 1>(X<0, 1, 5>);
+> 
+> (EDG rejects this, which I suspect is related to their eager analysis of template arguments.)
+
+Okay.  So are we comfortable with a simple rule that dependent pack expansions always make a template argument ?dependent? in the sense I described?
+
+> I think the ABI rule we?re looking at is something like this:  there are two kinds of template argument, dependent and non-dependent.  A template argument is dependent if:
+>   - it is itself instantiation-dependent,
+>   - the template name is dependent, or
+>   - <some rule about dependent pack expansions?>.
+> 
+> ... or its corresponding template parameter is a non-type template parameter with a dependent type (or perhaps is an instantiation-dependent template template parameter).
+
+Ah, right.
+
+> A dependent template argument should be mangled using its original value/type/template-name expression.  A non-dependent non-type template argument can always be matched with a corresponding template parameter type and should be mangled as a (possibly coerced) literal value.
+> 
+> Right now, coercion only applies to non-type template arguments, but it?s also possible for it to apply to template template arguments in the future ? I was just thinking of passing
+>   template <class T, class U=int> class A;
+> to a parameter typed as:
+>   template<class> class
+> but Doug points out that you could also pass variadic templates, e.g.
+>   template <class? T> class A;
+> 
+> The template template argument issue is not an "in the future" issue; we get this wrong today:
+
+Oh, I didn?t realize this was something you could currently do; I assumed that template template arguments had to be well-kinded.  Silly me.
+
+I guess we need a contorting mangling here when the kind of a template doesn?t match the kind of a template template parameter, but? it?s probably not the most urgent thing we could be doing. :)  Especially given that you can contort the parameters of a template template parameter in a recursive position...
+
+>   template<typename> struct X {};
+>   template<template<typename> class> void f();
+>   template<template<typename...> class> void f();
+> 
+> Both f<X>s have the same mangling.
+> 
+> This might be a somewhat unhelpful observation, but the root cause of the problem seems to be that our mangling of a function template misses out part of the signature (the template parameter list); consequently, if the name of a function template specialization is not dependent, we must put sufficient information in the template arguments to allow us to recover the template parameter list (at least to the point that we can distinguish between overloads).
+
+I agree that the original sin here is not directly mangling anything about template parameter lists.  That?s not fixable, though, without completely breaking function-template compatibility.  The approach of mangling the final type/kind of template arguments works well enough, especially given that type/kind mismatches are uncommon and, in many cases, were previously forbidden.
+
+> It looks like the template template parameter / template type parameter duality for injected-class-names can also theoretically cause problems, but you need to be a terrible person to observe it:
+> 
+>   template<template<typename T> class> int f() {}
+>   template<class> int g() {}
+>   template<typename> struct A {
+>     template<typename T> friend void h(decltype(T() + f<A>()) *, decltype(T() + g<A>()) *, T) {}
+>     void x() { h(0, 0, this); }
+>   };
+>   void j() { A<int>().x(); }
+> 
+> Here, GCC mangles f<A> and g<A> the same, even though one of them refers to A as a class template, and the other refers to A as a non-template injected-class-name. That might just be a GCC bug, though; its diagnostics suggest that it thinks the template argument for f is A<int> rather than A.
+
+Definitely seems like a GCC bug.  I hope Clang mangles the first as a reference to A and the second as the type A<int>?
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/a86f91fb/attachment.html>
+
+From richardsmith at google.com  Wed Dec  3 01:42:43 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 2 Dec 2014 17:42:43 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <10F26B98-CE61-445A-B097-C5A703CB5747@apple.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+	<9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+	<CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+	<10F26B98-CE61-445A-B097-C5A703CB5747@apple.com>
+Message-ID: <CAGL0aWc4xRyf71iqu=Q5EZU506hc66wsdTduCxNjCGoE13RVJw@mail.gmail.com>
+
+On 2 December 2014 at 16:34, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 2, 2014, at 3:51 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 2 December 2014 at 13:58, John McCall <rjmccall at apple.com> wrote:
+>>
+>> Hmm.  I?d prefer not to hard-code an order dependence, because I think
+>> it?s likely that the committee will eventually weaken the rules about where
+>> packs can appear in parameter lists (e.g. to allow templates to pull
+>> arguments off the end instead of the beginning).
+>>
+> So I think we either need to do what EDG does and heroically match later
+>> arguments which have to be part of the pack ? which may or may not work
+>> equally well with future pack-placement rules ? or pull back and say we?re
+>> completely blocked by the existence of dependent pack expansions.
+>>
+>
+> EDG's approach is impossible to follow in some cases, such as:
+>
+>   template<int A, short B, int C = 0> struct X {};
+>   template<int ...N> void f(X<N..., 5>) {}
+>   template void f<0>(X<0, 5>);
+>   template void f<0, 1>(X<0, 1, 5>);
+>
+> (EDG rejects this, which I suspect is related to their eager analysis of
+> template arguments.)
+>
+>
+> Okay.  So are we comfortable with a simple rule that dependent pack
+> expansions always make a template argument ?dependent? in the sense I
+> described?
+>
+
+Is the suggestion that the entire template argument list becomes dependent
+if it contains a dependent pack expansion[1]? Or that template arguments at
+or after a dependent pack expansion become dependent? The latter is what
+everyone is currently doing; the former would be more future-proof but is
+an ABI break for all implementations I surveyed.
+
+ [1] How do we define "dependent pack expansion"? Current implementation
+practice is that it's expanding a pack of unknown size[2] into a non-pack
+parameter. If the pack is being expanded into a pack parameter, we know
+that every expansion of that pack, and every subsequent template argument,
+matches that parameter, so we can do the relevant conversions.
+
+ [2] What is a pack of unknown size? Sometimes we cannot yet expand a pack
+expansion, but we already know its size because we have already one of its
+constituent parameter packs. Consider:
+
+template<int, int, int, short...> struct X {};
+template<int...I> struct Y {
+  template<int...J> void f(X<I+J..., 5>);
+};
+void g() { Y<1, 2, 3>().f<4, 5, 6>({}); }
+
+The ABI doesn't specify how to mangle this; GCC
+uses _ZN1YIJLi1ELi2ELi3EEE1fIJLi4ELi5ELi6EEEEv1XIXspplT_T_ELi5EE which is
+wrong and collides with other manglings, Clang uses
+_ZN1YIJLi1ELi2ELi3EEE1fIJLi4ELi5ELi6EEEEv1XIXsppl_SUBSTPACK_T_EXLi5EEE
+which is outside the ABI but at least doesn't collide, EDG rejects.
+
+This at least suggests that "pack of unknown size" means that the pack
+expansion contains any dependent parameter pack, even if the pack expansion
+also contains a non-dependent parameter pack (so its size is knowable). And
+also that we're missing a mangling rule for the above case...
+
+> I think the ABI rule we?re looking at is something like this:  there are
+>> two kinds of template argument, dependent and non-dependent.  A template
+>> argument is dependent if:
+>>   - it is itself instantiation-dependent,
+>>   - the template name is dependent, or
+>>   - <some rule about dependent pack expansions?>.
+>>
+>
+> ... or its corresponding template parameter is a non-type template
+> parameter with a dependent type (or perhaps is an instantiation-dependent
+> template template parameter).
+>
+>
+> Ah, right.
+>
+> A dependent template argument should be mangled using its original
+>> value/type/template-name expression.  A non-dependent non-type template
+>> argument can always be matched with a corresponding template parameter type
+>> and should be mangled as a (possibly coerced) literal value.
+>>
+>> Right now, coercion only applies to non-type template arguments, but it?s
+>> also possible for it to apply to template template arguments in the future
+>> ? I was just thinking of passing
+>>   template <class T, class U=int> class A;
+>> to a parameter typed as:
+>>   template<class> class
+>> but Doug points out that you could also pass variadic templates, e.g.
+>>   template <class? T> class A;
+>>
+>
+> The template template argument issue is not an "in the future" issue; we
+> get this wrong today:
+>
+>
+> Oh, I didn?t realize this was something you could currently do; I assumed
+> that template template arguments had to be well-kinded.  Silly me.
+>
+> I guess we need a contorting mangling here when the kind of a template
+> doesn?t match the kind of a template template parameter, but? it?s probably
+> not the most urgent thing we could be doing. :)  Especially given that you
+> can contort the parameters of a template template parameter in a recursive
+> position...
+>
+>   template<typename> struct X {};
+>   template<template<typename> class> void f();
+>   template<template<typename...> class> void f();
+>
+> Both f<X>s have the same mangling.
+>
+> This might be a somewhat unhelpful observation, but the root cause of the
+> problem seems to be that our mangling of a function template misses out
+> part of the signature (the template parameter list); consequently, if the
+> name of a function template specialization is not dependent, we must put
+> sufficient information in the template arguments to allow us to recover the
+> template parameter list (at least to the point that we can distinguish
+> between overloads).
+>
+>
+> I agree that the original sin here is not directly mangling anything about
+> template parameter lists.  That?s not fixable, though, without completely
+> breaking function-template compatibility.  The approach of mangling the
+> final type/kind of template arguments works well enough, especially given
+> that type/kind mismatches are uncommon and, in many cases, were previously
+> forbidden.
+>
+> It looks like the template template parameter / template type parameter
+> duality for injected-class-names can also theoretically cause problems, but
+> you need to be a terrible person to observe it:
+>
+>   template<template<typename T> class> int f() {}
+>   template<class> int g() {}
+>   template<typename> struct A {
+>     template<typename T> friend void h(decltype(T() + f<A>()) *,
+> decltype(T() + g<A>()) *, T) {}
+>     void x() { h(0, 0, this); }
+>   };
+>   void j() { A<int>().x(); }
+>
+> Here, GCC mangles f<A> and g<A> the same, even though one of them refers
+> to A as a class template, and the other refers to A as a non-template
+> injected-class-name. That might just be a GCC bug, though; its diagnostics
+> suggest that it thinks the template argument for f is A<int> rather than A.
+>
+>
+> Definitely seems like a GCC bug.  I hope Clang mangles the first as a
+> reference to A and the second as the type A<int>?
+>
+
+Clang does not implement injected-class-name template-argument duality, so
+it rejects.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/b2cf61ca/attachment-0001.html>
+
+From rjmccall at apple.com  Wed Dec  3 02:47:47 2014
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 2 Dec 2014 18:47:47 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <CAGL0aWc4xRyf71iqu=Q5EZU506hc66wsdTduCxNjCGoE13RVJw@mail.gmail.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+	<9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+	<CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+	<10F26B98-CE61-445A-B097-C5A703CB5747@apple.com>
+	<CAGL0aWc4xRyf71iqu=Q5EZU506hc66wsdTduCxNjCGoE13RVJw@mail.gmail.com>
+Message-ID: <4EB7E694-F2FE-493E-835B-4A365A27E464@apple.com>
+
+> On Dec 2, 2014, at 5:42 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+> On 2 December 2014 at 16:34, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> On Dec 2, 2014, at 3:51 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> On 2 December 2014 at 13:58, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> Hmm.  I?d prefer not to hard-code an order dependence, because I think it?s likely that the committee will eventually weaken the rules about where packs can appear in parameter lists (e.g. to allow templates to pull arguments off the end instead of the beginning).
+>> So I think we either need to do what EDG does and heroically match later arguments which have to be part of the pack ? which may or may not work equally well with future pack-placement rules ? or pull back and say we?re completely blocked by the existence of dependent pack expansions.
+>> 
+>> EDG's approach is impossible to follow in some cases, such as:
+>> 
+>>   template<int A, short B, int C = 0> struct X {};
+>>   template<int ...N> void f(X<N..., 5>) {}
+>>   template void f<0>(X<0, 5>);
+>>   template void f<0, 1>(X<0, 1, 5>);
+>> 
+>> (EDG rejects this, which I suspect is related to their eager analysis of template arguments.)
+> 
+> Okay.  So are we comfortable with a simple rule that dependent pack expansions always make a template argument ?dependent? in the sense I described?
+> 
+> Is the suggestion that the entire template argument list becomes dependent if it contains a dependent pack expansion[1]? Or that template arguments at or after a dependent pack expansion become dependent? The latter is what everyone is currently doing; the former would be more future-proof but is an ABI break for all implementations I surveyed.
+
+I?m just trying to come up with a well-defined rule.  The current compiler behavior appears to be directly exposing implementation decisions about when to type-check template arguments against their parameters.  EDG?s efforts are well-intentioned and could certainly be followed without actually getting the case you described wrong; conversely, why should some amount of known-to-be-incomplete checking be required just to produce a correct mangling?  As far as I know, we generally don?t require any expressions in a function template signature to be type-checked except in specific circumstances which only apply if they?re instantiation-independent.
+
+A rule of ?use type-checked template arguments only if you can type-check all the template arguments? makes the most sense to me, but it might be too compatibility-breaking.
+
+>> Here, GCC mangles f<A> and g<A> the same, even though one of them refers to A as a class template, and the other refers to A as a non-template injected-class-name. That might just be a GCC bug, though; its diagnostics suggest that it thinks the template argument for f is A<int> rather than A.
+> 
+> Definitely seems like a GCC bug.  I hope Clang mangles the first as a reference to A and the second as the type A<int>?
+> 
+> Clang does not implement injected-class-name template-argument duality, so it rejects.
+
+Ah, okay.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/a3da8ee7/attachment.html>
+
+From richardsmith at google.com  Wed Dec  3 03:04:23 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 2 Dec 2014 19:04:23 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+In-Reply-To: <4EB7E694-F2FE-493E-835B-4A365A27E464@apple.com>
+References: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+	<D59AE6D4-FD62-4694-9505-A9340DD7D6DA@apple.com>
+	<CAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT+R7k+xwmcXsQTsJfLvA@mail.gmail.com>
+	<9649A637-ADFF-49A3-931D-067C36D915E6@apple.com>
+	<CAGL0aWfXEQ=_apB=ze96vaO9kvXvmWMjncVBtcfj9vYMtgdpww@mail.gmail.com>
+	<9CB039FF-AE64-4D8E-A6D8-394EF50EF1E7@apple.com>
+	<CAGL0aWfFVxSg6r+9j36r-PoVyyHs2BSs-JW6FcX+Wohvbb2EyQ@mail.gmail.com>
+	<10F26B98-CE61-445A-B097-C5A703CB5747@apple.com>
+	<CAGL0aWc4xRyf71iqu=Q5EZU506hc66wsdTduCxNjCGoE13RVJw@mail.gmail.com>
+	<4EB7E694-F2FE-493E-835B-4A365A27E464@apple.com>
+Message-ID: <CAGL0aWeW7moNapMCmYUyyGomeBLEDdU5EqXehbV2cbogofR2hg@mail.gmail.com>
+
+On 2 December 2014 at 18:47, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 2, 2014, at 5:42 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On 2 December 2014 at 16:34, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 2, 2014, at 3:51 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> On 2 December 2014 at 13:58, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>> Hmm.  I?d prefer not to hard-code an order dependence, because I think
+>>> it?s likely that the committee will eventually weaken the rules about where
+>>> packs can appear in parameter lists (e.g. to allow templates to pull
+>>> arguments off the end instead of the beginning).
+>>>
+>> So I think we either need to do what EDG does and heroically match later
+>>> arguments which have to be part of the pack ? which may or may not work
+>>> equally well with future pack-placement rules ? or pull back and say we?re
+>>> completely blocked by the existence of dependent pack expansions.
+>>>
+>>
+>> EDG's approach is impossible to follow in some cases, such as:
+>>
+>>   template<int A, short B, int C = 0> struct X {};
+>>   template<int ...N> void f(X<N..., 5>) {}
+>>   template void f<0>(X<0, 5>);
+>>   template void f<0, 1>(X<0, 1, 5>);
+>>
+>> (EDG rejects this, which I suspect is related to their eager analysis of
+>> template arguments.)
+>>
+>>
+>> Okay.  So are we comfortable with a simple rule that dependent pack
+>> expansions always make a template argument ?dependent? in the sense I
+>> described?
+>>
+>
+> Is the suggestion that the entire template argument list becomes dependent
+> if it contains a dependent pack expansion[1]? Or that template arguments at
+> or after a dependent pack expansion become dependent? The latter is what
+> everyone is currently doing; the former would be more future-proof but is
+> an ABI break for all implementations I surveyed.
+>
+>
+> I?m just trying to come up with a well-defined rule.  The current compiler
+> behavior appears to be directly exposing implementation decisions about
+> when to type-check template arguments against their parameters.  EDG?s
+> efforts are well-intentioned and could certainly be followed without
+> actually getting the case you described wrong; conversely, why should some
+> amount of known-to-be-incomplete checking be required just to produce a
+> correct mangling?  As far as I know, we generally don?t require any
+> expressions in a function template signature to be type-checked except in
+> specific circumstances which only apply if they?re
+> instantiation-independent.
+>
+> A rule of ?use type-checked template arguments only if you can type-check
+> all the template arguments? makes the most sense to me, but it might be too
+> compatibility-breaking.
+>
+
+I think that's a good direction to pursue. Do we have a good way of
+measuring the actual impact of such changes?
+
+There's also the question of whether we canonicalize the template
+arguments. Consider:
+
+  template<int, int> struct X {};
+  template<int ...N> void f(X<N..., 1 + 1>);
+  void h() { f<0>({}); }
+
+Here, due to the pack expansion, GCC and Clang mangle the 1 + 1 template
+argument as XplLi1ELi1EE. That's non-conforming; this expression doesn't
+involve a template parameter, so
+
+  template<int ...N> void f(X<N..., 2>) {}
+  template void f<0>(X<0, 2>);
+
+... in another TU is required to instantiate the same function template
+specialization. I'm torn on whether this is a defect in the standard or
+whether we should kowtow to this in the ABI.
+
+> Here, GCC mangles f<A> and g<A> the same, even though one of them refers
+>> to A as a class template, and the other refers to A as a non-template
+>> injected-class-name. That might just be a GCC bug, though; its diagnostics
+>> suggest that it thinks the template argument for f is A<int> rather than A.
+>>
+>>
+>> Definitely seems like a GCC bug.  I hope Clang mangles the first as a
+>> reference to A and the second as the type A<int>?
+>>
+>
+> Clang does not implement injected-class-name template-argument duality, so
+> it rejects.
+>
+>
+> Ah, okay.
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141202/29df0706/attachment-0001.html>
+
+From jason at redhat.com  Sun Dec 14 06:11:00 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Sun, 14 Dec 2014 01:11:00 -0500
+Subject: [cxx-abi-dev] C++14 sized deallocation
+Message-ID: <548D29F4.2050404@redhat.com>
+
+It seems that clang deals with the C++14 sized deallocation functions by 
+emitting weak definitions wherever they are used.  What is the advantage 
+of this approach over a single interposable definition in the support 
+library?
+
+Jason
+
+From richardsmith at google.com  Sun Dec 14 20:36:54 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Sun, 14 Dec 2014 12:36:54 -0800
+Subject: [cxx-abi-dev] C++14 sized deallocation
+In-Reply-To: <548D29F4.2050404@redhat.com>
+References: <548D29F4.2050404@redhat.com>
+Message-ID: <CAGL0aWeSKOXtqmZ6sf1d81hmNW4ct-1SCTX3dCA6eLjEofJU7Q@mail.gmail.com>
+
+On 13 December 2014 at 22:11, Jason Merrill <jason at redhat.com> wrote:
+
+> It seems that clang deals with the C++14 sized deallocation functions by
+> emitting weak definitions wherever they are used.  What is the advantage of
+> this approach over a single interposable definition in the support library?
+
+
+It doesn't require an interposable definition in a support library. =) On
+some systems, we link against a system-provided library instead of our own
+support library, and that library cannot be relied on to provide the sized
+deallocation function.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141214/c2adaf9e/attachment.html>
+

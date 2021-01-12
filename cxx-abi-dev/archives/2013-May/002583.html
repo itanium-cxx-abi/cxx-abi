@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20need%20mangling%20for%20string%20literals%20and%0A%20lifetime-extended%20temporaries%20used%20in%20static%20constexpr%20member%20initializers%0A%20and%20for%20string%20literals%20in%20constexpr%20functions&In-Reply-To=%3CCAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL%3Dg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002582.html">
+   <LINK REL="Next"  HREF="002584.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20need%20mangling%20for%20string%20literals%20and%0A%20lifetime-extended%20temporaries%20used%20in%20static%20constexpr%20member%20initializers%0A%20and%20for%20string%20literals%20in%20constexpr%20functions&In-Reply-To=%3CCAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL%3Dg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions">richardsmith at google.com
+       </A><BR>
+    <I>Fri May 24 05:23:19 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002582.html">[cxx-abi-dev] Fwd: need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+        <LI>Next message: <A HREF="002584.html">[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2583">[ date ]</a>
+              <a href="thread.html#2583">[ thread ]</a>
+              <a href="subject.html#2583">[ subject ]</a>
+              <a href="author.html#2583">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>So... this problem was not really new in C++11. In C++98 it can be
+witnessed for an inline function such as:
+
+inline const char *get() {
+  static const char *str = &quot;foo&quot;;
+  return str;
+}
+
+And for lifetime-extended temporaries:
+
+inline const int *get() {
+  static const int &amp;n = 0;
+  return &n;
+}
+
+In the latter case, both GCC and Clang have manglings for the
+lifetime-extended temporary (although they both give it internal linkage),
+following the pattern for GV manglings. They are:
+
+Clang mangling:
+  &lt;special-name&gt; ::= GR &lt;object name&gt;
+This doesn't work, because a single object can lifetime extend multiple
+entities (Clang does not model that situation correctly at the moment).
+
+GCC mangling:
+  &lt;special-name&gt; ::= GR &lt;object name&gt; &lt;index&gt;
+... where &lt;index&gt; is the index of the lifetime-extended temporary *within
+the TU*.
+
+I suggest we adopt the GCC model for these cases, but specify how to count
+the &lt;index&gt; within the object.
+
+On Thu, May 23, 2013 at 9:56 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;wrote:
+
+&gt;<i> Consider:
+</I>&gt;<i>
+</I>&gt;<i> // tu1
+</I>&gt;<i> struct A { static constexpr const char *p = &quot;foo&quot;; };
+</I>&gt;<i> const char *q = A::p;
+</I>&gt;<i> // tu2
+</I>&gt;<i> struct A { static constexpr const char *p = &quot;foo&quot;; };
+</I>&gt;<i> const char *r = A::p;
+</I>&gt;<i>
+</I>&gt;<i> We are required to ensure that q == r, but gcc, clang, and EDG all fail to
+</I>&gt;<i> do so. Therefore we presumably need to give the string literal a mangled
+</I>&gt;<i> name. Likewise for string literals which appear within constexpr function
+</I>&gt;<i> bodies:
+</I>&gt;<i>
+</I>&gt;<i> // tu1
+</I>&gt;<i> constexpr const char *get() { return &quot;bar&quot;; }
+</I>&gt;<i> const char *a = get();
+</I>&gt;<i> // tu2
+</I>&gt;<i> constexpr const char *get() { return &quot;bar&quot;; }
+</I>&gt;<i> const char *b = get();
+</I>&gt;<i>
+</I>&gt;<i> ... and also for lifetime-extended temporaries:
+</I>&gt;<i>
+</I>&gt;<i> struct X { int n; };
+</I>&gt;<i> struct B { static constexpr X &amp;&amp;x = {0}; };
+</I>&gt;<i> X &amp;y = B::x; // must be same X object in all TUs
+</I>&gt;<i>
+</I>&gt;<i> (Both Clang and g++ have a rejects-valid on this, but EDG accepts it.)
+</I>&gt;<i>
+</I>&gt;<i> ... and likewise for lifetime-extended arrays underlying
+</I>&gt;<i> std::initializer_list objects.
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130523/6ac3c3d7/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130523/6ac3c3d7/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002582.html">[cxx-abi-dev] Fwd: need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+	<LI>Next message: <A HREF="002584.html">[cxx-abi-dev] need mangling for string literals and lifetime-extended temporaries used in static constexpr member initializers and for string literals in constexpr functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2583">[ date ]</a>
+              <a href="thread.html#2583">[ thread ]</a>
+              <a href="subject.html#2583">[ subject ]</a>
+              <a href="author.html#2583">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

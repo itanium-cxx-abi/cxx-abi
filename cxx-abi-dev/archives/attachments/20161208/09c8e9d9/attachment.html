@@ -1,0 +1,43 @@
+<tt>
+&lt;div&nbsp;dir=&quot;ltr&quot;&gt;&lt;div&gt;On&nbsp;8&nbsp;December&nbsp;2016&nbsp;at&nbsp;10:41,&nbsp;Jason&nbsp;Merrill&nbsp;&lt;span&nbsp;dir=&quot;ltr&quot;&gt;&lt;&lt;a&nbsp;href=&quot;mailto:jason@redhat.com&quot;&nbsp;target=&quot;_blank&quot;&gt;jason@redhat.com&lt;/a&gt;&gt;&lt;/span&gt;&nbsp;wrote:&lt;br&gt;&lt;/div&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;How&nbsp;should&nbsp;&#39;auto&#39;&nbsp;parameters&nbsp;in&nbsp;a&nbsp;generic&nbsp;lambda&nbsp;be&nbsp;mangled? &nbsp;Mangling&lt;br&gt;<br>
+them&nbsp;as&nbsp;normal&nbsp;template&nbsp;parameters&nbsp;doesn&#39;t&nbsp;really&nbsp;work,&nbsp;as&nbsp;they&nbsp;can&lt;br&gt;<br>
+end&nbsp;up&nbsp;with&nbsp;the&nbsp;same&nbsp;mangling&nbsp;as&nbsp;the&nbsp;template&nbsp;parameter&nbsp;for&nbsp;which&nbsp;they&lt;br&gt;<br>
+are&nbsp;an&nbsp;argument.&lt;br&gt;<br>
+&lt;br&gt;<br>
+template&lt;typename&nbsp;T&gt;&lt;br&gt;<br>
+T&nbsp;&amp;&amp;forward&nbsp;(T&nbsp;&amp;v)&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;return&nbsp;static_cast&lt;T&nbsp;&amp;&amp;&gt;(v);&lt;br&gt;<br>
+}&lt;br&gt;<br>
+&lt;br&gt;<br>
+template&lt;typename&nbsp;FN&gt;&lt;br&gt;<br>
+ &nbsp;void&nbsp;indirect&nbsp;(FN&nbsp;&amp;&amp;handler)&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;forward&lt;FN&gt;&nbsp;(handler);&lt;br&gt;<br>
+}&lt;br&gt;<br>
+&lt;br&gt;<br>
+inline&nbsp;void&nbsp;Foo&nbsp;()&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;auto&nbsp;lambda&nbsp;=&nbsp;[](auto&nbsp;&amp;)&nbsp;{&nbsp;};&lt;br&gt;<br>
+&lt;br&gt;<br>
+ &nbsp;forward&nbsp;(lambda);&lt;br&gt;<br>
+ &nbsp;indirect&nbsp;(lambda);&lt;br&gt;<br>
+}&lt;br&gt;<br>
+&lt;br&gt;<br>
+void&nbsp;(*p)()&nbsp;=&nbsp;Foo;&lt;br&gt;<br>
+&lt;br&gt;<br>
+For&nbsp;this&nbsp;GCC&nbsp;and&nbsp;Clang&nbsp;both&nbsp;currently&nbsp;produce&lt;br&gt;<br>
+&lt;br&gt;<br>
+_Z7forwardIZ3FoovEUlRT_E_EOS0_&lt;wbr&gt;S1_&lt;br&gt;<br>
+&lt;br&gt;<br>
+where&nbsp;the&nbsp;T_&nbsp;refers&nbsp;to&nbsp;the&nbsp;template&nbsp;parameter&nbsp;currently&nbsp;being&lt;br&gt;<br>
+described,&nbsp;causing&nbsp;the&nbsp;demangler&nbsp;to&nbsp;crash&nbsp;due&nbsp;to&nbsp;infinite&nbsp;recursion&lt;br&gt;<br>
+(&lt;a&nbsp;href=&quot;https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;https://gcc.gnu.org/bugzilla/&lt;wbr&gt;show_bug.cgi?id=78252&lt;/a&gt;).&lt;br&gt;<br>
+&lt;br&gt;<br>
+Nathan&nbsp;proposes&nbsp;to&nbsp;change&nbsp;the&nbsp;parameters&nbsp;to&nbsp;mangle&nbsp;using&nbsp;Da,&nbsp;which&lt;br&gt;<br>
+seems&nbsp;reasonable. &nbsp;I&#39;m&nbsp;not&nbsp;sure&nbsp;how&nbsp;that&nbsp;will&nbsp;extend&nbsp;to&nbsp;concepts,&nbsp;but&lt;br&gt;<br>
+concepts&nbsp;mangling&nbsp;as&nbsp;a&nbsp;whole&nbsp;is&nbsp;an&nbsp;unsolved&nbsp;problem.&lt;br&gt;<br>
+&lt;br&gt;<br>
+Any&nbsp;thoughts?&lt;br&gt;&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Are&nbsp;there&nbsp;cases&nbsp;where&nbsp;the&nbsp;current&nbsp;scheme&nbsp;causes&nbsp;mangling&nbsp;collisions&nbsp;(where&nbsp;T_&nbsp;can&nbsp;actually&nbsp;be&nbsp;interpreted&nbsp;two&nbsp;different&nbsp;ways)?&nbsp;It&nbsp;seems&nbsp;to&nbsp;me&nbsp;that,&nbsp;so&nbsp;long&nbsp;as&nbsp;we&nbsp;continue&nbsp;to&nbsp;be&nbsp;careful&nbsp;to&nbsp;restrict&nbsp;lambda-expressions&nbsp;from&nbsp;appearing&nbsp;in&nbsp;a&nbsp;signature&nbsp;(either&nbsp;directly&nbsp;or&nbsp;via&nbsp;an&nbsp;alias&nbsp;template),&nbsp;T_&nbsp;within&nbsp;the&nbsp;scope&nbsp;of&nbsp;Ul...E&nbsp;can&nbsp;/only/&nbsp;mean&nbsp;the&nbsp;template&nbsp;parameter&nbsp;of&nbsp;the&nbsp;lambda-expression&nbsp;itself,&nbsp;and&nbsp;not&nbsp;an&nbsp;enclosing&nbsp;template&nbsp;parameter.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Of&nbsp;note&nbsp;is&nbsp;the&nbsp;repeated&nbsp;suggestion&nbsp;to&nbsp;allow&nbsp;explicit&nbsp;template&nbsp;parameter&nbsp;lists&nbsp;in&nbsp;lambdas&nbsp;(at&nbsp;this&nbsp;point,&nbsp;I&#39;d&nbsp;give&nbsp;this&nbsp;a&nbsp;very&nbsp;solid&nbsp;chance&nbsp;of&nbsp;being&nbsp;part&nbsp;of&nbsp;C++20):&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt; &nbsp;auto&nbsp;lambda&nbsp;=&nbsp;[]&lt;typename&nbsp;T&gt;(T&nbsp;a,&nbsp;T&nbsp;b)&nbsp;{};&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;We&nbsp;would&nbsp;presumably&nbsp;need&nbsp;to&nbsp;mangle&nbsp;that&nbsp;as&nbsp;UlT_T_E&nbsp;even&nbsp;with&nbsp;the&nbsp;Da&nbsp;suggestion,&nbsp;so&nbsp;it&nbsp;seems&nbsp;that&nbsp;demanglers&nbsp;are&nbsp;just&nbsp;going&nbsp;to&nbsp;need&nbsp;to&nbsp;cope&nbsp;with&nbsp;Ul&nbsp;introducing&nbsp;a&nbsp;new&nbsp;template&nbsp;parameter&nbsp;scope.&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;<br>
+
+</tt>

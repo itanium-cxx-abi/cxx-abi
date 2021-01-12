@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> RTTI data layout flaw
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20data%20layout%20flaw&In-Reply-To=%3C3882E208.9B35466F%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000438.html">
+   <LINK REL="Next"  HREF="000433.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>RTTI data layout flaw</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20data%20layout%20flaw&In-Reply-To=%3C3882E208.9B35466F%40codesourcery.com%3E"
+       TITLE="RTTI data layout flaw">nathan at acm.org
+       </A><BR>
+    <I>Mon Jan 17 09:34:00 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000438.html">Vtable offsets
+</A></li>
+        <LI>Next message: <A HREF="000433.html">RTTI data layout flaw
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#432">[ date ]</a>
+              <a href="thread.html#432">[ thread ]</a>
+              <a href="subject.html#432">[ subject ]</a>
+              <a href="author.html#432">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+There is a flaw in the specified rtti data structures. The data
+structures work only when a complete linked program has a definition of
+all the required classes. However, C++ does not guarantee this. Here is
+an example
+
+-- fn1.cc
+struct Foo;
+
+void fn () {
+  throw (Foo **)0;
+}
+-- main1.cc
+struct Foo;
+struct Bar;
+void fn ();
+int main () {
+  try { fn ();}
+  catch (Bar const *const *) { printf (&quot;wrong\n&quot;);}
+  catch (Foo const *const *) { printf (&quot;ok\n&quot;);}
+  return 0;
+}
+
+Notice, I'm dealing with **, which is a pointer to complete type, so
+[except.throw]/3 and [except.handle]/1 do not prevent this.
+
+A complete program consisting of fn1.o and main1.o, is well defined and
+should print &quot;ok\n&quot;, not &quot;wrong\n&quot;. The difficulty is that the compiler
+never saw any definition of Foo or Bar, so what does it output as the
+type_info object for them? The type_info object for Foo ** consists of
+__pointer_type_info
+-&gt;__pointer_type_info
+  -&gt;What?
+
+We cannot use weak linkage for a Foo type_info object, as, in this case
+that would resolve to zero, and be indistinguishable from the Bar in
+Bar **.
+
+Another choice would be to emit an empty __class_type_info object, but
+then what ensures that the real __class_type_info object is resolved to,
+when linked with an object file which does contain a definition of Foo?
+
+One choice which might work is some kind of __class_proxy_type_info,
+which contains a single member pointing to the real __class_type_info
+object with weak linkage. The name mangling for a
+__class_proxy_type_info will be different to that of a __class_type_info
+object. In the above case, Foo ** would be represented as
+__pointer_type_info
+-&gt;__pointer_type_info
+  -&gt;__class_proxy_type_info
+    -&gt;(weakly)__class_type_info.
+The final __class_type_info object is not emitted in the compilation
+unit, as Foo's definition is never seen. Now, we can distinguish
+`Bar const *const *' from `Foo const *const *', as the inner pointers
+will point to different __class_proxy_type_info objects.
+
+In pointer_type_info's we do not need to go via a
+__class_proxy_type_info, if the compilation unit has seen the
+definition of the pointed-to class. The catch matching algorithm will
+need to be aware that it might be given two paths, one of which goes
+via a class_proxy_type_info, and one that does not. In this case, the
+class_proxy_type_info should point to the real class.
+
+type_info::operator == is not affected by proxies. Proxies are only
+important when traversing the pointer heirarchy in catch matching.
+
+There is a difficulty with DSO's containing the definition of the
+class, and loaded into programs without the definition. Here is an
+example, with some pseudo code describing the loading.
+
+--fn2.cc
+struct Foo {};
+struct Bar : Foo {};
+void fn1 () {
+  throw (Foo const **)0;
+}
+void fn2 () {
+  try
+    { throw (Bar *)0;}
+  catch (Foo *)
+    {}
+  catch (...)
+    {abort ();}
+}
+--main2.cc
+struct Foo;
+
+int main ()
+{
+  handle == dlopen (&quot;fn2&quot;); // load the library
+  void (*f1) () = dlsymbol (handle, &quot;fn1&quot;); // get fn1 entry
+  void (*f2) () = dlsymbol (handle, &quot;fn2&quot;); // get fn2 entry
+  
+  try
+    { (*f1) ();}
+  catch (Foo **)
+    { printf (&quot;ok\n&quot;);}
+  (*f2) ();
+}
+
+This should print &quot;ok\&quot;, and not call abort in fn2. But, consider what
+the type_info objects look like. Here I've assumed a name mangling,
+
+fn2.o (before loading)
+__ti_Foo:__class_type_info
+        Foo's descriptor
+__ti_pFoo:__pointer_type_info
+        target = &amp;__ti_Foo
+__ti_ppFoo:__pointer_type_info
+        target = &amp;__ti_pFoo
+__ti_Bar:__si_class_type_info
+        Bar's descriptor
+        base = &amp;__ti_Foo
+__ti_pBar:__pointer_type_info
+        target = &amp;__ti_Bar
+
+main2.o (before loading)
+__ti_proxy_Foo:__class_proxy_type_info
+        target = &amp;__ti_Foo (weak, zero)
+__ti_pFoo:__pointer_type_info
+        target = &amp;__ti_proxy_Foo
+__ti_ppFoo:__pointer_type_info
+        target = &amp;__ti_pFoo (this will be NULL)
+
+When fn2 is loaded, COMDAT linkage will resolve some of the symbols in
+fn2, to those in main2. Namely __ti_pFoo &amp; __ti_ppFoo.
+Consider what happens in the catch clause of fn2. The thrown type_info
+will be __ti_pBar, which fully describes a pointer to Bar. The catch
+type_info will be __ti_pFoo, which is the instance defined in main2.
+This does not fully describe a pointer to Foo, as the proxy's target is
+NULL. To get this to work, the proxy's target needs adjusting.
+
+I'm not familiar with the nitty gritty details of DSO loading, nor with
+SO loading, to know whether the above behaves as desired. As the ABI
+should support shared libraries, we need to ensure it works for those. I
+do not know whether another goal is to support DSO's.
+
+nathan
+-- 
+Dr Nathan Sidwell :: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>  <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A>  <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at cs.bris.ac.uk</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000438.html">Vtable offsets
+</A></li>
+	<LI>Next message: <A HREF="000433.html">RTTI data layout flaw
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#432">[ date ]</a>
+              <a href="thread.html#432">[ thread ]</a>
+              <a href="subject.html#432">[ subject ]</a>
+              <a href="author.html#432">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

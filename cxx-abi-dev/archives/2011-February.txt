@@ -1,0 +1,532 @@
+From michaelw at ca.ibm.com  Wed Feb  2 23:35:17 2011
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Wed, 2 Feb 2011 18:35:17 -0500
+Subject: [cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium
+ ABI
+In-Reply-To: <4CE3933B.9070008@justsoftwaresolutions.co.uk>
+Message-ID: <OFD6AFD5D3.42D2D0A4-ON8525782B.0071F71F-8525782B.00819227@ca.ibm.com>
+
+
+Hi, I wonder if Nathan Sidwell, Mark Michell or others can comment on the
+feasibility of these 2 enhancement choices to enable copyable exception
+objects.
+A solution to this is required by C++0x LWG issue 1369 which is in review
+status now:
+http://lwg.github.com/issues/lwg-active.html#1369
+
+We discussed this at Fermi Lab and one solution is that we need to start by
+requiring one of the many ABI's out there starting with the C++ABI. I
+realize there are other ABIs out there but it would be good to support
+I like the second option, and it seems the spec as Anthony mention already
+make provisions for enhancing the exception object header in the negative
+direction, and in fact complete replace that header to allow a copyable
+version of the exception object.
+
+We just would like some confirmation that this is allowed from others who
+have designed the original C++ ABI exception.
+
+
+Regards, Michael
+
+Rational C/C++ cafe:
+http://www.ibm.com/software/rational/cafe/community/ccpp
+My Blogs:
+Parallel & Multi-Core Computing
+http://www.ibm.com/software/rational/cafe/blogs/ccpp-parallel-multicore
+C++ Language & Standard
+http://www.ibm.com/software/rational/cafe/blogs/cpp-standard
+Commercial Computing
+http://www.ibm.com/software/rational/cafe/blogs/ccpp-commercial
+Boost test results
+http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+
+C/C++ Compilers Support Page
+http://www.ibm.com/software/awdtools/ccompilers/support/
+C/C++ Feature Request Interface
+http://www.ibm.com/support/docview.wss?uid=swg27005811
+XL Fortran Compiler Support Page
+http://www.ibm.com/software/awdtools/fortran/xlfortran/support/
+XL Fortran Feature Request Interface
+http://www.ibm.com/support/docview.wss?uid=swg27005812
+
+Michael Wong
+XL C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+Anthony Williams <anthony at justsoftwaresolutions.co.uk> wrote on 11/17/2010
+03:32:59 AM:
+
+> [image removed]
+>
+> [cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium
+ABI
+>
+> Anthony Williams
+>
+> to:
+>
+> cxx-abi-dev
+>
+> 11/17/2010 04:05 AM
+>
+> Hi,
+>
+> With the current draft of the upcoming C++0x standard, it is unclear
+> whether the exception thrown by std::rethrow_exception is the same
+> exception object that was originally thrown, or a copy thereof. Indeed,
+> different implementations do different things: gcc rethrows the same
+> exception object, and MSVC2010 throws a copy.
+>
+> I believe that this is a mistake; std::rethrow_exception should always
+> throw a copy. If it rethrows the same exception then the same exception
+> object may now become active in multiple threads. This then exposes the
+> **handlers** to data races should they catch by reference and call any
+> member functions that modify the exception object.
+>
+> One use case I have seen for this is to add call stack information to an
+> exception for logging purposes. e.g.
+>
+> void g();
+>
+> struct my_exception
+> {
+>      void add_caller(std::string const& function_name,int arg1,int arg2);
+> };
+>
+> void f(int arg1,int arg2){
+>     try{
+>        g();
+>     catch(my_exception& e)
+>     {
+>        e.add_caller("f(int,int)",arg1,arg2);
+>        throw;
+>     }
+> }
+>
+> Under C++03, any exception thrown by g() must originate in this thread,
+> so there is no possibility of a data race in f(). Under C++0x we must
+> contend with the possibility that the exception originated in another
+> thread. e.g.
+>
+> std::mutex m;
+> std::exception_ptr ep;
+>
+> void g()
+> {
+>      std::lock_guard<std::mutex> lk(m);
+>      if(ep)
+>          std::rethrow_exception(ep);
+> }
+>
+> If multiple threads call g() they may thus each rethrow the same
+> exception. If this truly is the **same** exception object (and not a
+> copy) then callers such as f() have now been exposed to a data race,
+> **without changing f()**.
+>
+> Also, under the latitude provided by the C++0x draft, this behaviour may
+> vary from compiler to compiler. I can write some code that is race-free
+> under MSVC2010, but if I then recompile it with gcc then I have a data
+> race, **without any indication from the compiler**.
+>
+> I am aware that the reason for gcc's behaviour in this case is that the
+> Itanium ABI does not provide the necessary information to copy an
+> exception object, which is why I am posting here. I would like to
+> propose changing the Itanium ABI to provide the necessary information to
+> copy the exception object, **whilst remaining backwards compatible**.
+>
+> Based on the documentation at
+> http://www.codesourcery.com/public/cxx-abi/abi.html I have a couple of
+> ideas on how this could be done.
+>
+> One option I see would be to add a new class derived from
+> abi::__class_type_info that had virtual member functions for the size
+> and copy constructor:
+>
+> class __copyable_class_type_info: public __class_type_info
+> {
+> public:
+>      size_t __object_size;
+>      virtual void __copy_construct(void* __source, void* __dest)=0;
+> };
+>
+> You would need similar derived classes for __si_class_type_info and
+> __vmi_class_type_info.
+>
+> Because these are derived classes, they shouldn't affect the existing
+> ABI structures. The size of non-class types can be determined from the
+> type directly, since all pointers have the same size and fundamental
+> types have a fixed size under the ABI. Such types can also be copied
+> with memcpy(). The type_info for classes for which there is no public
+> copy constructor would not derive from these new type-info classes.
+>
+> rethrow_exception can then check the type_info pointed to by the
+> exceptionType member of the __cxa_exception header, and either
+>
+> (i) copy the exception with memcpy (because it's a fundamental type or
+> pointer)
+>
+> (ii) throw bad_alloc because this is an exception that cannot therefore
+> be copied (i.e. it has no public copy constructor, or because it is from
+> the old ABI)
+>
+> (iii) dynamic_cast the type info to __copyable_class_type_info use the
+> new __object_size and __copy_construct virtual functions to clone the
+> exception
+>
+> A second option is to add the size and copy construction functions to
+> the __cxa_exception header. The ABI says "By convention, a
+> __cxa_exception pointer points at the C++ object representing the
+> exception being thrown, immediately following the header. The header
+> structure is accessed at a negative offset from the __cxa_exception
+> pointer. This layout allows consistent treatment of exception objects
+> from different languages (or different implementations of the same
+> language), and allows future extensions of the header structure while
+> maintaining binary compatibility. "
+>
+> We could therefore take advantage of this leeway to "extend the header
+> structure while maintaining binary compatibility" to add the new size
+> and copy construction members. In this case, the stored copy constructor
+> could be NULL if there is no public copy constructor for the class.
+>
+> In either case, the intention is that old code would work without
+> recompilation even if the library code that it called was changed to use
+> the new ABI, and new code could take advantage of the ability to copy
+> exceptions where the exception was thrown from code that used the new
+ABI.
+>
+> What do you think? Are these options implementable in a
+> backwards-binary-compatible way? Is there an alternative implementation
+> option?
+>
+> Thanks,
+>
+> Anthony
+> --
+> Author of C++ Concurrency in Action     http://www.stdthread.co.uk/book/
+> just::thread C++0x thread library             http://www.stdthread.co.uk
+> Just Software Solutions Ltd       http://www.justsoftwaresolutions.co.uk
+> 15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20110202/9bdc687e/attachment.html>
+
+From rjmccall at apple.com  Thu Feb  3 01:12:04 2011
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 2 Feb 2011 17:12:04 -0800
+Subject: [cxx-abi-dev] C++0x std::rethrow_exception, data races and the Itanium ABI
+In-Reply-To: <OFD6AFD5D3.42D2D0A4-ON8525782B.0071F71F-8525782B.00819227@ca.ibm.com>
+References: <OFD6AFD5D3.42D2D0A4-ON8525782B.0071F71F-8525782B.00819227@ca.ibm.com>
+Message-ID: <DD493F50-D795-42E2-929A-A7289FB1269A@apple.com>
+
+On Feb 2, 2011, at 3:35 PM, Michael Wong wrote:
+> Hi, I wonder if Nathan Sidwell, Mark Michell or others can comment on the feasibility of these 2 enhancement choices to enable copyable exception objects.
+> A solution to this is required by C++0x LWG issue 1369 which is in review status now:
+> http://lwg.github.com/issues/lwg-active.html#1369
+> 
+I'm generally skeptical of the original language proposal, the allowance of "forking" rethrows, and the effort to impose these specific semantics retroactively onto the Itanium ABI, but this isn't the forum for that, so I'll try to limit my comments to technical aspects of the concrete proposals.
+
+Proposal 1 (RTTI enhancement).
+
+Adding a virtual method to RTTI objects is a non-starter.  This method would need to overridden in every class with a public non-trivial copy constructor;  that in turn requires all these RTTI objects to have custom classes.  That's a huge explosion in the amount of type metadata required.  It also forces compilers to hard-code a lot of information about the vtables in std::type_info's type hierarchy.
+
+There's a fix to this, which is to make this a function pointer in the RTTI object instead.  The signature should also be adjusted so that, in the extremely common case of a copy ctor without default arguments, we can just initialize this with the address of the copy ctor.  So the workable proposal is to add three new type_info subclasses with two new subclasses:
+  size_t __object_size;
+  void (*__copy_construct)(void *__dest, void *__src);
+
+Note that there are derived ABIs, like the ARM C++ ABI, where constructors don't return void.  Either we'd have to ignore that ? and I don't know of any architectures where it's unsafe to do so ? or the type of this field would not be portable.
+
+This proposal would require us to instantiate and emit the copy constructor of every class we emit RTTI for.  This is actually prohibited by the current language spec, so we'd need language sanction for this.  This is also a potentially significant code-size and compile-time issue.
+
+Proposal 2 (prepending fields to the exception data).
+
+I think this is a somewhat more elegant implementation choice, particularly since the original design was intended to be extended in this way, and it's been done before on some major platforms (in service of std::rethrow_exception, in fact).  IIRC, there exist (or at least there did exist) programs which rely on an exact size for the exception data, but I don't recall which and whether they've been fixed.
+
+We'd need a new __cxa_throw variant called something like __cxa_throw_copyable.  I presume that throwing a trivially-copyable class would pass a null copy-ctor to the new variant, whereas throwing a class with an inaccessible or deleted copy ctor would just use __cxa_throw.  Code throwing a non-class would still be allowed to throw with __cxa_throw, and std::rethrow_exception would just have to look for such types and DTRT.
+
+Under either proposal, the C++0x standard library would need to export new symbols (either the new vtables or a new __cxa_throw variant) which would be used by a lot of code compiled for '0x regardless of whether that code actually used std::rethrow_exception.  This means that programs compiled for '0x would not be able to link against an '03 standard library even if they didn't actually use any '0x features requiring runtime support, which is actually a pretty serious concern.  It's a much bigger problem for Proposal 1, where all code emitting RTTI for classes with public copy ctors would suddenly use the new symbols, whereas Proposal 2 would only affect code that actually contains throws.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20110202/c23da45b/attachment.html>
+
+From anthony at justsoftwaresolutions.co.uk  Thu Feb 17 08:54:38 2011
+From: anthony at justsoftwaresolutions.co.uk (Anthony Williams)
+Date: Thu, 17 Feb 2011 08:54:38 +0000
+Subject: [cxx-abi-dev] C++0x std::rethrow_exception, data races and the
+ Itanium ABI
+In-Reply-To: <DD493F50-D795-42E2-929A-A7289FB1269A@apple.com>
+References: <OFD6AFD5D3.42D2D0A4-ON8525782B.0071F71F-8525782B.00819227@ca.ibm.com> <DD493F50-D795-42E2-929A-A7289FB1269A@apple.com>
+Message-ID: <4D5CE24E.4010607@justsoftwaresolutions.co.uk>
+
+On 03/02/11 01:12, John McCall wrote:
+> On Feb 2, 2011, at 3:35 PM, Michael Wong wrote:
+>>
+>> Hi, I wonder if Nathan Sidwell, Mark Michell or others can comment on
+>> the feasibility of these 2 enhancement choices to enable copyable
+>> exception objects.
+>> A solution to this is required by C++0x LWG issue 1369 which is in
+>> review status now:
+>> http://lwg.github.com/issues/lwg-active.html#1369
+>>
+> Proposal 1 (RTTI enhancement).
+>
+> Adding a virtual method to RTTI objects is a non-starter.
+
+OK.
+
+> There's a fix to this, which is to make this a function pointer in the
+> RTTI object instead.
+
+OK.
+
+> This proposal would require us to instantiate and emit the copy
+> constructor of every class we emit RTTI for. This is actually prohibited
+> by the current language spec, so we'd need language sanction for this.
+> This is also a potentially significant code-size and compile-time issue.
+
+Right. I had overlooked that.
+
+> Proposal 2 (prepending fields to the exception data).
+>
+> I think this is a somewhat more elegant implementation choice,
+> particularly since the original design was intended to be extended in
+> this way, and it's been done before on some major platforms (in service
+> of std::rethrow_exception, in fact).
+
+That's good to know, thanks.
+
+> We'd need a new __cxa_throw variant called something like
+> __cxa_throw_copyable. I presume that throwing a trivially-copyable class
+> would pass a null copy-ctor to the new variant, whereas throwing a class
+> with an inaccessible or deleted copy ctor would just use __cxa_throw.
+> Code throwing a non-class would still be allowed to throw with
+> __cxa_throw, and std::rethrow_exception would just have to look for such
+> types and DTRT.
+
+Yes, that seems in keeping with my expectations.
+
+> Under either proposal, the C++0x standard library would need to export
+> new symbols (either the new vtables or a new __cxa_throw variant) which
+> would be used by a lot of code compiled for '0x regardless of whether
+> that code actually used std::rethrow_exception. This means that programs
+> compiled for '0x would not be able to link against an '03 standard
+> library even if they didn't actually use any '0x features requiring
+> runtime support, which is actually a pretty serious concern. It's a much
+> bigger problem for Proposal 1, where all code emitting RTTI for classes
+> with public copy ctors would suddenly use the new symbols, whereas
+> Proposal 2 would only affect code that actually contains throws.
+
+Yes, this would be the case. However, C++03 code should still be able to 
+link against the C++0x library unless there are other incompatible 
+changes, so replacing the standard library with the C++0x one would work 
+with all such code.
+
+In many cases, code compiled for C++0x will also use other C++0x 
+facilities that require the C++0x runtime anyway, but I accept that this 
+will not necessarily be the case for existing C++03 code recompiled with 
+the new compiler.
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     http://www.stdthread.co.uk/book/
+just::thread C++0x thread library             http://www.stdthread.co.uk
+Just Software Solutions Ltd       http://www.justsoftwaresolutions.co.uk
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+
+From jason at redhat.com  Wed Feb 23 01:28:28 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 22 Feb 2011 20:28:28 -0500
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com>
+References: <OF0C2F26DC.8A87C148-ON852577C7.004FBF85-852577C7.00503153@ca.ibm.com> <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com>
+Message-ID: <4D6462BC.4060306@redhat.com>
+
+It occurs to me now that this is really a language question, not ABI. 
+Is this testcase well-formed?
+
+template<class T, T* u>
+struct S
+{
+   decltype(u) foo(T);
+};
+
+template<class T, T *u>
+T* S<T, u>::foo(T)
+{
+   T t;
+   return t;
+}
+
+Type matching rules aren't well specified in the WP, but it seems 
+reasonable to say that the definition needs to use decltype as well, 
+which matches the decision to mangle decltype(u) in the signature.
+
+Jason
+
+
+From jhs at edg.com  Wed Feb 23 01:44:11 2011
+From: jhs at edg.com (John Spicer)
+Date: Tue, 22 Feb 2011 20:44:11 -0500
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4D6462BC.4060306@redhat.com>
+References: <OF0C2F26DC.8A87C148-ON852577C7.004FBF85-852577C7.00503153@ca.ibm.com> <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com> <4D6462BC.4060306@redhat.com>
+Message-ID: <8EE4A547-E1CD-4019-BE78-77183FA57FB8@edg.com>
+
+
+On Feb 22, 2011, at 8:28 PM, Jason Merrill wrote:
+
+> It occurs to me now that this is really a language question, not ABI. Is this testcase well-formed?
+> 
+> template<class T, T* u>
+> struct S
+> {
+>  decltype(u) foo(T);
+> };
+> 
+> template<class T, T *u>
+> T* S<T, u>::foo(T)
+> {
+>  T t;
+>  return t;
+> }
+> 
+> Type matching rules aren't well specified in the WP, but it seems reasonable to say that the definition needs to use decltype as well, which matches the decision to mangle decltype(u) in the signature.
+> 
+> 
+
+Agreed.
+
+I don't see any benefit in supporting inconsistent programming practices such as this.
+
+John.
+
+
+
+
+From rjmccall at apple.com  Wed Feb 23 02:00:33 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 22 Feb 2011 18:00:33 -0800
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <8EE4A547-E1CD-4019-BE78-77183FA57FB8@edg.com>
+References: <OF0C2F26DC.8A87C148-ON852577C7.004FBF85-852577C7.00503153@ca.ibm.com> <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com> <4D6462BC.4060306@redhat.com> <8EE4A547-E1CD-4019-BE78-77183FA57FB8@edg.com>
+Message-ID: <2A985504-F5C6-44C9-B8C8-A312FCB3074A@apple.com>
+
+On Feb 22, 2011, at 5:44 PM, John Spicer wrote:
+> On Feb 22, 2011, at 8:28 PM, Jason Merrill wrote:
+>> It occurs to me now that this is really a language question, not ABI. Is this testcase well-formed?
+>> 
+>> template<class T, T* u>
+>> struct S
+>> {
+>> decltype(u) foo(T);
+>> };
+>> 
+>> template<class T, T *u>
+>> T* S<T, u>::foo(T)
+>> {
+>> T t;
+>> return t;
+>> }
+>> 
+>> Type matching rules aren't well specified in the WP, but it seems reasonable to say that the definition needs to use decltype as well, which matches the decision to mangle decltype(u) in the signature.
+>> 
+>> 
+> 
+> Agreed.
+> 
+> I don't see any benefit in supporting inconsistent programming practices such as this.
+
+Right.  I think it's just an oversight that [temp.over.link] doesn't apply to member functions of class templates.  If we do apply that, then this is ill-formed because the tokens aren't alpha-equivalent.
+
+As an aside, I was looking through N3126 for explicit language saying that template member functions are not formally considered to be function templates, and found an unfortunately-worded footnote in [temp.mem.func]p1 which suggests the opposite.  Most of the standard would explode if this were true, I think;  certainly e.g. [temp.func.order] is not supposed to apply.  That would be good to clarify and fix.
+
+John.
+
+From daveed at edg.com  Wed Feb 23 14:55:30 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 23 Feb 2011 09:55:30 -0500
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4D6462BC.4060306@redhat.com>
+References: <OF0C2F26DC.8A87C148-ON852577C7.004FBF85-852577C7.00503153@ca.ibm.com> <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com> <4D6462BC.4060306@redhat.com>
+Message-ID: <CA2D9A97-2690-4D15-B7E8-2B2604A8F3AE@edg.com>
+
+Agreed.  Should we open a core issue for that?
+
+	Daveed
+
+
+On Feb 22, 2011, at 8:28 PM, Jason Merrill wrote:
+
+> It occurs to me now that this is really a language question, not ABI. Is this testcase well-formed?
+> 
+> template<class T, T* u>
+> struct S
+> {
+>  decltype(u) foo(T);
+> };
+> 
+> template<class T, T *u>
+> T* S<T, u>::foo(T)
+> {
+>  T t;
+>  return t;
+> }
+> 
+> Type matching rules aren't well specified in the WP, but it seems reasonable to say that the definition needs to use decltype as well, which matches the decision to mangle decltype(u) in the signature.
+> 
+> Jason
+
+
+
+From wmm at edg.com  Wed Feb 23 17:20:55 2011
+From: wmm at edg.com (William M. (Mike) Miller)
+Date: Wed, 23 Feb 2011 12:20:55 -0500
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <CA2D9A97-2690-4D15-B7E8-2B2604A8F3AE@edg.com>
+References: <OF0C2F26DC.8A87C148-ON852577C7.004FBF85-852577C7.00503153@ca.ibm.com> <0F091DB3-8E41-40AA-9314-AA07125D8C00@edg.com> <4D6462BC.4060306@redhat.com> <CA2D9A97-2690-4D15-B7E8-2B2604A8F3AE@edg.com>
+Message-ID: <4D6541F7.2040305@edg.com>
+
+On 2/23/2011 9:55 AM, David Vandevoorde wrote:
+> Agreed.  Should we open a core issue for that?
+
+I agree, as well, and will put this on the list.
+
+> 	Daveed
+>
+>
+> On Feb 22, 2011, at 8:28 PM, Jason Merrill wrote:
+>
+>> It occurs to me now that this is really a language question, not ABI. Is this testcase well-formed?
+>>
+>> template<class T, T* u>
+>> struct S
+>> {
+>>   decltype(u) foo(T);
+>> };
+>>
+>> template<class T, T *u>
+>> T* S<T, u>::foo(T)
+>> {
+>>   T t;
+>>   return t;
+>> }
+>>
+>> Type matching rules aren't well specified in the WP, but it seems reasonable to say that the definition needs to use decltype as well, which matches the decision to mangle decltype(u) in the signature.
+>>
+>> Jason
+>
+>
+
+
+-- 
+William M. (Mike) Miller | Edison Design Group, Inc.
+wmm at edg.com
+
+
+

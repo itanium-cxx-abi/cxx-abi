@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Question about tail padding
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Question%20about%20tail%20padding&In-Reply-To=%3C5.1.0.14.1.20020816151934.00ae6150%40cam-pop.cambridge.arm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001503.html">
+   <LINK REL="Next"  HREF="001509.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Question about tail padding</H1>
+    <B>scott douglass</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Question%20about%20tail%20padding&In-Reply-To=%3C5.1.0.14.1.20020816151934.00ae6150%40cam-pop.cambridge.arm.com%3E"
+       TITLE="[cxx-abi-dev] Question about tail padding">sdouglass at arm.com
+       </A><BR>
+    <I>Fri Aug 16 14:33:21 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001503.html">[cxx-abi-dev] Question about tail padding
+</A></li>
+        <LI>Next message: <A HREF="001509.html">[cxx-abi] Re: [cxx-abi-dev] Question about tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1504">[ date ]</a>
+              <a href="thread.html#1504">[ thread ]</a>
+              <a href="subject.html#1504">[ subject ]</a>
+              <a href="author.html#1504">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>At 02:59 PM 16-08-02 +0100, Jason Merrill wrote:
+&gt;<i>On Fri, 16 Aug 2002 14:17:05 +0100, scott douglass &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sdouglass at arm.com</A>&gt; wrote:
+</I>&gt;&gt;<i> I don't think the implicit copy assignment for B can copy all dsize bytes in this case:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> struct B {
+</I>&gt;&gt;<i>     virtual void f(); // B is non-POD
+</I>&gt;&gt;<i>     int bf1:3;
+</I>&gt;&gt;<i> };
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> struct D : B {
+</I>&gt;&gt;<i>     D();
+</I>&gt;&gt;<i>     int bf2:3;
+</I>&gt;&gt;<i> };
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Won't bf1 &amp; bf2 be in the same byte?
+</I>&gt;<i>
+</I>&gt;<i>Nope, the base gets nvsize(B) bytes of space.
+</I>
+I agree that as we are laying out D and just about to layout bf2 dsize(D) == 5.  What happens next depends on how you interpret this sentence in section 2.4/II/1/a:
+&gt;<i>The next available n bits are at offset dsize(C) [i.e. dsize(D) for my example], unless the preceding byte is only partially filled by a bitfield, in which case the bitfield allocation can begin in that byte.
+</I>
+Does this mean to say &quot;only partially filled by a bit-field member of C&quot; or does being partially filled by a (trailing) bitfield of a base class count?
+
+g++ 3.1 seems to think bf1 &amp; bf2 can be in the same byte.  Here's my test program:
+
+#include &lt;stdio.h&gt;
+
+struct B {
+  virtual void f() { } // B is not POD
+  int b:4;
+};
+
+struct D : B {
+  int c:4;
+  char x,y,z;
+};
+
+int main() {
+  printf(&quot;sizeof(B) == %lu; sizeof(D) == %lu\n&quot;, (unsigned long)sizeof(B), (unsigned long)sizeof(D));
+  int buffer[] = { 0xabbaabba, 0x067452301, 0xefcdab89 };
+// With byte-oriented little endianness this looks like
+// either A:  (g++ 3.1 chooses this)
+//   baabbaab 01234567 89abcdef
+//   vvvvvvvv cbxxyyzz
+// or B:
+//   baabbaab 01234567 89abcdef
+//   vvvvvvvv _b_cxxyy zz
+  const D* d = reinterpret_cast&lt;const D *&gt;(buffer);
+  printf(&quot;buffer-&gt;b == 0x%x\n&quot;, (unsigned)(d-&gt;b));
+  printf(&quot;buffer-&gt;c == 0x%x\n&quot;, (unsigned)(d-&gt;c));
+  printf(&quot;buffer-&gt;x == 0x%02x\n&quot;, (unsigned)(d-&gt;x));
+  printf(&quot;buffer-&gt;y == 0x%02x\n&quot;, (unsigned)(d-&gt;y));
+  printf(&quot;buffer-&gt;z == 0x%02x\n&quot;, (unsigned)(d-&gt;z));
+  return 0;
+}
+
+My output (linux-x86):
+sizeof(B) == 8; sizeof(D) == 8
+buffer-&gt;b == 0x1
+buffer-&gt;c == 0x0
+buffer-&gt;x == 0x23
+buffer-&gt;y == 0x45
+buffer-&gt;z == 0x67
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001503.html">[cxx-abi-dev] Question about tail padding
+</A></li>
+	<LI>Next message: <A HREF="001509.html">[cxx-abi] Re: [cxx-abi-dev] Question about tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1504">[ date ]</a>
+              <a href="thread.html#1504">[ thread ]</a>
+              <a href="subject.html#1504">[ subject ]</a>
+              <a href="author.html#1504">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

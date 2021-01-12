@@ -1,0 +1,156 @@
+From mark at codesourcery.com  Thu Apr 11 18:50:51 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 11 Apr 2002 11:50:51 -0700
+Subject: Typo in ABI document
+Message-ID: <930000.1018551051@localhost>
+
+I believe that there is a typo in 3.3.5.3, which says:
+
+  When linking any DSO containing a call to __cxa_atexit, the linker should 
+
+  define a hidden symbol __dso_handle, with a value which is an address in
+  one of the object's segments. (It does not matter what address, as long 
+as
+  they are different in different DSOs.) It should also include a call to
+  the following function in the FINI list (to be executed first):
+  extern "C" void __cxa_finalize ( dso_handle d );
+  The parameter passed should be &__dso_handle.
+
+The last line should read "The parameter passed should be __dso_handle."
+
+This is what G++ does, and it is what makes sense: the value of
+__dso_handle is NULL in the main object and is the address of some
+object in the DSO otherwise.  Passing the address of __dso_handle is
+weird; then the runtime would have to dereference the pointer to
+get the real value.
+
+I will make this change in a week or so if there is no objection.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Fri Apr 12 06:35:57 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Thu, 11 Apr 2002 23:35:57 -0700
+Subject: [cxx-abi-dev] Typo in ABI document
+References: <930000.1018551051@localhost>
+Message-ID: <3CB6804D.4BC29647@transmeta.com>
+
+Mark Mitchell wrote:
+> 
+> I believe that there is a typo in 3.3.5.3, which says:
+> 
+>   When linking any DSO containing a call to __cxa_atexit, the linker should
+> 
+>   define a hidden symbol __dso_handle, with a value which is an address in
+>   one of the object's segments. (It does not matter what address, as long
+> as
+>   they are different in different DSOs.) It should also include a call to
+>   the following function in the FINI list (to be executed first):
+>   extern "C" void __cxa_finalize ( dso_handle d );
+>   The parameter passed should be &__dso_handle.
+> 
+> The last line should read "The parameter passed should be __dso_handle."
+> 
+> This is what G++ does, and it is what makes sense: the value of
+> __dso_handle is NULL in the main object and is the address of some
+> object in the DSO otherwise.  Passing the address of __dso_handle is
+> weird; then the runtime would have to dereference the pointer to
+> get the real value.
+> 
+> I will make this change in a week or so if there is no objection.
+
+This is correct as it stands, though it may be confusing.  I'll explain
+more carefully what I meant in case that's the only problem.  The "value"
+of a linker symbol is the same thing as the address of a variable with
+that name.  The first requirement is simply that the linker associate a
+symbol (named __dso_handle) with some address in the object's data space.
+It therefore appears to C code that there is a variable named
+__dso_handle at the selected address, though there isn't any relevant
+data at that address.  When calling __cxa_finalize, we need to pass the
+address associated with __dso_handle, not the data at that address.
+We accomplish that by passing &__dso_handle.  The value of the resulting
+pointer parameter is what __cxa_finalize needs -- it doesn't need to
+dereference the pointer, as there's no data of interest at that address.
+
+Does that help?
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+From mark at codesourcery.com  Fri Apr 12 07:50:12 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 12 Apr 2002 00:50:12 -0700
+Subject: [cxx-abi-dev] Typo in ABI document
+In-Reply-To: <3CB6804D.4BC29647@transmeta.com>
+Message-ID: <10630000.1018597812@warlock.codesourcery.com>
+
+> This is correct as it stands, though it may be confusing.  I'll explain
+> more carefully what I meant in case that's the only problem.  The "value"
+> of a linker symbol is the same thing as the address of a variable with
+> that name.  The first requirement is simply that the linker associate a
+> symbol (named __dso_handle) with some address in the object's data space.
+> It therefore appears to C code that there is a variable named
+> __dso_handle at the selected address, though there isn't any relevant
+> data at that address.  When calling __cxa_finalize, we need to pass the
+> address associated with __dso_handle, not the data at that address.
+> We accomplish that by passing &__dso_handle.  The value of the resulting
+> pointer parameter is what __cxa_finalize needs -- it doesn't need to
+> dereference the pointer, as there's no data of interest at that address.
+>
+> Does that help?
+
+Sort of. :-)
+
+It makes sense -- it's just something that we got subtly wrongish in
+G++.  I don't believe a conforming implementation can actually tell
+the different at the DSO level, but you can at the .o level.
+
+I'll try to get this fixed in G++ 3.1.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From loewis at informatik.hu-berlin.de  Fri Apr 12 09:11:38 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 12 Apr 2002 11:11:38 +0200
+Subject: [cxx-abi-dev] Typo in ABI document
+In-Reply-To: <3CB6804D.4BC29647@transmeta.com>
+References: <930000.1018551051@localhost> <3CB6804D.4BC29647@transmeta.com>
+Message-ID: <j4wuvdwab9.fsf@informatik.hu-berlin.de>
+
+Jim Dehnert <dehnert at transmeta.com> writes:
+
+> This is correct as it stands, though it may be confusing.  I'll explain
+> more carefully what I meant in case that's the only problem.  The "value"
+> of a linker symbol is the same thing as the address of a variable with
+> that name.  The first requirement is simply that the linker associate a
+> symbol (named __dso_handle) with some address in the object's data space.
+> It therefore appears to C code that there is a variable named
+> __dso_handle at the selected address, though there isn't any relevant
+> data at that address.  When calling __cxa_finalize, we need to pass the
+> address associated with __dso_handle, not the data at that address.
+> We accomplish that by passing &__dso_handle.  The value of the resulting
+> pointer parameter is what __cxa_finalize needs -- it doesn't need to
+> dereference the pointer, as there's no data of interest at that address.
+> 
+> Does that help?
+
+I agree with Jim's explanation: the idea is that each DSO has a
+variable _dso_handle, and its *address* is the key for registering the
+atexit handlers. Using the *value* of _dso_handle is error-prone;
+also, it never says how much storage is allocate for the variable - '0
+bytes' would be acceptable.
+
+Regards,
+Martin
+
+

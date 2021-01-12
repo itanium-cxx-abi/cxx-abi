@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%20null%0A%20pointer%20is%20not%20conforming&In-Reply-To=%3C8C3B2427-D574-404D-A511-D3E712687BF0%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002528.html">
+   <LINK REL="Next"  HREF="002530.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%20null%0A%20pointer%20is%20not%20conforming&In-Reply-To=%3C8C3B2427-D574-404D-A511-D3E712687BF0%40apple.com%3E"
+       TITLE="[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Dec 21 06:02:35 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002528.html">[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+</A></li>
+        <LI>Next message: <A HREF="002530.html">[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2529">[ date ]</a>
+              <a href="thread.html#2529">[ thread ]</a>
+              <a href="subject.html#2529">[ subject ]</a>
+              <a href="author.html#2529">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Dec 20, 2012, at 9:37 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+&gt;<i> On Thu, Dec 20, 2012 at 8:53 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;<i> On Dec 20, 2012, at 7:09 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On Dec 20, 2012, at 4:19 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> Consider the following:
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> struct E {};
+</I>&gt;&gt;&gt;<i> struct X : E {};
+</I>&gt;&gt;&gt;<i> struct C : E, X { char x; };
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> char C::*c1 = &amp;C::x;
+</I>&gt;&gt;&gt;<i> char X::*x = (char(X::*))c1;
+</I>&gt;&gt;&gt;<i> char C::*c2 = x2;
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> int main() { return c2 != 0; }
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Yep.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+</I>&gt;&gt;<i>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+</I>&gt;&gt;<i>     (1a) They let you abstract over any member you want!
+</I>&gt;&gt;<i>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+</I>&gt;&gt;<i>     (1c) And as long as that member is actually stored in a field, not computed from it!
+</I>&gt;&gt;<i>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+</I>&gt;&gt;<i>   (2) Everything about the syntax of member pointers &#8212; making them, using them, writing their types &#8212; is kindof weird-looking, and many people don't like using them.
+</I>&gt;&gt;<i>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+</I>&gt;&gt;<i>   (4) People usually use data member pointers on hierarchically boring types anyway &#8212; generally leaf classes.
+</I>&gt;&gt;<i>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+</I>&gt;&gt;<i>   (6) People usually don't work with null member pointers &#8212; they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+</I>&gt;&gt;<i>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+</I>&gt;&gt;<i>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints &#8212; nothing but bools and chars and arrays thereof.
+</I>&gt;&gt;<i>     (6b) The derived class cannot have any virtual functions or virtual bases.
+</I>&gt;&gt;<i>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+</I>&gt;<i> 
+</I>&gt;<i> I went to dinner and realized that this point isn't as useful as I thought &#8212; you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.
+</I>&gt;<i> 
+</I>&gt;<i> You need the field to be in the derived class in order for this to be a problem; otherwise, the cast would have undefined behavior. Hence, the base class must be empty, and indeed must be a repeated empty base class (to not be at offset 0).
+</I>
+I think I see where you're getting that, but I'm not sure that's really
+the intended meaning of the standard here.
+
+To elaborate, you seem to be interpreting the following text to mean
+that members of *other bases* of the derived class cannot be casted
+to be members of base class:
+  If class B contains the original member, or is a base or derived
+  class of the class containing the original member, the resulting
+  pointer to member points to the original member.  Otherwise, the
+  result of the cast is undefined.
+
+It does seem to be generally true that &quot;contains&quot; means only direct
+containment;  compare [intro.object]p3:
+  For every object x, there is some object called the complete object
+  of x, determined as follows:
+    - If x is a complete object, then x is the complete object of x.
+    - Otherwise, the complete object of x is the complete object of the
+      (unique) object that contains x.
+
+And the use of &quot;contains&quot; in the quote above does seem to imply
+only direct containment, because otherwise it wouldn't need to
+include the &quot;base or derived&quot; phrase.
+
+On the other hand, the note immediately after this uses &quot;contains&quot;
+more loosely:
+  although class B need not contain the original member, the dynamic
+  type of the object on which the pointer to member is dereferenced
+  must contain the original member
+
+So I'm not convinced that the standard should necessarily be read that
+closely.
+
+&gt;<i>  I *can* imagine a number of use cases that cause situations like this, so while most of my other points stand, it isn't quite as cut-and-dry as I made it out to be.
+</I>&gt;<i> 
+</I>&gt;<i> #include &lt;iostream&gt;
+</I>&gt;<i> 
+</I>&gt;<i> struct noncopyable {
+</I>&gt;<i>   noncopyable() = default;
+</I>&gt;<i>   noncopyable(const noncopyable&amp;) = delete;
+</I>&gt;<i> };
+</I>&gt;<i> struct serializable : noncopyable {
+</I>&gt;<i>   template&lt;typename T&gt; void serialize(T serializable::**members) {
+</I>&gt;<i>     while (*members) std::cout &lt;&lt; this-&gt;**members++ &lt;&lt; std::endl;
+</I>&gt;<i>   }
+</I>&gt;<i> };
+</I>&gt;<i> struct MyWonderfulType : noncopyable, serializable {
+</I>&gt;<i>   char c = 'x';
+</I>&gt;<i>   void serialize() {
+</I>&gt;<i>     char serializable::*(CharMembers[]) = { (char(serializable::*))&amp;MyWonderfulType::c, nullptr };
+</I>&gt;<i>     serializable::serialize(CharMembers);
+</I>&gt;<i>   }
+</I>&gt;<i> };
+</I>
+Cute.
+
+At any rate, it's not fixable.
+
+John.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002528.html">[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+</A></li>
+	<LI>Next message: <A HREF="002530.html">[cxx-abi-dev] pointer-to-data-member representation for null pointer is not conforming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2529">[ date ]</a>
+              <a href="thread.html#2529">[ thread ]</a>
+              <a href="subject.html#2529">[ subject ]</a>
+              <a href="author.html#2529">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> D-12 Unwind table location
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20D-12%20Unwind%20table%20location&In-Reply-To=%3C200002090212.SAA08837%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000561.html">
+   <LINK REL="Next"  HREF="000581.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>D-12 Unwind table location</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20D-12%20Unwind%20table%20location&In-Reply-To=%3C200002090212.SAA08837%40baalbek.engr.sgi.com%3E"
+       TITLE="D-12 Unwind table location">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Feb  9 02:12:53 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000561.html">Agenda for Thursday 2/10
+</A></li>
+        <LI>Next message: <A HREF="000581.html">D-12 Unwind table location
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#562">[ date ]</a>
+              <a href="thread.html#562">[ thread ]</a>
+              <a href="subject.html#562">[ subject ]</a>
+              <a href="author.html#562">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'd like to continue working through the table location issues, as
+we've started in email and at the last meeting.  But first, I think
+my concern has been misinterpreted, so I'd like to clarify that.
+
+---
+
+I don't have an immediate objection to the locations identified for
+the tables by HP, except possibly sharing Jason's question about
+whether another type table location would better allow sharing it
+among multiple text segments.  I would guess that we'll end up
+agreeing to put the tables where HP does (except, again, possibly
+the type table) for IA-64.
+
+However, I also believe in maximizing flexibility and generality,
+at least when it's nearly free, and particularly when there are
+anticipatable uses for it.  Now, I can anticipate two departures
+from HP's assumptions that are relevant here:
+
+  - Multiple text segments.  This is common in the embedded world,
+    where the reasons for them often also prevent their being adjacent
+    in the address, and probably also sometimes prevent the inclusion
+    of extraneous data with each text segment.
+
+  - LSDA somewhere besides the associated .text segment.  See the
+    above, or imagine a language/implementation that decides to put a
+    lot of runtime-relocated data in it.
+
+These possibilities, even though I don't anticipate them for IA-64
+mainstream C++, lead me to ask the question:  Can we provide the
+flexibility to support them at little or no cost to our own needs?
+
+---
+
+With this in mind, what are the requirements?  We have four structures
+of interest:
+
+ 1) The original entry to the complex is via an IP value, i.e. an
+    address in .text (probably).  The unwind library, which is part of
+    the implementation and therefore can be coordinated with other
+    system components like ld.so, needs to map this IP value to the
+    associated .text segment start address and to its associated
+    .unwind segment address and size, which it uses to find an unwind
+    table entry.
+
+    So, we need under-the-covers maps from IP -&gt; .text -&gt; .unwind .
+
+ 2) The unwind table entry identifies a text fragment, using
+    offsets relative to the .text segment, which it should know from
+    step (1).  It also identifies an unwind info record, currently as
+    an offset relative to the .text segment.  This still happens in the
+    unwind library.
+
+    So, we add an under-the-covers map from .unwind -&gt; .unwind_info .
+
+ 3) The unwind info table contains unwind descriptor references
+    relative to the text fragment, handled in the unwind library,
+    and the LSDA, handled by the personality routine.  The latter
+    includes:
+
+    ** LPStart, an offset currently relative to its own location,
+    which requires that unwind info be in the associated text segment.
+
+    ** TTBase, an offset currently relative to its own location,
+    which requires that the type table be in the unwind info segment.
+
+    Other references to call sites and landing pads, as offsets
+    relative to the address calculated from LPStart.
+
+ 4) The type table contains RTTI references, relative to GP for the
+    current text fragment, handled by the personality routine.
+    
+    ** This requires that the RTTI be in the data segment containing
+    GP, and prevents address-only RTTI comparisons, since it does not
+    support preemption.
+
+The potentially problematic references are those with (**), which make
+assumptions about the locations of tables AND are handled by the
+personality routine above-the-covers.  (The under-the-covers mappings
+can use unspecified collaboration between the system and unwind
+library.)
+
+The unwind info references could be &quot;fixed&quot; by making them relative to
+segment addresses identified by the unwind library (more
+under-the-covers mappings) and passed to the personality routine, e.g.
+via routines like _Unwind_GetIP.
+
+The type table requirement that RTTI be in the segment with GP could be
+fixed in the same way; the inability to deal with address-only
+comparisons cannot.
+
+Finally, although the under-the-covers mappings need not be our
+official concern, I note that the relevant information is known to the
+static linker (except perhaps .unwind_info location), and providing an
+explicit way to pass it from linker to unwind library might simplify
+the latter and make it more portable.
+
+Anyway, I hope this clarifies things somewhat.  It leads me to believe
+that pursuing this can produce simple elimination of the current
+restrictions.
+
+Comments?
+
+Jim
+
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000561.html">Agenda for Thursday 2/10
+</A></li>
+	<LI>Next message: <A HREF="000581.html">D-12 Unwind table location
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#562">[ date ]</a>
+              <a href="thread.html#562">[ thread ]</a>
+              <a href="subject.html#562">[ subject ]</a>
+              <a href="author.html#562">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,344 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Updated RTTI description
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Updated%20RTTI%20description&In-Reply-To=%3C380B615A.73580D03%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000308.html">
+   <LINK REL="Next"  HREF="000310.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Updated RTTI description</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Updated%20RTTI%20description&In-Reply-To=%3C380B615A.73580D03%40edg.com%3E"
+       TITLE="Updated RTTI description">daveed at edg.com
+       </A><BR>
+    <I>Mon Oct 18 18:05:14 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000308.html">Name mangling
+</A></li>
+        <LI>Next message: <A HREF="000310.html">Notes from 14 October -- RTTI offset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#297">[ date ]</a>
+              <a href="thread.html#297">[ thread ]</a>
+              <a href="subject.html#297">[ subject ]</a>
+              <a href="author.html#297">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>(oops, forgot to add the attachment in the previous message.)
+
+Hi all,
+
+Attached it the updated document.  I believe it reflects all the
+decisions made at the meeting last Thursday, but the decision to
+split the std::__class_type_info could be implemented in various
+ways.  Please check that what I have done is agreeable to you.
+
+All other comments and corrections are also welcome,
+
+        Daveed
+-------------- next part --------------
+Run-time type information
+=========================
+
+The C++ programming language definition implies that information about types
+be available at run time for three distinct purposes:
+   (a) to support the typeid operator,
+   (b) to match an exception handler with a thrown object, and
+   (c) to implement the dynamic_cast operator.
+(c) only requires type information about polymorphic class types, but (a) and
+(b) may apply to other types as well; for example, when a pointer to an int is
+thrown, it can be caught by a handler that catches &quot;int const*&quot;.
+
+
+Deliberations
+-------------
+The following conclusions were arrived at by the attending members of the
+C++ IA-64 ABI group:
+
+. The exact layout for type_info objects is dependent on whether a 32-bit
+  or 64-bit model is supported.
+. Advantage should be taken of COMDAT sections and symbol preemption: two
+  type_info pointers point to equivalent types if and only if the pointers
+  are equal.
+. A simple dynamic_cast algorithm that is efficient in the common case of
+  base-to-most-derived cast case is preferrable over more sophisticated ideas
+  that handle deep-base-to-in-between-derived casts more efficiently at a
+  slight cost to the common case.  Hence, the original scheme of providing
+  a hash-table into the list of base classes (as is done e.g. in the HP aC++
+  compiler) has been dropped.
+. The GNU egcs development team has implemented an idea of this ABI group to
+  accelerate dynamic_cast operations by a-posteriori checking a &quot;likely
+  outcome&quot;.  The interface of std::__dynamic_cast therefore keeps the
+  src2dst_offset hint.
+. std::__extended_type_info is dropped.
+. It was decided to only keep direct base information about a class type.
+  Indirect base information can be found by chasing type_info pointers
+  (and care should be taken to determine ambiguous base class types).
+. Different class types are introduced for class that (a) have no bases,
+  (b) use only single inheritance, and (c) use multiple inheritance.
+. The typeinfo structure for a class type with associated virtual tables is
+  emitted as part of the set of virtual tables.  It precedes the tables proper
+  (not explicitly decided, but assumed: it also precedes auxiliary tables for
+  locating construction vtables).
+
+
+Place of emission
+-----------------
+It is probably desirable to minimize the number of places where a particular
+bit of RTTI is emitted.  For polymorphic types, a similar problem occurs for
+virtual function tables, and hence the information can be appended at the end
+of the primary vtable for that type.  For other types, they must presumably be
+emitted at the location where their use is implied: the object file containing
+the typeid, throw or catch.
+
+Basic type information (such as for &quot;int&quot;, &quot;bool&quot;, etc.) can be kept in the
+run-time support library.  Specifically, this proposal is to place in the
+run-time support library type_info objects for the following types:
+	void*, void const*
+and
+	X, X* and X const*
+for every X in: bool, wchar_t, char, unsigned char, signed char, short,
+unsigned short, int, unsigned int, long, unsigned long, long long, unsigned
+long long, float, double, long double.  (Note that various other type_info
+objects for class types may reside in the run-time support library by virtue
+of the preceding rules; e.g., that of std::bad_alloc.)
+
+
+The typeid operator
+-------------------
+The typeid operator produces a reference to a std::type_info structure with
+the following public interface:
+
+	struct std::type_info {
+     virtual ~type_info();
+     bool operator==(type_info const&amp;) const;
+     bool operator!=(type_info const&amp;) const;
+     bool before(type_info const&amp;) const;
+     char const* name() const;
+  };
+
+Assuming that after linking and loading only one type_info structure is active
+for any particular type symbol, the equality and inequality operators can be
+written as address comparisons: to type_info structures describe the same type
+if and only if they are the same structure (at the same address).  In a flat
+address space (such as that of the IA-64 architecture), the before() member is
+also easily written in terms of an address comparison.  The only additional
+piece of information that is required is the NTBS that encodes the name.  The
+type_info structure itself can hold a pointer into a read-only segment that
+contains the text bytes.
+
+
+Matching throw expressions with handlers
+----------------------------------------
+When an object is thrown a copy is made of it and the type of that copy is TT.
+A handler that catches type HT will match that throw if:
+  . HT is equal to TT except that HT may be a reference and that HT may have
+    top-level cv qualifiers (i.e., HT can be &quot;TT cv&quot;, &quot;TT&amp;&quot; or &quot;TT cv&amp;&quot;); or
+  . HT is a reference to a public and unambiguous base type of TT; or
+  . HT has a pointer type to which TT can be converted by a standard pointer
+    conversion (though only public, unambiguous derived-to-base conversions
+    are permitted) and/or a qualification conversion.
+This implies that the type information must keep a description of the public,
+unambiguous inheritance relationship of a type, as well as the const and
+volatile qualifications applied to types underlying pointers.
+
+
+The dynamic_cast operator
+-------------------------
+Although dynamic_cast can work on pointers and references, from the point of
+view of representation we need only to worry about polymorphic class types.
+Also, some kinds of dynamic_cast operations are handled at compile time and do
+not need any RTTI.  There are then three kinds of truly dynamic cast
+operations:
+  . dynamic_cast&lt;void cv*&gt;, which returns a pointer to the complete lvalue,
+  . dynamic_cast operation from a base class to a derived class, and
+  . dynamic_cast across the hierarchy which can be seen as a cast to the
+    complete lvalue and back to a sibling base.
+The most common kind of dynamic_cast is base-to-derived in a singly inherited
+hierarchy.
+
+
+RTTI layout
+-----------
+
+0. The RTTI layout for a given type depends on whether a 32-bit or 64-bit
+mode is in effect.
+
+1. Every vtable shall contain one entry describing the offset from a vptr
+for that vtable to the origin of the object containing that vptr (or
+equivalently: to the vptr for the primary vtable).  This entry is directly
+useful to implement dynamic_cast&lt;void cv*&gt;, but is also needed for the other
+truly dynamic casts.  This entry is located two words ahead of the location
+pointed to by the vptr (i.e., entry &quot;-2&quot;).  This entry is also present in
+vtables for classes having virtual bases, but no virtual functions.
+
+2. Every vtable shall contain one entry pointing to an object derived from
+std::type_info.  This entry is located at the word preceding the location
+pointed to by the vptr (i.e., entry &quot;-1&quot;).  The entry is also allocated in
+vtables for classes having virtual bases, but no virtual functions; however,
+in those cases, the entry is zero.  This entry is coded as an offset with
+respect to the virtual table origin, rather than as a pointer (thereby saving
+the need for more run-time relocations).
+
+std::type_info contains just two pointers:
+  . its vptr
+  . a pointer to a NTBS representing the name of the type
+
+The possible derived types are:
+  . std::__fundamental_type_info
+  . std::__pointer_type_info
+  . std::__reference_type_info
+  . std::__array_type_info
+  . std::__function_type_info
+  . std::__enum_type_info
+  . std::__class_type_info
+  . std::__si_class_type_info
+  . std::__vmi_class_type_info
+  . std::__ptr_to_member_type_info
+
+3. std::__fundamental_type_info adds no fields to std::type_info.
+
+4. std::__pointer_type_info adds two fields (in that order):
+  . a word describing the cv-qualification of what is pointed to
+    (e.g., &quot;int volatile*&quot; should have the &quot;volatile&quot; bit set in that word).
+  . a pointer to the std::type_info derivation for the unqualified type
+    being pointed to
+Note that the first bits should not be folded into the pointer because we may
+eventually need more qualifier bits (e.g. for &quot;restrict&quot;).  The bit 0x1
+encodes the &quot;const&quot; qualifier; the bit 0x2 encodes &quot;volatile&quot;.
+
+5. std::__reference_type_info is similar to std::__pointer_type_info but
+describes references.
+
+6. std::__array_type_info and std::__function_type_info do not add fields to
+   std::type_info (these types are only produced by the typeid operator;
+   they decay in other contexts).  std::__enum_type_info does not add fields
+   either.
+
+7. Three different types are used to represent type information.
+
+(a) std::__class_type_type is used for class types having no bases, and is
+also a base type for the other two class type representations.  It derived from
+std::type_info and adds one word with flags describing some details about the
+class:
+  . a word with flags describing some details about the class (most of these
+    are for use by the derived classes):
+      0x1: contains multiply inherited subobject
+      0x2: is polymorphic
+      0x4: has virtual bases
+      0x8: has privately inherited base
+
+(b) For classes containing only a single, nonvirtual inheritance hierarchy,
+class std::__si_class_type_info is used.  It adds to std::__class_type_type
+a single pointer to the type_info structure for the base type.
+
+(c) For class containing (directly or indirectly) a multiple or virtual
+inheritance component in their hierarchy, std::__vmi_class_type_info is used.
+It is derived from std::__class_type_info, and adds:
+  . a word with the number of direct base class descriptions that follow it
+  . base class descriptions for every direct base; each description is of
+    the type:
+      struct std::__base_class_info {
+         std::type_info *type;
+         std::ptrdiff_t offset;
+         int is_virtual: 1;
+         int is_public: 1;
+      };
+
+8. The std::__ptr_to_member_type_info type adds three fields to
+std::type_info:
+  . a pointer to a std::__class_type_info (e.g., the &quot;A&quot; in &quot;int A::*&quot;)
+  . a_pointer to a std::type_info corresponding to the member type (e.g., the
+    &quot;int&quot; in &quot;int A::*&quot;)
+  . a word describing the cv-qualification of what is pointed to
+    (see std::__pointer_type_info)
+
+
+std::type_info::name()
+----------------------
+The NTBS returned by this routine is the mangled name of the type.
+
+
+The dynamic_cast algorithm
+--------------------------
+Dynamic casts to &quot;void cv*&quot; are inserted inline at compile time.  So are
+dynamic casts of null pointers and dynamic casts that are really static.
+
+This leaves the following test to be implemented in the run-time library for
+truly dynamic casts of the form &quot;dynamic_cast&lt;T&gt;(v)&quot;:
+  (see [expr.dynamic_cast] 5.2.7/8)
+  . If, in the most derived object pointed (referred) to by v, v points
+    (refers) to a public base class sub-object of a T object [note: this can
+    be checked at compile time], and if only one object of type T is derived
+    from the sub-object pointed (referred) to by v, the result is a pointer
+    (an lvalue referring) to that T object.
+  . Otherwise, if v points (refers) to a public base class sub-object of the
+    most derived object, and the type of the most derived object has an
+    unambiguous public base class of type T, the result is a pointer (an
+    lvalue referring) to the T sub-object of the most derived object. 
+  . Otherwise, the run-time check fails.
+
+The first check corresponds to a &quot;base-to-derived cast&quot; and the second to a
+&quot;cross cast&quot;.  These tests are implemented by std::__dynamic_cast.
+
+   void* std::__dynamic_cast(void *sub, std::__class_type_info *src,
+                                        std::__class_type_info *dst,
+                                        std::ptrdiff_t obj2sub_offset);
+   /* sub: source address to be adjusted; nonnull, and since the source
+    *      object is polymoprhic, *(void**)sub is a vptr.
+    * src: static type of the source object.
+    * dst: destination type (the &quot;T&quot; in &quot;dynamic_cast&lt;T&gt;(v)&quot;).
+    * obj2sub_offset: a static hint about the location of the source subobject
+    *    with respect to the complete object; special negative values are:
+    *       -1: no hint
+    *       -2: src is not a public base of dst
+    *       -3: src is a multiple public base type but never a virtual
+    *           base type
+    *       (note: more values may be used for the some virtual inheritance
+    *              cases?)
+    *    otherwise, the src type is a unique public nonvirtual base
+    *    type of dst at offset obj2syb_offset from the origin of dst.
+    */
+
+
+The exception handler matching algorithm
+----------------------------------------
+
+Since the RTTI related exception handling routines are &quot;personality specific&quot;,
+no interfaces need to be specified in this document (beyond the layout of the
+RTTI data).
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000308.html">Name mangling
+</A></li>
+	<LI>Next message: <A HREF="000310.html">Notes from 14 October -- RTTI offset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#297">[ date ]</a>
+              <a href="thread.html#297">[ thread ]</a>
+              <a href="subject.html#297">[ subject ]</a>
+              <a href="author.html#297">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>
