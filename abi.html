@@ -152,6 +152,13 @@ A function that runs the destructors for non-static data members of T and
 non-virtual direct base classes of T.
 
 <p>
+<dt> <i>basic ABI properties</i> of a type T</dt>
+<dd>
+The basic representational properties of a type decided by the base C ABI,
+including its size, its alignment, its treatment by calling conventions,
+and the representation of pointers to it.
+
+<p>
 <dt> <i>complete object destructor</i> of a class T</dt>
 <dd>
 A function that, in addition to the actions required of a base
@@ -686,40 +693,167 @@ sometimes permits faster copying of the type.
 <a name="member-pointers"></a>
 <h3><a href="#member-pointers"> 2.3 Member Pointers </a></h3>
 
-<p>
-A pointer to data member is an offset from the base
-address of the class object containing it,
-represented as a <code>ptrdiff_t</code>.
-It has the size and alignment attributes of a <code>ptrdiff_t</code>.
-A NULL pointer is represented as -1.
+<a name="data-member-pointers"></a>
+<h4><a href="#data-member-pointers"> 2.3.1 Data Member Pointers </a></h4>
 
 <p>
-A pointer to member function is a pair <ptr, adj> as follows:
-
-<dl>
-<p>
-<dt> <code>ptr</code>:
-<dd> For a non-virtual function, this field is a simple function pointer.
-     (Under current base Itanium psABI conventions,
-     that is a pointer to a GP/function address pair.)
-     For a virtual function,
-     it is 1 plus the virtual table offset (in bytes) of the function,
-     represented as a <code>ptrdiff_t</code>.
-     The value zero represents a NULL pointer,
-     independent of the adjustment field value below.
+The basic ABI properties of data member pointer types are those
+of <code>ptrdiff_t</code>.
 
 <p>
-<dt> <code>adj</code>:
-<dd> The required adjustment to <i>this</i>,
-     represented as a <code>ptrdiff_t</code>.
-</dl>
+A data member pointer is represented as the data member's offset in bytes
+from the address point of an object of the base type, as a
+<code>ptrdiff_t</code>.
 
 <p>
-It has the size, data size, and alignment
-of a class containing those two members, in that order.
-(For 64-bit Itanium, that will be 16, 16, and 8 bytes respectively.)
+A null data member pointer is represented as an offset of <code>-1</code>.
+Unfortunately, it is possible to generate a data member pointer with an
+offset of <code>-1</code> using explicit derived-to-base conversions.
+If this is done, implementations following this ABI may misbehave.
+<span class="future-abi">Recommendation for new platforms: consider using
+a different representation for data member pointers, such as left-shifting
+the offset by one and using a non-zero low bit to indicate a non-null
+value.</span>
 
+<p>
+Note that by <code>[dcl.init]</code>, "zero initialization" of a data
+member pointer object stores a null pointer value into it.  Under this
+representation, that value has a non-zero bit representation.  On most
+modern platforms, data member pointers are the only type with this
+property.
 
+<p>
+Base-to-derived and derived-to-base conversions of a non-null data member
+pointer can be performed by adding or subtracting (respectively) the static
+offset of the base within the derived class.  The C++ standard does not
+permit base-to-derived and derived-to-base conversions of member pointers
+to cross a <code>virtual</code> base relationship, and so a static offset
+is always known.
+
+<a name="member-function-pointers"></a>
+<h4><a href="#member-function-pointers"> 2.3.2 Member Function Pointers </a></h4>
+
+<p>
+Several different representions of member function pointers are in use.
+The standard representation relies on several assumptions about the
+platform, such as that the low bit of a function pointer to a non-virtual
+member function is always zero.  For platforms where this is not reasonable
+to guarantee, an alternate representation must be used.  One such
+representation, used on the 32-bit ARM architecture, is also described here.
+
+<p>
+In all representations, the basic ABI properties of member function
+pointer types are those of the following class, where <code>fnptr_t</code>
+is the appropriate function-pointer type for a member function of this type:
+
+<pre>
+  struct {
+    fnptr_t ptr;
+    ptrdiff_t adj;
+  };
+</pre>
+
+<p>
+A member function pointer for a non-virtual member function is represented
+with <code>ptr</code> set to a pointer to the function, using the base
+ABI's representation of function pointers.
+
+<p>
+In the standard representation, a member function pointer for a virtual
+function is represented with <code>ptr</code> set to 1 plus the function's
+v-table entry offset (in bytes), converted to a function pointer as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(1 + offset))</code>,
+where <code>uintfnptr_t</code> is an unsigned integer of the same
+size as <code>fnptr_t</code>.
+
+<p>
+In both of these cases, <code>adj</code> stores the offset (in bytes)
+which must be added to the <code>this</code> pointer before the call.
+
+<p>
+In the standard representation, a null member function pointer is
+represented with <code>ptr</code> set to a null pointer.  The value
+of <code>adj</code> is unspecified for null member function pointers.
+
+<p>
+The standard representation relies on some assumptions which are
+true for most platforms:
+
+<ul compact>
+  <li>The low bit of a function pointer to a non-static member function
+    is never set.  On most platforms, this is either always true or
+    can be made true at little cost.  For example, on platforms where
+    a function pointer is just the address of the first instruction in the
+    function, the implementation can ensure that this addresss is always
+    sufficiently aligned to make the low bit zero for non-static member
+    functions; often this is required by the underlying architecture.</li>
+
+  <li>A null function pointer can be distinguished from a virtual
+    offset value.  On most platforms, this is always true because the
+    null function pointer is the zero value.</li>
+
+  <li>The offset to a v-table entry is never odd.  On most platforms,
+    the size of a v-table entry is even because the architecture is
+    byte-addressed and pointers are even-sized.</li>
+
+  <li>A virtual call can be performed knowing only the addresss of a
+    v-table entry and the type of the virtual function.  On most
+    platforms, a v-table entry is equivalent to a function pointer,
+    and the type of that function pointer can be determined from the
+    member pointer type.</li>
+</ul>
+
+<p>
+However, there are exceptions.  For example, on the 32-bit ARM
+architecture, the low bit of a function pointer determines whether
+the function begins in THUMB mode.  Such platforms must use an
+alternate representation.
+
+<p>
+In the 32-bit ARM representation, the <code>this</code>-adjustment
+stored in <code>adj</code> is left-shifted by one, and the low bit
+of <code>adj</code> indicates whether <code>ptr</code> is a function
+pointer (including null) or the offset of a v-table entry.  A virtual
+member function pointer sets <code>ptr</code> to the v-table entry
+offset as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(offset))</code>.
+A null member function pointer sets <code>ptr</code> to a null
+function pointer and must ensure that the low bit of <code>adj</code>
+is clear; the upper bits of <code>adj</code> remain unspecified.
+
+<p>A member function pointer is null if <code>ptr</code> is equal
+to a null function pointer and (only when using the 32-bit ARM
+representation) the low bit of <code>adj</code> is clear.
+
+<p>Two member function pointers are equal if they are both null or
+if their corresponding values of <code>ptr</code> and <code>adj</code>
+are equal.  Note that the C++ standard does not require member pointers
+to the same virtual member function to compare equal; implementations
+using this ABI will do so, but only if the member pointers are built
+using the same v-table offset, which they may not be in the presence
+of multiple inheritance or overrides with covariant return types.
+
+<p>
+Base-to-derived and derived-to-base conversions of a member function
+pointer can be performed by adding or subtracting (respectively) the
+static offset of the base within the derived class to the stored
+<code>this</code>-adjustment value.  In the standard representation,
+this simply means adding it to <code>adj</code>; in the 32-bit ARM
+representation, the addend must be left-shifted by one.  Because the
+adjustment does not factor into whether a member function pointer is
+null, this addition can be done unconditionally when performing a
+conversion.
+
+<p>
+A call is performed as follows:
+
+<ol>
+  <li>Add the stored adjustment to the <code>this</code> address.</li>
+  <li>If the member pointer stores a v-table entry offset, load the
+    v-table from the adjusted <code>this</code> address and call
+    the v-table entry at the stored offset.</li>
+  <li>Otherwise, call the stored function pointer.</li>
+</ol>
 
 <p> <hr> <p>
 <a name="class-types">
