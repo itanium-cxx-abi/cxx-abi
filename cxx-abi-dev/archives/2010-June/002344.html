@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Proposed ABI changes for new C++0x SFINAE rules
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Proposed%20ABI%20changes%20for%20new%20C%2B%2B0x%20SFINAE%20rules&In-Reply-To=%3C4D177A70-DEFC-4B57-9F6C-53223CA094BE%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002343.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Proposed ABI changes for new C++0x SFINAE rules</H1>
+    <B>David Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Proposed%20ABI%20changes%20for%20new%20C%2B%2B0x%20SFINAE%20rules&In-Reply-To=%3C4D177A70-DEFC-4B57-9F6C-53223CA094BE%40edg.com%3E"
+       TITLE="Proposed ABI changes for new C++0x SFINAE rules">daveed at edg.com
+       </A><BR>
+    <I>Wed Jun 30 15:33:44 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002343.html">Member selections on dependent expressions
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2344">[ date ]</a>
+              <a href="thread.html#2344">[ thread ]</a>
+              <a href="subject.html#2344">[ subject ]</a>
+              <a href="author.html#2344">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+
+(I sent this e-mail with the wrong attachment last night.  I don't think it made it through the mailing list software, but if it does eventually, please ignore it.)
+
+We've been implementing the new C++0x SFINAE rules (as you probably guessed from recent traffic on this list), and it turns out that it requires ABI changes in the mangling of template signatures.  Often these are pure extensions (reflecting the fact that more kinds of expressions can appear in the signatures), but some of the changes are backward incompatible.  Fortunately, the incompatible changes affect code that is highly unlikely in C++03 (and probably also somehwat unlikely in C++0x).
+
+Attached are our proposed diffs for the ABI document.  Let me walk through its various aspects.
+
+- We're introducing a new definition: &quot;instantiation-dependent&quot;.  When encoding a signature that contains a non-dependent expression like &quot;sizeof(int)&quot;, existing practice it to just replace that by the resulting value, or in some cases, by the encoding for a literal representing that value.  For example:
+
+	template&lt;class T, int N&gt; struct S {};
+	template&lt;class T&gt; void f(S&lt;T, sizeof(int)&gt;);
+	  // &quot;sizeof(int)&quot; is encoded as &quot;Li4E&quot; on typical platforms;
+	  // i.e., as if we'd written &quot;4&quot; instead.
+
+Similarly, something like &quot;decltype(int)&quot; is just encoded as the known underlying type.
+
+However, there are non-dependent expressions and types that can still fail instantiation.  With the new SFINAE rules, several template declarations differing only in such expressions can be written such that their encodings don't collide.  So reducing a sizeof/decltype that is applied to such an expression to a literal isn't workable.  Here is an example of the idea:
+
+	template&lt;class T&gt; auto f(T *p)-&gt;decltype(sizeof(sizeof(T)));
+
+&quot;sizeof(sizeof(T))&quot; is neither type-dependent nor value-dependent, but if T is e.g. a function type, that declaration will be &quot;SFINAEed out&quot;.  
+
+So an &quot;instantiation-dependent&quot; expression or type is one that is either type-dependent or value-dependent, or one that contains a type-dependent or value-dependent sub-expression.  decltype, sizeof, and alignof must be fully encoded if (and only if) their operand is &quot;instantiation-dependent&quot;; otherwise, the resulting type/value is encoded instead.
+
+
+- Since &quot;auto&quot; can appear as a type specifier in new-expressions, we introduce &quot;Da&quot; for its encoding.
+
+
+- A number of new codes are introduced for expression operators that were not previously expected in template signatures (e.g., new/delete operators, typeid, throw, etc.).  We also added codes to distinguish prefix and postfix increment/decrement operators (since e.g. &quot;decltype(x++)&quot; is different from &quot;decltype(++x)&quot;). See the patch for details.
+
+
+- Explicit casts (previously always encoded with the generic &quot;cv&quot; code) now get different codes depending on the form used in the source.  This is needed, because two templates can now validly differ only in that respect (and so manglings must not collide).  For example:
+
+	template&lt;class T, int N&gt; void f(int (*)[const_cast&lt;T&gt;(N)]);    // #1
+	template&lt;class T, int N&gt; void f(int (*)[static_cast&lt;T&gt;(N)]);   // #2
+
+	int main() {
+	  f&lt;long, 3&gt;(0);  // Calls #2 since const_cast is invalid
+	}
+
+This is unfortunately a backward incompatible change (but as mentioned before, the code is unlikely in C++03 since the SFINAE rules for this were unclear at best).
+
+
+- The encoding of &quot;unresolved names&quot; (e.g., the second operand of a &quot;-&gt;&quot; or &quot;.&quot; member selection operation) is now more thorough.  Previously, &lt;expression&gt; had the following productions:
+
+            ::= sr &lt;type&gt; &lt;unqualified-name&gt;                    # dependent name
+            ::= sr &lt;type&gt; &lt;unqualified-name&gt; &lt;template-args&gt;    # dependent template-id
+
+e.g. for the name &quot;T::x&quot; in &quot;p-&gt;T::x&quot; (where T is a template parameter).  In the new SFINAE world, however, this is insufficient. The qualifier may not be a resolved type (or a type at all?) and whether it instantiates successfully may depend on its exact form. E.g., &quot;p-&gt;X::y&quot; and &quot;p-&gt;::X::y&quot; must mangle differently (we're introducing a &quot;gs&quot; operator for that; it also applies to new/delete encodings).  In fact, this matters even for names that don't include a qualifier (&quot;p-&gt;x&quot; vs. &quot;p-&gt;::x&quot;).  (For more analysis, see my mail titled &quot;Member selections on dependent expressions&quot; posted on this reflector last week.)  After looking at lots of examples, we ended up with the following:
+
+	&lt;expression&gt; ::= &lt;unresolved-name&gt;
+
+	&lt;unresolved-name&gt; ::= [gs] &lt;base-unresolved-name&gt;                # x or (with &quot;gs&quot;) ::x
+	                  ::= sr &lt;unresolved-type&gt; &lt;base-unresolved-name&gt;
+	                                                                 # T::x / decltype(p)::x
+	                  ::= srN &lt;unresolved-type&gt; &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+	                                                                 # T::N::x /decltype(p)::N::x
+	                  ::= [gs] sr &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+	                                                                 # A::x, N::y, A&lt;T&gt;::z; &quot;gs&quot; means leading &quot;::&quot;
+	&lt;unresolved-type&gt; ::= &lt;template-param&gt;
+	                  ::= &lt;decltype&gt;
+
+	&lt;unresolved-qualifier-level&gt; ::= &lt;source-name&gt; [ &lt;template-args&gt; ]
+
+	&lt;base-unresolved-name&gt; ::= &lt;source-name&gt;                         # unresolved name
+	                       ::= &lt;source-name&gt; &lt;template-args&gt;         # unresolved template-id
+	                       ::= on &lt;operator-name&gt;                    # unresolved operator-function-id
+	                       ::= on &lt;operator-name&gt; &lt;template-args&gt;    # unresolved operator template-id
+	                       ::= dn &lt;unresolved-name&gt;                  # destructor name; e.g. ~X or ~T::X
+
+This is backward incompatible for cases like p-&gt;A::x where the name qualifier is not a template parameter (or decltype operator; though that case was not specified at all in the past), but it is backward compatible for the more common unqualified case (p-&gt;x or p.x).
+
+Note also the &quot;on&quot; prefix for operator names may not be strictly needed (but it wouldn't take much for the language to evolve in a way that would create ambiguities without it; even now, we're not 100% sure), but it appears to be existing (GCC) practice (and it simplifies demangling).  For example:
+
+	template &lt;class T&gt; auto g(T p1) -&gt; decltype(operator+(p1,p1));
+	  // The decltype operation is encoded as &quot;DTclonplfp_fp_EE&quot;
+
+Finally, let me mention that I've raised an issue with the C++ committee about p.T::x with T a template parameter possibly becoming ambiguous if the type of p is a class type with a member named T.  The proposal here assumes that the language will change to remove that ambiguity: If not (which leads to some bizarre language effects), the encoding rules would have to change.
+
+
+- We propose additional encodings for literals that can now appear in signatures.  nullptr is &quot;LDn0E&quot;; i.e., &quot;a zero of type std::nullptr_t&quot;.  More interestingly, string literals are encoded as L&lt;character type&gt;E, where &lt;character type&gt; is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+
+
+- The patch includes an encoding for parenthesized initializers (code &quot;pi&quot;) in new-expressions (see the production for &lt;initializer&gt;).  It's leaving the door open for braced initializers, but since we haven't implemented those yet, we're not proposing the encoding at this time.  Similarly, since we don't implement complex integers, we haven't specified their literals, but I think the floating-point case we do specify gives a clear direction for that.
+
+
+- The patch includes a number of minor improvement/corrections.  E.g., it is now much more explicit that when mangling the types of function template instantiations, the encoded function type is that of the template (i.e., before substitutions).  Also, some examples were added.
+
+
+As always, we're looking for feedback/corrections.
+
+Thanks,
+
+	Daveed Vandevoorde
+	Edison Design Group
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: SFINAE_diffs
+Type: application/octet-stream
+Size: 32735 bytes
+Desc: not available
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100630/c00ffdaf/attachment.obj">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100630/c00ffdaf/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002343.html">Member selections on dependent expressions
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2344">[ date ]</a>
+              <a href="thread.html#2344">[ thread ]</a>
+              <a href="subject.html#2344">[ subject ]</a>
+              <a href="author.html#2344">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

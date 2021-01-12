@@ -1,0 +1,150 @@
+From mark at codesourcery.com  Fri Mar 22 19:15:08 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 22 Mar 2002 11:15:08 -0800
+Subject: __cxa_demangle clarification
+Message-ID: <46700000.1016824508@gandalf.codesourcery.com>
+
+A library implementor contacted me to indicate that he found this
+description of __cxa_demangle's behavior to be unclear:
+
+    If buf is not a null pointer, it must have been allocated with
+    malloc. If the array turns out to be too small, __cxa_demangle may use
+    realloc to increase its size. The new size will be stored in *n.
+
+The problem is the use of the word "may" with respect to realloc.
+
+I suggest that we change the wording to:
+
+    If the array is too small, __cxa_demangle must either
+    a) call "free" to deallocate the buffer provided and allocate a
+       new buffer with "malloc",
+    or b) call "realloc" to increase the size of the buffer.
+
+If there are no objections, I'll make this change next week.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Mar 27 19:38:28 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 27 Mar 2002 11:38:28 -0800
+Subject: Mangling issue
+Message-ID: <675070000.1017257908@gandalf.codesourcery.com>
+
+I have been presented with a corner case for which I do not believe
+we have specified a mangling.
+
+Consider:
+
+  template <unsigned int> struct helper {};
+  template <class T>
+  void check( helper<sizeof(new T)> * );
+
+The interesting point here is the "new T", which could, of course,
+in general be "new(0) T(3)", or some such.  Our expression mangling
+scheme does not say what to do here in the sense that it assumes
+that each operator has fixed arity.  However, due to the existence
+of placement new, new does not.  This also raises the issue of things
+like:
+
+  helper<sizeof(f(T(0)))>
+
+and so forth; there's apparently so restriction on the standard in
+having arbitrarily complex gnnk inside the "sizeof".
+
+Thoughts?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From daveed at edg.com  Wed Mar 27 20:39:58 2002
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 27 Mar 2002 15:39:58 -0500
+Subject: [cxx-abi-dev] Mangling issue
+References: <675070000.1017257908@gandalf.codesourcery.com>
+Message-ID: <3CA22E1E.E8818FEC@edg.com>
+
+Mark Mitchell wrote:
+> 
+> I have been presented with a corner case for which I do not believe
+> we have specified a mangling.
+> 
+> Consider:
+> 
+>   template <unsigned int> struct helper {};
+>   template <class T>
+>   void check( helper<sizeof(new T)> * );
+
+Ah yes... this is currently a popular Usenet C++ topic.
+
+> The interesting point here is the "new T", which could, of course,
+> in general be "new(0) T(3)", or some such.  Our expression mangling
+> scheme does not say what to do here in the sense that it assumes
+> that each operator has fixed arity.  However, due to the existence
+> of placement new, new does not.  This also raises the issue of things
+> like:
+> 
+>   helper<sizeof(f(T(0)))>
+> 
+> and so forth; there's apparently so restriction on the standard in
+> having arbitrarily complex gnnk inside the "sizeof".
+> 
+> Thoughts?
+
+Perhaps these should really be mangled with the "cl" operator:
+
+	X cl <function-name> <expr>* E
+
+where <function-name> could be a mangled operator new if necessary?
+
+	Daveed
+
+
+From mark at codesourcery.com  Wed Mar 27 21:56:06 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 27 Mar 2002 13:56:06 -0800
+Subject: [cxx-abi-dev] Mangling issue
+In-Reply-To: <3CA22E1E.E8818FEC@edg.com>
+References: <675070000.1017257908@gandalf.codesourcery.com>
+ <3CA22E1E.E8818FEC@edg.com>
+Message-ID: <687840000.1017266166@gandalf.codesourcery.com>
+
+ Perhaps these should really be mangled with the "cl" operator:
+>
+> 	X cl <function-name> <expr>* E
+>
+> where <function-name> could be a mangled operator new if necessary?
+
+Good, that's where I was leaning.  Except that for a placement-new
+you also need the type, so instead of cl I'd use nw like this:
+
+  X nw <type> <expr>* E
+
+and:
+
+  X cl <expr>* E
+
+for functions.  (The function need not be named, we could have a
+function pointer or some such.)
+
+Note that this introduces another place where X...E can appear; in
+the middle of an expression.  It might mess up current demanlgers
+and such less, if we picked a new bracketing character; maybe:
+
+  cl ? <expr>* E
+  nw ? <expr>* E
+
+Here, ? would be some character that cannot begin an expression.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+

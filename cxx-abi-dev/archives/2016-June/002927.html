@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] abi_tag mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCAGL0aWci29%2Ba4_ExUnH07_3e8khtby9Kp7CG2Syq5GB%2BSZfnYA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002944.html">
+   <LINK REL="Next"  HREF="002926.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] abi_tag mangling</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCAGL0aWci29%2Ba4_ExUnH07_3e8khtby9Kp7CG2Syq5GB%2BSZfnYA%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] abi_tag mangling">richardsmith at google.com
+       </A><BR>
+    <I>Mon Jun 27 20:35:34 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002944.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+        <LI>Next message: <A HREF="002926.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2927">[ date ]</a>
+              <a href="thread.html#2927">[ thread ]</a>
+              <a href="subject.html#2927">[ subject ]</a>
+              <a href="author.html#2927">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 14 June 2016 at 14:09, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+
+&gt;<i> On Mon, Jun 6, 2016 at 5:29 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt; On 3 June 2016 at 15:25, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; On Jun 2, 2016, at 3:01 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; If a type is not part of the regular mangling, and it contains an ABI
+</I>&gt;<i> &gt;&gt; &gt; tag in
+</I>&gt;<i> &gt;&gt; &gt; its mangling but not as part of its type (for instance, a dependent
+</I>&gt;<i> &gt;&gt; &gt; expression in a template argument references an entity with an ABI
+</I>&gt;<i> tag),
+</I>&gt;<i> &gt;&gt; &gt; does that appear in the resulting mangling?
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; (That is, is an implementation required to effectively mangle the
+</I>&gt;<i> return
+</I>&gt;<i> &gt;&gt; &gt; type and throw it away, or is some walk over the top-level type
+</I>&gt;<i> required
+</I>&gt;<i> &gt;&gt; &gt; instead?)
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Hmm, good question.  The current G++ implementation scans dependent
+</I>&gt;<i> &gt;&gt; expressions in a (member function of a class) template, and considers
+</I>&gt;<i> &gt;&gt; those in both the signature and the return type of a non-template
+</I>&gt;<i> &gt;&gt; member function (which is not part of its signature), leading to a
+</I>&gt;<i> &gt;&gt; somewhat curious result for this example:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; struct [[gnu::abi_tag (&quot;foo&quot;)]] A
+</I>&gt;<i> &gt;&gt; {
+</I>&gt;<i> &gt;&gt;   template &lt;class T&gt; static T f();
+</I>&gt;<i> &gt;&gt; };
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; template &lt;class T&gt; struct B
+</I>&gt;<i> &gt;&gt; {
+</I>&gt;<i> &gt;&gt;   static decltype(A::f&lt;T&gt;()) g(decltype(A::f&lt;T&gt;()));
+</I>&gt;<i> &gt;&gt;   static decltype(A::f&lt;T&gt;()) h();
+</I>&gt;<i> &gt;&gt; };
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; int main()
+</I>&gt;<i> &gt;&gt; {
+</I>&gt;<i> &gt;&gt;   B&lt;int&gt;::g(0); // _ZN1BIiE1gEi -- the tag does not appear in the
+</I>&gt;<i> mangled
+</I>&gt;<i> &gt;&gt; name
+</I>&gt;<i> &gt;&gt;   B&lt;int&gt;::h();  // _ZN1BIiE1hB3fooEv
+</I>&gt;<i> &gt;&gt; }
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Here G++ sees that A (and thus tag &quot;foo&quot;) appears in the signature of
+</I>&gt;<i> &gt;&gt; B&lt;T&gt;::g, so it doesn't tag B&lt;T&gt;::g, even though the dependent
+</I>&gt;<i> &gt;&gt; expression isn't actually part of the eventual mangling of B&lt;int&gt;::g
+</I>&gt;<i> &gt;&gt; because for non-template member functions we mangle the instantiated
+</I>&gt;<i> &gt;&gt; type rather than the temploid type.  The tag doesn't appear in the
+</I>&gt;<i> &gt;&gt; signature of B&lt;T&gt;::h, so h gets tagged.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Is that how this is supposed to work, or is it a bug? It would seem more
+</I>&gt;<i> &gt; reasonable to say the tag set added after to the declaration's name is
+</I>&gt;<i> the
+</I>&gt;<i> &gt; tag set from scanning the original unsubstituted declaration, minus the
+</I>&gt;<i> tags
+</I>&gt;<i> &gt; produced by mangling (and I suspect that probably doesn't change the
+</I>&gt;<i> &gt; mangling for any cases in the wild).
+</I>&gt;<i>
+</I>&gt;<i> It does seem like a bug.  For non-template member functions, since the
+</I>&gt;<i> signature we mangle is the fully-instantiated signature, it probably
+</I>&gt;<i> also makes sense to use that signature in determining tags, so that
+</I>&gt;<i> neither of the above functions would mention a tag:
+</I>&gt;<i>
+</I>&gt;<i> struct [[gnu::abi_tag (&quot;foo&quot;)]] A
+</I>&gt;<i> {
+</I>&gt;<i>   template &lt;class T&gt; static T f();
+</I>&gt;<i>   template &lt;class T&gt; static A g();
+</I>&gt;<i> };
+</I>&gt;<i>
+</I>&gt;<i> template &lt;class T&gt; struct B
+</I>&gt;<i> {
+</I>&gt;<i>   static decltype(A::f&lt;T&gt;()) fa(decltype(A::f&lt;T&gt;()));
+</I>&gt;<i>   static decltype(A::f&lt;T&gt;()) fv();
+</I>&gt;<i>   static decltype(A::g&lt;T&gt;()) ga(decltype(A::g&lt;T&gt;()));
+</I>&gt;<i>   static decltype(A::g&lt;T&gt;()) gv();
+</I>&gt;<i> };
+</I>&gt;<i>
+</I>&gt;<i> int main()
+</I>&gt;<i> {
+</I>&gt;<i>   B&lt;int&gt;::fa(0);   // _ZN1BIiE2faEi
+</I>&gt;<i>   B&lt;int&gt;::fv();    // _ZN1BIiE2fvEv
+</I>&gt;<i>   B&lt;int&gt;::ga(A()); // _ZN1BIiE2gaE1AB3foo
+</I>&gt;<i>   B&lt;int&gt;::gv();    // _ZN1BIiE2gvB3fooEv
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> Thoughts?
+</I>
+
+Seems reasonable to me. This runs the risk of the ABI variance existing
+only in the SFINAE condition, rather than in the signature, but that's
+probably not an issue in practice. Would the upshot then be that the tags
+are always determined as if by mangling the declared return type (after
+substitution) and checking which tags would appear?
+
+&gt;<i> Is the declaration that you scan the one from which a definition would
+</I>&gt;<i> &gt; ultimately be instantiated, or do you look back further than that? In
+</I>&gt;<i> &gt; particular, do you stop at member specializations:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;   template&lt;&gt; float B&lt;float&gt;::h() {} // how is this mangled?
+</I>&gt;<i>
+</I>&gt;<i> My proposal just above would have us not look any farther back than
+</I>&gt;<i> the fully-instantiated signature, but for member templates, you look
+</I>&gt;<i> at the primary template.
+</I>&gt;<i>
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; ?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;&gt; On Thu, Jun 2, 2016 at 7:22 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; Do templates have ABI tags, or are the tags only properties of
+</I>&gt;<i> template
+</I>&gt;<i> &gt;&gt; &gt; specializations?  How does that play into mangling and/or
+</I>&gt;<i> &gt;&gt; &gt; substitutability?
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Templates have tags.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; I assume ABI tags can apply to unions as well.  (The standard's
+</I>&gt;<i> &gt;&gt; &gt; definition
+</I>&gt;<i> &gt;&gt; &gt; of &quot;compound type&quot; distinguishes classes and unions.)
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Of course, unions are classes.  There are separate bullets for them in
+</I>&gt;<i> &gt;&gt; that paragraph, but the union bullet says that unions are classes.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; It's probably worth spelling out that tags do not apply to
+</I>&gt;<i> enumerators.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; OK.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; Are ABI tags mangled in the &lt;prefix&gt;, or just on the entity &lt;name&gt;?
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; They are mangled as part of the name of the entity, whenever that name
+</I>&gt;<i> &gt;&gt; appears.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; What
+</I>&gt;<i> &gt;&gt; &gt; happens if the same tag is applied to multiple places in the lexical
+</I>&gt;<i> &gt;&gt; &gt; hierarchy, e.g. to both a class and one of its member functions?
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Then it appears multiple times.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; I guess an inline friend function definition doesn't implicitly use
+</I>&gt;<i> the
+</I>&gt;<i> &gt;&gt; &gt; tags
+</I>&gt;<i> &gt;&gt; &gt; of its defining class, but presumably has them anyway because of their
+</I>&gt;<i> &gt;&gt; &gt; presence in the function signature.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Right.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; Can you clarify which things in the Clang description are no longer
+</I>&gt;<i> &gt;&gt; &gt; correct?
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; These lines:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &quot;If a function is used as a local scope for another name, and is part
+</I>&gt;<i> &gt;&gt; of another function as local scope, it doesn&#8217;t have any required tags.
+</I>&gt;<i> &gt;&gt; If a function is used as a local scope for a guard variable name, it
+</I>&gt;<i> &gt;&gt; doesn&#8217;t have any required tags.&quot;
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &gt; I assume that a type used in the name of a conversion function should
+</I>&gt;<i> be
+</I>&gt;<i> &gt;&gt; &gt; mangled with its ABI tag.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Yes, any time the name of the type appears, the tags appear as well.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Coupled with the behavior of attributes on the return type, this seems
+</I>&gt;<i> &gt; strange.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Once a library has ABI tags added to it, you can't add the same ABI tag
+</I>&gt;<i> to
+</I>&gt;<i> &gt; more types in a later release: suppose v1 has an ABI tag on std::list
+</I>&gt;<i> and v2
+</I>&gt;<i> &gt; adds the same ABI tag to std::string. Then &quot;std::string
+</I>&gt;<i> f(std::list&lt;char&gt;)&quot;
+</I>&gt;<i> &gt; has the same mangling in v1 and v2. Since you can't ABI-tag more
+</I>&gt;<i> entities in
+</I>&gt;<i> &gt; a later version of the same library, it would seem sufficient to list the
+</I>&gt;<i> &gt; ABI tags only once, with the name of the complete entity, rather than
+</I>&gt;<i> &gt; alongside each ABI-tagged constituent of its mangled name.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; But I guess you've already shipped this, so it's too late to do much
+</I>&gt;<i> about
+</I>&gt;<i> &gt; it :(
+</I>&gt;<i>
+</I>&gt;<i> That was my original concept, actually; I don't remember now why I
+</I>&gt;<i> shifted away from it.
+</I>&gt;<i>
+</I>&gt;<i> &gt;&gt; &gt; Also, I don't see anything in your proposed
+</I>&gt;<i> &gt;&gt; &gt; wording that talks about not mangling ABI tags on an entity that
+</I>&gt;<i> appear
+</I>&gt;<i> &gt;&gt; &gt; in
+</I>&gt;<i> &gt;&gt; &gt; its type.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; &quot;that are not otherwise represented in the mangling&quot; was supposed to
+</I>&gt;<i> &gt;&gt; cover that, but as we see with my example above it should really talk
+</I>&gt;<i> &gt;&gt; about the type or signature rather than the mangling.
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; Jason
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160627/7229058d/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160627/7229058d/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002944.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+	<LI>Next message: <A HREF="002926.html">[cxx-abi-dev] Non-trivial move constructor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2927">[ date ]</a>
+              <a href="thread.html#2927">[ thread ]</a>
+              <a href="subject.html#2927">[ subject ]</a>
+              <a href="author.html#2927">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

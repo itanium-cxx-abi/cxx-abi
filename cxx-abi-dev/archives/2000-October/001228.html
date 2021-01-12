@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> When should value parameters be destroyed?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20When%20should%20value%20parameters%20be%20destroyed%3F&In-Reply-To=%3C200010011811.UAA00724%40pandora.informatik.hu-berlin.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001227.html">
+   <LINK REL="Next"  HREF="001229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>When should value parameters be destroyed?</H1>
+    <B>Martin von Loewis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20When%20should%20value%20parameters%20be%20destroyed%3F&In-Reply-To=%3C200010011811.UAA00724%40pandora.informatik.hu-berlin.de%3E"
+       TITLE="When should value parameters be destroyed?">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Sun Oct  1 18:11:48 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001227.html">When should value parameters be destroyed?
+</A></li>
+        <LI>Next message: <A HREF="001229.html">When should value parameters be destroyed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1228">[ date ]</a>
+              <a href="thread.html#1228">[ thread ]</a>
+              <a href="subject.html#1228">[ subject ]</a>
+              <a href="author.html#1228">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>[gcc does indeed manage to put the destructor outside of the
+function-try-block]
+
+&gt;<i> I would prefer not to, given the space advantage of the current
+</I>&gt;<i> strategy, but I'm willing to go along if others feel that this is the
+</I>&gt;<i> best way to go.
+</I>
+I agree it would be a good solution if it would work, but let me try
+to come up with more counter-examples. Consider
+
+--- a.h ----
+struct A{
+  inline ~A();
+};
+
+void foo(A a);
+
+--- a.cc ---
+#include &quot;a.h&quot;
+
+void foo(A a){}
+
+--- b.cc ---
+#include &quot;a.h&quot;
+
+inline A::~A(){}
+
+int main(){
+  A a;
+  foo(a);
+}
+
+------------
+
+I believe a.cc and b.cc together are a well-formed program. Even
+though C++ requires that inline functions are defined when they are
+&quot;used&quot;, A::~A does not need to be defined when compiling a.cc - the
+destructor is not &quot;used&quot; inside foo.
+
+Yet, when compiling b.cc, gcc sees that it can inline the destructor
+in all places (namely, destruction of A::a), and does not emit it
+out-of-line. As a result, I get
+
+pandora loewis 662 ( ~/tmp ) &gt; g++ -o a -O2 a.cc b.cc
+/var/tmp/ccD7ikdu.o: In function `foo(A)':
+/var/tmp/ccD7ikdu.o(.text+0x8): undefined reference to `A::~A(void)'
+collect2: ld returned 1 exit status
+
+Would you agree that this example should compile (even though any sane
+developer would not rely on the mechanism in a real application)? If
+so, how would you propose that the ABI deals with it?
+
+Regards,
+Martin
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001227.html">When should value parameters be destroyed?
+</A></li>
+	<LI>Next message: <A HREF="001229.html">When should value parameters be destroyed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1228">[ date ]</a>
+              <a href="thread.html#1228">[ thread ]</a>
+              <a href="subject.html#1228">[ subject ]</a>
+              <a href="author.html#1228">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

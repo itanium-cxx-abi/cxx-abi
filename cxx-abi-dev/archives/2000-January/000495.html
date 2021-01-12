@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> rtti data structures (again)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C388F02EF.A80C7B0E%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000492.html">
+   <LINK REL="Next"  HREF="000517.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>rtti data structures (again)</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C388F02EF.A80C7B0E%40codesourcery.com%3E"
+       TITLE="rtti data structures (again)">sidwell at codesourcery.com
+       </A><BR>
+    <I>Wed Jan 26 14:21:35 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000492.html">Updated status files
+</A></li>
+        <LI>Next message: <A HREF="000517.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#495">[ date ]</a>
+              <a href="thread.html#495">[ thread ]</a>
+              <a href="subject.html#495">[ subject ]</a>
+              <a href="author.html#495">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+Sorry, there are still some problems with the rtti data layout, which
+I'd not noticed (cos I implemented what I thought was written, not
+what's actually written).
+
+1) The amended (25th Jan) RTTI says
+	'Note that the full structure described by an RTTI descriptor may
+	include incomplete types not required by the Standard to be
+	completed, although not in contexts where it would cause ambiguity.'
+I don't believe this is the case, the example I posted a couple of weeks
+back pointed this out. Here it is, in a slightly more compact form
+
+	struct A;
+	struct B;
+
+	int main ()
+	{
+	  try {
+	    throw (B **)0;
+	  } catch (A const * const *) { 
+	    abort ();
+	  } catch (B const * const *) {
+	    ;//ok
+	  } catch (...) {
+	    abort ();
+ 	  }
+	}
+I believe this is well formed and should not abort. The RTTI document
+indicates that `typeid (A const * const *)' and
+`typeid (B const * const *)' will produce __pointer_type_info chains that
+end at a weak symbol reference for A and B respectively. These will both
+resolve to zero. How is catch matching able to determine the difference
+between `A const * const *' and `B const * const *' under these
+circumstances? If this is a shortcoming of the ABI, or considered a defect
+in the standard, it should be documented.
+
+There seems to be no discussion of this case.
+
+2) __si_class_type_info is documented for a single non-virtual heirarcy,
+and __vmi_class_type_info for a class containing (directly or indirectly)
+a multiple or virtual inheritance component. My mistake was to use
+__si_class_type_info for a class with a single base, regardless of the
+heirachy within the base (that is the current g++ behaviour). I can see
+that for dynamic_cast, knowing that __si_class_type_info has only single
+inheritance could speed up checking for the original source base started
+from, in certain circumstances. Primarily these are target to source
+checks. However, those cases where the singly inherited nature
+of __si_class_type_info helps, are exactly those cases where the
+src2dst_offset hint tells us anyway. That hint is more general as it works
+in multiple heirarchies too. Hence, we have not gained in restricting
+__si_class_type_info to entirely singly inherited classes. We have lost
+for cases where a class has a single base which happens to contain
+multiple or virtual inheritance. That has to go through the complexity
+of the general case.
+
+An additional surprise is in the following,
+	struct A {int non_empty;};
+	struct B : A {virtual ~B ();};
+	struct C : B {};
+These are singly inherited graphs. C will be layed out in an
+__si_class_type_info. However, B cannot be, because it has introduced
+a vtable, which will be at offset zero. So the A base of B will be at
+some non-zero offset, which is not representable by __si_class_type_info.
+So within an __si_class_type_info heirarchy, there can exist
+__vmi_class_type_info nodes.
+
+If it is intended that __si_class_type_info is for completely single
+inheritance, could the rationale be documented?
+
+3) __si_class_type_info is for both public and non-public inheritance
+(again, something I'd not noticed, thinking it was for public only). For
+this to work, the __class_type_info flag bit 0x8 'non-publicly inherited
+base' must mean `non-publicly inherited direct base'. Please can the wording
+about bases here explicitly say `direct base' `indirect base' or `direct or
+indirect base'. The description currently use `contains' and `has' which
+are open to interpretation.
+
+In dynamic casting, access is important. In a cross cast from base A via
+complete type C to another base B, both B and A must be publicly accessible
+from C. It might be that dynamic_cast locates B, and, knowing that C does
+not have multiply inherited subobjects, determines it need look no further.
+However, it must determine access. If C has no non-public direct or indirect
+bases, access must be OK, without further inspection. However the hint flag
+0x8 can't be indicating that, as it is only for direct bases. (This was the
+one case where I was able to take advantage of these flags, but alas it seems
+I can't.) 
+
+nathan
+-- 
+Dr Nathan Sidwell :: Computer Science Department :: Bristol University
+Never hand someone a gun unless you are sure where they will point it
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>  <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A>  <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at cs.bris.ac.uk</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000492.html">Updated status files
+</A></li>
+	<LI>Next message: <A HREF="000517.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#495">[ date ]</a>
+              <a href="thread.html#495">[ thread ]</a>
+              <a href="subject.html#495">[ subject ]</a>
+              <a href="author.html#495">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

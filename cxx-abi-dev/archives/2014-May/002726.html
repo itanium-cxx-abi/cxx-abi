@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Adding%20__cxa_thread_atexit%28%29%20to%20the%20C%2B%2B%20ABI%3F&In-Reply-To=%3CCANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002731.html">
+   <LINK REL="Next"  HREF="002729.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?</H1>
+    <B>Matthew Dempsky</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Adding%20__cxa_thread_atexit%28%29%20to%20the%20C%2B%2B%20ABI%3F&In-Reply-To=%3CCANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?">matthew at dempsky.org
+       </A><BR>
+    <I>Wed May  7 17:15:33 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002731.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+        <LI>Next message: <A HREF="002729.html">[cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2726">[ date ]</a>
+              <a href="thread.html#2726">[ thread ]</a>
+              <a href="subject.html#2726">[ subject ]</a>
+              <a href="author.html#2726">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, Apr 27, 2014 at 11:14 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+&gt;<i> Yes, preparing a proposal would be great.  Please send it here,
+</I>&gt;<i> though, not as a push request to github.
+</I>
+Okay, here's my first stab at this.  Feedback welcome.
+
+
+diff --git a/abi.html b/abi.html
+index bdd8476..b46c398 100644
+--- a/abi.html
++++ b/abi.html
+@@ -3786,8 +3786,8 @@ All references are via the API described below.
+ &lt;p&gt;
+ &lt;li&gt; Object construction:
+ &lt;p&gt;
+-After constructing a global (or local static) object,
+-that will require destruction on exit,
++After constructing an object with static storage duration,
++that will require destruction on process exit,
+ a termination function is &lt;i&gt;registered&lt;/i&gt; as follows:
+ &lt;center&gt;&lt;code&gt;
+ extern &quot;C&quot; int __cxa_atexit ( void (*f)(void *), void *p, void *d );
+@@ -3801,6 +3801,29 @@ It returns zero if registration is successful,
+nonzero on failure.
+ The registration function is not called from within the constructor.
+
+ &lt;p&gt;
++&lt;li&gt; Thread-local object construction:
++&lt;p&gt;
++After constructing an object with thread storage duration,
++that will require destruction on process or thread exit,
++a thread-local termination function is &lt;i&gt;registered&lt;/i&gt; as follows:
++&lt;center&gt;&lt;code&gt;
++extern &quot;C&quot; int __cxa_thread_atexit ( void (*f)(void *), void *p, void *d );
++&lt;/code&gt;&lt;/center&gt;
++This registration, e.g. &lt;code&gt;__cxa_thread_atexit(f,p,d)&lt;/code&gt;,
++is intended to cause the call &lt;code&gt;f(p)&lt;/code&gt; when the calling
+thread terminates
++(e.g. by returning from its initial function or calling
+&lt;code&gt;std::exit&lt;/code&gt;),
++before all such thread-local termination calls registered before this one.
++It returns zero if registration is successful, nonzero on failure.
++
++&lt;p&gt;
++The registration function is not called from within the constructor.
++Additionally, the registration increments the reference count for DSO
+&lt;code&gt;d&lt;/code&gt;.
++
++&lt;p&gt;
++The thread-local termination function is called from the same thread
+that registered it.
++After &lt;code&gt;f(p)&lt;/code&gt; returns, the reference count for DSO
+&lt;code&gt;d&lt;/code&gt; is decremented.
++
++&lt;p&gt;
+ &lt;li&gt; User &lt;code&gt;atexit&lt;/code&gt; calls:
+ &lt;p&gt;
+ When the user registers exit functions with &lt;code&gt;atexit&lt;/code&gt;,
+@@ -3819,12 +3842,13 @@ with a parameter or a home DSO.
+ &lt;p&gt;
+ &lt;li&gt; Termination:
+ &lt;p&gt;
+-When linking any DSO containing a call to &lt;code&gt;__cxa_atexit&lt;/code&gt;,
++When linking any DSO containing a call to &lt;code&gt;__cxa_atexit&lt;/code&gt;
+or &lt;code&gt;__cxa_thread_atexit&lt;/code&gt;,
+ the linker should define a hidden symbol &lt;code&gt;__dso_handle&lt;/code&gt;,
+ with a value which is an address in one of the object's segments.
+ (It does not matter what address,
+ as long as they are different in different DSOs.)
+-It should also include a call to the following function in the FINI
++Additionally, DSOs that contain a call to &lt;code&gt;__cxa_atexit&lt;/code&gt;
++should also include a call to the following function in the FINI
+ list (to be executed first):
+ &lt;center&gt;&lt;code&gt;
+ extern &quot;C&quot; void __cxa_finalize ( void *d );
+@@ -3851,7 +3875,9 @@ the implementation may either remove entries or
+mark them finished.
+
+ &lt;p&gt;
+ When the main program calls &lt;code&gt;exit&lt;/code&gt;,
+-it must call any remaining &lt;code&gt;__cxa_atexit&lt;/code&gt;-registered functions,
++it must first call any &lt;code&gt;__cxa_thread_atexit&lt;/code&gt;-registered functions
++for the exiting thread.
++Next, it must call any remaining &lt;code&gt;__cxa_atexit&lt;/code&gt;-registered
+functions,
+ either by calling &lt;code&gt;__cxa_finalize(NULL)&lt;/code&gt;,
+ or by walking the registration list itself.
+
+@@ -3863,8 +3889,8 @@ in the opposite of the order in which they were
+enqueued by
+ &lt;/ol&gt;
+
+ &lt;p&gt;
+-Since &lt;code&gt;__cxa_atexit&lt;/code&gt; and &lt;code&gt;__cxa_finalize&lt;/code&gt;
+-must both manipulate the same termination function list,
++Since calls to &lt;code&gt;__cxa_atexit&lt;/code&gt;,
+&lt;code&gt;__cxa_thread_atexit&lt;/code&gt;, and &lt;code&gt;__cxa_finalize&lt;/code&gt;
++must manipulate the same termination function lists,
+ they must be defined in the implementation's runtime library,
+ rather than in the individual linked objects.
+</PRE>
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002731.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+	<LI>Next message: <A HREF="002729.html">[cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2726">[ date ]</a>
+              <a href="thread.html#2726">[ thread ]</a>
+              <a href="subject.html#2726">[ subject ]</a>
+              <a href="author.html#2726">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

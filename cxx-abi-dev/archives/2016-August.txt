@@ -1,0 +1,657 @@
+From jason at redhat.com  Mon Aug  1 18:15:11 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 1 Aug 2016 14:15:11 -0400
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+	<CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+	<OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+Message-ID: <CADzB+2mzKsGo5-KU-0JPQJ0vCe_a+B1dz6BbqAEjfRe1zNMjCQ@mail.gmail.com>
+
+On Wed, Jul 20, 2016 at 8:24 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+
+> I believe at least the covariant return case can be solved with
+> alternative function entry points which record the adjustments necessary on
+> return.
+> Of course, the va_list option can still be presented.
+>
+That was the plan when the ABI was developed, but AFAIK nobody has actually
+implemented it.
+
+> [image: Inactive hide details for Richard Smith ---19-07-2016 09:04:25
+> p.m.---Another item for the list: Variadic virtual functions wit]Richard
+> Smith ---19-07-2016 09:04:25 p.m.---Another item for the list: Variadic
+> virtual functions with covariant return types are currently
+>
+> From: Richard Smith <richardsmith at google.com>
+> To: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> Date: 19-07-2016 09:04 p.m.
+> Subject: Re: [cxx-abi-dev] C++ ABI version 2
+> Sent by: cxx-abi-dev-bounces at codesourcery.com
+> ------------------------------
+>
+>
+>
+> Another item for the list:
+>
+> Variadic virtual functions with covariant return types are currently
+> problematic: it's not possible in general to generate an adjustor thunk for
+> them, because it's not possible in general to forward a (non-tail) varargs
+> call. Similar problems exist for the conversion to function pointer in a
+> non-capturing varargs lambda.
+>
+> We can fix this by changing the calling convention for varargs non-static
+> member functions so that they are passed a va_list object directly (that
+> is, effectively put the va_start / va_end into the caller, and convert a
+> va_start in the callee into a va_copy from the va_list argument). Then
+> forwarding the varargs become trivial.
+>
+> (It seems preferable to apply this change to all non-static member
+> functions, not just virtual functions, so that we don't need to emit two
+> quite different codepaths for a call through a pointer to member.)
+>
+> On 12 May 2015 at 17:29, Richard Smith <*richardsmith at google.com*
+> <richardsmith at google.com>> wrote:
+>
+>    Another item for the Itanium C++ ABI version 2 list:
+>
+>    The ABI currently specifies that the initial guard variable load is an
+>    acquire load (3.3.2, "An implementation supporting thread-safety on
+>    multiprocessor systems must also guarantee that references to the
+>    initialized object do not occur before the load of the initialization flag.
+>    On Itanium, this can be done by using a ld1.acq operation to load the
+>    flag.").
+>
+>    This is inefficient on systems where an acquire load requires a fence.
+>    Using an algorithm due to Mike Burrows (described in the appendix of
+>    *http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm*
+>    <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm>)
+>    the same interface can be implemented starting with a relaxed load, where
+>    the acquire operation is performed only the first time each thread hits the
+>    initialization.
+>
+>    On 19 November 2013 at 17:57, Richard Smith <*richardsmith at google.com*
+>    <richardsmith at google.com>> wrote:
+>    Hi,
+>
+>    There are a few things in the current ABI which are known to be
+>    suboptimal, but we cannot change because doing so would introduce an ABI
+>    break. However, vendors sometimes get an opportunity to break their ABI (or
+>    are defining a new ABI), and for some vendors, this is a very common
+>    occurrence. To this end, I think it would be valuable for the ABI document
+>    to describe what we might want to put in a 'Version 2' of the ABI; that is,
+>    a set of changes that we recommend be made whenever a vendor has a chance
+>    to introduce an ABI break.
+>
+>    (Or perhaps this should be viewed from the opposite perspective: we
+>    could make improvements to the ABI, with an annex listing changes that old
+>    platforms must make for compatibility.)
+>
+>    Would there be support for this idea?
+>
+>
+>    In off-line discussion with John McCall, we came up with the following
+>    list of potential changes that might be made (sorry if I forgot any):
+>
+>     * Make constructors and destructors return 'this' instead of
+>    returning 'void', in order to allow callers to avoid a reload in common
+>    cases and to allow more tail calls.
+>     * Simplify case 2b in non-POD class layout.
+>     * Make virtual functions that are defined as 'inline' not be key
+>    functions
+>     * Fix the bug that -1 is both the null pointer-to-data-member value
+>    and also a valid value of a pointer-to-data-member (could use SIZE_MIN
+>    instead)
+>     * Relax the definition of POD used in the ABI, in order to allow more
+>    class types to be passed in registers
+>
+>    Are there any other things that it would make sense to change in a
+>    version 2 of the ABI?
+>
+>
+>    Also, would there be any support for documenting common deviations
+>    from the ABI that platform vendors might want to consider when specifying
+>    their own ABIs? In addition to some of the above, this would also include:
+>
+>     * Representation of pointers-to-member-functions (in particular, the
+>    current representation assumes that the lowest bit of a function pointer is
+>    unused, which isn't true in general)
+>     * Representation of guard variables (some platforms use the native
+>    word size rather than forcing this to be 64 bits wide)
+>
+>    Are there any others?
+>
+>
+>    Thanks!
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160801/ae6d7153/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160801/ae6d7153/attachment.gif>
+
+From jason at redhat.com  Mon Aug  1 18:27:52 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 1 Aug 2016 14:27:52 -0400
+Subject: [cxx-abi-dev] abi_tag mangling
+In-Reply-To: <CAGL0aWci29+a4_ExUnH07_3e8khtby9Kp7CG2Syq5GB+SZfnYA@mail.gmail.com>
+References: <3694a9ff-2963-e2b1-9bfc-1a760dcc9437@redhat.com>
+	<CAGL0aWdDXT+J2wW7KRfX-5=quXGbKoAFbieMd75eUU1U7PuLdA@mail.gmail.com>
+	<05E639EF-ADE0-4AF7-B182-731C1895C47A@apple.com>
+	<CADzB+2nfZiMyN=35OHOe3_ijbYUTQLco5TKmN69nfWkEa5qqtg@mail.gmail.com>
+	<CAGL0aWc=0TtPe7PK9RkZj-vOwj=tUwKPWOJpEHDoTbnGfnxyQw@mail.gmail.com>
+	<CADzB+2=Es+OGurdkts_tcb4JvfWY-DyTCfRHu+XLsvy_LW8X3Q@mail.gmail.com>
+	<CAGL0aWci29+a4_ExUnH07_3e8khtby9Kp7CG2Syq5GB+SZfnYA@mail.gmail.com>
+Message-ID: <CADzB+2k7cBXzLy2=7YCuJwFMx0QWHt+PTUrBtnz=3duuMqn5zg@mail.gmail.com>
+
+On Mon, Jun 27, 2016 at 4:35 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 14 June 2016 at 14:09, Jason Merrill <jason at redhat.com> wrote:
+>> On Mon, Jun 6, 2016 at 5:29 PM, Richard Smith <richardsmith at google.com> wrote:
+>> > On 3 June 2016 at 15:25, Jason Merrill <jason at redhat.com> wrote:
+>> >> On Jun 2, 2016, at 3:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>> >>
+>> >> > If a type is not part of the regular mangling, and it contains an ABI tag in
+>> >> > its mangling but not as part of its type (for instance, a dependent
+>> >> > expression in a template argument references an entity with an ABI tag),
+>> >> > does that appear in the resulting mangling?
+>> >>
+>> >> > (That is, is an implementation required to effectively mangle the return
+>> >> > type and throw it away, or is some walk over the top-level type required
+>> >> > instead?)
+>> >>
+>> >> Hmm, good question.  The current G++ implementation scans dependent
+>> >> expressions in a (member function of a class) template, and considers
+>> >> those in both the signature and the return type of a non-template
+>> >> member function (which is not part of its signature), leading to a
+>> >> somewhat curious result for this example:
+>> >>
+>> >> struct [[gnu::abi_tag ("foo")]] A
+>> >> {
+>> >>   template <class T> static T f();
+>> >> };
+>> >>
+>> >> template <class T> struct B
+>> >> {
+>> >>   static decltype(A::f<T>()) g(decltype(A::f<T>()));
+>> >>   static decltype(A::f<T>()) h();
+>> >> };
+>> >>
+>> >> int main()
+>> >> {
+>> >>   B<int>::g(0); // _ZN1BIiE1gEi -- the tag does not appear in the mangled name
+>> >>   B<int>::h();  // _ZN1BIiE1hB3fooEv
+>> >> }
+>> >>
+>> >> Here G++ sees that A (and thus tag "foo") appears in the signature of
+>> >> B<T>::g, so it doesn't tag B<T>::g, even though the dependent
+>> >> expression isn't actually part of the eventual mangling of B<int>::g
+>> >> because for non-template member functions we mangle the instantiated
+>> >> type rather than the temploid type.  The tag doesn't appear in the
+>> >> signature of B<T>::h, so h gets tagged.
+>> >
+>> > Is that how this is supposed to work, or is it a bug? It would seem more
+>> > reasonable to say the tag set added after to the declaration's name is the
+>> > tag set from scanning the original unsubstituted declaration, minus the tags
+>> > produced by mangling (and I suspect that probably doesn't change the
+>> > mangling for any cases in the wild).
+>>
+>> It does seem like a bug.  For non-template member functions, since the
+>> signature we mangle is the fully-instantiated signature, it probably
+>> also makes sense to use that signature in determining tags, so that
+>> neither of the above functions would mention a tag:
+>>
+>> struct [[gnu::abi_tag ("foo")]] A
+>> {
+>>   template <class T> static T f();
+>>   template <class T> static A g();
+>> };
+>>
+>> template <class T> struct B
+>> {
+>>   static decltype(A::f<T>()) fa(decltype(A::f<T>()));
+>>   static decltype(A::f<T>()) fv();
+>>   static decltype(A::g<T>()) ga(decltype(A::g<T>()));
+>>   static decltype(A::g<T>()) gv();
+>> };
+>>
+>> int main()
+>> {
+>>   B<int>::fa(0);   // _ZN1BIiE2faEi
+>>   B<int>::fv();    // _ZN1BIiE2fvEv
+>>   B<int>::ga(A()); // _ZN1BIiE2gaE1AB3foo
+>>   B<int>::gv();    // _ZN1BIiE2gvB3fooEv
+>> }
+>>
+>> Thoughts?
+>
+> Seems reasonable to me. This runs the risk of the ABI variance existing only
+> in the SFINAE condition, rather than in the signature, but that's probably
+> not an issue in practice.
+
+It shouldn't be an issue at all, since SFINAE only applies to member
+templates, for which we already mangle the return type, not the above
+member functions of a class template.
+
+> Would the upshot then be that the tags are always
+> determined as if by mangling the declared return type (after substitution)
+> and checking which tags would appear?
+
+Yes.
+
+Did you have a reaction to Dmitry's mail?
+
+Jason
+
+From jason at redhat.com  Tue Aug  9 16:32:04 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 9 Aug 2016 12:32:04 -0400
+Subject: [cxx-abi-dev] abi_tag mangling
+In-Reply-To: <CADzB+2k7cBXzLy2=7YCuJwFMx0QWHt+PTUrBtnz=3duuMqn5zg@mail.gmail.com>
+References: <3694a9ff-2963-e2b1-9bfc-1a760dcc9437@redhat.com>
+	<CAGL0aWdDXT+J2wW7KRfX-5=quXGbKoAFbieMd75eUU1U7PuLdA@mail.gmail.com>
+	<05E639EF-ADE0-4AF7-B182-731C1895C47A@apple.com>
+	<CADzB+2nfZiMyN=35OHOe3_ijbYUTQLco5TKmN69nfWkEa5qqtg@mail.gmail.com>
+	<CAGL0aWc=0TtPe7PK9RkZj-vOwj=tUwKPWOJpEHDoTbnGfnxyQw@mail.gmail.com>
+	<CADzB+2=Es+OGurdkts_tcb4JvfWY-DyTCfRHu+XLsvy_LW8X3Q@mail.gmail.com>
+	<CAGL0aWci29+a4_ExUnH07_3e8khtby9Kp7CG2Syq5GB+SZfnYA@mail.gmail.com>
+	<CADzB+2k7cBXzLy2=7YCuJwFMx0QWHt+PTUrBtnz=3duuMqn5zg@mail.gmail.com>
+Message-ID: <CADzB+2nRQHiaGf9HyF-06FZx3_PBQEE=tdrY=4+bKnCoMdyPcA@mail.gmail.com>
+
+On Mon, Aug 1, 2016 at 2:27 PM, Jason Merrill <jason at redhat.com> wrote:
+> On Mon, Jun 27, 2016 at 4:35 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 14 June 2016 at 14:09, Jason Merrill <jason at redhat.com> wrote:
+>>> On Mon, Jun 6, 2016 at 5:29 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> > On 3 June 2016 at 15:25, Jason Merrill <jason at redhat.com> wrote:
+>>> >> On Jun 2, 2016, at 3:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> >>
+>>> >> > If a type is not part of the regular mangling, and it contains an ABI tag in
+>>> >> > its mangling but not as part of its type (for instance, a dependent
+>>> >> > expression in a template argument references an entity with an ABI tag),
+>>> >> > does that appear in the resulting mangling?
+>>> >>
+>>> >> > (That is, is an implementation required to effectively mangle the return
+>>> >> > type and throw it away, or is some walk over the top-level type required
+>>> >> > instead?)
+>>> >>
+>>> >> Hmm, good question.  The current G++ implementation scans dependent
+>>> >> expressions in a (member function of a class) template, and considers
+>>> >> those in both the signature and the return type of a non-template
+>>> >> member function (which is not part of its signature), leading to a
+>>> >> somewhat curious result for this example:
+>>> >>
+>>> >> struct [[gnu::abi_tag ("foo")]] A
+>>> >> {
+>>> >>   template <class T> static T f();
+>>> >> };
+>>> >>
+>>> >> template <class T> struct B
+>>> >> {
+>>> >>   static decltype(A::f<T>()) g(decltype(A::f<T>()));
+>>> >>   static decltype(A::f<T>()) h();
+>>> >> };
+>>> >>
+>>> >> int main()
+>>> >> {
+>>> >>   B<int>::g(0); // _ZN1BIiE1gEi -- the tag does not appear in the mangled name
+>>> >>   B<int>::h();  // _ZN1BIiE1hB3fooEv
+>>> >> }
+>>> >>
+>>> >> Here G++ sees that A (and thus tag "foo") appears in the signature of
+>>> >> B<T>::g, so it doesn't tag B<T>::g, even though the dependent
+>>> >> expression isn't actually part of the eventual mangling of B<int>::g
+>>> >> because for non-template member functions we mangle the instantiated
+>>> >> type rather than the temploid type.  The tag doesn't appear in the
+>>> >> signature of B<T>::h, so h gets tagged.
+>>> >
+>>> > Is that how this is supposed to work, or is it a bug? It would seem more
+>>> > reasonable to say the tag set added after to the declaration's name is the
+>>> > tag set from scanning the original unsubstituted declaration, minus the tags
+>>> > produced by mangling (and I suspect that probably doesn't change the
+>>> > mangling for any cases in the wild).
+>>>
+>>> It does seem like a bug.  For non-template member functions, since the
+>>> signature we mangle is the fully-instantiated signature, it probably
+>>> also makes sense to use that signature in determining tags, so that
+>>> neither of the above functions would mention a tag:
+>>>
+>>> struct [[gnu::abi_tag ("foo")]] A
+>>> {
+>>>   template <class T> static T f();
+>>>   template <class T> static A g();
+>>> };
+>>>
+>>> template <class T> struct B
+>>> {
+>>>   static decltype(A::f<T>()) fa(decltype(A::f<T>()));
+>>>   static decltype(A::f<T>()) fv();
+>>>   static decltype(A::g<T>()) ga(decltype(A::g<T>()));
+>>>   static decltype(A::g<T>()) gv();
+>>> };
+>>>
+>>> int main()
+>>> {
+>>>   B<int>::fa(0);   // _ZN1BIiE2faEi
+>>>   B<int>::fv();    // _ZN1BIiE2fvEv
+>>>   B<int>::ga(A()); // _ZN1BIiE2gaE1AB3foo
+>>>   B<int>::gv();    // _ZN1BIiE2gvB3fooEv
+>>> }
+>>>
+>>> Thoughts?
+>>
+>> Seems reasonable to me. This runs the risk of the ABI variance existing only
+>> in the SFINAE condition, rather than in the signature, but that's probably
+>> not an issue in practice.
+>
+> It shouldn't be an issue at all, since SFINAE only applies to member
+> templates, for which we already mangle the return type, not the above
+> member functions of a class template.
+
+>> Would the upshot then be that the tags are always
+>> determined as if by mangling the declared return type (after substitution)
+>> and checking which tags would appear?
+>
+> Yes.
+
+So, here's the total proposed addition to the current ABI document.
+
+https://github.com/MentorEmbedded/cxx-abi/compare/gh-pages...jicama:gh-pages
+
+> Did you have a reaction to Dmitry's mail?
+
+Jason
+
+From richardsmith at google.com  Fri Aug 12 23:59:54 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 12 Aug 2016 16:59:54 -0700
+Subject: [cxx-abi-dev] mangling for c++17 decomposition declarations
+Message-ID: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+
+C++17 decomposition declarations are (surprisingly) permitted at global
+scope. They can't be forward-declared nor made inline (yet...), and it
+seems likely that the wording probably didn't *mean* to allow them to be
+declared as templates, so we don't appear to need a cross-vendor mangling
+for them. However, establishing a convention would be useful for demanglers.
+
+For now, I'm mangling global decomposition declarations as:
+
+  <unqualified-name> ::= DC <source-name>* E
+
+... where the <source-name>s are the names of the bindings. (I'm mangling
+the bindings in the obvious way, as if they were reference declarations,
+but they get a mangled name even at global scope.)
+
+We could get away with mangling only the name of the first binding, but the
+extra information seems useful to people looking at the mangled name.
+
+Thoughts? Is it worth specifying this in the ABI?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160812/5ffbfb29/attachment.html>
+
+From rjmccall at apple.com  Sat Aug 13 00:29:30 2016
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 12 Aug 2016 17:29:30 -0700
+Subject: [cxx-abi-dev] mangling for c++17 decomposition declarations
+In-Reply-To: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+References: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+Message-ID: <3BD65EB9-6B0E-47CE-91D4-2E0FA07FB047@apple.com>
+
+> On Aug 12, 2016, at 4:59 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+> C++17 decomposition declarations are (surprisingly) permitted at global scope. They can't be forward-declared nor made inline (yet...), and it seems likely that the wording probably didn't *mean* to allow them to be declared as templates, so we don't appear to need a cross-vendor mangling for them. However, establishing a convention would be useful for demanglers.
+> 
+> For now, I'm mangling global decomposition declarations as:
+> 
+>   <unqualified-name> ::= DC <source-name>* E
+> 
+> ... where the <source-name>s are the names of the bindings. (I'm mangling the bindings in the obvious way, as if they were reference declarations, but they get a mangled name even at global scope.)
+> 
+> We could get away with mangling only the name of the first binding, but the extra information seems useful to people looking at the mangled name.
+> 
+> Thoughts? Is it worth specifying this in the ABI?
+
+For those of us who aren't following the standards process that closely, would you mind explaining the more basic ABI impact of the feature?  Are the individual bindings separate objects that should be mangled as it they were actually declared separately, and so this compound mangling only serves to uniquely identify the initializer in case it contains entities that need / ought to be mangled?
+
+John.
+
+From richardsmith at google.com  Sat Aug 13 01:06:03 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 12 Aug 2016 18:06:03 -0700
+Subject: [cxx-abi-dev] mangling for c++17 decomposition declarations
+In-Reply-To: <3BD65EB9-6B0E-47CE-91D4-2E0FA07FB047@apple.com>
+References: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+	<3BD65EB9-6B0E-47CE-91D4-2E0FA07FB047@apple.com>
+Message-ID: <CAGL0aWc5_DdYzWV8Snr=UASompUbSOxQKkuuNshZJOwRB5G5-g@mail.gmail.com>
+
+On 12 August 2016 at 17:29, John McCall <rjmccall at apple.com> wrote:
+
+> > On Aug 12, 2016, at 4:59 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >
+> > C++17 decomposition declarations are (surprisingly) permitted at global
+> scope. They can't be forward-declared nor made inline (yet...), and it
+> seems likely that the wording probably didn't *mean* to allow them to be
+> declared as templates, so we don't appear to need a cross-vendor mangling
+> for them. However, establishing a convention would be useful for demanglers.
+> >
+> > For now, I'm mangling global decomposition declarations as:
+> >
+> >   <unqualified-name> ::= DC <source-name>* E
+> >
+> > ... where the <source-name>s are the names of the bindings. (I'm
+> mangling the bindings in the obvious way, as if they were reference
+> declarations, but they get a mangled name even at global scope.)
+> >
+> > We could get away with mangling only the name of the first binding, but
+> the extra information seems useful to people looking at the mangled name.
+> >
+> > Thoughts? Is it worth specifying this in the ABI?
+>
+> For those of us who aren't following the standards process that closely,
+> would you mind explaining the more basic ABI impact of the feature?  Are
+> the individual bindings separate objects that should be mangled as it they
+> were actually declared separately, and so this compound mangling only
+> serves to uniquely identify the initializer in case it contains entities
+> that need / ought to be mangled?
+
+
+Yes, but the bindings are always of reference type when they exist at all.
+In a decomposition declaration like:
+
+  auto [a, b, c] = expr;
+
+there are (potentially, see below) four distinct entities: a variable
+
+  auto e = expr;
+
+and three bindings (a, b, and c). The mangling above would be used for the
+'e' variable. There is no way to reference that implicit variable except
+through the bindings.
+
+There are two different cases for the behavior of the bindings: either they
+are built-in bindings representing some subobject of e (including bitfield
+members) with no corresponding entity, or (for types like std::tuple) they
+act as variables of reference type initialized by some user-specified
+expression which can have arbitrary side-effects (the corresponding
+extension mechanism involves specializing standard-library templates and
+providing a function template to be found by ADL, and has no ABI impact).
+
+For the built-in case, it seems most straightforward to not generate
+globals at all (and emit references to a, b, and c directly as references
+to the corresponding subobject of e), but for the user-defined extension
+case, code is run to initialize the bindings and they generally need to act
+like global variables. A pedantic reading of the standard suggests that you
+could do this:
+
+  auto [a] = std::tuple<int>(0); // tu1.cc
+
+  extern int &&a; // tu2.cc
+
+... which would certainly restrict the ABI choices, but I don't think that
+was an intended consequence of the rules.
+
+There is (currently) no way to declare the same decomposition declaration
+across multiple translation units (there's a syntactic limitation
+preventing them from being static locals, inline globals, or static data
+members), so in that sense there is no formal ABI impact.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160812/c98b94d5/attachment.html>
+
+From rjmccall at apple.com  Sat Aug 13 02:35:03 2016
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 12 Aug 2016 19:35:03 -0700
+Subject: [cxx-abi-dev] mangling for c++17 decomposition declarations
+In-Reply-To: <CAGL0aWc5_DdYzWV8Snr=UASompUbSOxQKkuuNshZJOwRB5G5-g@mail.gmail.com>
+References: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+	<3BD65EB9-6B0E-47CE-91D4-2E0FA07FB047@apple.com>
+	<CAGL0aWc5_DdYzWV8Snr=UASompUbSOxQKkuuNshZJOwRB5G5-g@mail.gmail.com>
+Message-ID: <B937754A-410E-4D73-BC39-DAC2168E9FCD@apple.com>
+
+> On Aug 12, 2016, at 6:06 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 12 August 2016 at 17:29, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Aug 12, 2016, at 4:59 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+> >
+> > C++17 decomposition declarations are (surprisingly) permitted at global scope. They can't be forward-declared nor made inline (yet...), and it seems likely that the wording probably didn't *mean* to allow them to be declared as templates, so we don't appear to need a cross-vendor mangling for them. However, establishing a convention would be useful for demanglers.
+> >
+> > For now, I'm mangling global decomposition declarations as:
+> >
+> >   <unqualified-name> ::= DC <source-name>* E
+> >
+> > ... where the <source-name>s are the names of the bindings. (I'm mangling the bindings in the obvious way, as if they were reference declarations, but they get a mangled name even at global scope.)
+> >
+> > We could get away with mangling only the name of the first binding, but the extra information seems useful to people looking at the mangled name.
+> >
+> > Thoughts? Is it worth specifying this in the ABI?
+> 
+> For those of us who aren't following the standards process that closely, would you mind explaining the more basic ABI impact of the feature?  Are the individual bindings separate objects that should be mangled as it they were actually declared separately, and so this compound mangling only serves to uniquely identify the initializer in case it contains entities that need / ought to be mangled?
+> 
+> Yes, but the bindings are always of reference type when they exist at all. In a decomposition declaration like:
+> 
+>   auto [a, b, c] = expr;
+> 
+> there are (potentially, see below) four distinct entities: a variable
+> 
+>   auto e = expr;
+> 
+> and three bindings (a, b, and c). The mangling above would be used for the 'e' variable. There is no way to reference that implicit variable except through the bindings.
+
+Ah, so it's not like you can declare a bunch of separate extern variables and then define them using a single decomposition binding; it really is a sort of inherently different declaration that just happens to create multiple names.
+
+> There are two different cases for the behavior of the bindings: either they are built-in bindings representing some subobject of e (including bitfield members)
+
+What.
+
+I mean, okay, it's not actually unreasonable for the language to start taking advantage of the nature of reference-binding to do things like this, but it is surprising to sneak it in this way.  Have they lifted the restrictions on local reference-binding as well?  Obviously they can't be lifted for parameter binding, but there's no reason you couldn't bind a local reference to a bit-field; it's just implementation complexity.
+
+> with no corresponding entity, or (for types like std::tuple) they act as variables of reference type initialized by some user-specified expression which can have arbitrary side-effects (the corresponding extension mechanism involves specializing standard-library templates and providing a function template to be found by ADL, and has no ABI impact).
+> 
+> For the built-in case, it seems most straightforward to not generate globals at all (and emit references to a, b, and c directly as references to the corresponding subobject of e),
+
+This is essentially required to handle bit-fields, at least.
+
+The value being decomposed by a builtin binding has to be a pr-value, right?  Or gets coerced to one?  Or is the model really just as simple as "there's an object initialized by this expression, and these names are bound to sub-objects of it".
+
+> but for the user-defined extension case, code is run to initialize the bindings and they generally need to act like global variables. A pedantic reading of the standard suggests that you could do this:
+> 
+>   auto [a] = std::tuple<int>(0); // tu1.cc
+> 
+>   extern int &&a; // tu2.cc
+> 
+> ... which would certainly restrict the ABI choices, but I don't think that was an intended consequence of the rules.
+
+If this is formally allowed, I don't see why
+
+  extern int &&a, &&b;
+  auto [a,b] = std::make_pair(1,2);
+
+wouldn't be.  But of course this cannot be made to support bit-field references without breaking ABI.
+
+> There is (currently) no way to declare the same decomposition declaration across multiple translation units (there's a syntactic limitation preventing them from being static locals, inline globals, or static data members), so in that sense there is no formal ABI impact.
+
+Ok.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160812/c1a47fdb/attachment-0001.html>
+
+From richardsmith at google.com  Mon Aug 15 17:59:49 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 15 Aug 2016 10:59:49 -0700
+Subject: [cxx-abi-dev] mangling for c++17 decomposition declarations
+In-Reply-To: <9E5DE55D2546134DACFE4D3C117B36FD3126AE6E@us01wembx1.internal.synopsys.com>
+References: <CAGL0aWcbABsdrxtvsQNPwVBB7H_CFQLzY+-TWn9LaBqwx8r3jg@mail.gmail.com>
+	<9E5DE55D2546134DACFE4D3C117B36FD3126AE6E@us01wembx1.internal.synopsys.com>
+Message-ID: <CAGL0aWcUTkg+DEsdzQeEOdN+ccY5JNNJiYwFUKTTRqL_wVJ3Fw@mail.gmail.com>
+
+On 15 August 2016 at 09:00, Tom Honermann <Thomas.Honermann at synopsys.com>
+wrote:
+
+> On 8/12/2016 8:00 PM, Richard Smith wrote:
+> > C++17 decomposition declarations are (surprisingly) permitted at global
+> > scope. They can't be forward-declared nor made inline (yet...), and it
+> > seems likely that the wording probably didn't *mean* to allow them to be
+> > declared as templates, so we don't appear to need a cross-vendor
+> > mangling for them. However, establishing a convention would be useful
+> > for demanglers.
+> >
+> > For now, I'm mangling global decomposition declarations as:
+> >
+> >   <unqualified-name> ::= DC <source-name>* E
+> >
+> > ... where the <source-name>s are the names of the bindings. (I'm
+> > mangling the bindings in the obvious way, as if they were reference
+> > declarations, but they get a mangled name even at global scope.)
+> >
+> > We could get away with mangling only the name of the first binding, but
+> > the extra information seems useful to people looking at the mangled name.
+> >
+> > Thoughts? Is it worth specifying this in the ABI?
+>
+> Is it permissible for the decomposition declaration to be declared
+> static?
+
+
+Not currently (but there will be an NB comment on that).
+
+As in:
+>
+>    struct S { int x; };
+>    inline void f(S s) {
+>      static auto [x] = s;
+>    }
+>
+> If so, then I would expect cross-vendor mangling to be necessary to
+> ensure only one instance of the unnamed object is present.  This object
+> would presumably need to acquire a name for linkage purposes, yes?  If
+> so, then the name of the first binding seems a reasonable choice.
+
+
+You would prefer to mangle using only the name of the first binding? I'm OK
+with that (I only have a slight preference for using all of the names as a
+convenience to people looking at demanglings).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160815/796e1cc0/attachment.html>
+

@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Regarding the ELF COMDAT proposal
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Regarding%20the%20ELF%20COMDAT%20proposal&In-Reply-To=%3C99100710005852%40gemevn.zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000283.html">
+   <LINK REL="Next"  HREF="000284.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Regarding the ELF COMDAT proposal</H1>
+    <B>Ron 603-884-2088</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Regarding%20the%20ELF%20COMDAT%20proposal&In-Reply-To=%3C99100710005852%40gemevn.zko.dec.com%3E"
+       TITLE="Regarding the ELF COMDAT proposal">brender at gemevn.zko.dec.com
+       </A><BR>
+    <I>Thu Oct  7 14:00:58 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000283.html">comments on recent proposals
+</A></li>
+        <LI>Next message: <A HREF="000284.html">More regarding the ELF COMDAT proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#285">[ date ]</a>
+              <a href="thread.html#285">[ thread ]</a>
+              <a href="subject.html#285">[ subject ]</a>
+              <a href="author.html#285">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Following are comments from our local object file/linker person...
+
+Ron
+
+================================================================================
+
+Ron, I've looked the proposal over.  What they're doing looks clean and
+reasonable.  I have some comments regarding the three questions raised
+at the end of the spec:
+
+
+Do we want flags to specify checking prior to removal of duplicates,
+e.g. for identical sections, same defined global symbols, etc.? If so,
+should there be one flags word per section index, instead of per group? 
+(We don't see a need, but this was suggested in other proposals.) 
+
+    For the purpose of eliminating duplicate C++ definitions, the
+    proposal is OK as it stands.  However, it has been the experience
+    of Microsoft, in their PECOFF inplementation of COMDATs, that they
+    are useful for other purposes.  For example, they perform a link-
+    time optimization called &quot;transitive COMDAT elimination&quot; (TCE) that
+    removes COMDAT groups not referenced (via relocations) from outside
+    the group.  A single object file might implement a library of
+    related routines, only one or two of which are actually used by the
+    executable.  Space savings can be considerable if these routines are
+    discarded.  In PECOFF, the compiler puts each routine in its own
+    COMDAT group, and, when the linker does the TCE optimization, it
+    builds a transitive reference graph (i.e., the executable references
+    all non-COMDAT sections; section X references section Y (or Y's
+    COMDAT group) if it has relocations for symbols in section Y).  The
+    linker then excludes any COMDAT groups not in the graph.
+
+    The proposal as it stands is insufficient to implement TCE.  Suppose
+    we have an ordinary global routine named foo().  Were we to try to
+    implement TCE, the compiler would generate a COMDAT group for foo()
+    containing its .text and .data sections and associated sections for
+    relocations and whatnot.  Now suppose that there is a second object
+    file participating in the link that also implements foo().  Because
+    both foo()s are COMDATs, under the proposal as it stands, the linker
+    would discard one of them without raising the expected &quot;multiple
+    definition&quot; error.  Microsoft's PECOFF solves this problem by
+    implmenting a &quot;COMDAT selection criterion&quot; attribute associated
+    with each COMDAT group.  For C++-style member function COMDAT
+    matching, it uses the &quot;select any&quot; attribute (the linker is free to
+    choose any one of the matching COMDAT groups).  For implementing TCE
+    for the &quot;hard&quot; global definition case, PECOFF has a &quot;no duplicates&quot;
+    attribute, which means that it is an error if a matching COMDAT
+    group is found.
+
+    I therefore propose that a flag be defined in the sh_flags field of
+    a COMDAT group section header:
+
+    SHF_COMDAT_SELECT_NODUPLICATES
+
+    If set:  The linker issues a &quot;multiply-defined symbol&quot; error if
+    either multiple COMDAT groups have the same identifier, or if a
+    symbol matching the COMDAT group's identifier is defined in a non-
+    COMDAT section in some object.
+
+    If clear:  If multiple COMDAT groups in different object files are
+    identified by symbols with the same name, the linker should remove
+    all but one of the groups. If the identifying symbol is defined in
+    a non-COMDAT section in some object, the linker should remove all
+    of the COMDAT groups identified by that symbol. 
+
+
+    Regarding the second part of the question (flags word per section
+    vs. per group):  I think that per-group is sufficient.         
+
+
+Do we want more control over when global symbols are removed vs. being
+converted to UNDEF? Alternatively, should we simply require
+that all symbols defined as addresses in the group be removed, and that
+references to them from outside do so via distinct UNDEF global
+symbols? 
+
+    I think it's cleaner to have all references from outside the group
+    be done via distinct UNDEF global symbols.  The only drawback to
+    using distinct UNDEF globals is an increase in the size of the
+    symbol table.
+
+Do we want to replace the symbol rule by simply requiring that any
+symbols defined as addresses in the group be defined in a .symtab
+section that is itself in the group?
+
+    Again, this is a cleaner way of doing things.  My big concern is
+    that it would potentially mean a lot of .symtab sections, and ELF32
+    currently has an architectural restriction of only 65535 sections
+    per object file (due to e_shnum being a Elf32_Half).  Some ELF
+    implementations are already running into this limit, even without
+    the additional sections that will be created due to COMDATs.
+
+--PSW
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000283.html">comments on recent proposals
+</A></li>
+	<LI>Next message: <A HREF="000284.html">More regarding the ELF COMDAT proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#285">[ date ]</a>
+              <a href="thread.html#285">[ thread ]</a>
+              <a href="subject.html#285">[ subject ]</a>
+              <a href="author.html#285">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

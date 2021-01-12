@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] sizeof pack mangling vs alias templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20sizeof%20pack%20mangling%20vs%20alias%20templates&In-Reply-To=%3C4A8111F6-C847-4538-B298-3A6C0E04E608%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002739.html">
+   <LINK REL="Next"  HREF="002741.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] sizeof pack mangling vs alias templates</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20sizeof%20pack%20mangling%20vs%20alias%20templates&In-Reply-To=%3C4A8111F6-C847-4538-B298-3A6C0E04E608%40apple.com%3E"
+       TITLE="[cxx-abi-dev] sizeof pack mangling vs alias templates">rjmccall at apple.com
+       </A><BR>
+    <I>Mon Aug  4 20:18:47 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002739.html">[cxx-abi-dev] sizeof pack mangling vs alias templates
+</A></li>
+        <LI>Next message: <A HREF="002741.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2740">[ date ]</a>
+              <a href="thread.html#2740">[ thread ]</a>
+              <a href="subject.html#2740">[ subject ]</a>
+              <a href="author.html#2740">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Aug 4, 2014, at 10:45 AM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+&gt;<i> On 4 August 2014 06:50, David Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;<i> On Aug 3, 2014, at 11:31 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Alias templates allow the production of new forms of sizeof... for which we have no specified mangling. Example:
+</I>&gt;&gt;<i> struct A {
+</I>&gt;&gt;<i>   template&lt;typename...T&gt; using N = int[sizeof...(T)];
+</I>&gt;&gt;<i>   template&lt;typename...A, typename B, typename...C&gt;
+</I>&gt;&gt;<i>       void f(N&lt;A..., B, C...&gt; &amp;, B, C...);
+</I>&gt;&gt;<i> };
+</I>&gt;&gt;<i> void g(A a) { int arr[6]; a.f&lt;int, int&gt;(arr, 1, 2, 3, 4); }
+</I>&gt;&gt;<i> No implementation I have access to produces anything reasonable here:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Clang currently produces a bogus RA3_i mangling for the type of the first parameter.
+</I>&gt;&gt;<i> GCC produces RAstDpT__i, that is, sizeof-type applied to pack expansion applied to template-parameter-0, which seems to be exposing a detail of their internal representation, and is in any case wrong since T_ is not enough to specify which packs are relevant.
+</I>&gt;&gt;<i> EDG rejects.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Also of note: through alias templates, arbitrary template argument expressions can be incorporated into such a sizeof... expression (as can an implicit test that multiple packs are the same length), so it's not sufficient to merely encode a sequence of packs whose sizes should be added, along with an additional constant for packs of known size.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Suggestion: extend the existing
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   sZ &lt;template-param&gt;
+</I>&gt;&gt;<i>   sZ &lt;function-param&gt;
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> with
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   sZ J &lt;template-arg&gt;* E
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> for the case of a sizeof... that cannot be expressed as sizeof...(T). So the above parameter would mangle as
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> sZ J DpT_ T0_ DpT1_ E
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I've implemented this, and it seems to work fine. Does this seem OK?
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> It looks reasonable.  Any motivation for choosing &quot;sZJ&quot;?
+</I>&gt;<i> 
+</I>&gt;<i> I really wanted to replace the existing rules with sZ &lt;template-arg&gt;... but that's backwards-incompatible for function parameter packs and non-type template parameter packs.
+</I>&gt;<i> 
+</I>&gt;<i> Could we use a two-letter code instead?  E.g., &quot;sP &lt;template-arg&gt;* E&quot;?
+</I>&gt;<i> 
+</I>&gt;<i> Sure, works for me.
+</I>&gt;<i> 
+</I>&gt;<i> (And for clarity:
+</I>&gt;<i> 
+</I>&gt;<i>   template&lt;typename ...T&gt; using N = int[sizeof...(T)];
+</I>&gt;<i>   template&lt;typename ...T&gt; void f(N&lt;T...&gt; &amp;);
+</I>&gt;<i> 
+</I>&gt;<i> ... should use the sZ mangling, not the sP mangling, since by 14.5.7/2, you can redeclare this template as 'f(int (&amp;)[sizeof...(T)])&#8217;.)
+</I>
+This looks fine to me.  I&#8217;ll commit this in a week if there isn&#8217;t any further commentary.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140804/dfe75de4/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140804/dfe75de4/attachment-0001.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002739.html">[cxx-abi-dev] sizeof pack mangling vs alias templates
+</A></li>
+	<LI>Next message: <A HREF="002741.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2740">[ date ]</a>
+              <a href="thread.html#2740">[ thread ]</a>
+              <a href="subject.html#2740">[ subject ]</a>
+              <a href="author.html#2740">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

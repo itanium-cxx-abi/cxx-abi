@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Passing non-trivial types through ...
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Passing%20non-trivial%20types%20through%20...&In-Reply-To=%3C201408210013.s7L0DPf29810%40adlwrk05.cce.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002754.html">
+   <LINK REL="Next"  HREF="002758.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Passing non-trivial types through ...</H1>
+    <B>Dennis Handly</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Passing%20non-trivial%20types%20through%20...&In-Reply-To=%3C201408210013.s7L0DPf29810%40adlwrk05.cce.hp.com%3E"
+       TITLE="[cxx-abi-dev] Passing non-trivial types through ...">dhandly at cup.hp.com
+       </A><BR>
+    <I>Thu Aug 21 00:13:25 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002754.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+        <LI>Next message: <A HREF="002758.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2757">[ date ]</a>
+              <a href="thread.html#2757">[ thread ]</a>
+              <a href="subject.html#2757">[ subject ]</a>
+              <a href="author.html#2757">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt;
+</I>&gt;<i>On 08/13/2014 08:36 PM, Jason Merrill wrote:
+</I>&gt;&gt;&gt;&gt;<i> From: John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;
+</I>&gt;&gt;&gt;&gt;<i> This is clearly the right way for any vendor who wants to accept non-POD
+</I>&gt;&gt;&gt;&gt;<i> variadic arguments to do it:  no solution involving memcpy can be
+</I>&gt;&gt;&gt;&gt;<i> correct for all types
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Yep.  The only question is whether it's better, for code that is in a
+</I>&gt;&gt;<i> gray area of the standard, to stick with the broken historical practice
+</I>&gt;&gt;<i> or do something more correct.
+</I>
+&gt;<i>Since there is incompatible existing practice and the code is only 
+</I>&gt;<i>conditionally-supported anyway, perhaps sticking with existing practice 
+</I>&gt;<i>is the right answer even though it breaks the object model.
+</I>
+&gt;<i>On the other hand, perhaps since the code is only 
+</I>&gt;<i>conditionally-supported, compatibility with existing practice isn't as 
+</I>&gt;<i>important.
+</I>Jason
+
+I wrote a better test case to test both caller and callee sides and also
+looked up the warning and found a test case from an important customer.
+So someone is using it.  :-)
+
+&gt;<i>From: John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;
+</I>&gt;&gt;<i> On the other hand, perhaps since the code is only conditionally-supported, compatibility with existing practice isn't as important.
+</I>
+&gt;<i>I'&#146;m not sure we really do have &#147;existing practice&#148; on this.  Dennis, I
+</I>&gt;<i>apologize if I&#146;m misunderstanding you, but it sounds like you consider
+</I>&gt;<i>this to be undefined behavior
+</I>
+Well the message indicates it.  And it won't work in all cases.  I.e.
+if you put the address inside itself, that won't match.
+
+But I did look up the warnings and found a test case from an important
+customer.
+
+(I'm not sure if there were other customers that had an actual but
+different use of this?)
+
+But looking real close at it, this won't be a problem, since used in
+template metaprogramming:
+
+char  tIsP(bool, tfoo);
+char* tIsP(bool, ...);
+template&lt;class T&gt;
+struct tIsPtr {
+ enum { tRet= (sizeof(tIsP(true,*(T*)0))== 1) };
+};
+
+
+&gt;<i>(which is an allowed interpretation  in fact,
+</I>&gt;<i>that was the explicit wording prior to C++11) and hence do not feel like
+</I>&gt;<i>you'&#146;ve made a promise to support users relying on aCC&#146;s current
+</I>&gt;<i>behavior.
+</I>
+Well for this customer we would have to.  :-)
+I.e. At least not give an error, since not really called.
+
+&gt;<i>In that case, we can adopt Jason&#146;s proposal, and aCC can
+</I>&gt;<i>freely choose whether to continue its current practice indefinitely
+</I>&gt;<i>(since how they implement undefined behavior is their own business)
+</I>&gt;<i>or move to Jason's proposed rule (since doing so wouldn't break
+</I>&gt;<i>compatibility with well-defined programs).
+</I>John.
+
+Sure.
+
+Here is my test case and the results:
+#include &lt;stdio.h&gt;
+#include &lt;stdarg.h&gt;
+struct foo {
+   foo() : i(88) {
+      printf(&quot;%p: foo ctor\n&quot;, this);
+   }
+   ~foo() {
+      printf(&quot;%p: foo dtor\n&quot;, this);
+   }
+   foo(const foo &amp;that) : i(that.i + 1) {
+      printf(&quot;%p: foo cctor(%p)\n&quot;, this, &amp;that);
+   }
+   int i;
+};
+
+int bar(int anchor, ...) {
+   va_list ap;
+   va_start(ap, anchor);
+
+   foo b = va_arg(ap, foo);
+   printf(&quot;bar's b.i is: %d\n&quot;, b.i);
+   return anchor;
+}
+
+int main() {
+   foo f;
+   f.i = 99;
+   printf(&quot;try this: %.16llx\n&quot;, f);
+   return bar(0, f);
+}
+
+&quot;class_vararg.c&quot;, line 20: warning #3291-D: a non-POD class type cannot be
+          fetched by va_arg
+     foo b = va_arg(ap, foo);
+                        ^
+&quot;class_vararg.c&quot;, line 28: warning #3290-D: Passing a non-POD object to a
+          function with variable arguments has undefined behavior.  Object
+          will be copied onto the stack instead of using a constructor.
+     printf(&quot;try this: %.16llx\n&quot;, f);
+                                   ^
+&quot;class_vararg.c&quot;, line 28: warning #2181-D: argument is incompatible with
+          corresponding format string conversion
+     printf(&quot;try this: %.16llx\n&quot;, f);
+                                   ^
+&quot;class_vararg.c&quot;, line 29: warning #3290-D: Passing a non-POD object to a
+          function with variable arguments has undefined behavior.  Object
+          will be copied onto the stack instead of using a constructor.
+     return bar(0, f);
+                   ^
+
+$ a.out
+7fffe7c0: foo ctor
+try this: 0000006300000000
+7fffe764: foo cctor(7fffe760)
+bar's b.i is: 100
+7fffe764: foo dtor
+7fffe7c0: foo dtor
+
+The ctors and dtors balance.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002754.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+	<LI>Next message: <A HREF="002758.html">[cxx-abi-dev] Passing non-trivial types through ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2757">[ date ]</a>
+              <a href="thread.html#2757">[ thread ]</a>
+              <a href="subject.html#2757">[ subject ]</a>
+              <a href="author.html#2757">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

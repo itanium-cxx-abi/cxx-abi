@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw Processing
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Details%20missing%20for%20EH%202.4.1%20Overview%20of%20Throw%0A%20Processing&In-Reply-To=%3C859B5376-1906-42F0-9C3B-5C1222801EDA%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw Processing</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Details%20missing%20for%20EH%202.4.1%20Overview%20of%20Throw%0A%20Processing&In-Reply-To=%3C859B5376-1906-42F0-9C3B-5C1222801EDA%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw Processing">rjmccall at apple.com
+       </A><BR>
+    <I>Wed Dec 21 00:36:09 UTC 2011</I>
+    <P><UL>
+        
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#22">[ date ]</a>
+              <a href="thread.html#22">[ thread ]</a>
+              <a href="subject.html#22">[ subject ]</a>
+              <a href="author.html#22">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Dec 20, 2011, at 2:30 PM, Dennis Handly wrote:
+
+&gt;&gt;<i> From: John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt;
+</I>&gt;&gt;&gt;&gt;<i> We only terminate if an exception is thrown after the initialization is
+</I>&gt;&gt;&gt;&gt;<i> complete, e.g.  by a destructor of that full-expression,
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> So does this need to be mentioned for __cxa_end_catch or is it the generated
+</I>&gt;&gt;&gt;<i> cleanup code for the throw?
+</I>&gt;<i> 
+</I>&gt;&gt;<i> I don't know what you mean.  __cxa_end_catch is not required
+</I>&gt;&gt;<i> as part of the generated code for a throw expression.  I don't think it
+</I>&gt;&gt;<i> ever was.
+</I>&gt;<i> 
+</I>&gt;<i> I'm saying that __cxa_end_catch is the code that destructs the
+</I>&gt;<i> full-expression, if you elide the copy construction.
+</I>
+This conversation would be substantially easier if you looked
+up terms like &quot;full-expression&quot; that you don't understand.
+
+I'll break this down.  Suppose we have code like this:
+  extern std::string cause;
+  extern std::exception make_exception(const std::string &amp;);
+  cause = std::string(&quot;failure&quot;), throw make_exception(&quot;didn't work&quot;);
+
+The entire last line is a full-expression:  it's an expression that's not
+part of another, larger expression.  This is the granularity at which
+temporaries are destroyed.
+The part starting at 'throw' is the throw-expression.
+The part starting at 'make_exception' is the exception operand.
+
+Here we formally have three temporaries, created in the following order:
+  - the std::string created in the LHS of the comma,
+  - the std::string created for the argument to make_exception, and
+  - the result of make_exception.
+Note that the actual exception object is not formally a temporary.  It is
+never destructed along any path as part of evaluating this expression.
+As soon as it completes construction &#8212; and specifically, before any
+of the temporaries are destroyed &#8212; it is thrown.
+
+Copy elision doesn't really have a significant impact.  Without it, the
+generated code for this example looks basically like this, with some
+flexibility about in exactly what order the exception is allocated and
+freed:
+
+  std::string::string(&amp;temp0, &quot;failure&quot;);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&amp;cause, &amp;temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&amp;temp1, &quot;didn't work&quot;);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&amp;temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(&amp;temp2, &amp;temp1);
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&amp;temp2)
+  //   std::string::~string(&amp;temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  std::exception::exception(exn, &amp;temp2)
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&amp;temp2)
+  //   std::string::~string(&amp;temp1)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &amp;typeid(std::exception), &amp;std::exception::~exception);
+
+With copy elision, the code looks like this:
+
+  std::string::string(&amp;temp0, &quot;failure&quot;);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&amp;cause, &amp;temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&amp;temp1, &quot;didn't work&quot;);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&amp;temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(exn, &amp;temp1);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&amp;temp1)
+  //   std::string::~string(&amp;temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &amp;typeid(std::exception), &amp;std::exception::~exception);
+
+Regardless of whether copy elision occurs, __cxa_end_catch has
+the potential to throw, because it has the responsibility to destroy the
+actual exception object ('exn').
+
+By the time that the unwinder enters a landing pad for a catch clause,
+all of these temporaries have already been destructed.  The only object
+that survives is the exception object, which, as I mentioned, is not a
+temporary.
+
+&gt;&gt;&gt;<i> g++ seems to not disallow that throw in __cxa_end_catch.
+</I>&gt;&gt;&gt;<i> aC++ does too but does get lost if a catch is present.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> In general, the generated call to __cxa_end_catch at the end of a
+</I>&gt;&gt;<i> catch clause can throw.  You can prove that it can't in some cases,
+</I>&gt;&gt;<i> based on the caught exception object type or the CFG of the catch clause.
+</I>&gt;<i> 
+</I>&gt;<i> I thought you said that the destructor can't throw and if it does, it calls
+</I>&gt;<i> terminate?
+</I>
+If a destructor throws during unwinding, we must call terminate.  But
+only some calls to __cxa_end_catch occur during unwinding:  only if
+you throw out of a catch clause.  If control falls out of a catch clause,
+and the destructor for the caught exception object throws an
+exception, that new exception just starts propagating.
+
+In the paragraph you quoted here, I was discussing a very minor
+optimization where you deduce that an exception object cannot
+have a destructor based on the type that was caught.  For example,
+in the catch for a 'void *', you know that __cxa_end_catch
+will not throw, because that catch type cannot catch any objects
+with destructors.
+
+John.
+</PRE>
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#22">[ date ]</a>
+              <a href="thread.html#22">[ thread ]</a>
+              <a href="subject.html#22">[ subject ]</a>
+              <a href="author.html#22">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

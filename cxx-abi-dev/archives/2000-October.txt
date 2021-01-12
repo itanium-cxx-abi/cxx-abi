@@ -1,0 +1,1262 @@
+From jason at redhat.com  Sun Oct  1 00:57:35 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 30 Sep 2000 17:57:35 -0700
+Subject: When should value parameters be destroyed?
+In-Reply-To: Jim Dehnert's message of "Fri, 29 Sep 2000 12:15:24 -0700 (PDT)"
+References: <200009282222.PAA42169@baalbek.engr.sgi.com>
+	<200009291915.MAA46046@baalbek.engr.sgi.com>
+Message-ID: <u9hf6xe5ts.fsf@casey.soma.redhat.com>
+
+Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+> > Of course, the compiler could *still* invoke the destructor in the
+> > callee under the as-if-rule, provided the access check occurs in the
+> > caller.
+> 
+> But the access check is compile-time, right?  There's nothing to
+> prevent a compiler from doing it at the call, but still calling the
+> parameter destructor in the callee (without checking), right?
+
+Right.  And there is precedent for this in the handling of access
+control for operator delete when the deleted object has a virtual
+destructor: we check access to op delete at the site of the delete
+expression even though the actual deletion will be done from the
+destructor.
+
+> Nevertheless:
+> 
+> > That gets tricky since there are other conditions as well, e.g. that
+> > destruction must occur outside a function-try-block of the callee - so
+> > I'm in favour of having the caller destroy the object.
+> 
+> This seems important to me.  One could still, I suppose, call the
+> destructor in the callee, but outside its try-block if any.  But this
+> gets to be a complicated implementation, and I don't think we want to
+> require this treatment.
+
+It's really not complicated at all.  In gcc, the parms just live in
+the outermost (implicit) scope; the function-try-block is inside that
+scope, and everything is handled by the same code that deals with
+user-written blocks.
+
+> The ABI must choose one approach, so I guess I'm now convinced it
+> should be to invoke the destructor in the caller.  Anyone else have
+> issues to raise before I make that explicit?
+
+I would prefer not to, given the space advantage of the current
+strategy, but I'm willing to go along if others feel that this is the
+best way to go.
+
+Jason
+
+
+
+From loewis at informatik.hu-berlin.de  Sun Oct  1 18:11:48 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sun, 1 Oct 2000 20:11:48 +0200 (MET DST)
+Subject: When should value parameters be destroyed?
+In-Reply-To: <u9hf6xe5ts.fsf@casey.soma.redhat.com> (message from Jason
+	Merrill on 30 Sep 2000 17:57:35 -0700)
+References: <200009282222.PAA42169@baalbek.engr.sgi.com>
+	<200009291915.MAA46046@baalbek.engr.sgi.com> <u9hf6xe5ts.fsf@casey.soma.redhat.com>
+Message-ID: <200010011811.UAA00724@pandora.informatik.hu-berlin.de>
+
+[gcc does indeed manage to put the destructor outside of the
+function-try-block]
+
+> I would prefer not to, given the space advantage of the current
+> strategy, but I'm willing to go along if others feel that this is the
+> best way to go.
+
+I agree it would be a good solution if it would work, but let me try
+to come up with more counter-examples. Consider
+
+--- a.h ----
+struct A{
+  inline ~A();
+};
+
+void foo(A a);
+
+--- a.cc ---
+#include "a.h"
+
+void foo(A a){}
+
+--- b.cc ---
+#include "a.h"
+
+inline A::~A(){}
+
+int main(){
+  A a;
+  foo(a);
+}
+
+------------
+
+I believe a.cc and b.cc together are a well-formed program. Even
+though C++ requires that inline functions are defined when they are
+"used", A::~A does not need to be defined when compiling a.cc - the
+destructor is not "used" inside foo.
+
+Yet, when compiling b.cc, gcc sees that it can inline the destructor
+in all places (namely, destruction of A::a), and does not emit it
+out-of-line. As a result, I get
+
+pandora loewis 662 ( ~/tmp ) > g++ -o a -O2 a.cc b.cc
+/var/tmp/ccD7ikdu.o: In function `foo(A)':
+/var/tmp/ccD7ikdu.o(.text+0x8): undefined reference to `A::~A(void)'
+collect2: ld returned 1 exit status
+
+Would you agree that this example should compile (even though any sane
+developer would not rely on the mechanism in a real application)? If
+so, how would you propose that the ABI deals with it?
+
+Regards,
+Martin
+
+
+
+
+From mark at codesourcery.com  Sun Oct  1 18:21:23 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 01 Oct 2000 11:21:23 -0700
+Subject: When should value parameters be destroyed?
+In-Reply-To: <200010011811.UAA00724@pandora.informatik.hu-berlin.de>
+References: <200009291915.MAA46046@baalbek.engr.sgi.com>
+	<u9hf6xe5ts.fsf@casey.soma.redhat.com>
+	<200010011811.UAA00724@pandora.informatik.hu-berlin.de>
+Message-ID: <20001001112123I.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+Why not?  `foo' has a parameter of type `A'.  It's supposed to be
+destroyed before `foo' returns, so it would seem the destructor is
+used there.  
+
+That said, I don't see the space advantages as minor, and I do see the
+changes to existing implementations as significant, so I would prefer
+we honor existing practice, if that's what everybody already does.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Sun Oct  1 18:58:36 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sun, 1 Oct 2000 20:58:36 +0200 (MET DST)
+Subject: When should value parameters be destroyed?
+In-Reply-To: <20001001112123I.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Sun, 01 Oct 2000 11:21:23 -0700)
+References: <200009291915.MAA46046@baalbek.engr.sgi.com>
+	<u9hf6xe5ts.fsf@casey.soma.redhat.com>
+	<200010011811.UAA00724@pandora.informatik.hu-berlin.de> <20001001112123I.mitchell@codesourcery.com>
+Message-ID: <200010011858.UAA00970@pandora.informatik.hu-berlin.de>
+
+> Why not?  `foo' has a parameter of type `A'.  It's supposed to be
+> destroyed before `foo' returns, so it would seem the destructor is
+> used there.  
+
+As Daveed originally pointed out, 5.2.2/4 says
+
+# The lifetime of a parameter ends when the function in which it is
+# defined returns. The initialization and destruction of each
+# parameter occurs within the context of the calling function.
+
+So the call to the constructor actually occurs in the caller. As for
+where it is "used", 3.2/2 (that normally defines when something is
+"used") says
+
+# A destructor for a class is used as specified in 12.4.
+
+Now, 12.4 uses the verb "used" in a number of places. The place that
+appears to be the normative definition of when the destructor is used
+is 12.4/1:
+
+# A destructor is used to destroy objects of its class type.
+
+Since destruction occurs "within in the calling function", I'd say
+that the inline destructor must only be defined in that context.
+
+> That said, I don't see the space advantages as minor, and I do see the
+> changes to existing implementations as significant, so I would prefer
+> we honor existing practice, if that's what everybody already does.
+
+Unfortunately, different compilers do it differently. So I'd first
+take standard compliance as a guidance. If that does not determine a
+decision, I'd go for efficiency (which, in terms of space, favors
+destruction by the callee).
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Sun Oct  1 19:11:59 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 01 Oct 2000 12:11:59 -0700
+Subject: When should value parameters be destroyed?
+In-Reply-To: <200010011858.UAA00970@pandora.informatik.hu-berlin.de>
+References: <200010011811.UAA00724@pandora.informatik.hu-berlin.de>
+	<20001001112123I.mitchell@codesourcery.com>
+	<200010011858.UAA00970@pandora.informatik.hu-berlin.de>
+Message-ID: <20001001121159Q.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+    Martin> Since destruction occurs "within in the calling function",
+    Martin> I'd say that the inline destructor must only be defined in
+    Martin> that context.
+
+Nice language lawyering.  I agree with your reading.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Mon Oct  2 00:20:00 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 01 Oct 2000 17:20:00 -0700
+Subject: Other results from today's meeting (28 Sept 2000)
+In-Reply-To: <200009290051.RAA44346@baalbek.engr.sgi.com>
+References: <200009290051.RAA44346@baalbek.engr.sgi.com>
+Message-ID: <20001001172000I.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> - Mark, would you please verify the changes in 3.3.3?  (If
+    Jim> you already did, just tell me my memory's going, and that
+    Jim> will suffice.)
+
+It looks correct to me.  Thank you!
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Oct  5 03:18:36 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 4 Oct 2000 20:18:36 -0700 (PDT)
+Subject: Wrong wording in 1.3 "Throwing an exception."
+Message-ID: <200010050318.UAA61538@baalbek.engr.sgi.com>
+
+> From: Christophe de Dinechin <ddd at cup.hp.com>
+> 
+> The current wording doesn't match the C++ standard:
+> 
+> > If the unwinder encounters an unexpected error during phase 2,
+> > the unwind runtime may have modified the stack, e.g. popped
+> > frames from it, or landing pad code may have caused stack corruption.
+> > As a result, the unwind library probably could not find a return address,
+> > and the caller of _Unwind_RaiseException could make no assumptions about
+> > the state of its stack. Rather than attempt to return, therefore, the unwind
+> > library should use the exception_cleanup entry in the exception,
+> > and then call abort(). 
+> 
+> What C++ mandates in that case is calling terminate(), not abort(), and that's a
+> decision that only the C++ runtime can make (it may be different for other
+> languages).
+> 
+> What's more, the justification doesn't apply very well on IA-64. There is
+> only one return address for _RaiseException, and it is not on the stack
+> but in a local register (br0). Therefore, _RaiseException has very good
+> chances of being able to return to the C++ runtime, and from there, we
+> move only downwards in the calls tack (terminate() which typically calls
+> abort() itself).
+> 
+> So the paragraph above should indicate that we return _URC_FATAL_PHASE2_ERROR.
+
+Well, I was about ready to do this, when I got worried.  I know we
+talked about this last week, and agreed as above, but I'd like to get
+confirmation from more people than were present that we're not opening
+an implementation can of worms.
+
+As Christophe points out, the objection that a return address might be
+hard to find is at least overstated.  But the bigger problem is that
+the caller of _Unwind_RaiseException must assume a garbaged stack, and
+likely has garbage in its registers, including GP and an unknown
+stacked register state, which might make it difficult to find
+terminate() to call it.  So the problem isn't really difficulty
+for the unwind runtime, but for its caller.  This call (to
+_Unwind_RaiseException) will happen in many places in compiled code, so
+I would think that if we're not careful, we could place some nasty, and
+not very useful, constraints on compilers.  Who has thought about the
+implications of this, and what do you think?
+
+There are several potential specifications we can make:
+
+ 1) Unwinder returns _URC_FATAL_PHASE2_ERROR.
+
+     a) Nothing further specified.
+     b) Require that caller call terminate() with no further help.
+     c) Require that the unwinder also return valid GP for caller
+	(and perhaps other registers).  (Remember that we've been
+	modifying the context during phase 2 unwinding, so this
+	probably requires extra work in the unwinder.)
+
+ 2) Unwinder calls abort().
+
+ 3) Unwinder may do either (1) or (2).
+
+ 4) Unwinder behavior is completely undefined.
+
+Biases, anyone?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From ddd at cup.hp.com  Thu Oct  5 18:56:59 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Thu, 5 Oct 2000 11:56:59 -0700
+Subject: Wrong wording in 1.3 "Throwing an exception."
+Message-ID: <200010051856.LAA03797@adlmail.cup.hp.com>
+
+
+On Wednesday, October 4, 2000, at 08:18 PM, Jim Dehnert wrote:
+
+>  This call (to 
+> _Unwind_RaiseException) will happen in many places in compiled code
+
+No, the actual call is to __cxa_throw or __cxa_rethrow, which itself calls _Unwind_RaiseException. This means that only __cxa_throw needs to care. What's more, it looks like:
+
+	_Unwind_RaiseException(...);
+	// If it returns, we have no choice
+	terminate();
+
+There is little that could fail here, except failing to find the proper terminate handler (we need to have GP set right for that). The chances of having GP incorrect for the C++ runtime library and having anything else working is... low. So I would not care too much about that case.
+
+>      c) Require that the unwinder also return valid GP for caller 
+> 	(and perhaps other registers).  (Remember that we've been 
+> 	modifying the context during phase 2 unwinding, so this 
+> 	probably requires extra work in the unwinder.) 
+
+I believe this is not a problem: GP being used by the caller is not the GP set by the unwinder, but the GP as set before we called _Unwind_RaiseException. The GP is not set through stack unwinding but through dld.so generated stubs.
+
+
+Christophe
+
+
+
+From eboling at inprise.com  Thu Oct  5 18:59:54 2000
+From: eboling at inprise.com (Eli Boling)
+Date: Thu, 05 Oct 2000 13:59:54 -0500
+Subject: Wrong wording in 1.3 "Throwing an exception."
+References: <200010050318.UAA61538@baalbek.engr.sgi.com>
+Message-ID: <39DCCFAA.E8CAA142@inprise.com>
+
+I prefer option 1, with the caveat that the runtimes understand that the stack is no
+longer reasonable.  At this point, the application is going down for sure, so I don't
+think
+that's unreasonable.  It also allows the most flexibility to the runtime.  I am *not*
+a fan
+of having the unwinder call abort at this point, or to having undefined behaviour.
+
+-Eli
+
+Jim Dehnert wrote:
+
+> > From: Christophe de Dinechin <ddd at cup.hp.com>
+> >
+> > The current wording doesn't match the C++ standard:
+> >
+> > > If the unwinder encounters an unexpected error during phase 2,
+> > > the unwind runtime may have modified the stack, e.g. popped
+> > > frames from it, or landing pad code may have caused stack corruption.
+> > > As a result, the unwind library probably could not find a return address,
+> > > and the caller of _Unwind_RaiseException could make no assumptions about
+> > > the state of its stack. Rather than attempt to return, therefore, the unwind
+> > > library should use the exception_cleanup entry in the exception,
+> > > and then call abort().
+> >
+> > What C++ mandates in that case is calling terminate(), not abort(), and that's a
+> > decision that only the C++ runtime can make (it may be different for other
+> > languages).
+> >
+> > What's more, the justification doesn't apply very well on IA-64. There is
+> > only one return address for _RaiseException, and it is not on the stack
+> > but in a local register (br0). Therefore, _RaiseException has very good
+> > chances of being able to return to the C++ runtime, and from there, we
+> > move only downwards in the calls tack (terminate() which typically calls
+> > abort() itself).
+> >
+> > So the paragraph above should indicate that we return _URC_FATAL_PHASE2_ERROR.
+>
+> Well, I was about ready to do this, when I got worried.  I know we
+> talked about this last week, and agreed as above, but I'd like to get
+> confirmation from more people than were present that we're not opening
+> an implementation can of worms.
+>
+> As Christophe points out, the objection that a return address might be
+> hard to find is at least overstated.  But the bigger problem is that
+> the caller of _Unwind_RaiseException must assume a garbaged stack, and
+> likely has garbage in its registers, including GP and an unknown
+> stacked register state, which might make it difficult to find
+> terminate() to call it.  So the problem isn't really difficulty
+> for the unwind runtime, but for its caller.  This call (to
+> _Unwind_RaiseException) will happen in many places in compiled code, so
+> I would think that if we're not careful, we could place some nasty, and
+> not very useful, constraints on compilers.  Who has thought about the
+> implications of this, and what do you think?
+>
+> There are several potential specifications we can make:
+>
+>  1) Unwinder returns _URC_FATAL_PHASE2_ERROR.
+>
+>      a) Nothing further specified.
+>      b) Require that caller call terminate() with no further help.
+>      c) Require that the unwinder also return valid GP for caller
+>         (and perhaps other registers).  (Remember that we've been
+>         modifying the context during phase 2 unwinding, so this
+>         probably requires extra work in the unwinder.)
+>
+>  2) Unwinder calls abort().
+>
+>  3) Unwinder may do either (1) or (2).
+>
+>  4) Unwinder behavior is completely undefined.
+>
+> Biases, anyone?
+>
+> Jim
+>
+> -           Jim Dehnert         dehnert at sgi.com
+>                                 (650)933-4272
+
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Oct 11 00:24:57 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 10 Oct 2000 17:24:57 -0700 (PDT)
+Subject: Meeting Thursday at 10:00
+Message-ID: <200010110024.RAA78685@baalbek.engr.sgi.com>
+
+
+Remember our meeting Thursday at 10:00.  I have finished most of the
+document updates.  I will go over exception handling level III tomorrow,
+create the PDF, and send an agenda.
+
+Jim
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Oct 11 00:29:28 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 10 Oct 2000 17:29:28 -0700 (PDT)
+Subject: Thursday agenda
+Message-ID: <200010110029.RAA78719@baalbek.engr.sgi.com>
+
+For your preparation purposes, note that the agenda will include:
+
+
+  2) G-4:  Thread-safe data initialization.  See 3.3.2.  Christophe
+     had some ideas for optimization here.  I've updated 3.3.2 a bit,
+     but the discussion of potential changes for Christophe's
+     concerns is in the open issues page for issue G-4.  Christophe,
+     can you take a look at it?
+
+and this subject:
+
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> I have concerns that the current RTTI spec does not allow
+> implementations to interoperate. The core of the issue is whether
+> there should be a vtable pointer in class type_info.
+> 
+> The current (modified) draft specifies no virtual functions. I believe
+> it is not possible to implement this specification: Inside
+> __dynamic_cast, you need to know whether the __class_type_info is a
+> __si_class_type_info or a __vmi_class_type_info. Likewise, in
+> exception handling, you need to know whether the types are
+> __pointer_type_info or not, and whether the __pointee field is a
+> __class_type_info.
+> 
+> In extension of what is specified, the current GCC adds a number of
+> virtual functions to the derived type_info classes, such as
+> __is_function_p, __do_catch, __pointer_catch, and so on. However,
+> unless specified in the ABI, other compilers won't fill the vtable
+> pointers of the derived classes to point to gcc's vtables. With the
+> current spec, the other compilers won't even allocate a vtable field.
+> 
+> Furthermore, there is currently no guarantee that there is only a
+> single vtable per type_info class if objects from multiple compilers
+> are mixed. For example, in gcc, these vtables live in libgcc.a, which
+> is incorporated into any shared library. If a different compiler uses
+> the same strategy, you'd end up with two definitions for, say, the
+> __vmi_class_type_info vtable - and they would have a different layout.
+> 
+> I see two solutions:
+> a) specify exactly which virtual functions must be provided to
+>    implement the routines mandated by the ABI (i.e. dynamic cast
+>    and EH matching)
+> b) provide some basic identification mechanism on top of which
+>    these ABI routines can be implemented. 
+> 
+> I favour alternative b), and propose the following definitions
+> 
+>   namespace std{
+>      class type_info {
+>       private:
+>         const char *__type_name;
+>         virtual ~type_info(); /* to give it a vtable */
+>      };
+>   }
+> 
+>    namespace abi{
+>      enum ti_kind{ /* in the order of exposition in 2.9.5.3 */
+>        /* type_info is abstract */
+>        fundamental_type_kind = 0,
+>        array_type_kind = 1,
+>        function_type_kind = 2, 
+>        enum_type_kind = 3,
+>        /* __class_type_info is abstract */
+>        si_class_type_kind = 4,
+>        vmi_class_type_kind = 5,
+>        /* __pbase_type_info is abstract */
+>        pointer_type_kind = 6,
+>        pointer_to_member_type_kind = 7,
+>      }
+> 
+>      class type_info: std::type_info {
+>        virtual ti_kind kind();
+>      };
+>    }
+> 
+> All other type info classes inherit from abi::type_info. The leaf
+> types override the kind() function, so the implementation must provide
+> a suitable vtable for them.
+> 
+> Disclaimer: I haven't actually verified that __dynamic_cast can be
+> implement on top of these informations. If required, I'll try to
+> produce a sample implementation in gcc.
+> 
+> Regards,
+> Martin
+> 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Oct 11 22:53:53 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 11 Oct 2000 15:53:53 -0700 (PDT)
+Subject: Wrong wording in 1.3 "Throwing an exception."
+Message-ID: <200010112253.PAA81071@baalbek.engr.sgi.com>
+
+> From ddd at cup.hp.com Thu Oct  5 11:56:45 2000
+> From: Christophe de Dinechin <ddd at cup.hp.com>
+> 
+> >  This call (to 
+> > _Unwind_RaiseException) will happen in many places in compiled code
+> 
+> No, the actual call is to __cxa_throw or __cxa_rethrow, which itself
+> calls _Unwind_RaiseException. This means that only __cxa_throw needs
+> to care. What's more, it looks like:
+> 
+> 	_Unwind_RaiseException(...);
+> 	// If it returns, we have no choice
+> 	terminate();
+> 
+> There is little that could fail here, except failing to find the
+> proper terminate handler (we need to have GP set right for that).
+> The chances of having GP incorrect for the C++ runtime library and
+> having anything else working is... low. So I would not care too much
+> about that case.
+
+OK.  I've rewritten it this way.
+
+> >      c) Require that the unwinder also return valid GP for caller 
+> > 	(and perhaps other registers).  (Remember that we've been 
+> > 	modifying the context during phase 2 unwinding, so this 
+> > 	probably requires extra work in the unwinder.) 
+> 
+> I believe this is not a problem: GP being used by the caller is not
+> the GP set by the unwinder, but the GP as set before we called
+> _Unwind_RaiseException. The GP is not set through stack unwinding
+> but through dld.so generated stubs.
+
+It's not so simple.  The stubs, if they modify GP, put the saved one
+somewhere -- on the stack.  If the unwinder has unwound stack frames,
+that in particular will be gone.  So instead, I expect that an error
+return from _Unwind_RaiseException is going to, at best (depending on
+how badly corrupted things have gotten) recover what it can (registers
+and return address) from whatever context information it has saved
+elsewhere.  The question is how much we will require it to get right,
+keeping in mind that anything it is required to save other than in the
+register context it needs for unwinding will cost time in all
+exceptions for a presumably very rare case.  I'm inclined to require
+that the GP and return value register be valid on return, and nothing
+else.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Oct 11 23:27:24 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 11 Oct 2000 16:27:24 -0700 (PDT)
+Subject: Agenda for tomorrow
+Message-ID: <200010112327.QAA81252@baalbek.engr.sgi.com>
+
+Following is an updated agenda.  The status pages are updated (only the
+ABI draft documents have changed) and on the web (HTML and shortly PDF)
+at:
+
+      http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+As usual, most of the updates are in the ABI layout document, in red.
+Please take a careful look at the colored text, and raise any issues
+you observe.
+
+Take a look at the material associated with the following issues.
+If you see something, please send it by email.  #7 (exceptions) is most
+important, and I expect to devote at least half of the meeting to it
+unless noone has issues with it.  Please look it over carefully.
+
+  1) RTTI:
+     a) Should member names be normative or not?
+     b) What should we specify about the class definitions and
+	where they are emitted and used to guarantee portability?
+	See Martin's and others' email from late September.
+
+  2) C-18:  Result buffers.  Is the rewrite adequate?
+  
+  3) Note that the ABI now says that a value parameter destructor is
+     called from the callee.  The language standard requires that it
+     be (semantically) called from the caller, for purposes of access
+     checking.  This means that the compilation of the caller must
+     check accessibility of the destructor, presumably issuing a
+     compile-time error message if it is not accessible; while the
+     compilation of the callee must generate the destructor call
+     without an accessibility check.  This seems OK to me -- does
+     anyone else see problems with it?
+
+  4) Exception handling (D-14):  I believe I've captured, in the Level
+     II chapter of the ABI exception handling spec, what needs to be
+     there from the HP document.  Please look it over carefully from
+     that standpoint -- does it include what is necessary to achieve a
+     consistent exception runtime library interface, but exclude what
+     needs only be agreed between the personality routine, the LSDA,
+     and the generated code (which all come from the same
+     implementation)?  I hope that we can declare Levels I/II closed
+     this week, with at most minor adjustments.
+     
+     I will next tackle a description of the LSDA in the Level III
+     chapter, but may or may not attempt to transfer the rest of the
+     HP document there, as opposed to just referencing it.
+     Does anyone think that would be significantly better?
+
+  5) What are the requirements on error returns from
+     _Unwind_RaiseException?
+
+  6) F-7:  Unicode.  It has been suggested that, rather than just
+     deferring the extended character set issue to the Open Group, we
+     specify what we intend to use, at least pending a contrary
+     decision.  I'm not averse to this.
+
+  7) G-4:  Thread-safe data initialization.  See 3.3.2.  Christophe
+     had some ideas for optimization here.  I've updated 3.3.2 a bit,
+     but the discussion of potential changes for Christophe's concerns
+     is in the open issues page for issue G-4.  Christophe, can you
+     take a look at it?
+
+Note that it doesn't usually work to try to contact me by email
+or phone the morning of the meeting, as I come directly from home.  If
+you come in physically to the meeting, and the receptionist won't let
+you come back to the conference room on your own, have her call the
+conference room (it has a phone other than the one we use for the
+meeting).
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Oct 13 00:33:25 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 12 Oct 2000 17:33:25 -0700 (PDT)
+Subject: Meeting results 12 October
+Message-ID: <200010130033.RAA84807@baalbek.engr.sgi.com>
+
+
+Turnout was low today.  Following are the results of our discussion.
+I will be out of town next week -- the following week, I will put
+together an issue list (aka agenda) and explicitly call for email
+discussion around the end of the week in lieu of a meeting.  Now would
+be a good time for everyone to go through the documents carefully and
+identify any residual issues that require discussion/clarification or
+just plain better description.
+
+We will meet to clear up any residual questions in four weeks.
+
+There are several subjects that may produce discussion -- please
+reference one issue per message and change the subject line...
+
+Jim
+
+
+----------------
+RTTI portability
+----------------
+
+The issue here, raised originally by Martin, I will open as A-30.
+Implementations will generally need additional virtual functions
+associated with the type_info hierarchy to implement such functionality
+as dynamic cast.  Gcc for instance has functions __is_function_p,
+__do_catch, __pointer_catch, ...
+
+A program that is built from pieces from different compilers, where the
+pieces come from different implementations of the hierarchy, will see
+different structures, at least in the vtables, if we allow this extra
+material to be arbitrary, creating a problem if such programs actually
+make use of parts of the hierarchy.
+
+We worked out the following possible solution:
+
+  First, observe that the vtables for the typeinfo derived classes will
+  be emitted where the key function (the virtual destructor, as
+  defined) is defined.  We require this to be in the implementation's
+  runtime library libcxa.so, so there is exactly one implementation of
+  them on any given target system.
+
+  We allow the implementation to define a collection of pseudo-virtual
+  functions to be associated with each class derived from std::type_info:
+
+	class __cxa_aux_typeinfo {
+	  ... (*__is_function_p) (...);
+	  ...
+	};
+
+  The implementation will create one instance of this class for each of
+  the classes derived from std::type_info, and we will specify a
+  mangled name for it.
+
+  We add the following to the ABI definition of std::type_info:
+
+	class std::type_info {
+	  ...
+	  protected:
+	    __cxa_aux_typeinfo *__aux;
+	    type_info (void) { /* set up __aux */ };
+	};
+
+  Construction of one of the std::type_info derivatives can either call
+  the constructor or use the mangled name to initialize the __aux
+  member.
+
+  Use of __aux is reserved to the runtime implementation.
+
+Now an implementation can add an arbitrary set of functions to
+__cxa_aux_typeinfo, specialized to the derived class like a virtual
+function, without changing the external interface (to the user) of
+the hierarchy.
+
+Does this meet people's needs?
+
+
+---------------------------
+Value parameter destruction
+---------------------------
+
+We decided that it is possible for a program to tell that value
+parameter destruction does not occur in the correct order if it is done
+in the callee, so I will change 3.1.1 to specify that it is done by the
+caller.
+
+
+---------------------------------------
+Exception handler __cxa_throw_type_info
+---------------------------------------
+
+Making this type be a pair (type_info and destructor pointers) makes it
+necessary that a thrower or __cxa_throw construct one so that the
+exception object can point to it.  This can't be done on the stack,
+since it's about to be unwound, and doing it on the heap when the
+exception might be out-of-memory doesn't seem ideal.
+
+We propose that instead, we replace the __cxa_throw_type_info pointer
+in the exception object header by separate std::type_info and
+destructor pointers, and pass them as two parameters to __cxa_throw.
+
+We also noticed that, if the thrown object is an array, the destructor
+passed will need to be a fabricated one which loops over the array
+elements.  The alternative, to store the array bounds explicitly in the
+exception object, seems to be a lot of overhead for a very rare case.
+
+
+--------------
+long long type
+--------------
+
+I have used "long long" in several places in the document; as it is
+non-standard, I will replace it by __int64_t or __uint64_t (unless
+someone has a better idea).
+
+
+-----
+UTF-8
+-----
+
+We didn't discuss this, but I'm prepared to insert a comment.  Would
+someone who cares about it care to suggest wording and placement?
+
+
+-------------------------------
+Thread-safe data initialization
+-------------------------------
+
+We didn't discuss this -- we still haven't heard from Christophe.  This
+is important, as I don't think anyone is delighted with what is
+currently in the document.  What should we do?
+
+-		Jim Dehnert  x3-4272
+
+
+
+From nathan at codesourcery.com  Fri Oct 13 09:15:03 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 13 Oct 2000 10:15:03 +0100
+Subject: Meeting results 12 October
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+Message-ID: <39E6D297.3CD5D4D9@codesourcery.com>
+
+Jim Dehnert wrote:
+
+> ----------------
+> RTTI portability
+> ----------------
+
+> A program that is built from pieces from different compilers, where the
+> pieces come from different implementations of the hierarchy, will see
+> different structures, at least in the vtables, if we allow this extra
+> material to be arbitrary, creating a problem if such programs actually
+> make use of parts of the hierarchy.
+What is being meant by `used' here? It is only the vtables that will be
+different, and then the implementation parts will be in the later
+parts of the vtable. Thus accessing the std defined entry points will
+work across compilers. Do you mean
+A) a user program derives from abi::pointer_type_info and then attempts
+to use objects of that class within the type_info system?
+B) parts of the program other than those in libcxa.so attempt to use
+the implentation defined entry points?
+
+I think A is user error and B is only possible with Martin's example below.
+
+>   First, observe that the vtables for the typeinfo derived classes will
+>   be emitted where the key function (the virtual destructor, as
+>   defined) is defined.  We require this to be in the implementation's
+>   runtime library libcxa.so, so there is exactly one implementation of
+>   them on any given target system.
+One of Martin's concerns was about creating a library FOO with
+`ld -Bsymbolic' against one compiler's libcxa.so, and then ultimately
+using that library in an executable with a different compiler's libcxa.so.
+FOO will contain copies of the first compiler's implementation of the
+type_info vtables and implementation functions. If we are to permit
+such a library, we have to guarantee that there are no implementation
+defined parts of the vtable _or_ type_info instances.
+
+>   We allow the implementation to define a collection of pseudo-virtual
+>   functions to be associated with each class derived from std::type_info:
+...
+>   Construction of one of the std::type_info derivatives can either call
+>   the constructor or use the mangled name to initialize the __aux
+>   member.
+> 
+>   Use of __aux is reserved to the runtime implementation.
+How does this help? Given Martin's -Bsymbolic example we'd just get
+different versions of __cxa_aux_type_info in FOO and the runtime. The
+same problem would still be manifest.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Oct 13 23:06:44 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 13 Oct 2000 16:06:44 -0700 (PDT)
+Subject: RTTI portability
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+Message-ID: <200010132306.QAA87322@baalbek.engr.sgi.com>
+
+> From nathan at codesourcery.com Fri Oct 13 02:08:24 2000
+> 
+> > A program that is built from pieces from different compilers, where the
+> > pieces come from different implementations of the hierarchy, will see
+> > different structures, at least in the vtables, if we allow this extra
+> > material to be arbitrary, creating a problem if such programs actually
+> > make use of parts of the hierarchy.
+>
+> What is being meant by `used' here? It is only the vtables that will be
+> different, and then the implementation parts will be in the later
+> parts of the vtable. Thus accessing the std defined entry points will
+> work across compilers. Do you mean
+>
+> A) a user program derives from abi::pointer_type_info and then attempts
+> to use objects of that class within the type_info system?
+>
+> B) parts of the program other than those in libcxa.so attempt to use
+> the implentation defined entry points?
+
+I am concerned about both.
+
+> I think A is user error and B is only possible with Martin's example below.
+
+That solution implies a statement that the non-Standard-defined parts
+of the hierarchy are not available to users.  Fine with me, but someone
+wanted to make the field names in the hierarchy normative, which has no
+point unless they expected them to be used outside the target runtime.
+In the absence of allowing user access, you're right -- there's no
+problem.
+
+> >   First, observe that the vtables for the typeinfo derived classes will
+> >   be emitted where the key function (the virtual destructor, as
+> >   defined) is defined.  We require this to be in the implementation's
+> >   runtime library libcxa.so, so there is exactly one implementation of
+> >   them on any given target system.
+>
+> One of Martin's concerns was about creating a library FOO with
+> `ld -Bsymbolic' against one compiler's libcxa.so, and then ultimately
+> using that library in an executable with a different compiler's libcxa.so.
+> FOO will contain copies of the first compiler's implementation of the
+> type_info vtables and implementation functions. If we are to permit
+> such a library, we have to guarantee that there are no implementation
+> defined parts of the vtable _or_ type_info instances.
+
+It is a traditional part of the SysV ABI that libc is _always_ a DSO.
+I presume that we're extending that assumption to libcxa, though I
+guess we'd better say so.
+
+I personally believe that anyone who links the system libraries into
+their program is tying his program to a particular implementation, and
+had better use only pieces from that implementation (if it's supported
+at all, which I wouldn't, and SGI traditionally hasn't).  So, ... no
+problem.
+
+> >   We allow the implementation to define a collection of pseudo-virtual
+> >   functions to be associated with each class derived from std::type_info:
+> ...
+> >   Construction of one of the std::type_info derivatives can either call
+> >   the constructor or use the mangled name to initialize the __aux
+> >   member.
+> > 
+> >   Use of __aux is reserved to the runtime implementation.
+>
+> How does this help? Given Martin's -Bsymbolic example we'd just get
+> different versions of __cxa_aux_type_info in FOO and the runtime. The
+> same problem would still be manifest.
+
+It only helps if you're assuming user access to the type_info
+hierarchy.  In that case, the virtual functions at the low end of the
+hierarchy will shift those at the high end in the vtable.  If you
+forbid user access, the problem goes away.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From nathan at codesourcery.com  Tue Oct 17 08:37:42 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 17 Oct 2000 09:37:42 +0100
+Subject: RTTI portability
+References: <200010130033.RAA84807@baalbek.engr.sgi.com> <200010132306.QAA87322@baalbek.engr.sgi.com>
+Message-ID: <39EC0FD6.62BAEB68@codesourcery.com>
+
+Jim Dehnert wrote:
+
+> That solution implies a statement that the non-Standard-defined parts
+> of the hierarchy are not available to users.  Fine with me, but someone
+> wanted to make the field names in the hierarchy normative, which has no
+> point unless they expected them to be used outside the target runtime.
+> In the absence of allowing user access, you're right -- there's no
+> problem.
+Yup, though I'd been assuming that allowing user access, was just allowing
+read access to those fields, or the creation of objects of types within
+the abi heirarchy. Allowing that would not create a problem.
+
+Whether we permit users to derive from those types is a different question,
+and would create difficulty with the current spec. Do we really want to do
+that too?
+
+We could allow read access to compiler generated type_info objects, and
+prevent user creation/derivation of those types by making the dtors
+private in the most derived types, and protected in the intermediate ones.
+
+> It is a traditional part of the SysV ABI that libc is _always_ a DSO.
+> I presume that we're extending that assumption to libcxa, though I
+> guess we'd better say so.
+Yes, I think we'd better ...
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From loewis at informatik.hu-berlin.de  Tue Oct 17 11:40:26 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Tue, 17 Oct 2000 13:40:26 +0200 (MET DST)
+Subject: Meeting results 12 October
+In-Reply-To: <39E6D297.3CD5D4D9@codesourcery.com> (message from Nathan Sidwell
+	on Fri, 13 Oct 2000 10:15:03 +0100)
+References: <200010130033.RAA84807@baalbek.engr.sgi.com> <39E6D297.3CD5D4D9@codesourcery.com>
+Message-ID: <200010171140.NAA29997@pandora.informatik.hu-berlin.de>
+
+> How does this help? Given Martin's -Bsymbolic example we'd just get
+> different versions of __cxa_aux_type_info in FOO and the runtime. The
+> same problem would still be manifest.
+
+Indeed. I see no advantage of adding an implementation defined field
+over allowing implementation-defined virtual functions.
+
+Regards,
+Martin
+
+
+
+From loewis at informatik.hu-berlin.de  Tue Oct 17 12:06:19 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Tue, 17 Oct 2000 14:06:19 +0200 (MET DST)
+Subject: RTTI portability
+In-Reply-To: <200010132306.QAA87322@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Fri, 13 Oct 2000 16:06:44 -0700 (PDT))
+References: <200010130033.RAA84807@baalbek.engr.sgi.com> <200010132306.QAA87322@baalbek.engr.sgi.com>
+Message-ID: <200010171206.OAA00349@pandora.informatik.hu-berlin.de>
+
+> > A) a user program derives from abi::pointer_type_info and then attempts
+> > to use objects of that class within the type_info system?
+> >
+> > B) parts of the program other than those in libcxa.so attempt to use
+> > the implentation defined entry points?
+> 
+> I am concerned about both.
+
+Why is that a concern? If a user inherits from abi::pointer_type_info,
+what undesirable effects could come out of that?
+
+I was more concerned about having the compiler-provided code in a
+static library which then gets integrated into somebody's shared
+library (as gcc's libgcc.a gets integrated into every shared library,
+likewise libCrun.a and libCstd.a of Sun CC).
+
+> That solution implies a statement that the non-Standard-defined parts
+> of the hierarchy are not available to users.  Fine with me, but someone
+> wanted to make the field names in the hierarchy normative, which has no
+> point unless they expected them to be used outside the target
+> runtime.
+
+Used in the sense of being accessed - yes, why not? However, I would
+not expect users ever to create typeinfo objects.
+
+> It is a traditional part of the SysV ABI that libc is _always_ a DSO.
+> I presume that we're extending that assumption to libcxa, though I
+> guess we'd better say so.
+
+If that is the intent then yes - we should say that.
+
+> I personally believe that anyone who links the system libraries into
+> their program is tying his program to a particular implementation, and
+> had better use only pieces from that implementation (if it's supported
+> at all, which I wouldn't, and SGI traditionally hasn't).  So, ... no
+> problem.
+
+The problem is that there is a difference between system libraries and
+the C++ runtime library - those typically come with the C++ compiler,
+not (necessarily) with the system.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Thu Oct 19 17:42:59 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 19 Oct 2000 10:42:59 -0700
+Subject: 2.4.II.2
+Message-ID: <20001019104259C.mitchell@codesourcery.com>
+
+
+This section (on laying out bases/fields) is still not right in the
+case where the thing being laid out is a field.  Basically, this
+section doesn't take into account that for fields you lay out the
+virtual bases, too.
+
+In particular, 
+
+  Otherwise, if D is not an empty base class (including all data
+  members), start at offset dsize(C), incremented if necessary for
+  alignment to nvalign(type(D)) for base classes or to align(type(D))
+  for data members. Place D at this offset unless doing so would result
+  in two components (direct or indirect) of the same type having the
+  same offset. If such a component type conflict occurs, increment the
+  candidate offset by nvalign(type(D)), and try again, repeating until
+  success occurs (which will occur no later than sizeof(C) rounded up to
+  the required alignment).
+
+In this paragraph, both occurrences of `nvalign' are wrong for fields;
+they should be `align' in that case.
+
+     Update sizeof(C) to max (sizeof(C), offset(D)+nvsize(D)). Update
+     align(C) to max (align(C), nvalign(D)). If D is a base class (not
+     empty in this case), update dsize(C) to offset(D)+nvsize(D). If D
+     is a data member, update dsize(C) to max (offset(D)+dsize(D),
+     offset(D)+1).
+
+Similarly, the occurrences of `nvsize' in this section should be size
+in this case.  Perhaps we could parameterize this section by making
+`s' and `a' definitions at the beginning that are nvsize/sizeof and
+nvalign/align appropriately.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Oct 19 18:29:18 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 19 Oct 2000 11:29:18 -0700
+Subject: Tail padding, again
+Message-ID: <20001019112918W.mitchell@codesourcery.com>
+
+
+I think I recall that the committee was intentionally trying to use
+the tail padding of one object to save space.  For example, consider:
+
+  struct A { short s; char c; };
+  struct B { A a; char d; };
+
+(These are PODs, but you can easily make an equivalent non-POD example).
+
+Here, I think the comittee wanted to give `B' size 4, by packing `d'
+into the tail padding of `A'.
+
+I think this is a mistake.  David Gross came up with the following
+example:
+
+  - Code generator needs to copy dsize, not sizeof, unless it can prove
+    that the object is in a context where tail padding isn't overlayed.
+    Reason?  Tail padding might be overlayed by a volatile field.
+
+    Hence, a non-POD that looks like
+
+      struct S { short sh; char ch; };
+
+    requires ld2/st2/ld1/st1 for a copy instead of ld4/st4 because we
+    might have
+
+      struct T { S s; volatile char d; };
+
+Similarly, people using memcpy to copy around POD components of
+non-PODs will get burned.
+
+This completely breaks user expectation since people routinely expect
+to be able to stick a function or two into a POD without changing its
+layout.
+
+I think we should make the following changes:
+
+  - Make nvsize a multiple of nvalign.  That ensures that we don't
+    have odd sub-components that we can't copy around easily.
+
+  - Allocate `sizeof' bytes for a data member, and `nvsize' bytes for
+    a base class when laying out an object.
+
+Note that this still permits the empty base optimization; nvsize will
+be zero, and sizeof will be 1.
+
+There's an important different between using the tail padding in an
+empty base and the tail padding in a generic object: you know that you
+never have to copy an empty base.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From oldham at codesourcery.com  Mon Oct 23 23:48:56 2000
+From: oldham at codesourcery.com (Jeffrey Oldham)
+Date: Mon, 23 Oct 2000 16:48:56 -0700
+Subject: C++ ABI: Substitutions and Vendor-Encoded Types
+Message-ID: <200010232348.QAA24618@oz.codesourcery.com>
+
+
+Section 5.1.5 of the C++ ABI states
+
+    <type> ::= <substitution>
+	   ::= U <source-name> <type>     # vendor extended type qualifier
+	   ...
+
+    For purposes of substitution, given a CV-qualified type, the base type
+    is substitutible, and the type with all the C, V, and r qualifiers
+    plus any vendor extended types in the same order-insensitive set is
+    substitutible; any types with a subset of those qualifiers is
+    not. That is, given a type const volatile foo, the fully qualified
+    type or foo may be substituted, but not const foo.
+
+Which is correct, the grammar xor the text?  The grammar indicates
+that 
+
+     U 3foo U 3bar <type>
+
+should be parsed and <type>, bar <type>, and foo bar <type> should be
+placed in the substitution dictionary.  The text implies the middle
+case should be omitted.  Which is right?  Should vendor-extended
+qualifiers be merged with CV-qualifiers to form qualifiers to avoid
+this difficulty?
+
+Thanks,
+Jeffrey D. Oldham
+oldham at codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Oct 26 01:07:00 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 25 Oct 2000 18:07:00 -0700 (PDT)
+Subject: Reminder -- no meeting tomorrow
+Message-ID: <200010260107.SAA20000@baalbek.engr.sgi.com>
+
+We will not meet this week.  I will put together updates and an agenda
+shortly for discussion via email, and plan to clear up outstanding
+issues at a meeting on 9 November.  This should include the
+multi-threading initialization issues if Christophe looks into the
+suggested solution by then.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+

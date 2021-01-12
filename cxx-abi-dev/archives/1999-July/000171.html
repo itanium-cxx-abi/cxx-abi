@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> empty base packing strategy
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20empty%20base%20packing%20strategy&In-Reply-To=%3Cu9d7xlh8e3.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000165.html">
+   <LINK REL="Next"  HREF="000166.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>empty base packing strategy</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20empty%20base%20packing%20strategy&In-Reply-To=%3Cu9d7xlh8e3.fsf%40yorick.cygnus.com%3E"
+       TITLE="empty base packing strategy">jason at cygnus.com
+       </A><BR>
+    <I>Wed Jul 21 23:48:20 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000165.html">empty base packing strategy
+</A></li>
+        <LI>Next message: <A HREF="000166.html">Exception handling documentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#171">[ date ]</a>
+              <a href="thread.html#171">[ thread ]</a>
+              <a href="subject.html#171">[ subject ]</a>
+              <a href="author.html#171">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> Jim Dehnert &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at baalbek.engr.sgi.com</A>&gt; writes:
+</I>
+ &gt;&gt; Date: Thu, 15 Jul 1999 04:04:57 -0700
+ &gt;&gt; From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at cygnus.com</A>&gt;
+ &gt;&gt; 
+ &gt;&gt; Say we have an A subobject, AO, followed by a B subobject.  If A ends with
+ &gt;&gt; an empty class subjobject and B begins with an object of the same type, add
+ &gt;&gt; 1 to the size of AO for layout purposes.
+
+ &gt; Perhaps I'm coming into the middle of something with context from the
+ &gt; meetings I missed, but this seems like a confusing way to look at this.
+ &gt; First, A should have a well-defined size
+
+A does have a well-defined size.  Actually, it has two well-defined sizes;
+one with padding (i.e. 1) and one without (i.e. 0).  Really, the empty base
+optimization is a corner case of the tail padding optimization, with the
+additional constraint of avoiding overlap.
+
+The g++ implementation is to give a subobject the unpadded size of its type
+unless that would lead to overlap, in which case it gets the padded size
+(1).  But you don't have to set the offsets this way; using field sizes to
+do this just seemed like a clean way to do it in gcc, since the backend
+only knows about C structs.  My understanding is that the SGI compiler also
+uses pseudo-fields for base subobjects.
+
+ &gt; and second, it leads to
+ &gt; questions about how to handle more general cases.  Consider Daveed's
+ &gt; earlier example:
+
+ &gt;         struct E1 { };
+ &gt;         struct E2: E1 { };
+ &gt;         struct E3 { };
+ &gt;         struct E4: E3 { };
+ &gt;         struct N1 { E1 n1; }
+
+ &gt;         struct D: E1, E2, N1, E3, E4 {
+ &gt;           E3 e3;
+ &gt;         };
+
+My algorithm would do this:
+
+E1: offset 0
+E2: offset 1 (E1o has size 1 due to overlap)
+N1: offset 2 (E2o has size 1 due to overlap)
+E3: offset 2 (N1 has size 0)
+E4: offset 3 (E3o has size 1)
+e3: offset 4 (E4o has size 1)
+
+So D has (unpadded) size 5.  Certainly it is possible to do better by
+reordering, as you suggest doing; I don't feel strongly one way or the
+other.  My approach is simpler; yours is more efficient.
+
+If I were to implement your strategy, I would probably keep the current
+code and just reorder the pseudo-fields as necessary.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000165.html">empty base packing strategy
+</A></li>
+	<LI>Next message: <A HREF="000166.html">Exception handling documentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#171">[ date ]</a>
+              <a href="thread.html#171">[ thread ]</a>
+              <a href="subject.html#171">[ subject ]</a>
+              <a href="author.html#171">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

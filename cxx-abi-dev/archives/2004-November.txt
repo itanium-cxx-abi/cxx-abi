@@ -1,0 +1,641 @@
+From mark at codesourcery.com  Tue Nov  9 06:55:36 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 08 Nov 2004 22:55:36 -0800
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <4176AFED.60008@cup.hp.com>
+References: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com> <413C63BC.9000704@codesourcery.com> <413CE553.1050105@codesourcery.com> <4176AFED.60008@cup.hp.com>
+Message-ID: <419069E8.5040809@codesourcery.com>
+
+Kerch Holt wrote:
+
+The question raised here was how an unnamed bitfield should be handled 
+in a non-POD.  (In a POD, the C++ ABI is clear -- follow the rules of 
+the C ABI.)
+
+> Since E only contains an "unnamed bitfield" which is not even considered
+> a member (see 9.6 P2) I think the nvalign(E) should be 1.
+
+Wow, I didn't realize an unnamed bitfield was not a member.
+
+> Does this need extra wording in the ABI to deal with the special case
+> of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+>     If D is not an unnamed bitfield
+>         update align(C) to max(align(C),align(T))
+
+I think the right thing to do is to handle unnamed bitfields as they 
+would be handled in the underlying C ABI.  In some C ABIs, that results 
+in an update to the alignment; in other C ABIs it does not.
+
+2.4 II 1 is already trying to make the identifier optional through the 
+use of "[b]" in the declarator.  I suggest making several edits to this 
+section to try to clarify these points:
+
+1) Revise the first paragraph of 2.4 II to say:
+
+"then the non-static data members (including unnamed bitfields, although 
+they are not members in ISO C++) in declaration order"
+
+2) Replace the introductory clause in 2.4.II.1 with:
+
+"If D is a (possibly unnamed) bitfield whose declared type is T and 
+whose declared width is n bits,"
+
+3) Update 2.4.II.1.a to read:
+
+"If sizeof (T) * 8 >= n, the bitfield is allocated as required by the 
+underlying C psABI, subject to the constraint that a bitfield is never 
+placed in the tail padding of a base class of C.
+
+For example, on Itanium, the bitfield is placed in the next available n 
+bits, subject to the constraint that it does not cross an alignment 
+boundary for type T.  If dsize(C) > 0, and the byte at offset dsize(C) - 
+1 is partially filled by a bitfield, and that bitfield is also a data 
+member declared in C (but not in one of C's proper base classes), the 
+next available bits are the unfilled bits at offset dsize(C) - 1. 
+Otherwise, the next available bits are at offset dsize(C).  Update 
+align(C) to max (align(C), align(T))."
+
+I will make these clarifications in a few days, if there are no objections.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From dhandly at cup.hp.com  Tue Nov  9 07:23:38 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 8 Nov 2004 23:23:38 -0800 (PST)
+Subject: [cxx-abi-dev] question on the virtual base offset
+Message-ID: <200411090723.XAA12345@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>> Does this need extra wording in the ABI to deal with the special case
+>> of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+>>     If D is not an unnamed bitfield
+>>         update align(C) to max(align(C),align(T))
+
+>I think the right thing to do is to handle unnamed bitfields as they 
+>would be handled in the underlying C ABI.  In some C ABIs, that results 
+>in an update to the alignment; in other C ABIs it does not.
+
+I think Kerch is saying that neither g++ 3.4 nor aC++ look at those
+unnamed bit fields and it's too late now.  In fact he said that 3.5
+looked at them and then somehow this change was backed out as a bad idea?
+
+>1) Revise the first paragraph of 2.4 II to say:
+>"then the non-static data members (including unnamed bitfields, although 
+>they are not members in ISO C++) in declaration order"
+
+And this wouldn't match.
+
+>3) Update 2.4.II.1.a to read:
+>Update align(C) to max (align(C), align(T))."
+Mark Mitchell
+
+I believe this is what we don't want if T is an unnamed bit field.
+Hmm, I think the original bit field was named???
+
+
+From mark at codesourcery.com  Tue Nov  9 19:25:10 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 09 Nov 2004 11:25:10 -0800
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <200411090723.XAA12345@hpcll183.cup.hp.com>
+References: <200411090723.XAA12345@hpcll183.cup.hp.com>
+Message-ID: <41911996.20705@codesourcery.com>
+
+Dennis Handly wrote:
+>>From: Mark Mitchell <mark at codesourcery.com>
+>>
+>>>Does this need extra wording in the ABI to deal with the special case
+>>>of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+>>>    If D is not an unnamed bitfield
+>>>        update align(C) to max(align(C),align(T))
+> 
+> 
+>>I think the right thing to do is to handle unnamed bitfields as they 
+>>would be handled in the underlying C ABI.  In some C ABIs, that results 
+>>in an update to the alignment; in other C ABIs it does not.
+> 
+> 
+> I think Kerch is saying that neither g++ 3.4 nor aC++ look at those
+> unnamed bit fields and it's too late now.  In fact he said that 3.5
+> looked at them and then somehow this change was backed out as a bad idea?
+
+G++ behaves differently on different architectures; it follows the 
+underlying C ABI.
+
+Both of these types:
+
+   struct A {
+     char c;
+     long long : 1;
+   };
+
+   struct B {
+     B();
+     char c;
+     long long : 1;
+   };
+
+have size 2 with aCC and G++ 3.4.3 on IA64 HP-UX.  cc also gives A size 
+2.  In other words, the fact that B is not a POD has no impact; both 
+structures follow the underlying C ABI.
+
+It happens that the C ABI on IA64 HP-UX does not affect the alignment 
+for unnamed bitfields.  On other systems, it does affect the alignment.
+
+>>1) Revise the first paragraph of 2.4 II to say:
+>>"then the non-static data members (including unnamed bitfields, although 
+>>they are not members in ISO C++) in declaration order"
+> 
+> 
+> And this wouldn't match.
+
+Huh?
+
+>>3) Update 2.4.II.1.a to read:
+>>Update align(C) to max (align(C), align(T))."
+> 
+> Mark Mitchell
+> 
+> I believe this is what we don't want if T is an unnamed bit field.
+
+Well, OK, we can remove the example then.  The point is just that for 
+bitfields whose declared width is no wider than the declared type, you 
+use the C ABI rules.  The only interesting case from the point of view 
+of the C++ ABI is when the declared width is wider than the underlying type.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From yanliu at ca.ibm.com  Wed Nov 10 04:37:19 2004
+From: yanliu at ca.ibm.com (Yan Liu)
+Date: Tue, 9 Nov 2004 23:37:19 -0500
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <41911996.20705@codesourcery.com>
+Message-ID: <OFD154D845.6A9F82D4-ON85256F48.001923F1-85256F48.00196145@ca.ibm.com>
+
+
+
+
+
+Just noticed Mark's previous question. I am using powerpc machines to get
+the class layout.
+
+Yan Liu
+
+
+
+
+                                                                           
+             Mark Mitchell                                                 
+             <mark at codesourcer                                             
+             y.com>                                                     To 
+                                       Dennis Handly <dhandly at cup.hp.com>  
+             09.11.2004 14:25                                           cc 
+                                       kerch at cup.hp.com,                   
+                                       cxx-abi-dev at codesourcery.com,       
+                                       nathan at codesourcery.com, Yan        
+                                       Liu/Toronto/IBM at IBMCA               
+                                                                   Subject 
+                                       Re: [cxx-abi-dev] question on the   
+                                       virtual base offset                 
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+
+
+
+
+Dennis Handly wrote:
+>>From: Mark Mitchell <mark at codesourcery.com>
+>>
+>>>Does this need extra wording in the ABI to deal with the special case
+>>>of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+>>>    If D is not an unnamed bitfield
+>>>        update align(C) to max(align(C),align(T))
+>
+>
+>>I think the right thing to do is to handle unnamed bitfields as they
+>>would be handled in the underlying C ABI.  In some C ABIs, that results
+>>in an update to the alignment; in other C ABIs it does not.
+>
+>
+> I think Kerch is saying that neither g++ 3.4 nor aC++ look at those
+> unnamed bit fields and it's too late now.  In fact he said that 3.5
+> looked at them and then somehow this change was backed out as a bad idea?
+
+G++ behaves differently on different architectures; it follows the
+underlying C ABI.
+
+Both of these types:
+
+   struct A {
+     char c;
+     long long : 1;
+   };
+
+   struct B {
+     B();
+     char c;
+     long long : 1;
+   };
+
+have size 2 with aCC and G++ 3.4.3 on IA64 HP-UX.  cc also gives A size
+2.  In other words, the fact that B is not a POD has no impact; both
+structures follow the underlying C ABI.
+
+It happens that the C ABI on IA64 HP-UX does not affect the alignment
+for unnamed bitfields.  On other systems, it does affect the alignment.
+
+>>1) Revise the first paragraph of 2.4 II to say:
+>>"then the non-static data members (including unnamed bitfields, although
+>>they are not members in ISO C++) in declaration order"
+>
+>
+> And this wouldn't match.
+
+Huh?
+
+>>3) Update 2.4.II.1.a to read:
+>>Update align(C) to max (align(C), align(T))."
+>
+> Mark Mitchell
+>
+> I believe this is what we don't want if T is an unnamed bit field.
+
+Well, OK, we can remove the example then.  The point is just that for
+bitfields whose declared width is no wider than the declared type, you
+use the C ABI rules.  The only interesting case from the point of view
+of the C++ ABI is when the declared width is wider than the underlying
+type.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+
+From cary at cup.hp.com  Thu Nov 18 19:40:15 2004
+From: cary at cup.hp.com (Cary Coutant)
+Date: Thu, 18 Nov 2004 11:40:15 -0800
+Subject: Flaws in spec for __cxa_begin_catch
+Message-ID: <ABAABBBE-3999-11D9-AA19-000D932ACFFC@cup.hp.com>
+
+The attached message from Richard H. in August '03 mentions a problem 
+in the ABI spec regarding __cxa_begin_catch. As Richard says, we also 
+implemented __cxa_begin_catch to return the adjusted pointer to the 
+exception object, as determined by the personality routine. I haven't 
+seen any further conversation on this topic since then.
+
+There's one other problem with __cxa_begin_catch that we ought to 
+address at the same time. This one was raised by Martin Sebor just this 
+past August. When a thrown object has a copy constructor, the exception 
+isn't supposed to be considered caught until the copy constructor has 
+finished. The best we can do as we've implemented the ABI is to run the 
+copy constructor after calling __cxa_begin_catch. Since the exception 
+is marked as caught once __cxa_begin_catch is called, 
+uncaught_exception() will return false while the copy constructor is 
+running. There's a discussion on this topic in the Bugzilla database:
+
+    http://gcc.gnu.org/bugzilla/show_bug.cgi?id=10606
+
+It seems to me that the ABI spec for __cxa_begin_catch() may have been 
+OK after all, but we really needed another interface to get the 
+adjusted pointer prior to calling __cxa_begin_catch(). In the Bugzilla 
+discussion, Richard suggests "__cxa_begin_catch_part1" and 
+"__cxa_begin_catch_part2", but I'd suggest leaving __cxa_begin_catch() 
+as specified (with a void return), and adding a new interface
+
+    void *__cxa_get_exception_ptr(void *exceptionObject);
+
+The generated code can call this interface, run the copy constructor, 
+and then call __cxa_begin_catch().
+
+Perhaps an improvement on this would be to have __cxa_begin_catch() 
+also return the adjusted pointer, so that we can avoid the extra call 
+in cases where we don't have a copy constructor.
+
+-cary
+
+
+Begin forwarded message:
+
+> From: Richard Henderson <rth at redhat.com>
+> Date: August 25, 2003 3:41:31 PM PDT
+> To: Chris Lattner <sabre at nondot.org>
+> Cc: Nathan Sidwell <nathan at codesourcery.com>, 
+> cxx-abi-dev at codesourcery.com, gcc at gcc.gnu.org
+> Subject: [cxx-abi-dev] Re: G++ ABI mismatches
+>
+> On Mon, Aug 25, 2003 at 05:37:42PM -0500, Chris Lattner wrote:
+>> But how does cxa_begin catch know what the requested type is for
+>> the object?  I thought that was the job of the personality routine?
+>
+> It is.  The personality routine computes the transformed pointer
+> as part of the type matching phase.  It stores this pointer in a
+> c++ language private superclass of _Unwind_Exception.  Which is
+> then returned by __cxa_begin_catch.
+>
+>> Regardless, if G++ does not meet the ABI spec,
+>> either G++ or the ABI should be fixed.  Which one? :)
+>
+> The ABI.  IIRC when I implemented this, I talked to one of the
+> HP guys and they do the same thing.
+>
+>
+> r~
+>
+
+
+
+From mark at codesourcery.com  Fri Nov 19 06:53:16 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 18 Nov 2004 22:53:16 -0800
+Subject: [cxx-abi-dev] Flaws in spec for __cxa_begin_catch
+In-Reply-To: <ABAABBBE-3999-11D9-AA19-000D932ACFFC@cup.hp.com>
+References: <ABAABBBE-3999-11D9-AA19-000D932ACFFC@cup.hp.com>
+Message-ID: <419D985C.5020509@codesourcery.com>
+
+Cary Coutant wrote:
+
+> It seems to me that the ABI spec for __cxa_begin_catch() may have been 
+> OK after all, but we really needed another interface to get the adjusted 
+> pointer prior to calling __cxa_begin_catch(). In the Bugzilla 
+> discussion, Richard suggests "__cxa_begin_catch_part1" and 
+> "__cxa_begin_catch_part2", but I'd suggest leaving __cxa_begin_catch() 
+> as specified (with a void return), and adding a new interface
+> 
+>    void *__cxa_get_exception_ptr(void *exceptionObject);
+> 
+> The generated code can call this interface, run the copy constructor, 
+> and then call __cxa_begin_catch().
+> 
+> Perhaps an improvement on this would be to have __cxa_begin_catch() also 
+> return the adjusted pointer, so that we can avoid the extra call in 
+> cases where we don't have a copy constructor.
+
+That seems like a good strategy.  Would you care to submit a patch to 
+the ABI spec?
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+(916) 791-8304
+
+
+From mark at codesourcery.com  Fri Nov 19 07:52:45 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 18 Nov 2004 23:52:45 -0800
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <419069E8.5040809@codesourcery.com>
+References: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com> <413C63BC.9000704@codesourcery.com> <413CE553.1050105@codesourcery.com> <4176AFED.60008@cup.hp.com> <419069E8.5040809@codesourcery.com>
+Message-ID: <419DA64D.30005@codesourcery.com>
+
+Mark Mitchell wrote:
+> Kerch Holt wrote:
+> 
+> The question raised here was how an unnamed bitfield should be handled 
+> in a non-POD.  (In a POD, the C++ ABI is clear -- follow the rules of 
+> the C ABI.)
+> 
+>> Since E only contains an "unnamed bitfield" which is not even considered
+>> a member (see 9.6 P2) I think the nvalign(E) should be 1.
+> 
+> 
+> Wow, I didn't realize an unnamed bitfield was not a member.
+> 
+>> Does this need extra wording in the ABI to deal with the special case
+>> of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+>>     If D is not an unnamed bitfield
+>>         update align(C) to max(align(C),align(T))
+> 
+> 
+> I think the right thing to do is to handle unnamed bitfields as they 
+> would be handled in the underlying C ABI.  In some C ABIs, that results 
+> in an update to the alignment; in other C ABIs it does not.
+
+Since there was no further commentary, I checked in the change attached.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+(916) 791-8304
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: diffs.txt
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20041118/67eaf87a/attachment.txt>
+
+From cary at cup.hp.com  Fri Nov 19 18:56:09 2004
+From: cary at cup.hp.com (Cary Coutant)
+Date: Fri, 19 Nov 2004 10:56:09 -0800
+Subject: [cxx-abi-dev] Flaws in spec for __cxa_begin_catch
+In-Reply-To: <419D985C.5020509@codesourcery.com>
+References: <ABAABBBE-3999-11D9-AA19-000D932ACFFC@cup.hp.com> <419D985C.5020509@codesourcery.com>
+Message-ID: <AD0B0A3F-3A5C-11D9-9C0E-000D932ACFFC@cup.hp.com>
+
+> That seems like a good strategy.  Would you care to submit a patch to 
+> the ABI spec?
+
+All right, I took a stab at it. You may want to do some wordsmithing.
+
+-cary
+
+
+*** abi-eh.html	Fri Nov 19 09:55:12 2004
+--- abi-eh-041119.html	Fri Nov 19 10:49:10 2004
+***************
+*** 13,23 ****
+   C++ ABI for Itanium: Exception Handling
+   </b></i></font>
+
+   <font size=-1>
+   <p>
+! <i>Revised 31 July 2001.
+   <a href=#revisions>Revision history</a> at end of document.
+   </i>
+
+   </center>
+
+--- 13,23 ----
+   C++ ABI for Itanium: Exception Handling
+   </b></i></font>
+
+   <font size=-1>
+   <p>
+! <i>Revised 19 November 2004.
+   <a href=#revisions>Revision history</a> at end of document.
+   </i>
+
+   </center>
+
+*************** Multithreading behavior.
+*** 1236,1250 ****
+   <p>
+   <a name=cxx-exc-object></a>
+   <h5> 2.2.1  C++ Exception Objects </h5>
+
+   <p>
+! A <span class="change">complete</span>
+   C++ exception object consists of a header,
+   which is a wrapper around an unwind object header with additional C++
+   specific information,
+! followed by the <span class="change">thrown C++</span>
+   exception object itself.
+   The structure of the header is as follows:
+   <code><pre>
+         struct __cxa_exception {
+   	std::type_info *	exceptionType;
+--- 1236,1250 ----
+   <p>
+   <a name=cxx-exc-object></a>
+   <h5> 2.2.1  C++ Exception Objects </h5>
+
+   <p>
+! A complete
+   C++ exception object consists of a header,
+   which is a wrapper around an unwind object header with additional C++
+   specific information,
+! followed by the thrown C++
+   exception object itself.
+   The structure of the header is as follows:
+   <code><pre>
+         struct __cxa_exception {
+   	std::type_info *	exceptionType;
+*************** several things are considered <i>excepti
+*** 1755,1778 ****
+
+   Most of the behavior of a handler is implementation-defined.
+   However, in order to allow maintenance of the exception stack,
+   all handlers must make the following calls.
+
+   <p>
+   Upon entry, a handler must call:
+   <code><pre>
+! 	void __cxa_begin_catch ( void *exceptionObject );
+   </pre></code>
+   This routine:
+   <ul>
+   <li> Increment's the exception's handler count.
+   <li> Places the exception on the stack of currently-caught exceptions
+       if it is not already there,
+       linking the exception to the previous top of the stack.
+   <li> Decrements the uncaught_exception count.
+   </ul>
+
+   <p>
+   When the personality routine encounters a termination condition,
+   it will call <code>__cxa_begin_catch()</code> to mark the exception
+   as handled and then call <code>terminate()</code>,
+   which shall not return to its caller.
+--- 1755,1801 ----
+
+   Most of the behavior of a handler is implementation-defined.
+   However, in order to allow maintenance of the exception stack,
+   all handlers must make the following calls.
+
++ <div class="change">
+   <p>
+   Upon entry, a handler must call:
+   <code><pre>
+! 	void *__cxa_get_exception_ptr ( void *exceptionObject );
+! </pre></code>
+! This routine returns the adjusted pointer to the exception object.
+! (The adjusted pointer is typically computed by the personality routine
+! during phase 1 and saved in the exception object.)
+! </div>
+!
+! <p>
+! <strike>Upon entry,</strike>
+! <span class="change">Following initialization of the catch 
+parameter,</span>
+! a handler must call:
+! <code><pre>
+! 	void <span class="change">*</span>__cxa_begin_catch ( void 
+*exceptionObject );
+   </pre></code>
+   This routine:
+   <ul>
+   <li> Increment's the exception's handler count.
+   <li> Places the exception on the stack of currently-caught exceptions
+       if it is not already there,
+       linking the exception to the previous top of the stack.
+   <li> Decrements the uncaught_exception count.
++ <li><span class="change">Returns the adjusted pointer to the 
+exception object.</span>
+   </ul>
+
++ <div class="change">
++ <p>
++ If the initialization of the catch parameter is trivial
++ (e,g., there is no formal catch parameter, or the parameter has no 
+copy constructor),
++ the calls to <code>__cxa_get_exception_ptr()</code> and
++ <code>__cxa_begin_catch()</code> may be combined into a single call to
++ <code>__cxa_begin_catch()</code>.
++ </div>
++
+   <p>
+   When the personality routine encounters a termination condition,
+   it will call <code>__cxa_begin_catch()</code> to mark the exception
+   as handled and then call <code>terminate()</code>,
+   which shall not return to its caller.
+*************** This might be translated as follows:
+*** 2253,2268 ****
+--- 2276,2293 ----
+   	[Cleanup code corresponding to exit of scope]
+   	[enclosing the try block]
+   	_Unwind_Resume();
+
+   	H1: // Handler label
++ 	<span class="change">adjusted_exception_ptr = 
+__cxa_get_exception_ptr(exception);</span>
+   	[Initialize catch parameter]
+   	__cxa_begin_catch(exception);
+   	[User code]
+   	goto R1;
+
+   	H2:
++ 	<span class="change">adjusted_exception_ptr = 
+__cxa_get_exception_ptr(exception);</span>
+   	[Initialize catch parameter]
+   	__cxa_begin_catch(exception);
+   	[User code]
+   	buz(); // Call attributes: Landing pad L2, action record A2
+   	goto R1;
+*************** and below.
+*** 2304,2313 ****
+--- 2329,2342 ----
+   </font>
+
+
+   <p><a name=revisions></a> <hr> <p>
+   <h3> Appendix R:  Revisions </h3>
++
++ <p>
++ <font color="blue">[041119]</font>
++ Add __cxa_get_exception_ptr, add return value to __cxa_begin_catch.
+
+   <p>
+   <font color="blue">[011126]</font>
+   Add __cxa_current_exception_type.
+
+
+
+

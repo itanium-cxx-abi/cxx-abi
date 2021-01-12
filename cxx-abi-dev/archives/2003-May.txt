@@ -1,0 +1,1961 @@
+From mark at codesourcery.com  Tue May 13 20:11:45 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 13 May 2003 13:11:45 -0700
+Subject: Long bitfields in PODs
+Message-ID: <200305132011.h4DKBjFV016746@doubledemon.codesourcery.com>
+
+
+A type like:
+
+  struct S {
+    int i : 8192;
+  };
+
+is a POD.
+
+According to 2.4, that means that the underlying C layout rules for
+the system should be used.  Unfortunately, that kind of type is not
+valid in C.
+
+I believe that all types with bitfields wider than their declared
+types should be considered non-PODs for the purposes of layout.
+
+Any objections?
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed May 14 18:37:25 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 14 May 2003 11:37:25 -0700
+Subject: __cxa_vec_new2 and deallocation functions that throw exceptions
+Message-ID: <1052937445.1498.35.camel@doubledemon.codesourcery.com>
+
+The ABI says that, for __cxa_vec_new2 and __cxa_vec_new3:
+
+  If dealloc throws an exception, the result is undefined.
+
+I don't understand this restriction.  In particular, the ISO C++
+standard says (if I read it correctly) that:
+
+  struct S {
+    S() { throw 1; }
+    void* operator new[] (size_t s) { return ::operator new[] (s); }
+    void operator delete[] (void*) { throw 2; }
+  };
+
+  new S[5];
+
+results in a call to std::terminate.  (First, the array is allocated,
+then the elements are constructed, but the first one throws an
+exception, which causes the deallocation function to be called, which
+throws an exception, so terminate is called.)
+
+Shouldn't __cxa_vec_new[23] be required to call std::terminate if
+dealloc throws an exception?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From jason at redhat.com  Wed May 14 18:47:16 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 14 May 2003 14:47:16 -0400
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that
+ throw exceptions
+In-Reply-To: <1052937445.1498.35.camel@doubledemon.codesourcery.com> (Mark
+ Mitchell's message of "14 May 2003 11:37:25 -0700")
+References: <1052937445.1498.35.camel@doubledemon.codesourcery.com>
+Message-ID: <wvld6iltlfv.fsf@prospero.boston.redhat.com>
+
+On 14 May 2003 11:37:25 -0700, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> Shouldn't __cxa_vec_new[23] be required to call std::terminate if
+> dealloc throws an exception?
+
+Makes sense to me.
+
+Jason
+
+
+From jason at redhat.com  Wed May 14 18:49:00 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 14 May 2003 14:49:00 -0400
+Subject: [cxx-abi-dev] Long bitfields in PODs
+In-Reply-To: <200305132011.h4DKBjFV016746@doubledemon.codesourcery.com> (Mark
+ Mitchell's message of "Tue, 13 May 2003 13:11:45 -0700")
+References: <200305132011.h4DKBjFV016746@doubledemon.codesourcery.com>
+Message-ID: <wvl8yt9tlcz.fsf@prospero.boston.redhat.com>
+
+On Tue, 13 May 2003 13:11:45 -0700, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> A type like:
+>
+>   struct S {
+>     int i : 8192;
+>   };
+>
+> is a POD.
+>
+> According to 2.4, that means that the underlying C layout rules for
+> the system should be used.  Unfortunately, that kind of type is not
+> valid in C.
+>
+> I believe that all types with bitfields wider than their declared
+> types should be considered non-PODs for the purposes of layout.
+
+I don't see why we need to consider it a non-POD.  It seems to me that if
+there are no applicable C layout rules, then whatever we do vacuously
+follows the rules.
+
+Jason
+
+
+From mark at codesourcery.com  Wed May 14 18:59:17 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 14 May 2003 11:59:17 -0700
+Subject: [cxx-abi-dev] Long bitfields in PODs
+In-Reply-To: <wvl8yt9tlcz.fsf@prospero.boston.redhat.com>
+References: <200305132011.h4DKBjFV016746@doubledemon.codesourcery.com> 
+	<wvl8yt9tlcz.fsf@prospero.boston.redhat.com>
+Message-ID: <1052938757.1553.38.camel@doubledemon.codesourcery.com>
+
+On Wed, 2003-05-14 at 11:49, Jason Merrill wrote:
+> On Tue, 13 May 2003 13:11:45 -0700, Mark Mitchell <mark at codesourcery.com> wrote:
+> 
+> > A type like:
+> >
+> >   struct S {
+> >     int i : 8192;
+> >   };
+> >
+> > is a POD.
+> >
+> > According to 2.4, that means that the underlying C layout rules for
+> > the system should be used.  Unfortunately, that kind of type is not
+> > valid in C.
+> >
+> > I believe that all types with bitfields wider than their declared
+> > types should be considered non-PODs for the purposes of layout.
+> 
+> I don't see why we need to consider it a non-POD.  It seems to me that if
+> there are no applicable C layout rules, then whatever we do vacuously
+> follows the rules.
+
+We have to say something -- if we want all ABI-compliant compilers to
+behave the same way.
+
+Right now, we say:
+
+2.2 POD Data Types
+
+The size and alignment of C POD types is as specified by the base (C)
+ABI. Type bool has size and alignment 1. All of these types have data
+size and non-virtual size equal to their size. (We ignore tail padding
+for PODs because the Standard does not allow us to use it for anything
+else.)
+
+Something in there needs to change, right?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From jason at redhat.com  Wed May 14 19:28:39 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 14 May 2003 15:28:39 -0400
+Subject: [cxx-abi-dev] Long bitfields in PODs
+In-Reply-To: <1052938757.1553.38.camel@doubledemon.codesourcery.com> (Mark
+ Mitchell's message of "14 May 2003 11:59:17 -0700")
+References: <200305132011.h4DKBjFV016746@doubledemon.codesourcery.com>
+	<wvl8yt9tlcz.fsf@prospero.boston.redhat.com>
+	<1052938757.1553.38.camel@doubledemon.codesourcery.com>
+Message-ID: <wvl4r3xtjiw.fsf@prospero.boston.redhat.com>
+
+On 14 May 2003 11:59:17 -0700, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> We have to say something -- if we want all ABI-compliant compilers to
+> behave the same way.
+>
+> Right now, we say:
+>
+> 2.2 POD Data Types
+>
+> The size and alignment of C POD types is as specified by the base (C)
+> ABI. Type bool has size and alignment 1. All of these types have data
+> size and non-virtual size equal to their size. (We ignore tail padding
+> for PODs because the Standard does not allow us to use it for anything
+> else.)
+>
+> Something in there needs to change, right?
+
+I'd just add a note mentioning that since C doesn't have large bitfields,
+they are handled by the rules elsewhere in the ABI.
+
+Jason
+
+
+From daveed at edg.com  Wed May 14 20:23:39 2003
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 14 May 2003 16:23:39 -0400
+Subject: [cxx-abi-dev] Long bitfields in PODs
+In-Reply-To: <wvl4r3xtjiw.fsf@prospero.boston.redhat.com>
+Message-ID: <F2B3D9B8-8649-11D7-859E-000393A34FA6@edg.com>
+
+
+On Wednesday, May 14, 2003, at 03:28  PM, Jason Merrill wrote:
+[...]
+> I'd just add a note mentioning that since C doesn't have large 
+> bitfields,
+> they are handled by the rules elsewhere in the ABI.
+
+Yes, but those rules live in a context of non-POD layout.
+I.e., it's hard to specify that one (overlong bit) field
+is laid out according to algorithm A while the others
+are laid out according to algorithm B, because these
+algorithms need to update their state for every field
+allocation.
+
+I think for the specification to make sense, the easiest
+is Mark's suggestion: If a POD struct contains an overlong
+bit field, use the non-POD algorithm to compute its layout.
+
+	Daveed
+
+
+
+From jason at redhat.com  Wed May 14 21:53:26 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 14 May 2003 17:53:26 -0400
+Subject: [cxx-abi-dev] Long bitfields in PODs
+In-Reply-To: <F2B3D9B8-8649-11D7-859E-000393A34FA6@edg.com> (Daveed
+ Vandevoorde's message of "Wed, 14 May 2003 16:23:39 -0400")
+References: <F2B3D9B8-8649-11D7-859E-000393A34FA6@edg.com>
+Message-ID: <wvlvfwdry95.fsf@prospero.boston.redhat.com>
+
+On Wed, 14 May 2003 16:23:39 -0400, Daveed Vandevoorde <daveed at edg.com> wrote:
+
+> I think for the specification to make sense, the easiest
+> is Mark's suggestion: If a POD struct contains an overlong
+> bit field, use the non-POD algorithm to compute its layout.
+
+OK, I concede the point.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu May 15 03:27:35 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 14 May 2003 20:27:35 -0700 (PDT)
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that throw exceptions
+Message-ID: <200305150327.UAA25885@hpcll183.cup.hp.com>
+
+>The ABI says that, for __cxa_vec_new2 and __cxa_vec_new3:
+>  If dealloc throws an exception, the result is undefined.
+
+>I don't understand this restriction.  In particular, the ISO C++
+>standard says (if I read it correctly) that:
+
+Please point to the sections where it says this.
+
+>which causes the deallocation function to be called, which
+>throws an exception, so terminate is called.)
+
+I see nothing that says this.  Nothing in 15.5.1, (it only talks about
+destruction).  And nothing in 15.2 (destructors).  And nothing in
+5.3.4(17) either.
+
+>Shouldn't __cxa_vec_new[23] be required to call std::terminate if
+>dealloc throws an exception?
+Mark Mitchell
+
+It seems it is undefined because the Standard is broken.
+Unless there is something I missed?
+Destruction and deallocation are different, even if they are combined
+in a implementation.
+
+So if we want to change the ABI, we should at least get it spelled out
+in the Standard.
+
+
+From mark at codesourcery.com  Thu May 15 05:32:00 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 14 May 2003 22:32:00 -0700
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that
+	throw exceptions
+In-Reply-To: <200305150327.UAA25885@hpcll183.cup.hp.com>
+References: <200305150327.UAA25885@hpcll183.cup.hp.com>
+Message-ID: <1052976721.1553.66.camel@doubledemon.codesourcery.com>
+
+On Wed, 2003-05-14 at 20:27, Dennis Handly wrote:
+> >The ABI says that, for __cxa_vec_new2 and __cxa_vec_new3:
+> >  If dealloc throws an exception, the result is undefined.
+> 
+> >I don't understand this restriction.  In particular, the ISO C++
+> >standard says (if I read it correctly) that:
+> 
+> Please point to the sections where it says this.
+
+[except.terminate]
+
+In  the  following situations exception handling must be abandoned for
+  less subtle error handling techniques:
+
+  --when the exception handling mechanism, after  completing  evaluation
+    of  the  expression  to be thrown but before the exception is caught
+    (_except.throw_), calls a user function that exits via  an  uncaught
+    exception,1)
+
+[except.throw]
+
+An exception is considered caught when initialization is complete  for
+  the formal parameter of the corresponding catch clause, or when termi-
+  nate() or unexpected() is entered due to a  throw.
+
+In my example, the constructor throws an exception.  The exception has
+not yet been caught.  The exception-handling mechanism calls a user
+function (the deallocation routine) which exits via an exception.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From dhandly at cup.hp.com  Thu May 15 07:13:57 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 15 May 2003 00:13:57 -0700 (PDT)
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that throw exceptions
+Message-ID: <200305150713.AAA26133@hpcll183.cup.hp.com>
+
+>[except.terminate]
+>  --when the exception handling mechanism, after completing evaluation
+>    of the expression to be thrown but before the exception is caught
+>    (_except.throw_), calls a user function that exits via an uncaught
+>    exception,1)
+
+So what does uncaught exception mean?  Any exception without a handler?
+(That footnote needs to be expanded.)
+
+Or anytime you throw when uncaught_exception is true, 18.6.4(2)?
+
+This disallows throws that are caught locally in destructors, while
+unwinding.  Or is this not "exiting", so legal?
+
+>The exception has not yet been caught.  The exception-handling mechanism
+>calls a user function (the deallocation routine) which exits via an exception.
+Mark Mitchell
+
+I wasn't clear what uncaught exception meant and whether "nesting" of throw
+is allowed.
+
+
+From mark at codesourcery.com  Thu May 15 07:38:19 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 15 May 2003 00:38:19 -0700
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that
+	throw exceptions
+In-Reply-To: <200305150713.AAA26133@hpcll183.cup.hp.com>
+References: <200305150713.AAA26133@hpcll183.cup.hp.com>
+Message-ID: <1052984298.29358.2.camel@minax.codesourcery.com>
+
+On Thu, 2003-05-15 at 00:13, Dennis Handly wrote:
+> >[except.terminate]
+> >  --when the exception handling mechanism, after completing evaluation
+> >    of the expression to be thrown but before the exception is caught
+> >    (_except.throw_), calls a user function that exits via an uncaught
+> >    exception,1)
+> 
+> So what does uncaught exception mean?  Any exception without a handler?
+> (That footnote needs to be expanded.)
+>
+> Or anytime you throw when uncaught_exception is true, 18.6.4(2)?
+> 
+> This disallows throws that are caught locally in destructors, while
+> unwinding.  Or is this not "exiting", so legal?
+
+A function can exit either by use of "return" (including falling off the
+end of the function), by throwing exception, or by calling longjmp.  If
+a destructor catches the exception, it does not exit by throwing an
+exception.
+
+So, yes, the situation you describe is legal.
+
+-- 
+Mark Mitchell <mark at codesourcery.com>
+CodeSourcery, LLC
+
+
+
+From dhandly at cup.hp.com  Thu May 15 08:14:57 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 15 May 2003 01:14:57 -0700 (PDT)
+Subject: [cxx-abi-dev] __cxa_vec_new2 and deallocation functions that throw exceptions
+Message-ID: <200305150814.BAA26641@hpcll183.cup.hp.com>
+
+>A function can exit either by use of "return" (including falling off the
+>If a destructor catches the exception, it does not exit by throwing an
+>exception.  So, yes, the situation you describe is legal.
+Mark Mitchell <mark at codesourcery.com>
+
+Ok, so the only way to distinguish these exiting throws is to wrap the
+call with:   try { ... } catch(...) { std::terminate(); }
+
+
+From mark at codesourcery.com  Sun May 18 21:26:39 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 18 May 2003 14:26:39 -0700
+Subject: PATCH: Define "POD for the purpose of layout"
+Message-ID: <200305182126.h4ILQd3i016486@doubledemon.codesourcery.com>
+
+
+This patch implements the consensus that we need to define a notion of
+"POD for the purpose of layout" that does not include PODs with
+"overlong" bitfields.
+
+I have comitted this change, but there is still a lingering issue:
+
+  struct A { int i : 2048; };
+
+  struct B { struct A a; };
+
+Is B a POD for the purpose of layout?  
+
+With the patch below, B *is* a POD for the purpose of layout, which is
+plausible because the underlying C ABI does still explain how to lay
+out B, given a layout for A.
+
+It is unlikely that this distinction will make any difference on any
+real system, but if people feel that B should be laid out according to
+the C++ rules, rather than the C rules, we could make that change.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.61
+diff -c -5 -p -r1.61 abi.html
+*** abi.html	16 Mar 2003 20:50:14 -0000	1.61
+--- abi.html	18 May 2003 21:24:52 -0000
+*************** A class that contains a virtual pointer,
+*** 225,239 ****
+  </ul>
+  Such classes may be primary base classes even if virtual,
+  sharing a virtual pointer with the derived class.
+  
+  <p>
+! <dt> <i>primary base class</i> </dt>
+  <dd>
+! For a dynamic class,
+! the unique base class (if any) with which it shares the virtual pointer
+! at offset 0.
+  
+  <p>
+  <dt> <i>secondary virtual table</i> </dt>
+  <dd>
+  The instance of a virtual table for a base class
+--- 225,248 ----
+  </ul>
+  Such classes may be primary base classes even if virtual,
+  sharing a virtual pointer with the derived class.
+  
+  <p>
+! <a name="POD" />
+! <dt> <i>POD for the purpose of layout</i><dt>
+  <dd>
+! A type is considered a POD for the purposes of layout if it is a POD
+! type (in the sense of [basic.types]), and is not a POD-struct or
+! POD-union (in the sense of [class]) with a bitfield member whose declared
+! width is wider than the declared type of the bitfield
+! </dd>
+! </p>
+! 
+! <p>
+! <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
+! unique base class (if any) with which it shares the virtual pointer at
+! offset 0.
+  
+  <p>
+  <dt> <i>secondary virtual table</i> </dt>
+  <dd>
+  The instance of a virtual table for a base class
+*************** without virtual bases.
+*** 537,551 ****
+  <p> <hr> <p>
+  <a name=pod>
+  <h3> 2.2 POD Data Types </h3>
+  
+  <p>
+! The size and alignment of C POD types is as specified by the base (C) ABI.
+! Type bool has size and alignment 1.
+! All of these types have data size and non-virtual size equal to their size.
+! (We ignore tail padding for PODs because the Standard does not allow us
+! to use it for anything else.)
+  
+  
+  <p> <hr> <p>
+  <a name=member-pointers></a>
+  <h3> 2.3 Member Pointers </h3>
+--- 546,562 ----
+  <p> <hr> <p>
+  <a name=pod>
+  <h3> 2.2 POD Data Types </h3>
+  
+  <p>
+! 
+! The size and alignment of a type which is a <a href="#POD">POD for the
+! purpose of layout<a> is as specified by the base (C) ABI.  Type bool
+! has size and alignment 1.  All of these types have data size and
+! non-virtual size equal to their size.  (We ignore tail padding for
+! PODs because the Standard does not allow us to use it for anything
+! else.)
+  
+  
+  <p> <hr> <p>
+  <a name=member-pointers></a>
+  <h3> 2.3 Member Pointers </h3>
+*************** of a class containing those two members,
+*** 587,600 ****
+  
+  <p> <hr> <p>
+  <a name=class-types>
+  <h3> 2.4 Non-POD Class Types </h3>
+  
+! For non-POD class types C, assume that all component types
+! (i.e. proper base classes and non-static data member types)
+! have been laid out, defining size, data size, non-virtual size,
+! alignment, and non-virtual alignment.
+  (See the description of these terms in
+  <a href=#general><b>General</b></a> above.)
+  Further, assume for data members that nvsize==size, and nvalign==align.
+  Layout (of type C) is done using the following procedure.
+  
+--- 598,613 ----
+  
+  <p> <hr> <p>
+  <a name=class-types>
+  <h3> 2.4 Non-POD Class Types </h3>
+  
+! For a class type C which is not a <a href="#POD">POD for the purpose
+! of layout</a>, assume that all component types (i.e. proper base
+! classes and non-static data member types) have been laid out, defining
+! size, data size, non-virtual size, alignment, and non-virtual
+! alignment.
+! 
+  (See the description of these terms in
+  <a href=#general><b>General</b></a> above.)
+  Further, assume for data members that nvsize==size, and nvalign==align.
+  Layout (of type C) is done using the following procedure.
+  
+*************** and the full layout is equivalent to the
+*** 868,878 ****
+  </code></pre>
+  
+  <p>
+  <li> <h5> Finalization </h5>
+  <p>
+! Round sizeof(C) up to a non-zero multiple of align(C).
+  
+  </ol>
+  
+  
+  <p> <hr> <p>
+--- 881,892 ----
+  </code></pre>
+  
+  <p>
+  <li> <h5> Finalization </h5>
+  <p>
+! Round sizeof(C) up to a non-zero multiple of align(C).  If C is a POD,
+! but not a POD for the purpose of layout, set nvsize(C) = sizeof(C).
+  
+  </ol>
+  
+  
+  <p> <hr> <p>
+*************** unwind table location.
+*** 4893,4902 ****
+--- 4907,4920 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[030518]</font>
++ Define &quot;POD for the purpose of layout.&quot;
+  
+  <p>
+  <font color=blue>[030316]</font>
+  Add acknowledgements section.
+  
+
+
+From mark at codesourcery.com  Sun May 18 21:32:34 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 18 May 2003 14:32:34 -0700
+Subject: PATCH: Specify behavior of __cxa_vec_new[23] when dealloc throws
+Message-ID: <200305182132.h4ILWYJL016508@doubledemon.codesourcery.com>
+
+
+This patch implements the consensus that __cxa_vec_new[23] should call
+std::terminate when dealloc throws an exception.
+
+I've committed this change.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.65
+diff -c -5 -p -r1.65 abi.html
+*** abi.html	18 May 2003 21:25:51 -0000	1.65
+--- abi.html	18 May 2003 21:30:54 -0000
+*************** extern "C" void * __cxa_vec_new2 (
+*** 3217,3233 ****
+  	    void (*destructor) ( void *this ),
+  	    void* (*alloc) ( size_t size ),
+  	    void (*dealloc) ( void *obj ) );
+  </pre></code></dt>
+  <dd>
+! Same as <code>__cxa_vec_new</code>,
+! except that the given functions are used for allocation/deallocation
+! instead of the default new/delete functions.
+! If <code>dealloc</code> throws an exception,
+! the result is undefined.
+! The <code>alloc</code> and <code>dealloc</code> pointers may not be
+! NULL.
+  </dd>
+  
+  <dt><code><pre>
+  extern "C" void * __cxa_vec_new3 (
+  	    size_t element_count,
+--- 3217,3231 ----
+  	    void (*destructor) ( void *this ),
+  	    void* (*alloc) ( size_t size ),
+  	    void (*dealloc) ( void *obj ) );
+  </pre></code></dt>
+  <dd>
+! Same as <code>__cxa_vec_new</code>, except that the given functions
+! are used for allocation/deallocation instead of the default new/delete
+! functions.  If <code>dealloc</code> throws an exception,
+! <code>std::terminate</code> is called.  The <code>alloc</code> and
+! <code>dealloc</code> pointers may not be NULL.
+  </dd>
+  
+  <dt><code><pre>
+  extern "C" void * __cxa_vec_new3 (
+  	    size_t element_count,
+*************** extern "C" void * __cxa_vec_new3 (
+*** 3237,3254 ****
+  	    void (*destructor) ( void *this ),
+  	    void* (*alloc) ( size_t size ),
+  	    void (*dealloc) ( void *obj, size_t size ) );
+  </pre></code></dt>
+  <dd>
+! Same as <code>__cxa_vec_new</code>,
+! except that the given functions are used for allocation/deallocation
+! instead of the default new/delete functions.
+! The deallocation function takes both the object address and its size.
+! If <code>dealloc</code> throws an exception,
+! the result is undefined.
+! The <code>alloc</code> and <code>dealloc</code> pointers may not be
+! NULL.
+  </dd>
+  
+  <dt><code><pre>
+  extern "C" void __cxa_vec_ctor (
+  	    void *array_address,
+--- 3235,3246 ----
+  	    void (*destructor) ( void *this ),
+  	    void* (*alloc) ( size_t size ),
+  	    void (*dealloc) ( void *obj, size_t size ) );
+  </pre></code></dt>
+  <dd>
+! Same as <code>__cxa_vec_new2</code> except that the deallocation
+! function takes both the object address and its size.
+  </dd>
+  
+  <dt><code><pre>
+  extern "C" void __cxa_vec_ctor (
+  	    void *array_address,
+*************** unwind table location.
+*** 4907,4916 ****
+--- 4899,4914 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[030518]</font>
++ Specify behavior of <code>__cxa_vec_new2</code> and
++ <code>__cxa_vec_new3</code> when the deallocation function throws an
++ exception.
+  
+  <p>
+  <font color=blue>[030518]</font>
+  Define &quot;POD for the purpose of layout.&quot;
+  
+
+
+From cary at cup.hp.com  Wed May 21 22:00:30 2003
+From: cary at cup.hp.com (Cary Coutant)
+Date: Wed, 21 May 2003 15:00:30 -0700
+Subject: gcc unwind ABI change for forced unwind
+Message-ID: <A34F2B63-8BD7-11D7-8E8F-003065589C02@cup.hp.com>
+
+Many of you are probably aware of (and several of you participated in) 
+a discussion thread on the gcc-patches mailing list about a new unwind 
+API that Richard Henderson had to add to support forced unwinds 
+resulting from (among possibly other things) thread cancellation. I 
+thought it would be appropriate to bring this issue to this mailing 
+list.
+
+Courtesy of Jim Wilson (who posted a note to the libunwind mailing 
+list, which brought it to my attention), here are some pointers to the 
+discussion threads leading up to this.
+
+http://gcc.gnu.org/ml/gcc-patches/2003-04/msg00008.html
+http://gcc.gnu.org/ml/gcc-patches/2003-04/msg02246.html
+http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00473.html
+http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00160.html
+
+As I understand the central issue, we would like to run C++ cleanups on 
+a thread cancellation, in addition to the cleanups registered through 
+the POSIX C bindings to the pthreads library. Cleanups resulting from 
+local automatic objects that need destruction are easy, but the problem 
+is what to do about catch(...) blocks. Richard's approach was to end 
+such blocks with a call to the new API, "_Unwind_Resume_or_Rethrow()", 
+if the block did not already end with a rethrow.
+
+I think Jason Merrill hit the nail on the head when he said (on 4/30):
+
+> The problem is that catch(...) is overloaded in C++.  It's used both 
+> for
+> code that wants to write a cleanup inline and rethrow and for code that
+> wants to trap all exceptions.
+
+There was some discussion about whether catch(...) blocks should run at 
+all when doing a forced unwind, and whether forced unwinds should be 
+allowed to penetrate a function declared throw(). I think I saw a 
+consensus on the latter issue that thread cancellation and 
+longjmp_unwind are not really exceptions, and must be allowed to 
+proceed. On the former issue, however, there didn't seem to be a clear 
+resolution.
+
+Ideally, one would take the position that good C++ code would 
+encapsulate any cleanups it needs into local automatic objects, so that 
+the compiler-generated cleanups would invoke the destructor. Real code, 
+however, doesn't seem to work that way -- we see catch(...) blocks 
+written with the intent to do cleanups. Given this real code, we should 
+try to run those cleanups. But what happens when we hit a catch(...) of 
+the other flavor -- the kind that just want to catch all exceptions? 
+Ideally, we wouldn't want to run them at all on a forced unwind, since 
+they're exception handlers, not cleanups. Without Richard's approach, 
+if we execute such a block on a forced unwind, and that block doesn't 
+end with a rethrow, the forced unwind doesn't resume (until, in the 
+case of thread cancellation, the thread next reaches a cancellation 
+point, and the process gets repeated). With Richard's new routine, a 
+forced unwind gets the opportunity to rethrow, while a normal exception 
+gets to resume execution.
+
+The last time I considered this dilemma, I took the (naive?) approach 
+that a catch(...) block ending with a rethrow must be a cleanup, while 
+any other catch(...) block must be a catch-all exception handler. On a 
+forced unwind, we would run the cleanups, including the first kind of 
+catch(...) block, but not the second kind. On a normal thrown 
+exception, we would execute both kinds.
+
+The current IA-64 C++ ABI leaves it unstated whether or not catch(...) 
+blocks run on a forced unwind (probably for this very reason). What's 
+wrong with the approach I'm suggesting? It would obviate the need for 
+the additional unwind API, and I think it would typically do the right 
+thing with respect to executing cleanup code and not executing 
+exception handling code on a forced unwind.
+
+My apologies if I've misstated anyone's position, or summarized this 
+inaccurately. I welcome any corrections or further clarification.
+
+-cary
+
+
+
+From jason at redhat.com  Wed May 21 22:35:11 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 21 May 2003 18:35:11 -0400
+Subject: gcc unwind ABI change for forced unwind
+In-Reply-To: <A34F2B63-8BD7-11D7-8E8F-003065589C02@cup.hp.com> (Cary
+ Coutant's message of "Wed, 21 May 2003 15:00:30 -0700")
+References: <A34F2B63-8BD7-11D7-8E8F-003065589C02@cup.hp.com>
+Message-ID: <wvlznlg3p40.fsf@prospero.boston.redhat.com>
+
+On Wed, 21 May 2003 15:00:30 -0700, Cary Coutant <cary at cup.hp.com> wrote:
+
+> As I understand the central issue, we would like to run C++ cleanups on a
+> thread cancellation, in addition to the cleanups registered through the
+> POSIX C bindings to the pthreads library.
+
+Yes.
+
+> Cleanups resulting from local automatic objects that need destruction are
+> easy, but the problem is what to do about catch(...) blocks. Richard's
+> approach was to end such blocks with a call to the new API,
+> "_Unwind_Resume_or_Rethrow()", if the block did not already end with a
+> rethrow.
+
+Rather, a rethrow at the end of a catch(...) block uses that API instead of
+the usual rethrow code.  If the block doesn't end with a rethrow, nothing
+is changed.
+
+> I think Jason Merrill hit the nail on the head when he said (on 4/30):
+>
+>> The problem is that catch(...) is overloaded in C++.  It's used both for
+>> code that wants to write a cleanup inline and rethrow and for code that
+>> wants to trap all exceptions.
+>
+> There was some discussion about whether catch(...) blocks should run at all
+> when doing a forced unwind, and whether forced unwinds should be allowed to
+> penetrate a function declared throw(). I think I saw a consensus on the
+> latter issue that thread cancellation and longjmp_unwind are not really
+> exceptions, and must be allowed to proceed.
+
+Actually, the consensus was that we should call terminate() if we try to
+unwind through a throw().  Allowing it to go through would destroy the
+optimization benefits of throw().
+
+> On the former issue, however, there didn't seem to be a clear resolution.
+
+Everyone agreed that we would like to be able to run cleanups; the problem
+was telling them apart from other cases.
+
+I came up with a solution: use terminate() as the destructor for the forced
+unwind exception object.  That way, we can just run all catch(...) blocks.
+If it rethrows, we continue to unwind normally, but if it exits some other
+way, we try to destroy the exception object, which calls terminate().
+
+Everyone seemed to like this solution for forced unwind.  The issue on
+which there was disagreement was whether or not cancellation should be
+treated like longjmp_unwind.  Several people argued that cancellation
+should be a normal exception which can be caught and discarded.
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu May 22 06:57:17 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 21 May 2003 23:57:17 -0700 (PDT)
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+Message-ID: <200305220657.XAA05111@hpcll183.cup.hp.com>
+
+>From: Cary Coutant <cary at cup.hp.com>
+>Many of you are probably aware of (and several of you participated in) 
+>a discussion thread on the gcc-patches mailing list about a new unwind 
+>API that Richard Henderson had to add to support forced unwinds 
+>resulting from (among possibly other things) thread cancellation. I 
+>thought it would be appropriate to bring this issue to this mailing list.
+
+Jerry Harrow from the pre merger Compaq side of HP has some thoughts on
+this.  He said they did something like this and at the base of each thread
+was a "catch" block.
+
+And for every throw spec, it quantum tunneled through them.
+
+>As I understand the central issue, we would like to run C++ cleanups on 
+>a thread cancellation, in addition to the cleanups registered through 
+>the POSIX C bindings to the pthreads library. Cleanups resulting from 
+>local automatic objects that need destruction are easy, but the problem 
+>is what to do about catch(...) blocks. Richard's approach was to end 
+>such blocks with a call to the new API, "_Unwind_Resume_or_Rethrow()", 
+>if the block did not already end with a rethrow.
+-cary
+
+He didn't say anything about those?
+
+
+From jason at redhat.com  Thu May 22 07:06:56 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 22 May 2003 03:06:56 -0400
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+In-Reply-To: <200305220657.XAA05111@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Wed, 21 May 2003 23:57:17 -0700 (PDT)")
+References: <200305220657.XAA05111@hpcll183.cup.hp.com>
+Message-ID: <wvln0hf4fzj.fsf@prospero.boston.redhat.com>
+
+On Wed, 21 May 2003 23:57:17 -0700 (PDT), Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>>From: Cary Coutant <cary at cup.hp.com>
+>>Many of you are probably aware of (and several of you participated in) 
+>>a discussion thread on the gcc-patches mailing list about a new unwind 
+>>API that Richard Henderson had to add to support forced unwinds 
+>>resulting from (among possibly other things) thread cancellation. I 
+>>thought it would be appropriate to bring this issue to this mailing list.
+>
+> Jerry Harrow from the pre merger Compaq side of HP has some thoughts on
+> this.  He said they did something like this and at the base of each thread
+> was a "catch" block.
+>
+> And for every throw spec, it quantum tunneled through them.
+
+Evidently Dave Butenhof did some related work at Compaq, and discusses it
+in the message quoted here:
+
+  http://sources.redhat.com/ml/libc-alpha/1999-08/msg00038.html
+
+Jason
+
+
+From David.Butenhof at hp.com  Thu May 22 14:25:38 2003
+From: David.Butenhof at hp.com (Dave Butenhof)
+Date: Thu, 22 May 2003 10:25:38 -0400
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+	
+In-Reply-To: <280273517079B94E9CE26B95D2856A260365030C@tayexc13.americas.cpqcorp.net>
+References: <280273517079B94E9CE26B95D2856A260365030C@tayexc13.americas.cpqcorp.net>
+Message-ID: <3ECCDDE2.60306@hp.com>
+
+Greetings.
+
+I've been forwarded part of this discussion and asked to comment. For 
+those who don't know me, the relevant context is probably that I know 
+nothing about gcc internals, a little about its external manifestation, 
+a moderate amount about C++ syntax and semantics without being by any 
+means a C++ expert, and I know rather a lot about threads and POSIX. I'm 
+the principal architect for the POSIX threads library on Tru64 UNIX and 
+OpenVMS, where cancel and thread exit are exceptions implemented using 
+the system libexc library -- also used by C++, Ada, and others for their 
+exceptions. That said, I have both opinions and a fair amount of 
+experience behind (and often in front of) those opinions. ;-)
+
+> >From: Cary Coutant <cary at cup.hp.com>
+> Content-Transfer-Encoding: 7bit
+> Message-Id: <A34F2B63-8BD7-11D7-8E8F-003065589C02 at cup.hp.com>
+> X-Mailer: Apple Mail (2.552)
+> Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+> Status: RO
+>
+> Many of you are probably aware of (and several of you participated in)
+> a discussion thread on the gcc-patches mailing list about a new unwind
+> API that Richard Henderson had to add to support forced unwinds
+> resulting from (among possibly other things) thread cancellation. I
+> thought it would be appropriate to bring this issue to this mailing list.
+>
+> Courtesy of Jim Wilson (who posted a note to the libunwind mailing
+> list, which brought it to my attention), here are some pointers to the
+> discussion threads leading up to this.
+>
+> http://gcc.gnu.org/ml/gcc-patches/2003-04/msg00008.html
+> http://gcc.gnu.org/ml/gcc-patches/2003-04/msg02246.html
+> http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00473.html
+> http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00160.html
+>
+> As I understand the central issue, we would like to run C++ cleanups on
+> a thread cancellation, in addition to the cleanups registered through
+> the POSIX C bindings to the pthreads library. Cleanups resulting from
+> local automatic objects that need destruction are easy, but the problem
+> is what to do about catch(...) blocks. Richard's approach was to end
+> such blocks with a call to the new API, "_Unwind_Resume_or_Rethrow()",
+> if the block did not already end with a rethrow.
+>
+> I think Jason Merrill hit the nail on the head when he said (on 4/30):
+>
+> > The problem is that catch(...) is overloaded in C++.  It's used both for
+> > code that wants to write a cleanup inline and rethrow and for code that
+> > wants to trap all exceptions.
+>
+> There was some discussion about whether catch(...) blocks should run at
+> all when doing a forced unwind, and whether forced unwinds should be
+> allowed to penetrate a function declared throw(). I think I saw a
+> consensus on the latter issue that thread cancellation and
+> longjmp_unwind are not really exceptions, and must be allowed to
+> proceed. On the former issue, however, there didn't seem to be a clear
+> resolution.
+>
+Personally, I dislike the attempt to separate "cleanup" from 
+"finalization" (handle/catch). I don't like the idea of an exception 
+that can't be finalized, because it reduces the application's ability to 
+control behavior.
+
+Our cancel exception is in every way a normal exception (though there 
+doesn't happen to be a C++ *name* for this exception). By CONVENTION, we 
+declare that it should normally be handled via "finally" clauses rather 
+than "catch" clauses, because it expresses some component's desire to 
+terminate the thread and that should usually be honored. Similarly, a 
+longjmp_unwind type operation shouldn't usually be finalized until it 
+propagates to the target frame.
+
+But there are always, er, "exceptions".
+
+For example, back in the early days of DCE and DCE threads, we see the 
+RPC component servers running what amounts to a remote extension of the 
+client's call stack. The client makes an RPC call, and a remote server 
+application fires up the server side of that call. It does this inside a 
+managed server thread. If the server were to raise an exception, such as 
+cancel, it should propagate and clean up the subset of the call stack 
+that is logically a part of the client's call... but the managed server 
+logic must be able to finalize the exception and marshall it back to the 
+client so it can be made aware of what happened. And there's no need to 
+unwind/cleanup any further, because the managed server thread can live 
+to serve again.
+
+A catch(...) is a catch. A catch(...) that happens to end in a throw 
+isn't fundamentally different. It does represent a sort of ambiguity in 
+the language model, though. Really, "cleanup" in C++ is a destructor, 
+whereas catch() is for finalization. But as most people who initially 
+took up C++ had learned their exception model on another language, such 
+as Ada or Modula-2, the idiom 'catch (...) {throw;}' looked a lot like 
+'finally{}' and provides a familiar hook for frame-based (rather than 
+object-based) cleanup.
+
+If someone's going to take this idiom more seriously, to the point of 
+defining radically divergent behavior, you'd be far better off adding a 
+true 'finally' keyword that makes it obvious. However, I'd prefer to see 
+emphasis on the "pure C++" model that cleanup is done in local object 
+destructors, while catch() is really for finalization. (That is, there 
+may be reasons for 'catch(...) { if ( ... ) throw; else ... ; }' but 
+'catch(...) { ... ; throw; }' should be, at least, strongly discouraged.)
+
+> Ideally, one would take the position that good C++ code would
+> encapsulate any cleanups it needs into local automatic objects, so that
+> the compiler-generated cleanups would invoke the destructor. Real code,
+> however, doesn't seem to work that way -- we see catch(...) blocks
+> written with the intent to do cleanups. Given this real code, we should
+> try to run those cleanups. But what happens when we hit a catch(...) of
+> the other flavor -- the kind that just want to catch all exceptions?
+> Ideally, we wouldn't want to run them at all on a forced unwind, since
+> they're exception handlers, not cleanups. Without Richard's approach,
+> if we execute such a block on a forced unwind, and that block doesn't
+> end with a rethrow, the forced unwind doesn't resume (until, in the
+> case of thread cancellation, the thread next reaches a cancellation
+> point, and the process gets repeated). With Richard's new routine, a
+> forced unwind gets the opportunity to rethrow, while a normal exception
+> gets to resume execution.
+>
+There's nothing wrong with finalizing (catching) a cancel, thread exit, 
+or even a longjmp_unwind... if that's what the application intended, and 
+if the designers knew what they were doing. And if not... that's not a 
+language issue, it's an application issue.
+
+I realize that, pragmatically, there are complications when adding 
+something like this after the fact. There will be applications busted 
+when/if cancel becomes a true exception shared with C++, because someone 
+will have catch(...) blocks that simply assume they'll never see an 
+unexpected (new) exception. I call that bad design, but that's life.
+
+There are those who have all along argued that cancel (and thread exit) 
+should run C++ destructors but not be catch()-able. One (weird) option 
+might be to make them catchable by "name", but not anonymously... they'd 
+ignore any catch(...) clauses. I don't like it, but it'd solve the 
+compatibility issue without preventing savvy code from finalizing a 
+cancel or exit where it really makes sense in the context of the 
+application. The same could be done for longjmp_unwind. It might be nice 
+to have a standard way to catch all "forced_unwind" exceptions without 
+needing to name each one.
+
+Essentially, that twists the usage of "forced unwind" around a bit; they 
+CAN be finalized, but only by code that at least explicitly states 
+(correctly or not) that it knows what it's doing.
+
+Throw specs add another interesting wrinkle. If cancel/exit/unwind are 
+"exceptions", then it's illegal to propagate through an empty throw() 
+spec, or any that doesn't identify them. Which means that everything 
+calling a cancellation point needs to propagate the throw(cancel). (And 
+don't forget thread exit! And what about longjmp_unwind?) Many think 
+there's no need to worry about that if they're "forced unwinds" instead 
+of "exceptions", but that depends a lot on the semantic intent of the 
+throw() spec. Should it really be taken to be literally only "C++ 
+exceptions", or should it be taken as a limitation on the reasons for 
+abnormally unwinding that frame? That is, when I call a routine with a 
+throw() spec, should I not be expecting that control will return to me 
+only when the called function returns normally or when one of the listed 
+throw conditions occurs? The "forced unwind" isn't transparent -- it'll 
+run destructors, maybe at least some catch(...) clauses. There's not 
+much use in throw() specifications if they can be so easily violated. 
+(E.g., as someone pointed out, empty throw() clauses might provide an 
+optimization opportunity to avoid generating unwind information... if 
+unwinds can occur anyway you can't do that.)
+
+The subject here is extending C++ to know about and somehow rationally 
+deal with foreign exceptions (and/or unwind if you really want to make 
+that distinction). The language semantics, or at least usage 
+conventions, (and perhaps syntax), NOT just the runtime, needs to be 
+changed to do that in a way that's consistent and useful.
+
+-- 
+/--------------------[ David.Butenhof at hp.com ]--------------------\
+| Hewlett-Packard Company       Tru64 UNIX & VMS Thread Architect |
+|     My book: http://www.awl.com/cseng/titles/0-201-63392-2/     |
+\----[ http://homepage.mac.com/dbutenhof/Threads/Threads.html ]---/
+
+
+
+
+From david.moore at intel.com  Thu May 22 18:18:50 2003
+From: david.moore at intel.com (Moore, David)
+Date: Thu, 22 May 2003 11:18:50 -0700
+Subject: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+Message-ID: <7E7869DF332BFD46B05B8251005B40F6148672@orsmsx407.jf.intel.com>
+
+That a POD type for the purposes of layout could contain a non-POD type
+for the purposes of layout seems ugly.
+ 
+More seriously this is a substantive change that produces a binary
+incompatibility. Consider:
+ 
+struct A { int i : 2048; short j};
+ 
+struct B : public A {short k;}
+ 
+With the revised rule, because A is a non-POD type for the purposes of
+layout, its tail padding will be reused in the layout of B. Hence
+sizeof(B)= 264 at present but will be 260 with the change to the ABI.
+ 
+Here is a simple program that shows this in the context of current
+compilers without this change - I turn A into an actual non-POD type to
+simulate the ABI change so as to demonstrate the layout change. I used
+the g++ from RHL9 in this test. (3.2.2) 
+
+-------------------   testolbf.cpp  ------------------------------
+#include <iostream>
+#ifdef NONPOD
+struct A0 {};
+struct A : A0 {
+#else
+struct A {
+#endif
+    int i : 2048;
+    short j;
+    };
+ 
+struct B : public A {
+    short k;
+    };
+ 
+int main() {
+    std::cout << "size of A is " << sizeof(A) << " size of B is " <<
+sizeof(B) << std::endl;
+    return 0;
+    }
+------------------------------------------------------------------------
+g++ testolbf.cpp -DNONPOD
+./a.out
+size of A is 260 size of B is 260
+------------------------------------------------------------------------
+g++ testolbf.cpp
+./a.out
+size of A is 260 size of B is 264
+ 
+We are also adding an extra burden for compiler writers in that they now
+need to track both PODness and PODness for the purposes of layout.
+ 
+I have not seen any discussion of the alternative of simply saying that
+an overlong bitfield in a POD type is laid out according to the rules of
+2.4 II. Is there a fatal flaw in that that I am failing to see?
+
+-----Original Message-----
+From: Mark Mitchell [mailto:mark at codesourcery.com] 
+Sent: Sunday, May 18, 2003 2:27 PM
+To: cxx-abi-dev at codesourcery.com
+Subject: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+
+
+This patch implements the consensus that we need to define a notion of
+"POD for the purpose of layout" that does not include PODs with
+"overlong" bitfields.
+
+I have comitted this change, but there is still a lingering issue:
+
+  struct A { int i : 2048; };
+
+  struct B { struct A a; };
+
+Is B a POD for the purpose of layout?  
+
+With the patch below, B *is* a POD for the purpose of layout, which is
+plausible because the underlying C ABI does still explain how to lay
+out B, given a layout for A.
+
+It is unlikely that this distinction will make any difference on any
+real system, but if people feel that B should be laid out according to
+the C++ rules, rather than the C rules, we could make that change.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.61
+diff -c -5 -p -r1.61 abi.html
+*** abi.html	16 Mar 2003 20:50:14 -0000	1.61
+--- abi.html	18 May 2003 21:24:52 -0000
+*************** A class that contains a virtual pointer,
+*** 225,239 ****
+  </ul>
+  Such classes may be primary base classes even if virtual,
+  sharing a virtual pointer with the derived class.
+  
+  <p>
+! <dt> <i>primary base class</i> </dt>
+  <dd>
+! For a dynamic class,
+! the unique base class (if any) with which it shares the virtual
+pointer
+! at offset 0.
+  
+  <p>
+  <dt> <i>secondary virtual table</i> </dt>
+  <dd>
+  The instance of a virtual table for a base class
+--- 225,248 ----
+  </ul>
+  Such classes may be primary base classes even if virtual,
+  sharing a virtual pointer with the derived class.
+  
+  <p>
+! <a name="POD" />
+! <dt> <i>POD for the purpose of layout</i><dt>
+  <dd>
+! A type is considered a POD for the purposes of layout if it is a POD
+! type (in the sense of [basic.types]), and is not a POD-struct or
+! POD-union (in the sense of [class]) with a bitfield member whose
+declared
+! width is wider than the declared type of the bitfield
+! </dd>
+! </p>
+! 
+! <p>
+! <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
+! unique base class (if any) with which it shares the virtual pointer at
+! offset 0.
+  
+  <p>
+  <dt> <i>secondary virtual table</i> </dt>
+  <dd>
+  The instance of a virtual table for a base class
+*************** without virtual bases.
+*** 537,551 ****
+  <p> <hr> <p>
+  <a name=pod>
+  <h3> 2.2 POD Data Types </h3>
+  
+  <p>
+! The size and alignment of C POD types is as specified by the base (C)
+ABI.
+! Type bool has size and alignment 1.
+! All of these types have data size and non-virtual size equal to their
+size.
+! (We ignore tail padding for PODs because the Standard does not allow
+us
+! to use it for anything else.)
+  
+  
+  <p> <hr> <p>
+  <a name=member-pointers></a>
+  <h3> 2.3 Member Pointers </h3>
+--- 546,562 ----
+  <p> <hr> <p>
+  <a name=pod>
+  <h3> 2.2 POD Data Types </h3>
+  
+  <p>
+! 
+! The size and alignment of a type which is a <a href="#POD">POD for the
+! purpose of layout<a> is as specified by the base (C) ABI.  Type bool
+! has size and alignment 1.  All of these types have data size and
+! non-virtual size equal to their size.  (We ignore tail padding for
+! PODs because the Standard does not allow us to use it for anything
+! else.)
+  
+  
+  <p> <hr> <p>
+  <a name=member-pointers></a>
+  <h3> 2.3 Member Pointers </h3>
+*************** of a class containing those two members,
+*** 587,600 ****
+  
+  <p> <hr> <p>
+  <a name=class-types>
+  <h3> 2.4 Non-POD Class Types </h3>
+  
+! For non-POD class types C, assume that all component types
+! (i.e. proper base classes and non-static data member types)
+! have been laid out, defining size, data size, non-virtual size,
+! alignment, and non-virtual alignment.
+  (See the description of these terms in
+  <a href=#general><b>General</b></a> above.)
+  Further, assume for data members that nvsize==size, and
+nvalign==align.
+  Layout (of type C) is done using the following procedure.
+  
+--- 598,613 ----
+  
+  <p> <hr> <p>
+  <a name=class-types>
+  <h3> 2.4 Non-POD Class Types </h3>
+  
+! For a class type C which is not a <a href="#POD">POD for the purpose
+! of layout</a>, assume that all component types (i.e. proper base
+! classes and non-static data member types) have been laid out, defining
+! size, data size, non-virtual size, alignment, and non-virtual
+! alignment.
+! 
+  (See the description of these terms in
+  <a href=#general><b>General</b></a> above.)
+  Further, assume for data members that nvsize==size, and
+nvalign==align.
+  Layout (of type C) is done using the following procedure.
+  
+*************** and the full layout is equivalent to the
+*** 868,878 ****
+  </code></pre>
+  
+  <p>
+  <li> <h5> Finalization </h5>
+  <p>
+! Round sizeof(C) up to a non-zero multiple of align(C).
+  
+  </ol>
+  
+  
+  <p> <hr> <p>
+--- 881,892 ----
+  </code></pre>
+  
+  <p>
+  <li> <h5> Finalization </h5>
+  <p>
+! Round sizeof(C) up to a non-zero multiple of align(C).  If C is a POD,
+! but not a POD for the purpose of layout, set nvsize(C) = sizeof(C).
+  
+  </ol>
+  
+  
+  <p> <hr> <p>
+*************** unwind table location.
+*** 4893,4902 ****
+--- 4907,4920 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[030518]</font>
++ Define &quot;POD for the purpose of layout.&quot;
+  
+  <p>
+  <font color=blue>[030316]</font>
+  Add acknowledgements section.
+  
+
+
+From mark at codesourcery.com  Thu May 22 18:29:40 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 22 May 2003 11:29:40 -0700
+Subject: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+In-Reply-To: <7E7869DF332BFD46B05B8251005B40F6148672@orsmsx407.jf.intel.com>
+References: <7E7869DF332BFD46B05B8251005B40F6148672@orsmsx407.jf.intel.com>
+Message-ID: <1053628180.18938.225.camel@doubledemon.codesourcery.com>
+
+On Thu, 2003-05-22 at 11:18, Moore, David wrote:
+> That a POD type for the purposes of layout could contain a non-POD type
+> for the purposes of layout seems ugly.
+>  
+> More seriously this is a substantive change that produces a binary
+> incompatibility. Consider:
+>  
+> struct A { int i : 2048; short j};
+>  
+> struct B : public A {short k;}
+>  
+> With the revised rule, because A is a non-POD type for the purposes of
+> layout, its tail padding will be reused in the layout of B. Hence
+> sizeof(B)= 264 at present but will be 260 with the change to the ABI.
+
+I think you missed the change at the end of 2.4.IV:
+
+"Round sizeof(C) up to a non-zero multiple of align(C). If C is a POD,
+but not a POD for the purpose of layout, set nvsize(C) = sizeof(C)."
+
+It would be incorrect not to update nvsize, not only because of the
+incompatibility you mention, but because of the more fundamental issue
+that the ISO C++ does not allow tail-padding reuse for PODs.
+
+There's a more fundamental point, which is that if the basic rules for
+laying out data members in PODs don't match up with those for laying out
+data members in non-PODs, people will be surprised.  In other words, if
+these two classes:
+
+  /* A is a POD.  */
+  struct A { int i; double d; char c; };
+  /* B is not a POD.  */
+  struct B { B(); int i; double d; char c; };
+
+do not have the same layout people will be surprised.
+
+Technically, that is possible with the C++ ABI because of the
+POD/non-POD split.  However, the authors of the C++ ABI anticipated that
+if you followed the non-POD rules for PODs you would get the same layout
+as you would for PODs, modulo nvsize.  If that assumption holds on your
+platform, then you don't have to keep track of "non-POD-for-the-purposes
+of layout".
+
+It's also not clear me how to formalize your suggestion ("do what the C
+ABI says except use 2.4.II.1 for an overlong bitfield").
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From cary at cup.hp.com  Thu May 22 18:40:05 2003
+From: cary at cup.hp.com (Cary Coutant)
+Date: Thu, 22 May 2003 11:40:05 -0700
+Subject: [cxx-abi-dev] Re: gcc unwind ABI change for forced unwind
+In-Reply-To: <wvlznlg3p40.fsf@prospero.boston.redhat.com>
+Message-ID: <CE7B3A4F-8C84-11D7-BB83-003065589C02@cup.hp.com>
+
+>> Cleanups resulting from local automatic objects that need destruction 
+>> are
+>> easy, but the problem is what to do about catch(...) blocks. Richard's
+>> approach was to end such blocks with a call to the new API,
+>> "_Unwind_Resume_or_Rethrow()", if the block did not already end with a
+>> rethrow.
+>
+> Rather, a rethrow at the end of a catch(...) block uses that API 
+> instead of
+> the usual rethrow code.  If the block doesn't end with a rethrow, 
+> nothing
+> is changed.
+
+Thanks for the correction. I thought I understood it, but now it looks 
+like I missed something fundamental. So it's not to make sure that a 
+rethrow happens during a forced unwind -- it's to make sure that a 
+forced unwind continues rather than simply raising a new exception.
+
+The logic for _Unwind_Resume_or_Rethrow(), then,  is to see if we're in 
+a forced unwind or not. If we're not, it just calls 
+_Unwind_RaiseException() like it always used to. If we are, it 
+continues with the forced unwind. Why couldn't this logic simply have 
+been added to _Unwind_RaiseException()? I think I know the answer: 
+because the private fields in the exception object that indicate 
+whether or not a forced unwind is in progress won't have been 
+initialized on a first throw. Is there another reason?
+
+-cary
+
+
+
+From cary at cup.hp.com  Thu May 22 18:40:47 2003
+From: cary at cup.hp.com (Cary Coutant)
+Date: Thu, 22 May 2003 11:40:47 -0700
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind 
+In-Reply-To: <3ECCDDE2.60306@hp.com>
+Message-ID: <E74BEB47-8C84-11D7-BB83-003065589C02@cup.hp.com>
+
+> Personally, I dislike the attempt to separate "cleanup" from 
+> "finalization" (handle/catch). I don't like the idea of an exception 
+> that can't be finalized, because it reduces the application's ability 
+> to control behavior.
+
+I didn't mean to imply that I liked this either, but it seemed a useful 
+compromise given the unlikelihood that C++ will ever add try/finally.
+
+I'm still not entirely comfortable with the idea of thread cancellation 
+(and other forced unwinds) being a normal (catchable) C++ exception, 
+but if consensus has been reached outside this list, and those on this 
+list generally agree, I don't want to drag the discussion out any more.
+
+What changes are needed in the C++ ABI document? Do we need to add 
+anything in the base (C) ABI to cover thread cancellation and exit so 
+that cleanups can be properly interleaved?
+
+-cary
+
+
+
+From jason at redhat.com  Thu May 22 18:54:45 2003
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 22 May 2003 14:54:45 -0400
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+In-Reply-To: <E74BEB47-8C84-11D7-BB83-003065589C02@cup.hp.com> (Cary
+ Coutant's message of "Thu, 22 May 2003 11:40:47 -0700")
+References: <E74BEB47-8C84-11D7-BB83-003065589C02@cup.hp.com>
+Message-ID: <wvlwugi3j7u.fsf@prospero.boston.redhat.com>
+
+On Thu, 22 May 2003 11:40:47 -0700, Cary Coutant <cary at cup.hp.com> wrote:
+
+>> Personally, I dislike the attempt to separate "cleanup" from
+>> "finalization" (handle/catch). I don't like the idea of an exception that
+>> can't be finalized, because it reduces the application's ability to
+>> control behavior.
+>
+> I didn't mean to imply that I liked this either, but it seemed a useful
+> compromise given the unlikelihood that C++ will ever add try/finally.
+
+Dave, did you see the mail where I mentioned the compromise I came up with?
+gcc will now run all catch(...) blocks during forced unwind, but if we exit
+the block other than by rethrow, we try to destroy the exception, which
+calls terminate.
+
+> I'm still not entirely comfortable with the idea of thread cancellation
+> (and other forced unwinds) being a normal (catchable) C++ exception
+
+I don't think we should lump cancellation with longjmp_unwind in this
+discussion.  I don't think anyone has suggested that one should be able to
+catch and discard a longjmp_unwind exception (well, before Dave just now).
+A longjmp is an explicit transfer of control; IMO nothing should be able to
+block it.
+
+There is, however, an argument that cancellation is a weaker condition, and
+if an application wants to discard the exception and defer the thread exit
+for a while, that's its perogative.  In other words, cancellation shouldn't
+use forced unwind.  Note that Ulrich Drepper, who recently rewrote the
+glibc pthread library, thinks that this would violate pthread semantics.
+
+> but if consensus has been reached outside this list, and those on this
+> list generally agree, I don't want to drag the discussion out any more.
+
+AFAIK there is no consensus.
+
+> What changes are needed in the C++ ABI document? Do we need to add anything
+> in the base (C) ABI to cover thread cancellation and exit so that cleanups
+> can be properly interleaved?
+
+I think changes are needed.
+
+Jason
+
+
+From david.moore at intel.com  Thu May 22 19:03:23 2003
+From: david.moore at intel.com (Moore, David)
+Date: Thu, 22 May 2003 12:03:23 -0700
+Subject: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+Message-ID: <7E7869DF332BFD46B05B8251005B40F6148673@orsmsx407.jf.intel.com>
+
+Yes - I did miss that change. Or perhaps its significance - I had to
+think twice about it to see that it covered the case. All it really
+needs to say is "If C is a POD, set nvsize(C) = sizeof(C)". Then the
+fact that you have the desired post condition is easier to see. 
+
+If I understand your more fundamental point, what you are saying is that
+if the form of wording adopted and my alternative produced different
+results, we would have a bug in the ABI. Or, to state it differently,
+you should be able to push a POD through the non-POD layout method and
+get the same layout. If so, I certainly agree with that. I think we are
+ok on that front given 2.4.IV.
+
+
+
+-----Original Message-----
+From: Mark Mitchell [mailto:mark at codesourcery.com] 
+Sent: Thursday, May 22, 2003 11:30 AM
+To: Moore, David
+Cc: cxx-abi-dev at codesourcery.com
+Subject: RE: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+
+On Thu, 2003-05-22 at 11:18, Moore, David wrote:
+> That a POD type for the purposes of layout could contain a non-POD
+type
+> for the purposes of layout seems ugly.
+>  
+> More seriously this is a substantive change that produces a binary
+> incompatibility. Consider:
+>  
+> struct A { int i : 2048; short j};
+>  
+> struct B : public A {short k;}
+>  
+> With the revised rule, because A is a non-POD type for the purposes of
+> layout, its tail padding will be reused in the layout of B. Hence
+> sizeof(B)= 264 at present but will be 260 with the change to the ABI.
+
+I think you missed the change at the end of 2.4.IV:
+
+"Round sizeof(C) up to a non-zero multiple of align(C). If C is a POD,
+but not a POD for the purpose of layout, set nvsize(C) = sizeof(C)."
+
+It would be incorrect not to update nvsize, not only because of the
+incompatibility you mention, but because of the more fundamental issue
+that the ISO C++ does not allow tail-padding reuse for PODs.
+
+There's a more fundamental point, which is that if the basic rules for
+laying out data members in PODs don't match up with those for laying out
+data members in non-PODs, people will be surprised.  In other words, if
+these two classes:
+
+  /* A is a POD.  */
+  struct A { int i; double d; char c; };
+  /* B is not a POD.  */
+  struct B { B(); int i; double d; char c; };
+
+do not have the same layout people will be surprised.
+
+Technically, that is possible with the C++ ABI because of the
+POD/non-POD split.  However, the authors of the C++ ABI anticipated that
+if you followed the non-POD rules for PODs you would get the same layout
+as you would for PODs, modulo nvsize.  If that assumption holds on your
+platform, then you don't have to keep track of "non-POD-for-the-purposes
+of layout".
+
+It's also not clear me how to formalize your suggestion ("do what the C
+ABI says except use 2.4.II.1 for an overlong bitfield").
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From rth at redhat.com  Thu May 22 19:06:16 2003
+From: rth at redhat.com (Richard Henderson)
+Date: Thu, 22 May 2003 15:06:16 -0400
+Subject: [cxx-abi-dev] Re: gcc unwind ABI change for forced unwind
+In-Reply-To: <CE7B3A4F-8C84-11D7-BB83-003065589C02@cup.hp.com>
+References: <wvlznlg3p40.fsf@prospero.boston.redhat.com> <CE7B3A4F-8C84-11D7-BB83-003065589C02@cup.hp.com>
+Message-ID: <20030522190616.GB25489@redhat.com>
+
+On Thu, May 22, 2003 at 11:40:05AM -0700, Cary Coutant wrote:
+> Thanks for the correction. I thought I understood it, but now it looks 
+> like I missed something fundamental. So it's not to make sure that a 
+> rethrow happens during a forced unwind -- it's to make sure that a 
+> forced unwind continues rather than simply raising a new exception.
+
+Exactly.
+
+> The logic for _Unwind_Resume_or_Rethrow(), then,  is to see if we're in 
+> a forced unwind or not. If we're not, it just calls 
+> _Unwind_RaiseException() like it always used to.
+
+Yes.
+
+> If we are, it continues with the forced unwind. Why couldn't this
+> logic simply have been added to _Unwind_RaiseException()? I think I
+> know the answer: because the private fields in the exception object
+> that indicate whether or not a forced unwind is in progress won't
+> have been initialized on a first throw.
+
+Yes.
+
+Alternatly, _Unwind_Resume could have noted that the previous throw
+was complete (as defined by _Unwind_RaiseException seeing 
+_URC_HANDLER_FOUND, *and* having unwound to that point in phase2),
+and started a new throw.
+
+> Is there another reason?
+
+Nope.  Simply that neither function provided either of the required
+semantics, and retroactively changing one of the functions seemed 
+less friendly wrt compatibility with released libgcc's than adding
+a new function.
+
+
+r~
+
+
+From mark at codesourcery.com  Thu May 22 22:43:10 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 22 May 2003 15:43:10 -0700
+Subject: [cxx-abi-dev] PATCH: Define "POD for the purpose of layout"
+In-Reply-To: <7E7869DF332BFD46B05B8251005B40F6148673@orsmsx407.jf.intel.com>
+References: <7E7869DF332BFD46B05B8251005B40F6148673@orsmsx407.jf.intel.com>
+Message-ID: <1053643390.19321.534.camel@doubledemon.codesourcery.com>
+
+On Thu, 2003-05-22 at 12:03, Moore, David wrote:
+> Yes - I did miss that change. Or perhaps its significance - I had to
+> think twice about it to see that it covered the case. All it really
+> needs to say is "If C is a POD, set nvsize(C) = sizeof(C)". Then the
+> fact that you have the desired post condition is easier to see. 
+
+Perhaps the "non-POD for purposes of layout" could be relegated to
+parentheses?
+
+> Or, to state it differently,
+> you should be able to push a POD through the non-POD layout method and
+> get the same layout. If so, I certainly agree with that. I think we are
+> ok on that front given 2.4.IV.
+
+Yes, that's what I am saying.  The C++ ABI doesn't actually require
+that, but that's what users will (reasonably) expect.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From Contacter at peoplemail.com.cn  Fri May 23 12:32:54 2003
+From: Contacter at peoplemail.com.cn (Customer Services)
+Date: Fri, 23 May 2003 20:32:54 +0800
+Subject: Promote Your Business
+Message-ID: <mailman.5.1331165059.19706.cxx-abi-dev@codesourcery.com>
+
+
+Email Marketing is one of the most effective and inexpensive ways to 
+promote your products and services.
+
+We offer a complete Email Marketing solution with quality service and
+the lowest prices. The result is that you will enjoy more success.
+
+1. Targeted Email Addresses 
+
+We can supply targeted email addresses according to your requirements,
+which are compiled only on your order, such as region / country / field / 
+occupation / Domain Name etc. We will customize your customer email
+addresses.
+
+* We have millions of email addresses in a wide variety of categories.
+
+2. Targeted Mailing  
+
+If you are worried about any complications or consequences with sending 
+out targeted emails, or want to avoid the work of sending out targeted 
+emails. We will do it for you! We will send your email message to your 
+targeted customers.
+
+* We can Bullet Proof your Web Site.
+
+We also offer a wide variety of email marketing software. For more
+details, you can refer to our web site: http://www.biz-aiding.com
+
+Our services will help you get more business opportunities.
+
+
+Regards!
+
+Mrs Emily
+Customer Services
+www.biz-aiding.com
+
+Target Marketing, at Great Fee.
+
+************************************************************************
+Receiving this email because you registered to receive special 
+offers from one of our partners. If you would prefer not to receive
+future email, Click here: www.unsubscribe-mail.com
+************************************************************************
+
+
+From David.Butenhof at hp.com  Fri May 23 14:36:35 2003
+From: David.Butenhof at hp.com (Dave Butenhof)
+Date: Fri, 23 May 2003 10:36:35 -0400
+Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+In-Reply-To: <E74BEB47-8C84-11D7-BB83-003065589C02@cup.hp.com>
+References: <E74BEB47-8C84-11D7-BB83-003065589C02@cup.hp.com>
+Message-ID: <3ECE31F3.4000501@hp.com>
+
+Cary Coutant wrote:
+
+>> Personally, I dislike the attempt to separate "cleanup" from 
+>> "finalization" (handle/catch). I don't like the idea of an exception 
+>> that can't be finalized, because it reduces the application's ability 
+>> to control behavior.
+>
+> I didn't mean to imply that I liked this either, but it seemed a 
+> useful compromise given the unlikelihood that C++ will ever add 
+> try/finally.
+
+Having just jumped into this particular discussion, I really didn't mean 
+to imply that I thought anybody was implying anything. ;-)
+
+Whether or not C++ ought to add finally is an interesting question on 
+its own, though probably not relevant here. It'd be nice, in a way, 
+because it more clearly specifies INTENT than the current catch(...) 
+{throw;} syntax, and that's always nice. On the other hand, C++ cleanup 
+is supposed to be done in destructors, whereas try/catch ought to be for 
+finalization. (And I realize I'm trapping myself in terminology here, 
+since the traditional "finally" keyword sounds like it ought to be 
+associated with the generic term "finalization" whereas it's really 
+non-finalizing cleanup. Oh well. Anyone who can handle signal and signal 
+should be able to handle finalization and finally. ;-) )
+
+And, on yet another hand, if C++ really didn't want anyone to be able to 
+do cleanup in try/catch, the [re]throw syntax shouldn't exist. That it 
+exists means C++ does explicitly and specifically support cleanup in 
+try/catch, just with ugly syntax that obscures the intent.
+
+> I'm still not entirely comfortable with the idea of thread 
+> cancellation (and other forced unwinds) being a normal (catchable) C++ 
+> exception, but if consensus has been reached outside this list, and 
+> those on this list generally agree, I don't want to drag the 
+> discussion out any more. 
+
+I always tell people not to finalize a cancel or exit. I figure if they 
+really know what they're doing, they'll ignore me; and if they're not 
+sufficiently confident in their goal and implementation to ignore me, 
+they shouldn't be playing with that stuff anyway. ;-)
+
+So if the ABI wants to specify that there's something special about 
+"forced unwind" exceptions, I won't really be too inclined to wander 
+around mumbling about how it got all screwed up. Still, there ARE 
+applications where the ability to take full control over unwind is 
+important, and I don't like the idea of locking them out. As I said, one 
+compromise would be to let forced unwind exceptions (individually and, 
+ideally, also as a [super]class) be caught only BY NAME. Naive coders 
+won't accidentally be finalizing someone else's cancel or 
+longjmp_unwind, but someone who really needs to do it will be able to.
+
+I don't think there's any real evidence of a broad industry consensus 
+for this. POSIX doesn't have exceptions, and cleanup handlers are 
+limited and inflexible. While I think I got everyone in the Austin IA64 
+ABI work to pretty much agree in principle that cancel and exit ought to 
+be exceptions, we never got into this level of detail so I can't guess 
+what the reaction would have been.
+
+I'm speaking mostly out of long experience with the OpenVMS condition 
+handling facility and Tru64 UNIX libexc (which being originally based on 
+code from MIPS CO ought to have some analogy somewhere else in the 
+industry... perhaps IRIX?) They're basic calling standard and runtime 
+library packages to support general stack unwind and handler searches. 
+They're fundamentally DETACHED handlers (associating a handler routine 
+with a procedure descriptor or stack frame rather than dispatching to 
+code within the procedure), which are called without unwinding the 
+stack... but of course can also be used to UNWIND to ATTACHED handlers 
+as in our C "SEH" extension, and C++ or Ada catch clauses.
+
+Both are fundamentally 2-phase exception mechanisms; a "virtual unwind" 
+scan is made to find active exception handlers in the call stack, and 
+the detached handlers are called to determine what should be done. The 
+scan may eventually terminate with no handlers expressing interest, in 
+which case the process is generally terminated with an unhandled 
+exception. Or a handler may tell the unwinder to RESUME execution at the 
+point of the exception (it hasn't been unwound at that point). Or some 
+handler may choose to UNWIND to some point. That begins the second 
+phase, as the stack is unwound frame by frame, and each handler (where 
+any exists) is called again with special exception context indicating 
+that the unwind is in progress. A semi-formalized (but unenforced and 
+usually ignored) convention on OpenVMS is that cleanup should occur only 
+on unwind. In principle, this gives the advantage that when a process 
+dies with an unhandled exception the "core file" represents what 
+happened up to the point of the exception -- which can be a big help in 
+diagnosing the problem. Once cleanup (including unwind) has happened, 
+the original problem is obscured.
+
+Of course the C++ runtime need not provide the ability to continue from 
+exceptions (most languages don't), or to run application code on the 
+search phase (normally the runtime simply determines whether to start an 
+unwind to call the application's handlers in the unwind phase). But in 
+the context of an ABI discussion, I'd like to define a model for a 
+"common exception library" (CEL) that's flexible enough to allow all that.
+
+> What changes are needed in the C++ ABI document? Do we need to add 
+> anything in the base (C) ABI to cover thread cancellation and exit so 
+> that cleanups can be properly interleaved?
+
+I'd like to see a full exception library ABI that supports enough 
+flexibility to do all this, and to experiment and build other languages 
+with different semantics.
+
+I'd like to see some form of exception syntax in the C language, whether 
+it's a full try/catch/finally, a C++-style try/catch/[re]throw, or a 
+basic enabling syntax like the MS SEH syntax that our compiler borrowed 
+(try/except, where the except clause just provides an expression, 
+usually a routine call, to be evaluated to determine whether to continue 
+the search or resume execution; or of course that routine can call 
+'unwind' to begin the unwind phase). The pthread_cleanup_push() and 
+pthread_cleanup_pop() macros can easily be written in terms of any of 
+the alternatives. The important point is simply that C source code has 
+some way to tap into the common exception library's unwind and handler 
+mechanisms.
+
+Like this C "SEH" extension, C++ destructors and try/catch, Ada, Java, 
+and so forth ought also to be built on top of the CEL. The CEL will then 
+simply see a chain of call frames, some of which have handler routines 
+-- it doesn't need to know the language of any frame, so it doesn't 
+matter how they're interleaved.
+
+Cancel and thread exit are just exceptions. "By convention", nobody 
+should do anything to these on the search phase, and should do only 
+cleanup on the unwind phase. But the CEL wouldn't care, and everything 
+will work consistently if someone does. Each language's handler will 
+need to decide how to handle various exceptions though. The C++ handler 
+could simply ignore some or all of these on search phase, and run only 
+object destructors on unwind phase. The C runtime's 'except' clause 
+exception handler might decide not to even evaluate the 'except' 
+expression, and so forth. However, I would strongly prefer that there be 
+some way to finalize at least cancel and exit in both C and C++. It 
+allows for a modularization of cancel, where cancel really means "cancel 
+this function" without terminating the thread, which might be a generic 
+serial server thread fully capable of continuing to service other functions.
+
+I'm not at all sure whether longjmp_unwind is a separate case. I just 
+checked, and on Tru64 longjmp_unwind (exc_longjmp) skips the search 
+phase (and therefore normal frame-based capture/continue/search 
+decisions) entirely. I guess that makes sense, since it starts out with 
+a target frame and knows the intent is to unwind. So it just calls 
+exc_unwind(). However, frame handlers will still be called for UNWIND 
+disposition, with the exception name EXC_LONGJMP_UNWIND, so the handlers 
+can do cleanup. On OpenVMS, I believe that an unwind phase handler could 
+actually raise a new exception or start a nested unwind -- I'm not 
+convinced that the Tru64 package supports that much flexibility; the 
+code is convoluted and I've never had occasion to experiment.
+
+Anyway, this seems like a clear basis for distinction. Forced unwind 
+only does the unwind phase, not search phase, and therefore cannot 
+generally be finalized by normal language facilities. If C++ catch(...) 
+triggers only on search phase, it won't even see these. Destructors 
+would fire on unwind phase, and would run "transparently" on a forced 
+unwind. If desired, the runtime could make a concession for forced 
+unwind exceptions to run catch(...) {throw;} blocks, for example, or 
+anything else determined to be a "finally" type construct, even though 
+we skipped the search phase. (Though I'd be inclined to argue against 
+it, I think.)
+
+Armed with all this terminology and context, one could argue that cancel 
+and exit, like longjmp, should skip the search phase entirely, making 
+themselves immune to finalization. As I've said, I don't like this -- 
+but it does avoid the risk of fools breaking the application with 
+unprotected catch(...) blocks. If the runtime's handler routine made 
+special cases to detect specific exception names during unwind phase, it 
+could make 'catch (cancel)', or 'catch(longjmp)', or even 
+'catch(all_forced_unwinds)' fire in the unwind phase to handle 
+applications that really want to finalize.
+
+-- 
+/--------------------[ David.Butenhof at hp.com ]--------------------\
+| Hewlett-Packard Company       Tru64 UNIX & VMS Thread Architect |
+|     My book: http://www.awl.com/cseng/titles/0-201-63392-2/     |
+\----[ http://homepage.mac.com/dbutenhof/Threads/Threads.html ]---/
+
+
+
+
+From master at 89894.com  Wed May 28 11:03:45 2003
+From: master at 89894.com (=?ks_c_5601-1987?B?vcW/68O2?=)
+Date: Wed, 28 May 2003 20:03:45 +0900
+Subject: =?ks_c_5601-1987?B?KLGksO0pwve+yMDHILTjueizv7v1LCDE+8T7x9Egs7+79S4uLj8/P0A=?=
+Message-ID: <mailman.6.1331165059.19706.cxx-abi-dev@codesourcery.com>
+
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030528/b4a212e0/attachment.html>
+

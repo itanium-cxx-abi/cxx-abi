@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Construction vtables
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Construction%20vtables&In-Reply-To=%3C200003021707.AA10529%40philli.zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000697.html">
+   <LINK REL="Next"  HREF="000701.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Construction vtables</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Construction%20vtables&In-Reply-To=%3C200003021707.AA10529%40philli.zko.dec.com%3E"
+       TITLE="Construction vtables">coleen at zko.dec.com
+       </A><BR>
+    <I>Thu Mar  2 17:07:41 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000697.html">Construction vtables
+</A></li>
+        <LI>Next message: <A HREF="000701.html">Construction vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#700">[ date ]</a>
+              <a href="thread.html#700">[ thread ]</a>
+              <a href="subject.html#700">[ subject ]</a>
+              <a href="author.html#700">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Reply-To: Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> I just read the construction vtable passage, and I have some problems
+</I>&gt;<i> understanding it.
+</I>&gt;<i> 
+</I>&gt;<i> First, the condition under which a class 'has' a VTT is
+</I>&gt;<i> confusing. What exactly means condition 2), why is this alternative to
+</I>&gt;<i> condition 1)? In particular, what does 'overridden along a virtual
+</I>&gt;<i> path' mean? And how could condition 2 be true while condition 1 is
+</I>&gt;<i> false?
+</I>&gt;<i> 
+</I>&gt;<i> I interpret this as saying: '... has a virtual function in a virtual
+</I>&gt;<i> base class, which is overridden in a derived class'. So apparently the
+</I>&gt;<i> class has to have a virtual base, which implies that condition 1 is
+</I>&gt;<i> already true.
+</I>&gt;<i> 
+</I>
+Yes it is true.  I wrote this section based on a combination of the code I
+had and the code that I was going to write.  The second condition doesn't
+make sense anymore, because the construction vtable in this
+document is the whole vtable for the base class, including the vtables
+for the base class subobjects.  The second condition was to eliminate
+generating construction vtables for some base class subobjects, but if
+we do that, it changes the VTT layout and breaks the virtual base
+offset field in rtti.
+
+Contrary to my earlier mail, the order of sub-obj-vtables can be left to
+right dfs traversal of the class hierarchy, as specified in the section
+on vtable layout.  Or not specified, as pointed out by Mark Mitchell
+about 2 weeks ago.
+
+&gt;<i> Also, where does the virtual function have to be overridden? In the
+</I>&gt;<i> complete object, or in the class of the VTT? I'd assume the latter.
+</I>&gt;<i> 
+</I>&gt;<i> IOW, I think this needs to be phrased as
+</I>&gt;<i> 
+</I>&gt;<i>   1. indirect or direct virtual base classes, and
+</I>&gt;<i>   2. one of the virtual bases is polymorphic (i.e. has virtual
+</I>&gt;<i>      functions), and
+</I>&gt;<i>   3. one of the virtual functions is overridden in the class being
+</I>&gt;<i>      considered crossing a virtual boundary.
+</I>&gt;<i> 
+</I>&gt;<i> It may be possible to relax the conditions (e.g. for gcc, I only
+</I>&gt;<i> considered 1. and 2.), however, this seems to be the condition that
+</I>&gt;<i> requires VTT creation in the fewest cases.
+</I>
+I think only condition 1 applies.  If base class accesses
+its virtual bases during construction, the offsets in the virtual
+base part of the vtable will be wrong if it's part of a more
+derived class with a different layout.
+
+&gt;<i> 
+</I>&gt;<i> Next, the ordering of entries in the individual subobject vtables
+</I>&gt;<i> seems to be duplicated incorrectly from the normal vtable layout. The
+</I>&gt;<i> document says, in the VTT section, that vbase offsets come first,
+</I>&gt;<i> followed by vcall offsets. In &quot;Virtual Table Order&quot;, the document says
+</I>&gt;<i> the contrary. I suggest that the ordering of things in the
+</I>&gt;<i> construction vtable is the same as in the vtable of a complete object,
+</I>&gt;<i> and that this is documented by reference, not by duplication.
+</I>
+Oh, yes, the ordering should be exactly the same.  I forgot where
+the vcall offsets were.
+
+&gt;<i> 
+</I>&gt;<i> Finally, it is not clear whose responsibility to provide the VTT
+</I>&gt;<i> pointer in the most derived object. It appears as if this is the
+</I>&gt;<i> caller's responsibility. However, it is not clear how this works in
+</I>&gt;<i> the case of virtual destructors (where the caller may not be aware of
+</I>&gt;<i> the need for a destruction vtable).
+</I>&gt;<i> 
+</I>&gt;<i> There are two alternative resolutions:
+</I>&gt;<i> a) the destructor has two entry points, one without destruction vtable
+</I>&gt;<i>    and one with. If none is provided, the destructor uses the VTT of
+</I>&gt;<i>    its type, and invokes the dtor with VTT
+</I>&gt;<i> b) the destructor always takes two arguments, and the caller may fill
+</I>&gt;<i>    in a value of zero - indicating that this is the most derived type.
+</I>&gt;<i> 
+</I>&gt;<i> The same approach could apply to constructors: a value of zero would
+</I>&gt;<i> indicate, again, that the constructor has to fetch its VTT itself.
+</I>
+Doesn't the ABI spec call for complete object ctor/dtors which would
+create the VTT and subobject ctors/dtors that recieve the VTT in their
+argument list?
+
+I'm trying to implement what I specified now, so I anticipate some more
+changes.   Don't discuss it at the con-call today.  I can't be there.
+
+Thanks,
+Coleen
+&gt;<i> 
+</I>&gt;<i> Regards,
+</I>&gt;<i> Martin
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000697.html">Construction vtables
+</A></li>
+	<LI>Next message: <A HREF="000701.html">Construction vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#700">[ date ]</a>
+              <a href="thread.html#700">[ thread ]</a>
+              <a href="subject.html#700">[ subject ]</a>
+              <a href="author.html#700">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

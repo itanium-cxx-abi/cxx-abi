@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Pointer to member function mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Pointer%20to%20member%20function%20mangling&In-Reply-To=%3Cwvlpu3r4sfb.fsf%40prospero.cambridge.redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001423.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Pointer to member function mangling</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Pointer%20to%20member%20function%20mangling&In-Reply-To=%3Cwvlpu3r4sfb.fsf%40prospero.cambridge.redhat.com%3E"
+       TITLE="[cxx-abi-dev] Pointer to member function mangling">jason at redhat.com
+       </A><BR>
+    <I>Wed Jan 30 18:14:48 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001423.html">[cxx-abi-dev] Pointer to member function mangling
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1424">[ date ]</a>
+              <a href="thread.html#1424">[ thread ]</a>
+              <a href="subject.html#1424">[ subject ]</a>
+              <a href="author.html#1424">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Mark&quot; == Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; writes:
+</I>
+&gt;&gt;&gt;<i> g++ currently emits
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> MK1AFvvE
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> or, member of class &quot;const A&quot; of type &quot;function of (void) returning
+</I>&gt;&gt;&gt;<i> void&quot;. I don't see how this can be deduced from the above text.  More
+</I>&gt;&gt;&gt;<i> consistent with the handling of function names, and suggested by the
+</I>&gt;&gt;&gt;<i> text in the function type section, would be
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> MNK1AEFvvE
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I don't see that: there is no &lt;nested-name&gt; in the pointer-to-member
+</I>&gt;&gt;<i> above.
+</I>
+&gt;<i> I don't think this is very clearly specified.
+</I>
+&gt;<i> Reading literally, a pointer-to-member type is:
+</I>
+&gt;<i>   M &lt;class type&gt; &lt;member type&gt;
+</I>
+&gt;<i> The problem is that the member type is a function type, and for
+</I>&gt;<i> function types we don't ever emit the this parameter, so were
+</I>&gt;<i> does the const-ness go?
+</I>
+&gt;<i> Your suggestion here implies a nested name, which Daveed rightly
+</I>&gt;<i> points out is not present.
+</I>
+Well, the first paragraph I quoted says that the nested name form should be
+used in this case even when there's no nesting.  I don't see how that could
+apply to member function names, which are always qualified by their class
+type; from this I conclude that it's meant to refer to the pmf case.  Not
+that I think this is a good idea, mind you.
+
+&gt;&gt;&gt;<i> IMO more consistent with the language semantics would be
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> M1AKFvvE
+</I>
+&gt;<i> This suggestion is fine, but not supported by the grammar.  This
+</I>&gt;<i> would imply a member whose function type is const -- i.e., something
+</I>&gt;<i> equivalent to &quot;g&quot; in:
+</I>
+&gt;<i>   typedef void (f)();
+</I>&gt;<i>   typedef const f g;
+</I>
+&gt;<i> That's not the right type.
+</I>
+No, in fact that code snippet is ill-formed.  Since you can't create a
+cv-qualified function type as above, there's no ambiguity.  Again, the
+cv-quals are considered part of the function type:
+
+  8.3.5  Functions                                             [dcl.fct]
+
+1 In a declaration T D where D has the form
+     D1 ( parameter-declaration-clause ) cv-qualifier-seqopt
+     exception-specificationopt
+  and the type of the contained declarator-id in the declaration T D1 is
+  derived-declarator-type-list T,&quot; the type of the declarator-id in D is
+  &quot;derived-declarator-type-list  function   of   (parameter-declaration-
+  clause)  cv-qualifier-seqopt  returning  T&quot;;  a type of this form is a
+  function type86).
+
+&gt;<i> The G++ implementation is relatively logical.  Instead of encoding
+</I>
+&gt;<i>   void ()(const A*)
+</I>
+&gt;<i> as everyone used to, we now do:
+</I>
+&gt;<i>   const A ... void ()
+</I>
+Fair enough.  But it's a real pain to demangle, as I've discovered
+recently.  You have to remember the 'const A' for later substitution, and
+then break it up into pieces to go at various points in the output.  The
+current demangler does a pretty bad job of handling function declarators in
+general.
+
+&gt;<i> So, while I would be the last to argue that the spec is 100% clear,
+</I>&gt;<i> I think it supports the G++ version as well as any of the other
+</I>&gt;<i> ones.
+</I>
+&gt;&gt;&gt;<i> What do other compilers produce?  What do other demanglers expect?
+</I>
+&gt;<i> This is the right question.  At this point, none of HP, Intel, GNU,
+</I>&gt;<i> or anyone else is going to be eager to change their compilers.
+</I>
+Certainly; I mainly wanted to find out if there was any disagreement in
+existing practice before the gcc 3.1 release.
+
+Jason
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001423.html">[cxx-abi-dev] Pointer to member function mangling
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1424">[ date ]</a>
+              <a href="thread.html#1424">[ thread ]</a>
+              <a href="subject.html#1424">[ subject ]</a>
+              <a href="author.html#1424">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

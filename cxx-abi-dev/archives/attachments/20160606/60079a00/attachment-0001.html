@@ -1,0 +1,99 @@
+<tt>
+&lt;div&nbsp;dir=&quot;ltr&quot;&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;On&nbsp;3&nbsp;June&nbsp;2016&nbsp;at&nbsp;15:25,&nbsp;Jason&nbsp;Merrill&nbsp;&lt;span&nbsp;dir=&quot;ltr&quot;&gt;&lt;&lt;a&nbsp;href=&quot;mailto:jason@redhat.com&quot;&nbsp;target=&quot;_blank&quot;&gt;jason@redhat.com&lt;/a&gt;&gt;&lt;/span&gt;&nbsp;wrote:&lt;br&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;&lt;span&nbsp;class=&quot;&quot;&gt;On&nbsp;Jun&nbsp;2,&nbsp;2016,&nbsp;at&nbsp;3:01&nbsp;PM,&nbsp;Richard&nbsp;Smith&nbsp;&lt;&lt;a&nbsp;href=&quot;mailto:richardsmith@google.com&quot;&gt;richardsmith@google.com&lt;/a&gt;&gt;&nbsp;wrote:&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;&lt;span&nbsp;class=&quot;&quot;&gt;&gt;&nbsp;If&nbsp;a&nbsp;type&nbsp;is&nbsp;not&nbsp;part&nbsp;of&nbsp;the&nbsp;regular&nbsp;mangling,&nbsp;and&nbsp;it&nbsp;contains&nbsp;an&nbsp;ABI&nbsp;tag&nbsp;in&lt;br&gt;<br>
+&gt;&nbsp;its&nbsp;mangling&nbsp;but&nbsp;not&nbsp;as&nbsp;part&nbsp;of&nbsp;its&nbsp;type&nbsp;(for&nbsp;instance,&nbsp;a&nbsp;dependent&lt;br&gt;<br>
+&gt;&nbsp;expression&nbsp;in&nbsp;a&nbsp;template&nbsp;argument&nbsp;references&nbsp;an&nbsp;entity&nbsp;with&nbsp;an&nbsp;ABI&nbsp;tag),&lt;br&gt;<br>
+&gt;&nbsp;does&nbsp;that&nbsp;appear&nbsp;in&nbsp;the&nbsp;resulting&nbsp;mangling?&lt;br&gt;<br>
+&lt;br&gt;<br>
+&gt;&nbsp;(That&nbsp;is,&nbsp;is&nbsp;an&nbsp;implementation&nbsp;required&nbsp;to&nbsp;effectively&nbsp;mangle&nbsp;the&nbsp;return&lt;br&gt;<br>
+&gt;&nbsp;type&nbsp;and&nbsp;throw&nbsp;it&nbsp;away,&nbsp;or&nbsp;is&nbsp;some&nbsp;walk&nbsp;over&nbsp;the&nbsp;top-level&nbsp;type&nbsp;required&lt;br&gt;<br>
+&gt;&nbsp;instead?)&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Hmm,&nbsp;good&nbsp;question. &nbsp;The&nbsp;current&nbsp;G++&nbsp;implementation&nbsp;scans&nbsp;dependent&lt;br&gt;<br>
+expressions&nbsp;in&nbsp;a&nbsp;(member&nbsp;function&nbsp;of&nbsp;a&nbsp;class)&nbsp;template,&nbsp;and&nbsp;considers&lt;br&gt;<br>
+those&nbsp;in&nbsp;both&nbsp;the&nbsp;signature&nbsp;and&nbsp;the&nbsp;return&nbsp;type&nbsp;of&nbsp;a&nbsp;non-template&lt;br&gt;<br>
+member&nbsp;function&nbsp;(which&nbsp;is&nbsp;not&nbsp;part&nbsp;of&nbsp;its&nbsp;signature),&nbsp;leading&nbsp;to&nbsp;a&lt;br&gt;<br>
+somewhat&nbsp;curious&nbsp;result&nbsp;for&nbsp;this&nbsp;example:&lt;br&gt;<br>
+&lt;br&gt;<br>
+struct&nbsp;[[gnu::abi_tag&nbsp;(&quot;foo&quot;)]]&nbsp;A&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;template&nbsp;&lt;class&nbsp;T&gt;&nbsp;static&nbsp;T&nbsp;f();&lt;br&gt;<br>
+};&lt;br&gt;<br>
+&lt;br&gt;<br>
+template&nbsp;&lt;class&nbsp;T&gt;&nbsp;struct&nbsp;B&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;static&nbsp;decltype(A::f&lt;T&gt;())&nbsp;g(decltype(A::f&lt;T&gt;()));&lt;br&gt;<br>
+ &nbsp;static&nbsp;decltype(A::f&lt;T&gt;())&nbsp;h();&lt;br&gt;<br>
+};&lt;br&gt;<br>
+&lt;br&gt;<br>
+int&nbsp;main()&lt;br&gt;<br>
+{&lt;br&gt;<br>
+ &nbsp;B&lt;int&gt;::g(0);&nbsp;//&nbsp;_ZN1BIiE1gEi&nbsp;--&nbsp;the&nbsp;tag&nbsp;does&nbsp;not&nbsp;appear&nbsp;in&nbsp;the&nbsp;mangled&nbsp;name&lt;br&gt;<br>
+ &nbsp;B&lt;int&gt;::h(); &nbsp;//&nbsp;_ZN1BIiE1hB3fooEv&lt;br&gt;<br>
+}&lt;br&gt;<br>
+&lt;br&gt;<br>
+Here&nbsp;G++&nbsp;sees&nbsp;that&nbsp;A&nbsp;(and&nbsp;thus&nbsp;tag&nbsp;&quot;foo&quot;)&nbsp;appears&nbsp;in&nbsp;the&nbsp;signature&nbsp;of&lt;br&gt;<br>
+B&lt;T&gt;::g,&nbsp;so&nbsp;it&nbsp;doesn&#39;t&nbsp;tag&nbsp;B&lt;T&gt;::g,&nbsp;even&nbsp;though&nbsp;the&nbsp;dependent&lt;br&gt;<br>
+expression&nbsp;isn&#39;t&nbsp;actually&nbsp;part&nbsp;of&nbsp;the&nbsp;eventual&nbsp;mangling&nbsp;of&nbsp;B&lt;int&gt;::g&lt;br&gt;<br>
+because&nbsp;for&nbsp;non-template&nbsp;member&nbsp;functions&nbsp;we&nbsp;mangle&nbsp;the&nbsp;instantiated&lt;br&gt;<br>
+type&nbsp;rather&nbsp;than&nbsp;the&nbsp;temploid&nbsp;type. &nbsp;The&nbsp;tag&nbsp;doesn&#39;t&nbsp;appear&nbsp;in&nbsp;the&lt;br&gt;<br>
+signature&nbsp;of&nbsp;B&lt;T&gt;::h,&nbsp;so&nbsp;h&nbsp;gets&nbsp;tagged.&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Is&nbsp;that&nbsp;how&nbsp;this&nbsp;is&nbsp;supposed&nbsp;to&nbsp;work,&nbsp;or&nbsp;is&nbsp;it&nbsp;a&nbsp;bug?&nbsp;It&nbsp;would&nbsp;seem&nbsp;more&nbsp;reasonable&nbsp;to&nbsp;say&nbsp;the&nbsp;tag&nbsp;set&nbsp;added&nbsp;after&nbsp;to&nbsp;the&nbsp;declaration&#39;s&nbsp;name&nbsp;is&nbsp;the&nbsp;tag&nbsp;set&nbsp;from&nbsp;scanning&nbsp;the&nbsp;original&nbsp;unsubstituted&nbsp;declaration,&nbsp;minus&nbsp;the&nbsp;tags&nbsp;produced&nbsp;by&nbsp;mangling&nbsp;(and&nbsp;I&nbsp;suspect&nbsp;that&nbsp;probably&nbsp;doesn&#39;t&nbsp;change&nbsp;the&nbsp;mangling&nbsp;for&nbsp;any&nbsp;cases&nbsp;in&nbsp;the&nbsp;wild).&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Is&nbsp;the&nbsp;declaration&nbsp;that&nbsp;you&nbsp;scan&nbsp;the&nbsp;one&nbsp;from&nbsp;which&nbsp;a&nbsp;definition&nbsp;would&nbsp;ultimately&nbsp;be&nbsp;instantiated,&nbsp;or&nbsp;do&nbsp;you&nbsp;look&nbsp;back&nbsp;further&nbsp;than&nbsp;that?&nbsp;In&nbsp;particular,&nbsp;do&nbsp;you&nbsp;stop&nbsp;at&nbsp;member&nbsp;specializations:&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt; &nbsp;template&lt;&gt;&nbsp;float&nbsp;B&lt;float&gt;::h()&nbsp;{}&nbsp;//&nbsp;how&nbsp;is&nbsp;this&nbsp;mangled?&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;?&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;&lt;span&nbsp;class=&quot;&quot;&gt;<br>
+On&nbsp;Thu,&nbsp;Jun&nbsp;2,&nbsp;2016&nbsp;at&nbsp;7:22&nbsp;PM,&nbsp;John&nbsp;McCall&nbsp;&lt;&lt;a&nbsp;href=&quot;mailto:rjmccall@apple.com&quot;&gt;rjmccall@apple.com&lt;/a&gt;&gt;&nbsp;wrote:&lt;br&gt;<br>
+&lt;br&gt;<br>
+&gt;&nbsp;Do&nbsp;templates&nbsp;have&nbsp;ABI&nbsp;tags,&nbsp;or&nbsp;are&nbsp;the&nbsp;tags&nbsp;only&nbsp;properties&nbsp;of&nbsp;template&lt;br&gt;<br>
+&gt;&nbsp;specializations? &nbsp;How&nbsp;does&nbsp;that&nbsp;play&nbsp;into&nbsp;mangling&nbsp;and/or&nbsp;substitutability?&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Templates&nbsp;have&nbsp;tags.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;I&nbsp;assume&nbsp;ABI&nbsp;tags&nbsp;can&nbsp;apply&nbsp;to&nbsp;unions&nbsp;as&nbsp;well. &nbsp;(The&nbsp;standard&#39;s&nbsp;definition&lt;br&gt;<br>
+&gt;&nbsp;of&nbsp;&quot;compound&nbsp;type&quot;&nbsp;distinguishes&nbsp;classes&nbsp;and&nbsp;unions.)&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Of&nbsp;course,&nbsp;unions&nbsp;are&nbsp;classes. &nbsp;There&nbsp;are&nbsp;separate&nbsp;bullets&nbsp;for&nbsp;them&nbsp;in&lt;br&gt;<br>
+that&nbsp;paragraph,&nbsp;but&nbsp;the&nbsp;union&nbsp;bullet&nbsp;says&nbsp;that&nbsp;unions&nbsp;are&nbsp;classes.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;It&#39;s&nbsp;probably&nbsp;worth&nbsp;spelling&nbsp;out&nbsp;that&nbsp;tags&nbsp;do&nbsp;not&nbsp;apply&nbsp;to&nbsp;enumerators.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;OK.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;Are&nbsp;ABI&nbsp;tags&nbsp;mangled&nbsp;in&nbsp;the&nbsp;&lt;prefix&gt;,&nbsp;or&nbsp;just&nbsp;on&nbsp;the&nbsp;entity&nbsp;&lt;name&gt;?&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;They&nbsp;are&nbsp;mangled&nbsp;as&nbsp;part&nbsp;of&nbsp;the&nbsp;name&nbsp;of&nbsp;the&nbsp;entity,&nbsp;whenever&nbsp;that&nbsp;name&nbsp;appears.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;What&lt;br&gt;<br>
+&gt;&nbsp;happens&nbsp;if&nbsp;the&nbsp;same&nbsp;tag&nbsp;is&nbsp;applied&nbsp;to&nbsp;multiple&nbsp;places&nbsp;in&nbsp;the&nbsp;lexical&lt;br&gt;<br>
+&gt;&nbsp;hierarchy,&nbsp;e.g.&nbsp;to&nbsp;both&nbsp;a&nbsp;class&nbsp;and&nbsp;one&nbsp;of&nbsp;its&nbsp;member&nbsp;functions?&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Then&nbsp;it&nbsp;appears&nbsp;multiple&nbsp;times.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;I&nbsp;guess&nbsp;an&nbsp;inline&nbsp;friend&nbsp;function&nbsp;definition&nbsp;doesn&#39;t&nbsp;implicitly&nbsp;use&nbsp;the&nbsp;tags&lt;br&gt;<br>
+&gt;&nbsp;of&nbsp;its&nbsp;defining&nbsp;class,&nbsp;but&nbsp;presumably&nbsp;has&nbsp;them&nbsp;anyway&nbsp;because&nbsp;of&nbsp;their&lt;br&gt;<br>
+&gt;&nbsp;presence&nbsp;in&nbsp;the&nbsp;function&nbsp;signature.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Right.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;Can&nbsp;you&nbsp;clarify&nbsp;which&nbsp;things&nbsp;in&nbsp;the&nbsp;Clang&nbsp;description&nbsp;are&nbsp;no&nbsp;longer&nbsp;correct?&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;These&nbsp;lines:&lt;br&gt;<br>
+&lt;br&gt;<br>
+&quot;If&nbsp;a&nbsp;function&nbsp;is&nbsp;used&nbsp;as&nbsp;a&nbsp;local&nbsp;scope&nbsp;for&nbsp;another&nbsp;name,&nbsp;and&nbsp;is&nbsp;part&lt;br&gt;<br>
+of&nbsp;another&nbsp;function&nbsp;as&nbsp;local&nbsp;scope,&nbsp;it&nbsp;doesn’t&nbsp;have&nbsp;any&nbsp;required&nbsp;tags.&lt;br&gt;<br>
+If&nbsp;a&nbsp;function&nbsp;is&nbsp;used&nbsp;as&nbsp;a&nbsp;local&nbsp;scope&nbsp;for&nbsp;a&nbsp;guard&nbsp;variable&nbsp;name,&nbsp;it&lt;br&gt;<br>
+doesn’t&nbsp;have&nbsp;any&nbsp;required&nbsp;tags.&quot;&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;I&nbsp;assume&nbsp;that&nbsp;a&nbsp;type&nbsp;used&nbsp;in&nbsp;the&nbsp;name&nbsp;of&nbsp;a&nbsp;conversion&nbsp;function&nbsp;should&nbsp;be&lt;br&gt;<br>
+&gt;&nbsp;mangled&nbsp;with&nbsp;its&nbsp;ABI&nbsp;tag.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Yes,&nbsp;any&nbsp;time&nbsp;the&nbsp;name&nbsp;of&nbsp;the&nbsp;type&nbsp;appears,&nbsp;the&nbsp;tags&nbsp;appear&nbsp;as&nbsp;well.&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Coupled&nbsp;with&nbsp;the&nbsp;behavior&nbsp;of&nbsp;attributes&nbsp;on&nbsp;the&nbsp;return&nbsp;type,&nbsp;this&nbsp;seems&nbsp;strange.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Once&nbsp;a&nbsp;library&nbsp;has&nbsp;ABI&nbsp;tags&nbsp;added&nbsp;to&nbsp;it,&nbsp;you&nbsp;can&#39;t&nbsp;add&nbsp;the&nbsp;same&nbsp;ABI&nbsp;tag&nbsp;to&nbsp;more&nbsp;types&nbsp;in&nbsp;a&nbsp;later&nbsp;release:&nbsp;suppose&nbsp;v1&nbsp;has&nbsp;an&nbsp;ABI&nbsp;tag&nbsp;on&nbsp;std::list&nbsp;and&nbsp;v2&nbsp;adds&nbsp;the&nbsp;same&nbsp;ABI&nbsp;tag&nbsp;to&nbsp;std::string.&nbsp;Then&nbsp;&quot;std::string&nbsp;f(std::list&lt;char&gt;)&quot;&nbsp;has&nbsp;the&nbsp;same&nbsp;mangling&nbsp;in&nbsp;v1&nbsp;and&nbsp;v2.&nbsp;Since&nbsp;you&nbsp;can&#39;t&nbsp;ABI-tag&nbsp;more&nbsp;entities&nbsp;in&nbsp;a&nbsp;later&nbsp;version&nbsp;of&nbsp;the&nbsp;same&nbsp;library,&nbsp;it&nbsp;would&nbsp;seem&nbsp;sufficient&nbsp;to&nbsp;list&nbsp;the&nbsp;ABI&nbsp;tags&nbsp;only&nbsp;once,&nbsp;with&nbsp;the&nbsp;name&nbsp;of&nbsp;the&nbsp;complete&nbsp;entity,&nbsp;rather&nbsp;than&nbsp;alongside&nbsp;each&nbsp;ABI-tagged&nbsp;constituent&nbsp;of&nbsp;its&nbsp;mangled&nbsp;name.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;But&nbsp;I&nbsp;guess&nbsp;you&#39;ve&nbsp;already&nbsp;shipped&nbsp;this,&nbsp;so&nbsp;it&#39;s&nbsp;too&nbsp;late&nbsp;to&nbsp;do&nbsp;much&nbsp;about&nbsp;it&nbsp;:(&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;&lt;span&nbsp;class=&quot;&quot;&gt;<br>
+&gt;&nbsp;Also,&nbsp;I&nbsp;don&#39;t&nbsp;see&nbsp;anything&nbsp;in&nbsp;your&nbsp;proposed&lt;br&gt;<br>
+&gt;&nbsp;wording&nbsp;that&nbsp;talks&nbsp;about&nbsp;not&nbsp;mangling&nbsp;ABI&nbsp;tags&nbsp;on&nbsp;an&nbsp;entity&nbsp;that&nbsp;appear&nbsp;in&lt;br&gt;<br>
+&gt;&nbsp;its&nbsp;type.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;&quot;that&nbsp;are&nbsp;not&nbsp;otherwise&nbsp;represented&nbsp;in&nbsp;the&nbsp;mangling&quot;&nbsp;was&nbsp;supposed&nbsp;to&lt;br&gt;<br>
+cover&nbsp;that,&nbsp;but&nbsp;as&nbsp;we&nbsp;see&nbsp;with&nbsp;my&nbsp;example&nbsp;above&nbsp;it&nbsp;should&nbsp;really&nbsp;talk&lt;br&gt;<br>
+about&nbsp;the&nbsp;type&nbsp;or&nbsp;signature&nbsp;rather&nbsp;than&nbsp;the&nbsp;mangling.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;HOEnZb&quot;&gt;&lt;font&nbsp;color=&quot;#888888&quot;&gt;&lt;br&gt;<br>
+Jason&lt;br&gt;<br>
+&lt;/font&gt;&lt;/span&gt;&lt;/blockquote&gt;&lt;/div&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;<br>
+
+</tt>

@@ -1,0 +1,1333 @@
+From mark at codesourcery.com  Fri Jan  3 21:06:07 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 3 Jan 2003 13:06:07 -0800
+Subject: Covariant return clarification
+Message-ID: <200301032106.h03L67700368@localhost.localdomain>
+
+
+The ABI specification, at present, implies that given
+
+  struct A {};
+  struct B : public A {};
+
+  struct X {  
+    virtual A* f();
+  };
+
+  struct Y : public X {
+    virtual B* f();
+  };
+
+Y::f is to be considered covariant with respect to X::f, i.e., that
+"B*" and "A*" are "substantively different".
+
+This is an oversight; clearly there is no conversion required to
+convert form B* to A* and there is therefore no need for a thunk in
+that situation.
+
+I've improved the wording below.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.58
+diff -c -5 -p -r1.58 abi.html
+*** abi.html	31 Dec 2002 19:56:24 -0000	1.58
+--- abi.html	3 Jan 2003 18:21:32 -0000
+*************** two conditions holds:
+*** 1250,1261 ****
+       in the virtual table, but the return type of the overrider is
+       substantively different from the return type of the function(s)
+       already present.  If the return types are different, they are
+       both pointer-to-class types, or both reference-to-class types.
+       Let B and D denote the classes, where D is derived from B.  The
+!      types are substantively different if B is a virtual base or is
+!      not an indirect primary base of D.
+  </ul>
+  
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+--- 1250,1261 ----
+       in the virtual table, but the return type of the overrider is
+       substantively different from the return type of the function(s)
+       already present.  If the return types are different, they are
+       both pointer-to-class types, or both reference-to-class types.
+       Let B and D denote the classes, where D is derived from B.  The
+!      types are substantively different if B is a morally virtual base of D 
+!      or if B is not located at offset zero in D.
+  </ul>
+  
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+*************** unwind table location.
+*** 4939,4948 ****
+--- 4939,4952 ----
+  
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++ 
++ <p>
++ <font color=blue>[030103]</font>
++ Clarify definition of substantively different types.
+  
+  <p>
+  <font color=blue>[021222]</font>
+  Document mangling for anonymous unions.
+  
+
+
+From noaml at mainsoft.com  Tue Jan 21 16:25:11 2003
+From: noaml at mainsoft.com (Noam Lampert)
+Date: Tue, 21 Jan 2003 18:25:11 +0200
+Subject: Function descriptors in vtable
+Message-ID: <013c01c2c169$abdfe860$0e0111ac@il.mainsoft.com>
+
+ 
+We are currently trying to port our application to HP-Itanium. Our
+application contains (among other things) an implementation for COM,
+which is heavily dependent on the virtual table format. The current
+virtual table format is very hard for us to work with. Specifically the
+issue that is bothering us is 'B-4 Function descriptors in vtable' as
+detailed in http://www.codesourcery.com/cxx-abi/cxx-open.html
+ 
+The problem we have is that design of COM relies heavily on the 'fact'
+that virtual tables contain pointers to functions. I am attaching a
+simple C/C++ sample that shows the kind of usage COM tends to do. This
+sample works for HP on PA-RISC (using the aCC compiler). If you want, I
+can provide a working sample for Linux on IA32 (using gcc 3.2). 
+The kind of applications in which COM makes this assumption are:
+1.    Declaring, as a C literal, a structure that has the same binary
+layout as a C++ virtual table.
+2.    Calling a C++ virtual method from within C code.
+Specifically the second problem is more troubling. It is very common in
+COM code to see code like
+  hr = pObject->lpVtable->method(pObject);
+ 
+With the current vtable layout, every function call like this has to be
+modified to 
+  ( (int (*) (IObject)) & pObject->lpVtable->method ) (pObject);
+ 
+This modification is very hard to do, and is also unique to this
+specific ABI. The result is that this specific ABI is designed such that
+it is very hard to get COM to work on this ABI.
+ 
+I have seen that this issue has been raised before, without a real
+solution offered, at
+http://www.codesourcery.com/cxx-abi/cxx-closed.html#B4
+ 
+On possible way to extend the ABI (in order to limit binary
+compatibility issues) is to define that the function descriptor can
+either contain a <function address/GP> or a <function pointer/-1>. Code
+that calls a virtual function will know how to deal with both formats.
+The compiler can create either one (maybe dependent on a flag). 
+ 
+Thanks,
+ 
+Noam
+ 
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030121/07d90a46/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.tar
+Type: application/x-tar
+Size: 10240 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030121/07d90a46/attachment.tar>
+
+From mark at codesourcery.com  Tue Jan 21 16:29:05 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 21 Jan 2003 08:29:05 -0800
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <013c01c2c169$abdfe860$0e0111ac@il.mainsoft.com>
+Message-ID: <14610000.1043166545@warlock.codesourcery.com>
+
+
+
+--On Tuesday, January 21, 2003 06:25:11 PM +0200 Noam Lampert 
+<noaml at mainsoft.com> wrote:
+
+> This modification is very hard to do, and is also unique to this
+> specific ABI. The result is that this specific ABI is designed such that
+> it is very hard to get COM to work on this ABI.
+
+Yes, this is true.
+
+The point of this format was to save a couple of memory accesses
+on a virtual call.  Your proposed alternative format (with the -1 as
+a flag) would require a conditional at every call site, increasing
+code size and running time.
+
+You could, however, use the GP/Address pair like this:
+
+  GP: Real function pointer
+  Address: Pointer to stub code
+
+The stub code would simply look like:
+
+ (*GP)();
+
+All virtual functions would use this same stub.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From cary at cup.hp.com  Wed Jan 22 01:22:58 2003
+From: cary at cup.hp.com (Cary Coutant)
+Date: Tue, 21 Jan 2003 17:22:58 -0800
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <14610000.1043166545@warlock.codesourcery.com>
+Message-ID: <0A5DB9AF-2DA8-11D7-B240-003065589C02@cup.hp.com>
+
+> You could, however, use the GP/Address pair like this:
+>
+>  GP: Real function pointer
+>  Address: Pointer to stub code
+>
+> The stub code would simply look like:
+>
+> (*GP)();
+>
+> All virtual functions would use this same stub.
+
+Noam had already contacted us at HP separately, and we were prepared to 
+offer a C language extension that would allow them to declare the 
+vtable structure in C, but Mark's suggestion here is simple and elegant 
+(thanks, Mark!), and we like it much better (not even considering the 
+fact that it means we don't have to add a compiler extension).
+
+I'll carry this a bit further, and demonstrate how this proposal could 
+be done in the context of Noam's example:
+
+struct bbb;
+
+typedef struct {
+#ifdef ILP32
+    uint64_t _stub_f;
+    uint32_t _pad_f;
+    int (*f)(void *b, int x);
+#else /* LP64 */
+    uint64_t _stub_f;
+    int (*f)(void *b, int x);
+#endif
+} bbb_vtable;
+
+typedef struct {
+    bbb_vtable *vt;
+} bbb;
+
+As Mark said, every vtable entry can point to the same stub, which can 
+be somewhere in MainWin's runtime library. The stub could look 
+something like this:
+
+_mainwin_com_stub:
+#ifdef ILP32
+         addp4   gp = r0, gp
+         ;;
+#endif
+         ld8     r31 = [gp], 8
+         ;;
+         ld8     gp = [gp]
+         mov     b6 = r31
+         ;;
+         br.call.sptk.many [b6]
+         ;;
+
+You can initialize the vtable statically using assembly code:
+
+bbb_vtable:
+         data8   _mainwin_com_stub
+         data8   @fptr(bbb_f)
+
+Or dynamically in C:
+
+    extern int _mainwin_com_stub;
+    extern int bbb_f(void *b, int x);
+
+    bbb_vtable._stub_f = &_mainwin_com_stub;
+    bbb_vtable.f = bbb_f;
+
+(Notice we lie and declare the stub as a data symbol. This keeps the 
+compiler from generating the FPTR relocation that would create a 
+function pointer rather than the simple code pointer that we want.)
+
+-cary
+
+
+
+From noaml at mainsoft.com  Wed Jan 22 08:22:28 2003
+From: noaml at mainsoft.com (Noam Lampert)
+Date: Wed, 22 Jan 2003 10:22:28 +0200
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <0A5DB9AF-2DA8-11D7-B240-003065589C02@cup.hp.com>
+Message-ID: <016701c2c1ef$66b752b0$0e0111ac@il.mainsoft.com>
+
+Hi Mark, Cary,
+
+Your solution is in fact very elegant. I enjoyed reading it.
+
+If I understood it correctly, it solves very well the problem of
+defining an explicit vtable in C, and using it either from C or from
+C++.
+
+However, if the vtable was created by the C++ compiler, using it in C is
+still very hard.
+
+If the memory in which the vtable resides is writeable, there might be a
+solution that involves modifying the vtable in runtime:
+   modify_vtable(funcdescriptor vt[], int nfuncs) {  
+	   for (i = 0; i < nfuncs; i++) {
+			vt[i]->GP = &vt[i];
+			vt[i]->codeptr = &stub;
+	   }
+Is there a more elegant way to achieve this?
+ 
+Noam
+
+
+
+
+From noaml at mainsoft.com  Wed Jan 22 08:39:01 2003
+From: noaml at mainsoft.com (Noam Lampert)
+Date: Wed, 22 Jan 2003 10:39:01 +0200
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <016701c2c1ef$66b752b0$0e0111ac@il.mainsoft.com>
+Message-ID: <017201c2c1f1$b775e070$0e0111ac@il.mainsoft.com>
+
+Sorry, 
+It took me too long to figure out that my proposed solution here can't
+work.
+What could be done is
+    modify_vtable(funcdescriptor vt[], int nfuncs) {
+ 	   for (i = 0; i < nfuncs; i++) {
+	         void *p = malloc(sizeof(funcdescriptor));
+		   *p = vt[i];
+	         vt[i]->GP = p;
+	         vt[i]->codeptr = &stub;
+      	}
+Sorry about the confusion.
+
+Noam
+
+P.S. I am still interested in a more elegant solution ;-)
+
+> -----Original Message-----
+> From: Noam Lampert [mailto:noaml at mainsoft.com]
+> Sent: Wednesday, January 22, 2003 10:22 AM
+> To: 'Cary Coutant'; 'Mark Mitchell'
+> Cc: cxx-abi-dev at codesourcery.com
+> Subject: RE: [cxx-abi-dev] Function descriptors in vtable
+> 
+> Hi Mark, Cary,
+> 
+> Your solution is in fact very elegant. I enjoyed reading it.
+> 
+> If I understood it correctly, it solves very well the problem of
+> defining an explicit vtable in C, and using it either from C or from
+> C++.
+> 
+> However, if the vtable was created by the C++ compiler, using it in C
+is
+> still very hard.
+> 
+> If the memory in which the vtable resides is writeable, there might be
+a
+> solution that involves modifying the vtable in runtime:
+>    modify_vtable(funcdescriptor vt[], int nfuncs) {
+> 	   for (i = 0; i < nfuncs; i++) {
+> 			vt[i]->GP = &vt[i];
+> 			vt[i]->codeptr = &stub;
+> 	   }
+> Is there a more elegant way to achieve this?
+> 
+> Noam
+> 
+
+
+
+
+From dhandly at cup.hp.com  Wed Jan 22 09:11:35 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 22 Jan 2003 01:11:35 -0800 (PST)
+Subject: [cxx-abi-dev] Function descriptors in vtable
+Message-ID: <200301220911.BAA19887@hpcll183.cup.hp.com>
+
+>I'll carry this a bit further, and demonstrate how this proposal could 
+>be done in the context of Noam's example:
+
+I've already set this up and ran the example.  The part where it is
+defined in C++ aborts.
+
+>As Mark said, every vtable entry can point to the same stub, which can 
+>be somewhere in MainWin's runtime library.
+
+>Or dynamically in C:
+>    extern int _mainwin_com_stub;
+>    extern int bbb_f(void *b, int x);
+
+I used this.
+
+>(Notice we lie and declare the stub as a data symbol.
+-cary
+
+No need to lie, just take the value out of the plabel:
+   extern void _mainwin_com_stub(void);
+   vt.f_stub = *(uint64_t*)_mainwin_com_stub;
+
+>From: "Noam Lampert" <noaml at mainsoft.com>
+>However, if the vtable was created by the C++ compiler, using it in C is
+>still very hard.
+
+I don't think you mentioned that you created these from normal C++ classes.
+
+>Is there a more elegant way to achieve this?
+Noam
+
+No.  Don't create these in normal C++.
+
+>From: "Noam Lampert" <noaml at mainsoft.com>
+>It took me too long to figure out that my proposed solution here can't work.
+>What could be done is
+ 	   for (i = 0; i < nfuncs; i++) {
+	         void *p = malloc(sizeof(funcdescriptor));
+		   *p = vt[i];
+
+It didn't take me long at all.  ;-)
+I just was too lazy to write the code to copy it.
+
+#---------------------------------- cut here ----------------------------------
+# This is a shell archive.  Remove anything before this line,
+# then unpack it by saving it in a file and typing "sh file".
+#
+# Wrapped by Dennis Handly <dhandly at den-bear> on Wed Jan 22 01:07:30 2003
+#
+# This archive contains:
+#	cfile.c		cppfile.C	host_vtable.h	mainwin_stub.s	
+#	thunkbase.h	
+#
+
+LANG=""; export LANG
+PATH=/bin:/usr/bin:/usr/sbin:/usr/ccs/bin:$PATH; export PATH
+EXIT_STATUS=0
+
+echo x - cfile.c
+cat >cfile.c <<'@EOF'
+#include <stdio.h>
+
+#include "host_vtable.h"
+
+// This source files assumes that there is a definition
+// struct aaa {
+//    virtual int f(int x);
+// };
+// extern "C" void use_aaa(aaa *a);
+// We implement an instance of an inheriting class.
+// We also implement use_aaa2(aaa *a);
+
+struct bbb;
+typedef struct {
+	C_INTERFACE_PROLOGUE(aaa)
+	C_STDMETHODEX_(int,f,(void* b, int x))
+} bbb_vtable;
+
+typedef struct bbb {
+	bbb_vtable *vt;
+} bbb;
+
+int bbb_f(void* b, int x) {
+	fprintf(stderr, "Inside C method - (%p) %d\n",b, x);
+	return 0;
+}
+
+#ifdef __ia64
+bbb_vtable vt;
+#pragma init "B_INIT"
+static void B_INIT() {
+   vt.f_stub = *(uint64_t*)_mainwin_com_stub;
+   vt.f = bbb_f;
+}
+#else
+bbb_vtable vt = {
+	C_VTABLE_PROLOGUE
+	C_VTABLE_ENTRY2(bbb_f)
+};
+#endif
+
+bbb b = { &vt };
+
+extern void use_aaa(bbb* b);
+void use_aaa2(bbb *b)
+{
+	b->vt->f(b,3);
+}
+
+void ctest()
+{
+	fprintf(stderr, "Enter C test\n");
+	use_aaa(&b);
+	use_aaa2(&b);
+	fprintf(stderr, "Leave C test\n");
+}
+@EOF
+
+chmod 664 cfile.c
+
+echo x - cppfile.C
+cat >cppfile.C <<'@EOF'
+#include <stdio.h>
+
+struct aaa {
+	virtual int f(int x) {
+	    fprintf(stderr, "Inside CPP method - %d\n",x); return 1;
+	}
+};
+struct bbb {
+	virtual int f(int x);
+};
+
+extern bbb b;
+
+aaa a;
+
+extern "C" void use_aaa(aaa *a)
+{
+	a->f(4);
+}
+extern "C" void use_aaa2(aaa *a);
+extern "C" void cpptest()
+{
+	fprintf(stderr, "Enter CPP test\n");
+	use_aaa(reinterpret_cast<aaa*>(&b));
+	use_aaa2(reinterpret_cast<aaa*>(&b));
+	fprintf(stderr, "  defined C++\n");
+#if 0
+// can't be defined in C++
+	use_aaa(&a);
+	use_aaa2(&a);
+#endif
+	fprintf(stderr, "Leave CPP test\n");
+}
+
+
+extern "C" void ctest();
+int main()
+{
+	cpptest();
+	ctest();
+}
+@EOF
+
+chmod 664 cppfile.C
+
+echo x - host_vtable.h
+cat >host_vtable.h <<'@EOF'
+#ifndef __HOST_VTABLE_H
+#define __HOST_VTABLE_H
+
+#include <inttypes.h>  /* uint64_t */
+/*
+typedef _method_pointer_layout
+{
+    void (*method)(void *);
+    int vtaboff;
+    int thisoff;
+} method_pointer_layout;
+*/
+
+#ifndef __ia64
+enum vtable_layout_consts
+{
+    VTABLE_PROLOGUE_KEY = 0x12345678
+};
+#endif
+
+// HP uses the thunkbased vtable format.
+#include "thunkbase.h"
+
+#undef  C_STDMETHODEX_
+#ifdef __LP64
+#define C_STDMETHODEX_(type, method, arglist)   uint64_t method ## _stub; \
+                                                type (*method) arglist;
+#else
+#define C_STDMETHODEX_(type, method, arglist)   uint64_t method ## _stub; \
+                                                int method ## _pad; \
+                                                type (*method) arglist;
+#endif
+
+extern void _mainwin_com_stub(void);
+
+#endif
+@EOF
+
+chmod 660 host_vtable.h
+
+echo x - mainwin_stub.s
+cat >mainwin_stub.s <<'@EOF'
+        .type   _mainwin_com_stub, at function
+        .radix  C
+        .psr    abi32
+        .psr    msb
+        .section .text = "ax", "progbits"
+        .proc   _mainwin_com_stub
+_mainwin_com_stub::
+#ifdef _ILP32
+         addp4   gp = r0, gp
+         ;;
+#endif
+         ld8     r31 = [gp], 8
+         ;;
+         ld8     gp = [gp]
+         mov     b6 = r31
+         ;;
+         br.call.dptk.few b6
+         ;;
+        .endp   bbb_f
+@EOF
+
+chmod 664 mainwin_stub.s
+
+echo x - thunkbase.h
+cat >thunkbase.h <<'@EOF'
+#ifndef VTABLE_THUNkBASE_H
+#define VTABLE_THUNkBASE_H
+
+/*
+ * Thunk based vtable format.
+ * The format is an array of functions. The name thunk comes from the fact
+ * that thunk functions are created for managing the necessary adjustments of
+ * the 'this' value because of multiple inheritence semantics.
+ * Every entry is:*/
+
+#ifndef __ia64
+typedef struct _vtable_entry_layout { 
+   void (*method) ();
+} vtable_entry_layout;
+#endif
+
+/* The vtable is:
+ * struct vtable {
+ *   vtable_entry_layout prologue [???]; // The number of reserved entries varies.
+ *   vtable_entry_layout entries [];
+ * };
+ */
+ 
+#define C_INTERFACE_PROLOGUE(iface)             /* Nothing */
+#define C_STDMETHOD_(type, method)              type (*method)
+#define C_STDMETHODEX_(type, method, arglist)   type (*method) arglist;
+ 
+/* structured vtable entries */
+#define C_VTABLE_PROLOGUE                       /* Nothing. */
+#define C_VTABLE_ENTRY(method)                  method
+ 
+/* unstructured ((void *) array) vtable entries and sizes.
+ * For thunk based vtables this is the same as the previous. */
+#define C_VTABLE_PROLOGUE2                      C_VTABLE_PROLOGUE
+#define C_VTABLE_ENTRY2(method)                 C_VTABLE_ENTRY((void*)method)
+#define C_VTABLE_PROLOGUE_SIZE2                 0
+#define C_VTABLE_ENTRY_SIZE2                    1
+#define C_VTABLE_FUNC2(ind)                     C_VTABLE_SIZE2(ind)
+ 
+/* The thunk based compilers don't need to adjust the 'this' pointer. */
+#define C_ADJUST_THIS_(iface, This, member)     (This)
+ 
+#endif
+@EOF
+
+chmod 660 thunkbase.h
+if [ $EXIT_STATUS -eq 1 ];then
+	exit 1
+fi
+exit 0
+
+
+From dhandly at cup.hp.com  Wed Jan 22 09:54:51 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 22 Jan 2003 01:54:51 -0800 (PST)
+Subject: [cxx-abi-dev] Function descriptors in vtable
+Message-ID: <200301220954.BAA19934@hpcll183.cup.hp.com>
+
+>I just was too lazy to write the code to copy it.
+
+Ok, here is a version that works from C++.  There also a Makefile.
+
+#---------------------------------- cut here ----------------------------------
+# This is a shell archive.  Remove anything before this line,
+# then unpack it by saving it in a file and typing "sh file".
+#
+# Wrapped by Dennis Handly <dhandly at den-bear> on Wed Jan 22 01:51:28 2003
+#
+# This archive contains:
+#	Makefile	cfile.c		cppfile.C	host_vtable.h	
+#	mainwin_stub.s	thunkbase.h	
+#
+
+LANG=""; export LANG
+PATH=/bin:/usr/bin:/usr/sbin:/usr/ccs/bin:$PATH; export PATH
+EXIT_STATUS=0
+
+echo x - Makefile
+cat >Makefile <<'@EOF'
+CXX=aCC
+
+test_com: cfile.o cppfile.o mainwin_stub.o
+	$(CXX) $(CXXFLAGS) -o $@ cfile.o cppfile.o mainwin_stub.o
+
+cppfile.o: cppfile.C
+	$(CXX) -c $(CXXFLAGS) cppfile.C
+
+cfile.o: cfile.c host_vtable.h thunkbase.h
+	$(CC) -c $(CFLAGS) cfile.c
+
+mainwin_stub.o: mainwin_stub.s
+	$(CC) -c $(CFLAGS) mainwin_stub.s
+
+clean: ; rm -f test_com cfile.o cppfile.o mainwin_stub.o
+@EOF
+
+chmod 664 Makefile
+
+echo x - cfile.c
+cat >cfile.c <<'@EOF'
+#include <stdio.h>
+
+#include "host_vtable.h"
+
+// This source files assumes that there is a definition
+// struct aaa {
+//    virtual int f(int x);
+// };
+// extern "C" void use_aaa(aaa *a);
+// We implement an instance of an inheriting class.
+// We also implement use_aaa2(aaa *a);
+
+struct bbb;
+typedef struct {
+	C_INTERFACE_PROLOGUE(aaa)
+	C_STDMETHODEX_(int,f,(void* b, int x))
+} bbb_vtable;
+
+typedef struct bbb {
+	bbb_vtable *vt;
+} bbb;
+
+int bbb_f(void* b, int x) {
+	fprintf(stderr, "Inside C method - (%p) %d\n",b, x);
+	return 0;
+}
+
+#ifdef __ia64
+/* convert C++ virtual table to COM style */
+typedef struct funcdescriptor {
+   unsigned long long codeptr;
+#ifdef _ILP32
+   int pad;
+#endif
+   void (*GP)(void);
+} funcdescriptor;
+
+void modify_vtable(funcdescriptor *vt, int nfuncs) {
+   funcdescriptor *p;
+   register uint64_t stub_add;
+   stub_add = *(uint64_t*)_mainwin_com_stub;
+   if (!nfuncs || vt->codeptr == stub_add)
+      return;  /* already done */
+
+   p = (funcdescriptor*)malloc(sizeof(funcdescriptor) * nfuncs);
+   for (; nfuncs > 0; nfuncs--, p++, vt++) {
+       *p = *vt;
+       vt->GP = (void (*)(void))p;
+       vt->codeptr = stub_add;
+   }
+}
+
+bbb_vtable vt;
+#pragma init "B_INIT"
+static void B_INIT() {
+   vt.f_stub = *(uint64_t*)_mainwin_com_stub;
+   vt.f = bbb_f;
+}
+#else
+bbb_vtable vt = {
+	C_VTABLE_PROLOGUE
+	C_VTABLE_ENTRY2(bbb_f)
+};
+
+void modify_vtable(funcdescriptor vt[], int nfuncs) {} /* dummy */
+#endif
+
+bbb b = { &vt };
+
+extern void use_aaa(bbb* b);
+void use_aaa2(bbb *b)
+{
+	b->vt->f(b,3);
+}
+
+void ctest()
+{
+	fprintf(stderr, "Enter C test\n");
+	use_aaa(&b);
+	use_aaa2(&b);
+	fprintf(stderr, "Leave C test\n");
+}
+@EOF
+
+chmod 664 cfile.c
+
+echo x - cppfile.C
+cat >cppfile.C <<'@EOF'
+#include <stdio.h>
+#include <stdlib.h>
+
+struct aaa {
+	virtual int f(int x) {
+	   fprintf(stderr, "Inside CPP method - (%p) %d\n",this, x);
+	   return 1;
+	}
+};
+struct bbb {
+	virtual int f(int x);
+};
+
+extern bbb b;
+
+aaa a;
+
+extern "C" void use_aaa(aaa *a)
+{
+	a->f(4);
+}
+extern "C" void use_aaa2(aaa *a);
+extern "C" void modify_vtable(void *vt, int nfuncs);
+extern "C" void cpptest()
+{
+	fprintf(stderr, "Enter CPP test\n");
+	use_aaa(reinterpret_cast<aaa*>(&b));
+	use_aaa2(reinterpret_cast<aaa*>(&b));
+	fprintf(stderr, "  defined in C++\n");
+// can't be defined in C++, without this kludge
+        modify_vtable(*(void**)&a, 1);
+        
+	use_aaa(&a);
+	use_aaa2(&a);
+	fprintf(stderr, "Leave CPP test\n");
+}
+
+
+extern "C" void ctest();
+int main()
+{
+	cpptest();
+	ctest();
+}
+@EOF
+
+chmod 664 cppfile.C
+
+echo x - host_vtable.h
+cat >host_vtable.h <<'@EOF'
+#ifndef __HOST_VTABLE_H
+#define __HOST_VTABLE_H
+
+#include <inttypes.h>  /* uint64_t */
+/*
+typedef _method_pointer_layout
+{
+    void (*method)(void *);
+    int vtaboff;
+    int thisoff;
+} method_pointer_layout;
+*/
+
+#ifndef __ia64
+enum vtable_layout_consts
+{
+    VTABLE_PROLOGUE_KEY = 0x12345678
+};
+#endif
+
+// HP uses the thunkbased vtable format.
+#include "thunkbase.h"
+
+#undef  C_STDMETHODEX_
+#ifdef __LP64
+#define C_STDMETHODEX_(type, method, arglist)   uint64_t method ## _stub; \
+                                                type (*method) arglist;
+#else
+#define C_STDMETHODEX_(type, method, arglist)   uint64_t method ## _stub; \
+                                                int method ## _pad; \
+                                                type (*method) arglist;
+#endif
+
+extern void _mainwin_com_stub(void);
+
+#endif
+@EOF
+
+chmod 664 host_vtable.h
+
+echo x - mainwin_stub.s
+cat >mainwin_stub.s <<'@EOF'
+        .type   _mainwin_com_stub, at function
+        .radix  C
+        .psr    abi32
+        .psr    msb
+        .section .text = "ax", "progbits"
+        .proc   _mainwin_com_stub
+_mainwin_com_stub::
+#ifdef _ILP32
+         addp4   gp = r0, gp
+         ;;
+#endif
+         ld8     r31 = [gp], 8
+         ;;
+         ld8     gp = [gp]
+         mov     b6 = r31
+         ;;
+         br.dptk.few b6
+         ;;
+        .endp   bbb_f
+@EOF
+
+chmod 664 mainwin_stub.s
+
+echo x - thunkbase.h
+cat >thunkbase.h <<'@EOF'
+#ifndef VTABLE_THUNkBASE_H
+#define VTABLE_THUNkBASE_H
+
+/*
+ * Thunk based vtable format.
+ * The format is an array of functions. The name thunk comes from the fact
+ * that thunk functions are created for managing the necessary adjustments of
+ * the 'this' value because of multiple inheritence semantics.
+ * Every entry is:*/
+
+#ifndef __ia64
+typedef struct _vtable_entry_layout { 
+   void (*method) ();
+} vtable_entry_layout;
+#endif
+
+/* The vtable is:
+ * struct vtable {
+ *   vtable_entry_layout prologue [???]; // The number of reserved entries varies.
+ *   vtable_entry_layout entries [];
+ * };
+ */
+ 
+#define C_INTERFACE_PROLOGUE(iface)             /* Nothing */
+#define C_STDMETHOD_(type, method)              type (*method)
+#define C_STDMETHODEX_(type, method, arglist)   type (*method) arglist;
+ 
+/* structured vtable entries */
+#define C_VTABLE_PROLOGUE                       /* Nothing. */
+#define C_VTABLE_ENTRY(method)                  method
+ 
+/* unstructured ((void *) array) vtable entries and sizes.
+ * For thunk based vtables this is the same as the previous. */
+#define C_VTABLE_PROLOGUE2                      C_VTABLE_PROLOGUE
+#define C_VTABLE_ENTRY2(method)                 C_VTABLE_ENTRY((void*)method)
+#define C_VTABLE_PROLOGUE_SIZE2                 0
+#define C_VTABLE_ENTRY_SIZE2                    1
+#define C_VTABLE_FUNC2(ind)                     C_VTABLE_SIZE2(ind)
+ 
+/* The thunk based compilers don't need to adjust the 'this' pointer. */
+#define C_ADJUST_THIS_(iface, This, member)     (This)
+ 
+#endif
+@EOF
+
+chmod 664 thunkbase.h
+
+
+if [ $EXIT_STATUS -eq 1 ];then
+	exit 1
+fi
+exit 0
+
+
+From noaml at mainsoft.com  Wed Jan 22 09:58:08 2003
+From: noaml at mainsoft.com (Noam Lampert)
+Date: Wed, 22 Jan 2003 11:58:08 +0200
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <200301220911.BAA19887@hpcll183.cup.hp.com>
+Message-ID: <018c01c2c1fc$c3dbb370$0e0111ac@il.mainsoft.com>
+
+Hi Dennis,
+
+> >From: "Noam Lampert" <noaml at mainsoft.com>
+> >However, if the vtable was created by the C++ compiler, using it in C
+is
+> >still very hard.
+> 
+> I don't think you mentioned that you created these from normal C++
+> classes.
+
+I did mention in my original email "Calling a C++ virtual method from
+within C code". In addition, the sample I sent does this (takes a C++
+class and sends it to a C function that calls a virtual method).
+
+Noam
+
+
+> -----Original Message-----
+> From: Dennis Handly [mailto:dhandly at cup.hp.com]
+> Sent: Wednesday, January 22, 2003 11:12 AM
+> To: cxx-abi-dev-return-1622-cxx-abi-
+> hp=adlmail.cup.hp.com at codesourcery.com; mark at codesourcery.com
+> Cc: amckale at cup.hp.com; cxx-abi-dev at codesourcery.com;
+gomathi at cup.hp.com;
+> kerch at cup.hp.com; noaml at mainsoft.com; sassan at cup.hp.com
+> Subject: Re: [cxx-abi-dev] Function descriptors in vtable
+> 
+> >I'll carry this a bit further, and demonstrate how this proposal
+could
+> >be done in the context of Noam's example:
+> 
+> I've already set this up and ran the example.  The part where it is
+> defined in C++ aborts.
+> 
+> >As Mark said, every vtable entry can point to the same stub, which
+can
+> >be somewhere in MainWin's runtime library.
+> 
+> >Or dynamically in C:
+> >    extern int _mainwin_com_stub;
+> >    extern int bbb_f(void *b, int x);
+> 
+> I used this.
+> 
+> >(Notice we lie and declare the stub as a data symbol.
+> -cary
+> 
+> No need to lie, just take the value out of the plabel:
+>    extern void _mainwin_com_stub(void);
+>    vt.f_stub = *(uint64_t*)_mainwin_com_stub;
+> 
+> >From: "Noam Lampert" <noaml at mainsoft.com>
+> >However, if the vtable was created by the C++ compiler, using it in C
+is
+> >still very hard.
+> 
+> I don't think you mentioned that you created these from normal C++
+> classes.
+> 
+> >Is there a more elegant way to achieve this?
+> Noam
+> 
+> No.  Don't create these in normal C++.
+> 
+> >From: "Noam Lampert" <noaml at mainsoft.com>
+> >It took me too long to figure out that my proposed solution here
+can't
+> work.
+> >What could be done is
+>  	   for (i = 0; i < nfuncs; i++) {
+> 	         void *p = malloc(sizeof(funcdescriptor));
+> 		   *p = vt[i];
+> 
+> It didn't take me long at all.  ;-)
+> I just was too lazy to write the code to copy it.
+> 
+> #---------------------------------- cut here
+-----------------------------
+> -----
+> # This is a shell archive.  Remove anything before this line,
+> # then unpack it by saving it in a file and typing "sh file".
+> #
+> # Wrapped by Dennis Handly <dhandly at den-bear> on Wed Jan 22 01:07:30
+2003
+> #
+> # This archive contains:
+> #	cfile.c		cppfile.C	host_vtable.h	mainwin_stub.s
+> #	thunkbase.h
+> #
+> 
+> LANG=""; export LANG
+> PATH=/bin:/usr/bin:/usr/sbin:/usr/ccs/bin:$PATH; export PATH
+> EXIT_STATUS=0
+> 
+> echo x - cfile.c
+> cat >cfile.c <<'@EOF'
+> #include <stdio.h>
+> 
+> #include "host_vtable.h"
+> 
+> // This source files assumes that there is a definition
+> // struct aaa {
+> //    virtual int f(int x);
+> // };
+> // extern "C" void use_aaa(aaa *a);
+> // We implement an instance of an inheriting class.
+> // We also implement use_aaa2(aaa *a);
+> 
+> struct bbb;
+> typedef struct {
+> 	C_INTERFACE_PROLOGUE(aaa)
+> 	C_STDMETHODEX_(int,f,(void* b, int x))
+> } bbb_vtable;
+> 
+> typedef struct bbb {
+> 	bbb_vtable *vt;
+> } bbb;
+> 
+> int bbb_f(void* b, int x) {
+> 	fprintf(stderr, "Inside C method - (%p) %d\n",b, x);
+> 	return 0;
+> }
+> 
+> #ifdef __ia64
+> bbb_vtable vt;
+> #pragma init "B_INIT"
+> static void B_INIT() {
+>    vt.f_stub = *(uint64_t*)_mainwin_com_stub;
+>    vt.f = bbb_f;
+> }
+> #else
+> bbb_vtable vt = {
+> 	C_VTABLE_PROLOGUE
+> 	C_VTABLE_ENTRY2(bbb_f)
+> };
+> #endif
+> 
+> bbb b = { &vt };
+> 
+> extern void use_aaa(bbb* b);
+> void use_aaa2(bbb *b)
+> {
+> 	b->vt->f(b,3);
+> }
+> 
+> void ctest()
+> {
+> 	fprintf(stderr, "Enter C test\n");
+> 	use_aaa(&b);
+> 	use_aaa2(&b);
+> 	fprintf(stderr, "Leave C test\n");
+> }
+> @EOF
+> 
+> chmod 664 cfile.c
+> 
+> echo x - cppfile.C
+> cat >cppfile.C <<'@EOF'
+> #include <stdio.h>
+> 
+> struct aaa {
+> 	virtual int f(int x) {
+> 	    fprintf(stderr, "Inside CPP method - %d\n",x); return 1;
+> 	}
+> };
+> struct bbb {
+> 	virtual int f(int x);
+> };
+> 
+> extern bbb b;
+> 
+> aaa a;
+> 
+> extern "C" void use_aaa(aaa *a)
+> {
+> 	a->f(4);
+> }
+> extern "C" void use_aaa2(aaa *a);
+> extern "C" void cpptest()
+> {
+> 	fprintf(stderr, "Enter CPP test\n");
+> 	use_aaa(reinterpret_cast<aaa*>(&b));
+> 	use_aaa2(reinterpret_cast<aaa*>(&b));
+> 	fprintf(stderr, "  defined C++\n");
+> #if 0
+> // can't be defined in C++
+> 	use_aaa(&a);
+> 	use_aaa2(&a);
+> #endif
+> 	fprintf(stderr, "Leave CPP test\n");
+> }
+> 
+> 
+> extern "C" void ctest();
+> int main()
+> {
+> 	cpptest();
+> 	ctest();
+> }
+> @EOF
+> 
+> chmod 664 cppfile.C
+> 
+> echo x - host_vtable.h
+> cat >host_vtable.h <<'@EOF'
+> #ifndef __HOST_VTABLE_H
+> #define __HOST_VTABLE_H
+> 
+> #include <inttypes.h>  /* uint64_t */
+> /*
+> typedef _method_pointer_layout
+> {
+>     void (*method)(void *);
+>     int vtaboff;
+>     int thisoff;
+> } method_pointer_layout;
+> */
+> 
+> #ifndef __ia64
+> enum vtable_layout_consts
+> {
+>     VTABLE_PROLOGUE_KEY = 0x12345678
+> };
+> #endif
+> 
+> // HP uses the thunkbased vtable format.
+> #include "thunkbase.h"
+> 
+> #undef  C_STDMETHODEX_
+> #ifdef __LP64
+> #define C_STDMETHODEX_(type, method, arglist)   uint64_t method ##
+_stub;
+> \
+>                                                 type (*method)
+arglist;
+> #else
+> #define C_STDMETHODEX_(type, method, arglist)   uint64_t method ##
+_stub;
+> \
+>                                                 int method ## _pad; \
+>                                                 type (*method)
+arglist;
+> #endif
+> 
+> extern void _mainwin_com_stub(void);
+> 
+> #endif
+> @EOF
+> 
+> chmod 660 host_vtable.h
+> 
+> echo x - mainwin_stub.s
+> cat >mainwin_stub.s <<'@EOF'
+>         .type   _mainwin_com_stub, at function
+>         .radix  C
+>         .psr    abi32
+>         .psr    msb
+>         .section .text = "ax", "progbits"
+>         .proc   _mainwin_com_stub
+> _mainwin_com_stub::
+> #ifdef _ILP32
+>          addp4   gp = r0, gp
+>          ;;
+> #endif
+>          ld8     r31 = [gp], 8
+>          ;;
+>          ld8     gp = [gp]
+>          mov     b6 = r31
+>          ;;
+>          br.call.dptk.few b6
+>          ;;
+>         .endp   bbb_f
+> @EOF
+> 
+> chmod 664 mainwin_stub.s
+> 
+> echo x - thunkbase.h
+> cat >thunkbase.h <<'@EOF'
+> #ifndef VTABLE_THUNkBASE_H
+> #define VTABLE_THUNkBASE_H
+> 
+> /*
+>  * Thunk based vtable format.
+>  * The format is an array of functions. The name thunk comes from the
+fact
+>  * that thunk functions are created for managing the necessary
+adjustments
+> of
+>  * the 'this' value because of multiple inheritence semantics.
+>  * Every entry is:*/
+> 
+> #ifndef __ia64
+> typedef struct _vtable_entry_layout {
+>    void (*method) ();
+> } vtable_entry_layout;
+> #endif
+> 
+> /* The vtable is:
+>  * struct vtable {
+>  *   vtable_entry_layout prologue [???]; // The number of reserved
+entries
+> varies.
+>  *   vtable_entry_layout entries [];
+>  * };
+>  */
+> 
+> #define C_INTERFACE_PROLOGUE(iface)             /* Nothing */
+> #define C_STDMETHOD_(type, method)              type (*method)
+> #define C_STDMETHODEX_(type, method, arglist)   type (*method)
+arglist;
+> 
+> /* structured vtable entries */
+> #define C_VTABLE_PROLOGUE                       /* Nothing. */
+> #define C_VTABLE_ENTRY(method)                  method
+> 
+> /* unstructured ((void *) array) vtable entries and sizes.
+>  * For thunk based vtables this is the same as the previous. */
+> #define C_VTABLE_PROLOGUE2                      C_VTABLE_PROLOGUE
+> #define C_VTABLE_ENTRY2(method)
+> C_VTABLE_ENTRY((void*)method)
+> #define C_VTABLE_PROLOGUE_SIZE2                 0
+> #define C_VTABLE_ENTRY_SIZE2                    1
+> #define C_VTABLE_FUNC2(ind)                     C_VTABLE_SIZE2(ind)
+> 
+> /* The thunk based compilers don't need to adjust the 'this' pointer.
+*/
+> #define C_ADJUST_THIS_(iface, This, member)     (This)
+> 
+> #endif
+> @EOF
+> 
+> chmod 660 thunkbase.h
+> if [ $EXIT_STATUS -eq 1 ];then
+> 	exit 1
+> fi
+> exit 0
+
+
+
+From mark at codesourcery.com  Wed Jan 22 16:28:27 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 22 Jan 2003 08:28:27 -0800
+Subject: [cxx-abi-dev] Function descriptors in vtable
+In-Reply-To: <016701c2c1ef$66b752b0$0e0111ac@il.mainsoft.com>
+Message-ID: <27800000.1043252907@warlock.codesourcery.com>
+
+
+> However, if the vtable was created by the C++ compiler, using it in C is
+> still very hard.
+
+That's correct.  Some compilers put the vtables in read-only data sections,
+so it won't be easy to rewrite them.  Using a cooperative C++ compiler
+would help; for example, if aCC had a "-com" switch that would cause it
+to generate the format I suggested that would solve your problem.  (Such
+a switch would leave it ABI-compatible.)
+
+In theory, you could probably do something completely nasty involving
+rewriting binaries; almost all vtables are external symbols whose names
+start "_ZTV"; you could move them into writable memory.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+

@@ -1,0 +1,1553 @@
+From jason at redhat.com  Thu Mar  5 01:03:03 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 04 Mar 2009 20:03:03 -0500
+Subject: Mangling sizeof
+Message-ID: <49AF24C7.2040301@redhat.com>
+
+I've been looking at some old GCC bug reports and noticed that my recent 
+mangling improvements didn't extend the use of the expression type stubs 
+to sizeof expressions, so we still run into mangling holes in that 
+context.  What do people think about using the type stubs in sizeof 
+expressions as well?  This would break ABI compatibility with most 
+existing uses of sizeof in template signatures, but I suspect those are 
+very few currently because of the limitations of expression mangling 
+(prior to the recent enhancements).
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stub-sizeof.patch
+Type: text/x-patch
+Size: 499 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090304/d946e48f/attachment.bin>
+
+From dhandly at cup.hp.com  Thu Mar  5 02:40:33 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 4 Mar 2009 18:40:33 -0800 (PST)
+Subject: [cxx-abi-dev] Mangling sizeof
+Message-ID: <200903050240.SAA27835@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>This would break ABI compatibility with most existing uses of sizeof
+>in template signatures, but I suspect those are very few currently because
+>of the limitations of expression mangling 
+
+Are you talking about something simple like this use of sizeof being
+incompatible?
+
+void foo<int>(int*, A<sizeof (int)>) => _Z3fooIiEvPT_1AIXstS0_EE
+
+template <unsigned long size> struct A {};
+template <class T>
+void foo(T*, A<sizeof(T)>) {}
+int main() {
+   A<sizeof(int)> x;
+   foo<int>(0, x);
+}
+
+
+From jason at redhat.com  Thu Mar  5 14:15:01 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Mar 2009 09:15:01 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <200903050240.SAA27835@hpcll183.cup.hp.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>
+Message-ID: <49AFDE65.4060404@redhat.com>
+
+Dennis Handly wrote:
+> Are you talking about something simple like this use of sizeof being
+> incompatible?
+> 
+> void foo<int>(int*, A<sizeof (int)>) => _Z3fooIiEvPT_1AIXstS0_EE
+
+No, it would only affect sizeof (expression).
+
+Jason
+
+
+
+From jason at redhat.com  Thu Mar  5 14:30:41 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Mar 2009 09:30:41 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49AFDE65.4060404@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com>
+Message-ID: <49AFE211.8070105@redhat.com>
+
+Jason Merrill wrote:
+> No, it would only affect sizeof (expression).
+
+Specifically, something like this:
+
+template <int I> struct A { };
+template <class T> A<sizeof T(1)> f() { }
+int main()
+{
+   f<int>();
+}
+
+Few uses of sizeof(expression) have been manglable at all in the past; 
+this is one, and I don't know why anyone would write this rather than 
+just A<sizeof T>.  I can't think of another example.
+
+Jason
+
+
+
+From daveed at edg.com  Thu Mar  5 15:46:41 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 5 Mar 2009 10:46:41 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49AF24C7.2040301@redhat.com>
+References: <49AF24C7.2040301@redhat.com>
+Message-ID: <41B4AD76-16B9-46FA-93CA-6FFC9C885652@edg.com>
+
+That change looks fine to me.
+
+	Daveed
+
+
+On Mar 4, 2009, at 8:03 PM, Jason Merrill wrote:
+
+> I've been looking at some old GCC bug reports and noticed that my  
+> recent mangling improvements didn't extend the use of the expression  
+> type stubs to sizeof expressions, so we still run into mangling  
+> holes in that context.  What do people think about using the type  
+> stubs in sizeof expressions as well?  This would break ABI  
+> compatibility with most existing uses of sizeof in template  
+> signatures, but I suspect those are very few currently because of  
+> the limitations of expression mangling (prior to the recent  
+> enhancements).
+>
+> *** abi.html.~16~	2009-01-02 18:17:15.000000000 -0500
+> --- abi.html	2009-03-04 16:26:50.000000000 -0500
+> *************** version.
+> *** 4471,4476 ****
+> --- 4471,4477 ----
+>
+>  <p>
+>  The <code>sT</code> and <code>sR</code> forms are used within the
+> + <code>sz</code> expression and the
+>  C++0x <code>decltype</code> forms <code>DT</code> and <code>Dt</ 
+> code>.
+>  Within these contexts, the value of the expression doesn't matter,  
+> only the
+>  type, so we just mangle the type of the expression directly as an
+
+
+
+From doug.gregor at gmail.com  Thu Mar  5 16:52:00 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Thu, 5 Mar 2009 11:52:00 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49AF24C7.2040301@redhat.com>
+References: <49AF24C7.2040301@redhat.com>
+Message-ID: <24b520d20903050852y4086691agb8cd4b9619e1a8a7@mail.gmail.com>
+
+On Wed, Mar 4, 2009 at 8:03 PM, Jason Merrill <jason at redhat.com> wrote:
+> I've been looking at some old GCC bug reports and noticed that my recent
+> mangling improvements didn't extend the use of the expression type stubs to
+> sizeof expressions, so we still run into mangling holes in that context.
+> ?What do people think about using the type stubs in sizeof expressions as
+> well? ?This would break ABI compatibility with most existing uses of sizeof
+> in template signatures, but I suspect those are very few currently because
+> of the limitations of expression mangling (prior to the recent
+> enhancements).
+
+Jason and I discussed this a bit further, and this change can lead to
+collisions in mangled names. Here's an (admittedly ugly) example:
+
+  template<int> struct A { };
+
+  template<typename T> A<sizeof(T(T() + T()))> foo(); // #1
+  template<typename T> A<sizeof(T(T() - T()))> foo(); // #2
+
+  struct X { };
+
+Now, in one translation unit we have
+
+  X operator+(X, X);
+
+and we instantiate foo<X> we get an instantiation of #1.
+
+In another translation unit we have
+
+  X operator+(X, X)
+
+and we instantiate foo<X> we get an instantiation of #2.
+
+This program is well-formed (there is no ODR violation, since the
+signatures of the two function templates are different), but the two
+foo<X>'s would have the same mangled name because T(T() + T()) and
+T(T() - T()) have the same type stub.
+
+  - Doug
+
+
+From jason at redhat.com  Thu Mar  5 17:05:20 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Mar 2009 12:05:20 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903050852y4086691agb8cd4b9619e1a8a7@mail.gmail.com>
+References: <49AF24C7.2040301@redhat.com> <24b520d20903050852y4086691agb8cd4b9619e1a8a7@mail.gmail.com>
+Message-ID: <49B00650.1030704@redhat.com>
+
+Doug Gregor wrote:
+> Jason and I discussed this a bit further, and this change can lead to
+> collisions in mangled names.
+
+Which can also happen with decltype.
+
+One way of dealing with this issue is to abandon type stubs and go back 
+to figuring out how to mangle all possible expressions.
+
+Another way would be to move the notion of describable type into the 
+core language and say that this sort of collision is ill-formed, no 
+diagnostic required with something along the lines of the current 
+equivalent/functionally equivalent language.
+
+Jason
+
+
+
+From crowl at google.com  Thu Mar  5 17:20:59 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Thu, 5 Mar 2009 09:20:59 -0800
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49AF24C7.2040301@redhat.com>
+References: <49AF24C7.2040301@redhat.com>
+Message-ID: <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+
+On 3/4/09, Jason Merrill <jason at redhat.com> wrote:
+> I've been looking at some old GCC bug reports and noticed that my recent
+> mangling improvements didn't extend the use of the expression type stubs to
+> sizeof expressions, so we still run into mangling holes in that context.
+> What do people think about using the type stubs in sizeof expressions as
+> well?  This would break ABI compatibility with most existing uses of sizeof
+> in template signatures, but I suspect those are very few currently because
+> of the limitations of expression mangling (prior to the recent
+> enhancements).
+
+What do you think of associating such a change with the C++0x flag?
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Thu Mar  5 18:05:20 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Mar 2009 13:05:20 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+References: <49AF24C7.2040301@redhat.com> <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+Message-ID: <49B01460.1010603@redhat.com>
+
+Lawrence Crowl wrote:
+> What do you think of associating such a change with the C++0x flag?
+
+I'm reluctant to do this, but could be convinced if the new manglings 
+for function calls, member access, etc are also disabled without that flag.
+
+Jason
+
+
+
+From daveed at edg.com  Thu Mar  5 18:28:24 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 5 Mar 2009 13:28:24 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B00650.1030704@redhat.com>
+References: <49AF24C7.2040301@redhat.com> <24b520d20903050852y4086691agb8cd4b9619e1a8a7@mail.gmail.com> <49B00650.1030704@redhat.com>
+Message-ID: <F152DB5B-9294-494C-B9F0-BD112411F031@edg.com>
+
+
+On Mar 5, 2009, at 12:05 PM, Jason Merrill wrote:
+
+> Doug Gregor wrote:
+>> Jason and I discussed this a bit further, and this change can lead to
+>> collisions in mangled names.
+
+
+(Cringe.)
+
+
+> Which can also happen with decltype.
+>
+> One way of dealing with this issue is to abandon type stubs and go  
+> back to figuring out how to mangle all possible expressions.
+
+
+I suspect that's the most future-proof way forward.
+
+
+> Another way would be to move the notion of describable type into the  
+> core language and say that this sort of collision is ill-formed, no  
+> diagnostic required with something along the lines of the current  
+> equivalent/functionally equivalent language.
+
+
+That option occurred to me as well, but I'm worried that would expose  
+us to a committee reversal in the future.
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Thu Mar  5 18:45:01 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 05 Mar 2009 10:45:01 -0800
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <F152DB5B-9294-494C-B9F0-BD112411F031@edg.com>
+References: <49AF24C7.2040301@redhat.com> <24b520d20903050852y4086691agb8cd4b9619e1a8a7@mail.gmail.com> <49B00650.1030704@redhat.com> <F152DB5B-9294-494C-B9F0-BD112411F031@edg.com>
+Message-ID: <49B01DAD.2080605@codesourcery.com>
+
+David Vandevoorde wrote:
+
+>> One way of dealing with this issue is to abandon type stubs and go
+>> back to figuring out how to mangle all possible expressions.
+> 
+> I suspect that's the most future-proof way forward.
+
+I think so too -- much though I think that's hideous. :-)
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From doug.gregor at gmail.com  Thu Mar  5 18:44:54 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Thu, 5 Mar 2009 13:44:54 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+References: <49AF24C7.2040301@redhat.com>
+	 <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+Message-ID: <24b520d20903051044v239bbacdo79900baaf65f33c8@mail.gmail.com>
+
+On Thu, Mar 5, 2009 at 12:20 PM, Lawrence Crowl <crowl at google.com> wrote:
+> On 3/4/09, Jason Merrill <jason at redhat.com> wrote:
+>> I've been looking at some old GCC bug reports and noticed that my recent
+>> mangling improvements didn't extend the use of the expression type stubs to
+>> sizeof expressions, so we still run into mangling holes in that context.
+>> What do people think about using the type stubs in sizeof expressions as
+>> well? ?This would break ABI compatibility with most existing uses of sizeof
+>> in template signatures, but I suspect those are very few currently because
+>> of the limitations of expression mangling (prior to the recent
+>> enhancements).
+>
+> What do you think of associating such a change with the C++0x flag?
+
+I am against making the ABI differ for C++98 and C++0x, unless we're
+forced into it.
+
+  - Doug
+
+
+From crowl at google.com  Thu Mar  5 19:02:03 2009
+From: crowl at google.com (Lawrence Crowl)
+Date: Thu, 5 Mar 2009 11:02:03 -0800
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903051044v239bbacdo79900baaf65f33c8@mail.gmail.com>
+References: <49AF24C7.2040301@redhat.com>
+	 <29bd08b70903050920l5587d0abj64099edab63f9a0b@mail.gmail.com>
+	 <24b520d20903051044v239bbacdo79900baaf65f33c8@mail.gmail.com>
+Message-ID: <29bd08b70903051102xe00c4a9i9517f874a2f9950d@mail.gmail.com>
+
+On 3/5/09, Doug Gregor <doug.gregor at gmail.com> wrote:
+> On Thu, Mar 5, 2009 at 12:20 PM, Lawrence Crowl <crowl at google.com> wrote:
+> > On 3/4/09, Jason Merrill <jason at redhat.com> wrote:
+> > > I've been looking at some old GCC bug reports and noticed that my
+> > > recent mangling improvements didn't extend the use of the expression
+> > > type stubs to sizeof expressions, so we still run into mangling holes
+> > > in that context.  What do people think about using the type stubs in
+> > > sizeof expressions as well?  This would break ABI compatibility with
+> > > most existing uses of sizeof in template signatures, but I suspect
+> > > those are very few currently because of the limitations of expression
+> > > mangling (prior to the recent enhancements).
+> >
+> > What do you think of associating such a change with the C++0x flag?
+>
+> I am against making the ABI differ for C++98 and C++0x, unless we're
+> forced into it.
+
+Hm.  I thought the issue was making the ABI differ for C++98 and C++98
+versus for C++98 and C++0x.  Of the two, I think an incompatibility
+in the latter pair would be less trouble all around.
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Thu Mar  5 19:12:08 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Mar 2009 14:12:08 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49AFE211.8070105@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>
+Message-ID: <49B02408.1000405@redhat.com>
+
+Jason Merrill wrote:
+> template <int I> struct A { };
+> template <class T> A<sizeof T(1)> f() { }
+> int main()
+> {
+>   f<int>();
+> }
+
+I note that the EDG compiler I have doesn't even accept this testcase; 
+it seems to be hitting a substitution failure and eliminating the 
+template from overload resolution.  Which suggests that no code that 
+currently compiles with the EDG front end would be affected by this change.
+
+Incidentally, the somewhat related testcase
+
+> template <typename T, T I = T()> struct A {};
+> 
+> template <typename T> void foo(A<T>) {}
+> 
+> void bar()
+> {
+>   foo(A<char>());
+> }
+
+gives
+
+_Z3fooIcEv1AIT_XLi0EEE
+
+with EDG, and an error about being unable to mangle T() with G++.  It 
+seems that EDG is mangling A<T,T()> as A<T,0> rather than directly 
+represent the conversion (which currently cannot be represented).
+
+It occurs to me that constexpr will require direct representations of 
+conversions with an arbitrary number of arguments, so we need to add 
+that mangling regardless of the use of type stubs for decltype/sizeof.
+
+Given that, the main thing that type stubs save us from needing to 
+represent is new expressions, which cannot appear in a constant 
+expression; other than that, they just save space in the mangled name.
+
+Jason
+
+
+
+From jason at redhat.com  Fri Mar  6 21:34:29 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Mar 2009 16:34:29 -0500
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B02408.1000405@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com> <49B02408.1000405@redhat.com>
+Message-ID: <49B196E5.8020906@redhat.com>
+
+Jason Merrill wrote:
+> Given that, the main thing that type stubs save us from needing to 
+> represent is new expressions, which cannot appear in a constant 
+> expression; other than that, they just save space in the mangled name.
+
+Expressions that still lack manglings:
+
+* alignof (type or expression)
+
+We definitely need to mangle alignof, and that's simple: just add 
+alignof operator names.  How about "at" and "az" to be parallel to the 
+sizeof codes?
+
+* functional cast with other than 1 argument
+
+We definitely need to mangle functional casts with != 1 argument; this 
+need has been there for a while.  Since we already have a mangling for 
+the single argument, we need to leave that alone (though there is a 
+disagreement in existing practice).  So either we need a different 
+operator name than "cv", or we need an introducer for the list of 
+expressions.  We can't use 'I', because that would be ambiguous; it 
+could also be introducing the template args for the type of the 
+conversion.  I'm currently wrapping the list of arguments in '_'/'E', 
+but am in no way attached to that.
+
+* Separate cast forms
+
+Currently EDG and g++ mangle static_cast, const_cast, C cast and 
+functional cast the same (cv type expr), and g++ doesn't support 
+mangling reinterpret_cast or dynamic_cast.  EDG also mangles 
+reinterpret_cast the same, and gets a substitution failure for dynamic_cast.
+
+The distinction between different cast varieties definitely affects the 
+validity of an expression, but it's not clear whether or not it can 
+cause a substitution failure.  It might fall under
+
+  - Attempting to perform an invalid conversion in either a template 
+argument expression, or an expression used in the function declaration.
+
+or not.  If not, there's no need for a distinct mangling.
+
+* new
+
+I'm not sure why someone would want to write decltype/sizeof(new T) 
+rather than T*, but they could.
+
+* delete
+* throw
+
+These seem even less likely.
+
+And finally,
+* lambda
+
+Completely mangling lamba expressions in sizeof/decltype/alignof would 
+mean having to mangle arbitrary statements as well, which seems rather a 
+bridge too far.
+
+Jason
+
+
+From doug.gregor at gmail.com  Sun Mar  8 17:06:46 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Sun, 8 Mar 2009 10:06:46 -0700
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B196E5.8020906@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>
+	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>
+	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>
+Message-ID: <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+
+On Fri, Mar 6, 2009 at 2:34 PM, Jason Merrill <jason at redhat.com> wrote:
+> Jason Merrill wrote:
+>>
+>> Given that, the main thing that type stubs save us from needing to
+>> represent is new expressions, which cannot appear in a constant expression;
+>> other than that, they just save space in the mangled name.
+>
+> Expressions that still lack manglings:
+>
+> * alignof (type or expression)
+>
+> We definitely need to mangle alignof, and that's simple: just add alignof
+> operator names. ?How about "at" and "az" to be parallel to the sizeof codes?
+
+Sure.
+
+> * functional cast with other than 1 argument
+>
+> We definitely need to mangle functional casts with != 1 argument; this need
+> has been there for a while. ?Since we already have a mangling for the single
+> argument, we need to leave that alone (though there is a disagreement in
+> existing practice). ?So either we need a different operator name than "cv",
+> or we need an introducer for the list of expressions. ?We can't use 'I',
+> because that would be ambiguous; it could also be introducing the template
+> args for the type of the conversion. ?I'm currently wrapping the list of
+> arguments in '_'/'E', but am in no way attached to that.
+
+That seems reasonable to me.
+
+> * Separate cast forms
+>
+> Currently EDG and g++ mangle static_cast, const_cast, C cast and functional
+> cast the same (cv type expr), and g++ doesn't support mangling
+> reinterpret_cast or dynamic_cast. ?EDG also mangles reinterpret_cast the
+> same, and gets a substitution failure for dynamic_cast.
+>
+> The distinction between different cast varieties definitely affects the
+> validity of an expression, but it's not clear whether or not it can cause a
+> substitution failure. ?It might fall under
+
+14.8.2p8 (in n2800) makes it pretty clear that any expression can
+cause a substitution failure; the list of bullets is just a note, now.
+
+> * new
+>
+> I'm not sure why someone would want to write decltype/sizeof(new T) rather
+> than T*, but they could.
+
+... and they will, if only as a metaprogramming trick to determine
+whether there is a "new" operator for the type.
+
+> * delete
+> * throw
+>
+> These seem even less likely.
+
+Same here.
+
+> And finally,
+> * lambda
+>
+> Completely mangling lamba expressions in sizeof/decltype/alignof would mean
+> having to mangle arbitrary statements as well, which seems rather a bridge
+> too far.
+
+Yes, it does. I suggest that we consider all lambda expressions with
+the same parameter type lists and return type (if provided) to be
+"functionally equivalent". That way, we need only mangle the lambda's
+call signature and not its body.
+
+And, although it doesn't have any direct impact on the ABI, I think we
+also need to say that failures substituting into the body of a lambda
+are not substitution failures.
+
+  - Doug
+
+
+From jhs at edg.com  Sun Mar  8 19:32:51 2009
+From: jhs at edg.com (John H. Spicer)
+Date: Sun, 8 Mar 2009 15:32:51 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com> <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+Message-ID: <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com>
+
+
+On Mar 8, 2009, at 1:06 PM, Doug Gregor wrote:
+
+>
+>
+>> And finally,
+>> * lambda
+>>
+>> Completely mangling lamba expressions in sizeof/decltype/alignof  
+>> would mean
+>> having to mangle arbitrary statements as well, which seems rather a  
+>> bridge
+>> too far.
+>
+> Yes, it does. I suggest that we consider all lambda expressions with
+> the same parameter type lists and return type (if provided) to be
+> "functionally equivalent". That way, we need only mangle the lambda's
+> call signature and not its body.
+>
+> And, although it doesn't have any direct impact on the ABI, I think we
+> also need to say that failures substituting into the body of a lambda
+> are not substitution failures.
+
+I'm not sure what you mean by this.    Do you mean you don't  
+substitute into a lambda body and if you select the function you get a  
+hard error?
+
+Is there any reason not to just say that doing substitution on an  
+lambda expression results in a substitution failure?  In other words,  
+something like:
+
+template <class T> void f(T, decltype([](T t){ /* something */ }* t){}
+
+would not be callable?
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090308/3e550dec/attachment.html>
+
+From jhs at edg.com  Mon Mar  9 15:29:45 2009
+From: jhs at edg.com (John H. Spicer)
+Date: Mon, 9 Mar 2009 11:29:45 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903090821s3b64034cl15ebe58a84f81bd5@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com> <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com> <24b520d20903090821s3b64034cl15ebe58a84f81bd5@mail.gmail.com>
+Message-ID: <52E63F7B-14F8-44E4-B296-012AA9A44718@edg.com>
+
+
+On Mar 9, 2009, at 11:21 AM, Doug Gregor wrote:
+
+> On Sun, Mar 8, 2009 at 12:32 PM, John H. Spicer <jhs at edg.com> wrote:
+>>
+>>
+>> Is there any reason not to just say that doing substitution on an  
+>> lambda
+>> expression results in a substitution failure?
+>
+> Implementation cost, for one. We currently have to be able to recover
+> from a substitution failure in any expression or type. If we say that
+> substitution into a lambda cannot result in a hard error, it means
+> that we have to be able to recover from substitution failures in any
+> statement that occurs in the lambda.
+>
+
+No, what I'm saying is that you never actually attempt the  
+substitution.   If you encounter a lambda expression when doing  
+substitution you just always fail.
+
+John.
+
+
+From doug.gregor at gmail.com  Mon Mar  9 15:21:39 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 9 Mar 2009 08:21:39 -0700
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>
+	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>
+	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>
+	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+	 <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com>
+Message-ID: <24b520d20903090821s3b64034cl15ebe58a84f81bd5@mail.gmail.com>
+
+On Sun, Mar 8, 2009 at 12:32 PM, John H. Spicer <jhs at edg.com> wrote:
+>
+> On Mar 8, 2009, at 1:06 PM, Doug Gregor wrote:
+>
+>
+> And finally,
+>
+> * lambda
+>
+> Completely mangling lamba expressions in sizeof/decltype/alignof would mean
+>
+> having to mangle arbitrary statements as well, which seems rather a bridge
+>
+> too far.
+>
+> Yes, it does. I suggest that we consider all lambda expressions with
+> the same parameter type lists and return type (if provided) to be
+> "functionally equivalent". That way, we need only mangle the lambda's
+> call signature and not its body.
+>
+> And, although it doesn't have any direct impact on the ABI, I think we
+> also need to say that failures substituting into the body of a lambda
+> are not substitution failures.
+>
+> I'm not sure what you mean by this. ? ?Do you mean you don't substitute into
+> a lambda body and if you select the function you get a hard error?
+
+I mean that, if substitution fails, it's a hard error rather than a
+substitution failure from which the compiler must recover.
+
+> Is there any reason not to just say that doing substitution on an lambda
+> expression results in a substitution failure?
+
+Implementation cost, for one. We currently have to be able to recover
+from a substitution failure in any expression or type. If we say that
+substitution into a lambda cannot result in a hard error, it means
+that we have to be able to recover from substitution failures in any
+statement that occurs in the lambda.
+
+Also, Jaakko and I discussed this for a bit, and we can only find
+"evil" uses for this feature [*]. In part, because of:
+
+>?In other words, something
+> like:
+> template <class T> void f(T, decltype([](T t){ /* something */ }* t){}
+> would not be callable?
+
+It's not going to be callable anyway, since you won't be able to
+create an object with the same type as the lambda. In fact, it looks
+like the only way to meaningfully use a lambda within the signature of
+a template involves sizeof(), and one could question whether such a
+thing is really meaningful.
+
+That would change slightly if the unified function syntax proposal
+gets accepted, because one could then write, e.g.,
+
+  template<typename T>
+    [] f(T) -> auto { return [](T t, T t) { return t + t; } }
+
+There, we actually have a useful formulation where a lambda's type
+shows up in the signature.
+
+  - Doug
+
+[*] Evil use #1: replicate the body of the template within the lambda,
+so that it's a SFINAE case if the template definition would fail to
+compile.
+
+
+From daveed at edg.com  Mon Mar  9 15:49:07 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 9 Mar 2009 11:49:07 -0400
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com>
+Message-ID: <20DEB312-E433-4847-9092-0208D3DD5660@edg.com>
+
+I didn't see any reactions to the ideas below, but I'd still like to  
+hear "yays" or "nays" on this topic.
+
+Furthermore, during the WG21 meeting last week, another wrinkle came  
+up (see below)...
+
+On Feb 19, 2009, at 11:37 AM, David Vandevoorde wrote:
+
+> Hello,
+>
+> I'd like to continue some discussion on the topic of mangling lambda  
+> closure types.
+>
+> In the thread of December, I suggested:
+>
+> On Dec 17, 2008, at 11:00 AM, David Vandevoorde wrote:
+>
+>>
+>> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>>
+>>> Doug Gregor wrote:
+>>>>
+>>>> We need something that encodes the context of the lambda (function
+>>>> "::foo" with no parameters) followed by, perhaps, a numbering  
+>>>> scheme
+>>>> within that context. The context encoding needs to account for (at
+>>>> least) inline functions, classes, and namespaces.
+>>>>
+>>>
+>>> This sounds like a problem that must have been encountered  
+>>> before.  Is there already a solution for it?  At least for the  
+>>> unnumbered portion?
+>>
+>>
+>> Yes, see 5.1.6.  We can reuse that general scheme for local  
+>> lambdas.  E.g.:
+>>
+>> 	<local-lambda-name> := Z <function encoding> E l [<discriminator>]
+>>
+>> and maybe introduce something similar for local unnamed classes:
+>>
+>> 	<local-unnamed-class_name> := Z <function encoding> E u  
+>> [<discriminator>]
+>>
+>>
+>> A tougher problem are namespace-scope lambdas (e.g., in  
+>> initializers or default arguments).  There a discriminator count  
+>> cannot be scope based (since the mangling then could depend on  
+>> which header files were previously included, etc.).
+>
+>
+> Later in that thread, I also suggested that nonlocal uses of lambdas  
+> don't need to be matched across translation units, because they'd  
+> have different types in two translation units.  For example:
+>
+> 	// File x.h:
+> 	decltype([]{}) *p;  // ODR violation-bait
+>
+> 	// File y.c:
+> 	#include "x.h"
+>
+> 	// File z.c:
+> 	#include "x.h"
+>
+> The occurrence of the lambda in y.c and z.c produces two distinct  
+> types, and so both translation units cannot be part of the same  
+> program.
+
+
+
+While the reasoning above is probably fine for non-template entities,  
+it is not for templates.  For example:
+
+	template<typename T> struct X { static int i; };
+	template<typename T> int X<T>::i = []()->int { return 3; }();
+
+This clearly should work and I think the lambda's encoding should be  
+independent of the translation unit that instantiates the lambda.
+
+Another "ODR-proof" example is
+
+	template<typename T>
+	void buzz(std::function<void(T)> fn = std::function<void(T)>([](T){}));
+
+which probably also must work.
+
+I see no alternative to encoding these based on the "top-level" entity  
+(static data member instance in the first case, function instance in  
+the second case).  Does anyone have a better idea?
+
+
+>
+> That said, an encoding is probably needed for lambdas that appear in  
+> a class definition.  E.g.:
+>
+> 	struct S {
+> 	  typedef decltype([]()) LT;
+> 	  void f(LT);
+> 	};
+>
+> which means that the minimal encoding above should be extended to  
+> cover lambdas in nonlocal class definitions.
+>
+>
+> We're also wondering if it would be worthwhile to add some  
+> additional information to the minimal encoding so that the demangled  
+> version can be more useful to programmers.
+>
+> For example, with a minimal encoding as proposed, the demangled  
+> output might look like:
+> 	lambda#1 in f(int)
+> which doesn't say much about the lambda's salient properties.
+>
+> Would it be worthwhile to also encode the "signature" of the  
+> operator() so that we could instead demangle it as
+> 	lambda(int)->void in f(int) (#1)
+> ?
+
+
+I'm still interested in hearing comments on those issues...
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Mon Mar  9 16:31:37 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 9 Mar 2009 09:31:37 -0700
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <52E63F7B-14F8-44E4-B296-012AA9A44718@edg.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>
+	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>
+	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>
+	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+	 <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com>
+	 <24b520d20903090821s3b64034cl15ebe58a84f81bd5@mail.gmail.com>
+	 <52E63F7B-14F8-44E4-B296-012AA9A44718@edg.com>
+Message-ID: <24b520d20903090931g133f8cd6jda769994b3ff2af6@mail.gmail.com>
+
+On Mon, Mar 9, 2009 at 8:29 AM, John H. Spicer <jhs at edg.com> wrote:
+>
+> On Mar 9, 2009, at 11:21 AM, Doug Gregor wrote:
+>
+>> On Sun, Mar 8, 2009 at 12:32 PM, John H. Spicer <jhs at edg.com> wrote:
+>>>
+>>>
+>>> Is there any reason not to just say that doing substitution on an lambda
+>>> expression results in a substitution failure?
+>>
+>> Implementation cost, for one. We currently have to be able to recover
+>> from a substitution failure in any expression or type. If we say that
+>> substitution into a lambda cannot result in a hard error, it means
+>> that we have to be able to recover from substitution failures in any
+>> statement that occurs in the lambda.
+>>
+>
+> No, what I'm saying is that you never actually attempt the substitution.
+> If you encounter a lambda expression when doing substitution you just always
+> fail.
+
+Oh. So a function template like, e.g.,
+
+  template<typename T> void f(A<sizeof([](int) { return 0; })> *a = 0);
+
+could never be instantiated or invoked. In that case, I'd rather just
+ban the use of lambdas in sizeof and decltype. Issue 766 deals with
+this, and a favorable resolution there could make this
+mangling-the-body-of-a-lambda issue go away.
+
+  - Doug
+
+
+From jhs at edg.com  Mon Mar  9 16:51:57 2009
+From: jhs at edg.com (John H. Spicer)
+Date: Mon, 9 Mar 2009 12:51:57 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903090931g133f8cd6jda769994b3ff2af6@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com> <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com> <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <E8EBE1B7-3BCE-4CA7-A851-A8881A1238C7@edg.com> <24b520d20903090821s3b64034cl15ebe58a84f81bd5@mail.gmail.com> <52E63F7B-14F8-44E4-B296-012AA9A44718@edg.com> <24b520d20903090931g133f8cd6jda769994b3ff2af6@mail.gmail.com>
+Message-ID: <B9306F8D-E194-42FC-819D-10E53F2C716A@edg.com>
+
+
+On Mar 9, 2009, at 12:31 PM, Doug Gregor wrote:
+
+> On Mon, Mar 9, 2009 at 8:29 AM, John H. Spicer <jhs at edg.com> wrote:
+>>
+>> On Mar 9, 2009, at 11:21 AM, Doug Gregor wrote:
+>>
+>>> On Sun, Mar 8, 2009 at 12:32 PM, John H. Spicer <jhs at edg.com> wrote:
+>>>>
+>>>>
+>>>> Is there any reason not to just say that doing substitution on an  
+>>>> lambda
+>>>> expression results in a substitution failure?
+>>>
+>>> Implementation cost, for one. We currently have to be able to  
+>>> recover
+>>> from a substitution failure in any expression or type. If we say  
+>>> that
+>>> substitution into a lambda cannot result in a hard error, it means
+>>> that we have to be able to recover from substitution failures in any
+>>> statement that occurs in the lambda.
+>>>
+>>
+>> No, what I'm saying is that you never actually attempt the  
+>> substitution.
+>> If you encounter a lambda expression when doing substitution you  
+>> just always
+>> fail.
+>
+> Oh. So a function template like, e.g.,
+>
+>  template<typename T> void f(A<sizeof([](int) { return 0; })> *a = 0);
+>
+> could never be instantiated or invoked. In that case, I'd rather just
+> ban the use of lambdas in sizeof and decltype. Issue 766 deals with
+> this, and a favorable resolution there could make this
+> mangling-the-body-of-a-lambda issue go away.
+>
+>
+
+That works for me.
+
+John.
+
+
+
+From jason at redhat.com  Wed Mar 11 16:34:23 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Mar 2009 12:34:23 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B7E615.1060707@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <49B7E615.1060707@redhat.com>
+Message-ID: <49B7E80F.8030905@redhat.com>
+
+Jason Merrill wrote:
+> If we're dropping type stubs, that reintroduces the issue of what to do 
+> with function parameters.  I think it may still make sense to use type 
+> stubs for them; the name of the parameter is not part of the signature, 
+> and I don't think it's possible, given two parameters of the same type, 
+> for it to make a difference which one you use in a decltype/sizeof 
+> expression.  Alternatively, we could just introduce a mangling for 
+> "function parameter N".  Which might be simpler.
+
+On the other hand, I am sorry to give up the property that
+
+   decltype (*(T*)0 + *(T*)0) f (T t);
+and
+   auto f(T t) -> decltype (t + t)
+
+have the same signature.  Maybe just use type stubs for function 
+parameters and *(T*)0?
+
+Jason
+
+
+From jason at redhat.com  Wed Mar 11 16:25:57 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Mar 2009 12:25:57 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+Message-ID: <49B7E615.1060707@redhat.com>
+
+Doug Gregor wrote:
+> On Fri, Mar 6, 2009 at 2:34 PM, Jason Merrill <jason at redhat.com> wrote:
+>> * Separate cast forms
+>>
+>> Currently EDG and g++ mangle static_cast, const_cast, C cast and functional
+>> cast the same (cv type expr), and g++ doesn't support mangling
+>> reinterpret_cast or dynamic_cast.  EDG also mangles reinterpret_cast the
+>> same, and gets a substitution failure for dynamic_cast.
+>>
+>> The distinction between different cast varieties definitely affects the
+>> validity of an expression, but it's not clear whether or not it can cause a
+>> substitution failure.
+> 
+> 14.8.2p8 (in n2800) makes it pretty clear that any expression can
+> cause a substitution failure; the list of bullets is just a note, now.
+
+Good point.  So they really should all be mangled differently, though 
+C-style and functional casts can stay the same.  But that's a binary 
+incompatibility that should probably wait until we're ready to deploy a 
+bunch of binary-incompatible changes.
+
+If we're dropping type stubs, that reintroduces the issue of what to do 
+with function parameters.  I think it may still make sense to use type 
+stubs for them; the name of the parameter is not part of the signature, 
+and I don't think it's possible, given two parameters of the same type, 
+for it to make a difference which one you use in a decltype/sizeof 
+expression.  Alternatively, we could just introduce a mangling for 
+"function parameter N".  Which might be simpler.
+
+Jason
+
+
+From jhs at edg.com  Wed Mar 11 16:57:59 2009
+From: jhs at edg.com (John H. Spicer)
+Date: Wed, 11 Mar 2009 12:57:59 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B7E80F.8030905@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <49B7E615.1060707@redhat.com> <49B7E80F.8030905@redhat.com>
+Message-ID: <9FC55C59-5AE5-44A7-B9B3-C368E36CBC43@edg.com>
+
+
+On Mar 11, 2009, at 12:34 PM, Jason Merrill wrote:
+
+> Jason Merrill wrote:
+>> If we're dropping type stubs, that reintroduces the issue of what  
+>> to do with function parameters.  I think it may still make sense to  
+>> use type stubs for them; the name of the parameter is not part of  
+>> the signature, and I don't think it's possible, given two  
+>> parameters of the same type, for it to make a difference which one  
+>> you use in a decltype/sizeof expression.  Alternatively, we could  
+>> just introduce a mangling for "function parameter N".  Which might  
+>> be simpler.
+>
+> On the other hand, I am sorry to give up the property that
+>
+>  decltype (*(T*)0 + *(T*)0) f (T t);
+> and
+>  auto f(T t) -> decltype (t + t)
+>
+> have the same signature.  Maybe just use type stubs for function  
+> parameters and *(T*)0?
+>
+>
+
+If your program uses both forms of that declaration it is already ill- 
+formed because the declarations are functionally equivalent but not  
+equivalent by the rules in 14.5.6.1.
+
+John.
+
+
+
+From daveed at edg.com  Wed Mar 11 17:00:50 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Mar 2009 13:00:50 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B7E615.1060707@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <49B7E615.1060707@redhat.com>
+Message-ID: <8237573F-0037-4C3A-AFFA-35302D41E7B4@edg.com>
+
+
+On Mar 11, 2009, at 12:25 PM, Jason Merrill wrote:
+[...]
+>   Alternatively, we could just introduce a mangling for "function  
+> parameter N".  Which might be simpler.
+
+
+And allows for nicer demangling.  I prefer that direction.
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Wed Mar 11 17:34:11 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 11 Mar 2009 10:34:11 -0700
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B7E615.1060707@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>
+	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>
+	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>
+	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>
+	 <49B7E615.1060707@redhat.com>
+Message-ID: <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com>
+
+On Wed, Mar 11, 2009 at 9:25 AM, Jason Merrill <jason at redhat.com> wrote:
+> Doug Gregor wrote:
+>>
+>> On Fri, Mar 6, 2009 at 2:34 PM, Jason Merrill <jason at redhat.com> wrote:
+>>>
+>>> * Separate cast forms
+>>>
+>>> Currently EDG and g++ mangle static_cast, const_cast, C cast and
+>>> functional
+>>> cast the same (cv type expr), and g++ doesn't support mangling
+>>> reinterpret_cast or dynamic_cast. ?EDG also mangles reinterpret_cast the
+>>> same, and gets a substitution failure for dynamic_cast.
+>>>
+>>> The distinction between different cast varieties definitely affects the
+>>> validity of an expression, but it's not clear whether or not it can cause
+>>> a
+>>> substitution failure.
+>>
+>> 14.8.2p8 (in n2800) makes it pretty clear that any expression can
+>> cause a substitution failure; the list of bullets is just a note, now.
+>
+> Good point. ?So they really should all be mangled differently, though
+> C-style and functional casts can stay the same. ?But that's a binary
+> incompatibility that should probably wait until we're ready to deploy a
+> bunch of binary-incompatible changes.
+
+Do casts within mangled sizeof()s actually work well in any compiler?
+If not, then we might have more wiggle-room to fix this sooner rather
+than later.
+
+> If we're dropping type stubs, that reintroduces the issue of what to do with
+> function parameters. ?I think it may still make sense to use type stubs for
+> them; the name of the parameter is not part of the signature, and I don't
+> think it's possible, given two parameters of the same type, for it to make a
+> difference which one you use in a decltype/sizeof expression.
+> ?Alternatively, we could just introduce a mangling for "function parameter
+> N". ?Which might be simpler.
+
+I'd prefer the introduction of a mangling for "function parameter N".
+
+  - Doug
+
+
+From jason at redhat.com  Wed Mar 11 17:47:11 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Mar 2009 13:47:11 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <9FC55C59-5AE5-44A7-B9B3-C368E36CBC43@edg.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com> <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com> <49B7E615.1060707@redhat.com> <49B7E80F.8030905@redhat.com> <9FC55C59-5AE5-44A7-B9B3-C368E36CBC43@edg.com>
+Message-ID: <49B7F91F.7000903@redhat.com>
+
+John H. Spicer wrote:
+> On Mar 11, 2009, at 12:34 PM, Jason Merrill wrote:
+
+>>  decltype (*(T*)0 + *(T*)0) f (T t);
+>> and
+>>  auto f(T t) -> decltype (t + t)
+
+> If your program uses both forms of that declaration it is already 
+> ill-formed because the declarations are functionally equivalent but not 
+> equivalent by the rules in 14.5.6.1.
+
+Yes, but I like the idea of giving library implementers the ability to 
+switch between the two forms without affecting binary compatibility. 
+But perhaps that's just a one-time transition issue.
+
+Jason
+
+
+From jason at redhat.com  Wed Mar 11 17:45:11 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Mar 2009 13:45:11 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>	 <49B7E615.1060707@redhat.com> <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com>
+Message-ID: <49B7F8A7.1040107@redhat.com>
+
+Doug Gregor wrote:
+> On Wed, Mar 11, 2009 at 9:25 AM, Jason Merrill <jason at redhat.com> wrote:
+>> So [different casts] really should all be mangled differently, though
+>> C-style and functional casts can stay the same.  But that's a binary
+>> incompatibility that should probably wait until we're ready to deploy a
+>> bunch of binary-incompatible changes.
+> 
+> Do casts within mangled sizeof()s actually work well in any compiler?
+> If not, then we might have more wiggle-room to fix this sooner rather
+> than later.
+
+Casts can appear outside of sizeof(), and I don't feel comfortable 
+guessing that nobody is using *_cast that way.  Though as I think I 
+already mentioned, there's some incompatibility between compilers with 
+that already:
+
+template <class T, T t = static_cast<T>(0)>
+struct A { };
+
+template <class T>
+A<T> f(T t) { return A<T>(); }
+
+int main()
+{
+   f(42);
+}
+
+gives
+_Z1fIiE1AIT_XLi0EEES1_ with EDG (12/08/2008),
+_Z1fIiE1AIT_XcvS1_Li0EEES1_ with G++.
+i.e. EDG drops the conversion entirely.  Changing the type of 't' to int 
+and the argument to f to char, I get
+
+_Z1fIcE1AIT_XcviLi0EEES1_ with EDG,
+_Z1fIcE1AIT_XcvS1_Li0EEES1_ with G++.
+Here EDG represents the conversion, but it's to the wrong type.
+
+Jason
+
+
+From jason at redhat.com  Wed Mar 11 19:24:36 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 11 Mar 2009 15:24:36 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>	 <49B7E615.1060707@redhat.com> <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com>
+Message-ID: <49B80FF4.3000606@redhat.com>
+
+Doug Gregor wrote:
+> I'd prefer the introduction of a mangling for "function parameter N".
+
+I was thinking that to handle local classes, such a mangling will need 
+to indicate which function the parameter belongs to.  But I guess that 
+isn't really necessary since we can't have a template with a signature 
+inside a function.
+
+So, how about a mangling like that for template parms, but starting with 
+"fp" rather than "T"?
+
+Jason
+
+
+
+From daveed at edg.com  Wed Mar 11 22:08:51 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Mar 2009 18:08:51 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B80FF4.3000606@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>	 <49B7E615.1060707@redhat.com> <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com> <49B80FF4.3000606@redhat.com>
+Message-ID: <B4C1220D-4FE7-4CC3-A6FF-9D875B696623@edg.com>
+
+
+On Mar 11, 2009, at 3:24 PM, Jason Merrill wrote:
+
+> Doug Gregor wrote:
+>> I'd prefer the introduction of a mangling for "function parameter N".
+>
+> I was thinking that to handle local classes, such a mangling will  
+> need to indicate which function the parameter belongs to.  But I  
+> guess that isn't really necessary since we can't have a template  
+> with a signature inside a function.
+>
+> So, how about a mangling like that for template parms, but starting  
+> with "fp" rather than "T"?
+
+Sounds good to me.  This will be a new case for <operator-name>, right?
+
+	Daveed
+
+
+
+From jason at redhat.com  Thu Mar 12 05:31:43 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 12 Mar 2009 01:31:43 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <B4C1220D-4FE7-4CC3-A6FF-9D875B696623@edg.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>	 <49B7E615.1060707@redhat.com> <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com> <49B80FF4.3000606@redhat.com> <B4C1220D-4FE7-4CC3-A6FF-9D875B696623@edg.com>
+Message-ID: <49B89E3F.10308@redhat.com>
+
+David Vandevoorde wrote:
+> On Mar 11, 2009, at 3:24 PM, Jason Merrill wrote:
+>> Doug Gregor wrote:
+>>> I'd prefer the introduction of a mangling for "function parameter N".
+
+>> So, how about a mangling like that for template parms, but starting 
+>> with "fp" rather than "T"?
+
+> Sounds good to me.  This will be a new case for <operator-name>, right?
+
+Well, it's another two-letter abbreviation that can occur at the 
+beginning of an expression, but it can't appear as an unqualified-name 
+and it doesn't have expression operands...
+
+Jason
+
+
+
+From jason at redhat.com  Thu Mar 12 05:45:44 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 12 Mar 2009 01:45:44 -0400
+Subject: [cxx-abi-dev] Mangling sizeof
+In-Reply-To: <49B80FF4.3000606@redhat.com>
+References: <200903050240.SAA27835@hpcll183.cup.hp.com>	 <49AFDE65.4060404@redhat.com> <49AFE211.8070105@redhat.com>	 <49B02408.1000405@redhat.com> <49B196E5.8020906@redhat.com>	 <24b520d20903081006j2b5c028n6b8a15f9ebb6c0dd@mail.gmail.com>	 <49B7E615.1060707@redhat.com> <24b520d20903111034rd02017o25eb497a12ab0e99@mail.gmail.com> <49B80FF4.3000606@redhat.com>
+Message-ID: <49B8A188.1020509@redhat.com>
+
+Jason Merrill wrote:
+> So, how about a mangling like that for template parms, but starting with 
+> "fp" rather than "T"?
+
+Patch:
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi-090312.patch
+Type: text/x-patch
+Size: 6483 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090312/e3f60a8f/attachment.bin>
+
+From daveed at edg.com  Wed Mar 18 18:10:37 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 18 Mar 2009 14:10:37 -0400
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <20DEB312-E433-4847-9092-0208D3DD5660@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com> <20DEB312-E433-4847-9092-0208D3DD5660@edg.com>
+Message-ID: <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com>
+
+I didn't get any reactions on this topic, so I went ahead with writing  
+up the ABI changes that I think would make sense.  Diffs attached.
+
+Noteworthy:
+   - The "signature" of the lambda is encoded
+   - Lambdas in default arguments are encoded only if the default  
+argument appears in a function or class definition
+
+Let me know what you think.
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ia64_lambda.diffs
+Type: application/octet-stream
+Size: 12435 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090318/aa661f45/attachment.obj>
+-------------- next part --------------
+
+
+From mark at codesourcery.com  Thu Mar 19 16:43:35 2009
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 19 Mar 2009 09:43:35 -0700
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com> <20DEB312-E433-4847-9092-0208D3DD5660@edg.com> <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com>
+Message-ID: <49C27637.1090204@codesourcery.com>
+
+David Vandevoorde wrote:
+> I didn't get any reactions on this topic, so I went ahead with writing
+> up the ABI changes that I think would make sense.  Diffs attached.
+
+If there are no objections, I'll check this in in a week.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Mon Mar 23 22:09:22 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 23 Mar 2009 18:09:22 -0400
+Subject: Function call mangling again
+Message-ID: <49C80892.7040305@redhat.com>
+
+While looking at some late return type manglings, I noticed another 
+issue with function calls: now we know how to mangle the arguments, but 
+we still need to specify how we mangle what's being called.  For an 
+expression that contains a call to a template function "f", g++ will 
+currently emit L_Z1fE, trying to use the mangled name of the template. 
+I think just using source-name for a dependent name, like "1f", would be 
+more appropriate, though I haven't looked to see if that creates 
+ambiguities yet.
+
+Jason
+
+
+
+From doug.gregor at gmail.com  Thu Mar 26 01:18:53 2009
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 25 Mar 2009 18:18:53 -0700
+Subject: [cxx-abi-dev] Function call mangling again
+In-Reply-To: <49C80892.7040305@redhat.com>
+References: <49C80892.7040305@redhat.com>
+Message-ID: <311CD8D4-3190-43CF-ACA0-E85F9A640296@gmail.com>
+
+
+  Mar 23, 2009, at 3:09 PM, Jason Merrill <jason at redhat.com> wrote:
+
+> While looking at some late return type manglings, I noticed another  
+> issue with function calls: now we know how to mangle the arguments,  
+> but we still need to specify how we mangle what's being called.  For  
+> an expression that contains a call to a template function "f", g++  
+> will currently emit L_Z1fE, trying to use the mangled name of the  
+> template. I think just using source-name for a dependent name, like  
+> "1f", would be more appropriate, though I haven't looked to see if  
+> that creates ambiguities yet.
+
+Mangling just the source name seems reasonable for a dependent name.  
+Would we then mangle (f) as a parentheses expression whose  
+subexpression is the source name?
+
+   - Doug
+
+
+From daveed at edg.com  Thu Mar 26 20:37:56 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 26 Mar 2009 16:37:56 -0400
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <49C27637.1090204@codesourcery.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com> <20DEB312-E433-4847-9092-0208D3DD5660@edg.com> <30EE21E0-FDF6-471D-8A1E-180580BB75C1@edg.com> <49C27637.1090204@codesourcery.com>
+Message-ID: <04D69AFA-96FF-4612-98C2-072A562EB916@edg.com>
+
+
+On Mar 19, 2009, at 12:43 PM, Mark Mitchell wrote:
+
+> David Vandevoorde wrote:
+>> I didn't get any reactions on this topic, so I went ahead with  
+>> writing
+>> up the ABI changes that I think would make sense.  Diffs attached.
+>
+> If there are no objections, I'll check this in in a week.
+
+
+We found some problems (or at least, lack of clarity) in my previous  
+words.  Attached is a revision.
+
+Of note:
+   - A pre-existing example in 5.1.6 was wrong in various ways (didn't  
+compile, and after the straightforward fix, the mangled names were not  
+as indicated).  Now fixed.
+
+   - I made it clearer that members of local classes are mangled as  
+any other class members (string literals aren't members, and their  
+discriminator count can continue into a local class).
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ia64_lambda.diffs
+Type: application/octet-stream
+Size: 15463 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20090326/f235974d/attachment.obj>
+-------------- next part --------------
+
+
+From jason at redhat.com  Fri Mar 27 18:18:09 2009
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 27 Mar 2009 14:18:09 -0400
+Subject: [cxx-abi-dev] Function call mangling again
+In-Reply-To: <311CD8D4-3190-43CF-ACA0-E85F9A640296@gmail.com>
+References: <49C80892.7040305@redhat.com> <311CD8D4-3190-43CF-ACA0-E85F9A640296@gmail.com>
+Message-ID: <49CD1861.7050107@redhat.com>
+
+Doug Gregor wrote:
+> Mangling just the source name seems reasonable for a dependent name. 
+> Would we then mangle (f) as a parentheses expression whose subexpression 
+> is the source name?
+
+Well, we don't currently have a mangling for parentheses, so we would 
+need to invent something, either to represent the parens or a modifier 
+for the call to indicate that we don't do arg-dependent lookup.
+
+Jason
+
+
+From daveed at edg.com  Fri Mar 27 18:49:58 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 27 Mar 2009 14:49:58 -0400
+Subject: [cxx-abi-dev] Function call mangling again
+In-Reply-To: <49CD1861.7050107@redhat.com>
+References: <49C80892.7040305@redhat.com> <311CD8D4-3190-43CF-ACA0-E85F9A640296@gmail.com> <49CD1861.7050107@redhat.com>
+Message-ID: <77D8F4E2-15D5-48B2-9D7B-993F904C542D@edg.com>
+
+
+On Mar 27, 2009, at 2:18 PM, Jason Merrill wrote:
+
+> Doug Gregor wrote:
+>> Mangling just the source name seems reasonable for a dependent  
+>> name. Would we then mangle (f) as a parentheses expression whose  
+>> subexpression is the source name?
+>
+> Well, we don't currently have a mangling for parentheses, so we  
+> would need to invent something, either to represent the parens or a  
+> modifier for the call to indicate that we don't do arg-dependent  
+> lookup.
+
+
+I think I prefer encoding the parentheses, since there may be other  
+contexts where they matter (decltype?).
+
+	Daveed
+
+
+
+From dhandly at cup.hp.com  Mon Mar 30 23:06:30 2009
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 30 Mar 2009 16:06:30 -0700 (PDT)
+Subject: [cxx-abi-dev] Function call mangling again
+Message-ID: <200903302306.QAA21128@hpcll183.cup.hp.com>
+
+>From: David Vandevoorde <daveed at edg.com>
+>I think I prefer encoding the parentheses, since there may be other  
+>contexts where they matter (decltype?).
+
+If we include parentheses, do we then need to mention that all existing
+places where we don't need parentheses, we can't add this new operator?
+
+Some template expression like: (I1 + I2) * 4
+
+

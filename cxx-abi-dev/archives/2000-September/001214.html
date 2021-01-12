@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Interoperability of RTTI information
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Interoperability%20of%20RTTI%20information&In-Reply-To=%3C200009271110.NAA24077%40pandora.informatik.hu-berlin.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001213.html">
+   <LINK REL="Next"  HREF="001215.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Interoperability of RTTI information</H1>
+    <B>Martin von Loewis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Interoperability%20of%20RTTI%20information&In-Reply-To=%3C200009271110.NAA24077%40pandora.informatik.hu-berlin.de%3E"
+       TITLE="Interoperability of RTTI information">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Wed Sep 27 11:10:28 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001213.html">Agenda for 28 September meeting
+</A></li>
+        <LI>Next message: <A HREF="001215.html">Interoperability of RTTI information
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1214">[ date ]</a>
+              <a href="thread.html#1214">[ thread ]</a>
+              <a href="subject.html#1214">[ subject ]</a>
+              <a href="author.html#1214">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I have concerns that the current RTTI spec does not allow
+implementations to interoperate. The core of the issue is whether
+there should be a vtable pointer in class type_info.
+
+The current (modified) draft specifies no virtual functions. I believe
+it is not possible to implement this specification: Inside
+__dynamic_cast, you need to know whether the __class_type_info is a
+__si_class_type_info or a __vmi_class_type_info. Likewise, in
+exception handling, you need to know whether the types are
+__pointer_type_info or not, and whether the __pointee field is a
+__class_type_info.
+
+In extension of what is specified, the current GCC adds a number of
+virtual functions to the derived type_info classes, such as
+__is_function_p, __do_catch, __pointer_catch, and so on. However,
+unless specified in the ABI, other compilers won't fill the vtable
+pointers of the derived classes to point to gcc's vtables. With the
+current spec, the other compilers won't even allocate a vtable field.
+
+Furthermore, there is currently no guarantee that there is only a
+single vtable per type_info class if objects from multiple compilers
+are mixed. For example, in gcc, these vtables live in libgcc.a, which
+is incorporated into any shared library. If a different compiler uses
+the same strategy, you'd end up with two definitions for, say, the
+__vmi_class_type_info vtable - and they would have a different layout.
+
+I see two solutions:
+a) specify exactly which virtual functions must be provided to
+   implement the routines mandated by the ABI (i.e. dynamic cast
+   and EH matching)
+b) provide some basic identification mechanism on top of which
+   these ABI routines can be implemented. 
+
+I favour alternative b), and propose the following definitions
+
+  namespace std{
+     class type_info {
+      private:
+        const char *__type_name;
+        virtual ~type_info(); /* to give it a vtable */
+     };
+  }
+
+   namespace abi{
+     enum ti_kind{ /* in the order of exposition in 2.9.5.3 */
+       /* type_info is abstract */
+       fundamental_type_kind = 0,
+       array_type_kind = 1,
+       function_type_kind = 2, 
+       enum_type_kind = 3,
+       /* __class_type_info is abstract */
+       si_class_type_kind = 4,
+       vmi_class_type_kind = 5,
+       /* __pbase_type_info is abstract */
+       pointer_type_kind = 6,
+       pointer_to_member_type_kind = 7,
+     }
+
+     class type_info: std::type_info {
+       virtual ti_kind kind();
+     };
+   }
+
+All other type info classes inherit from abi::type_info. The leaf
+types override the kind() function, so the implementation must provide
+a suitable vtable for them.
+
+Disclaimer: I haven't actually verified that __dynamic_cast can be
+implement on top of these informations. If required, I'll try to
+produce a sample implementation in gcc.
+
+Regards,
+Martin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001213.html">Agenda for 28 September meeting
+</A></li>
+	<LI>Next message: <A HREF="001215.html">Interoperability of RTTI information
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1214">[ date ]</a>
+              <a href="thread.html#1214">[ thread ]</a>
+              <a href="subject.html#1214">[ subject ]</a>
+              <a href="author.html#1214">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

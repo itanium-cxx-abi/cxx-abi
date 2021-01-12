@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Decltype mangling and type dependency
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Decltype%20mangling%20and%20type%20dependency&In-Reply-To=%3CB5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002330.html">
+   <LINK REL="Next"  HREF="002334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Decltype mangling and type dependency</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Decltype%20mangling%20and%20type%20dependency&In-Reply-To=%3CB5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F%40edg.com%3E"
+       TITLE="[cxx-abi-dev] Decltype mangling and type dependency">mjh at edg.com
+       </A><BR>
+    <I>Sat Jun 19 19:52:54 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002330.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+        <LI>Next message: <A HREF="002334.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2333">[ date ]</a>
+              <a href="thread.html#2333">[ thread ]</a>
+              <a href="subject.html#2333">[ subject ]</a>
+              <a href="author.html#2333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Jun 17, 2010, at 3:14 PM, Jason Merrill wrote:
+
+&gt;<i> On 05/17/2010 08:20 PM, Mike Herrick wrote:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> But what about these similar cases:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   struct A {
+</I>&gt;&gt;<i>     int m;
+</I>&gt;&gt;<i>   } *pa;
+</I>&gt;&gt;<i>   int f(void);
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f1(T p1) -&gt;  decltype(pa-&gt;m); // _Z2f1IP1AEDtptL_Z2paE1mET_ or _Z2f1IP1AEiT_?
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f2(T p1) -&gt;  decltype(f());   // _Z2f2IPFivEEDTclL_Z1fvEEET_ or _Z2f2IPFivEEiT_?
+</I>&gt;&gt;<i>   int main() {
+</I>&gt;&gt;<i>     f1(pa);
+</I>&gt;&gt;<i>     f2(f);
+</I>&gt;&gt;<i>   }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Since the types of pa-&gt;m and f are non-dependent, is it required to mangle these with the full decltype expression mangling (as g++ 4.5 currently does)?
+</I>&gt;<i> 
+</I>&gt;<i> In the case of decltype(pa-&gt;m), access control might depend on the template parameters.
+</I>
+Could you expand on that?  How might access control depend on the template parameters in f1 above?
+
+&gt;<i> 
+</I>&gt;&gt;<i> Here are some other interesting cases:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   #include&lt;typeinfo&gt;
+</I>&gt;&gt;<i>   struct A {
+</I>&gt;&gt;<i>     A();
+</I>&gt;&gt;<i>     A(int i);
+</I>&gt;&gt;<i>     int m;
+</I>&gt;&gt;<i>   } a;
+</I>&gt;&gt;<i>   int f();
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f1(T p1) -&gt;  decltype(p1);
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f2(T p1) -&gt;  decltype(A(p1));
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f3(T p1) -&gt;  decltype(typeid(p1));
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f4(T p1) -&gt;  decltype(a.m);
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f5(T p1) -&gt;  decltype(a.A::m);
+</I>&gt;&gt;<i>   int main() {
+</I>&gt;&gt;<i>     f1(0);
+</I>&gt;&gt;<i>     f2(0);
+</I>&gt;&gt;<i>     f3(0);
+</I>&gt;&gt;<i>     f4(0);
+</I>&gt;&gt;<i>     f5(0);
+</I>&gt;&gt;<i>   }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> We believe f1, f2, and f3 require decltype manglings, while f4 and f5 do not (g++ 4.5 takes the opposite view on each of these).  Even though the typeid expression in f3 above is not type-dependent (always returning an lvalue of const std::type_info regardless of its argument), it can still be used in ways where a distinct mangling is required; for example:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f(T p) -&gt;  decltype(g(typeid(p))) { ... }
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f(T p) -&gt;  decltype(g(typeid(*p))) { ... }
+</I>&gt;<i> 
+</I>&gt;<i> Right.  Currently G++ just uses the type of non-type-dependent expressions that are not member access expressions, and of type-dependent expressions that are simple decls.  This does seem like an unnecessarily complex set, and is definitely wrong for f2 and f3.  I think G++ is right for f4 and f5 because of access control, and f1 is an aesthetic choice.
+</I>
+It sounds to me that you agree that in more complicated cases the full expression should be mangled, and you're wondering if perhaps the simple &quot;decltype(p1)&quot; case falls into that category?
+
+&gt;<i> 
+</I>&gt;&gt;<i> Similarly, we believe that constructors can be used in ways that require a full dependent mangling, as shown by this &quot;if it's valid, it always means one thing, but it might not be valid, which means new-style SFINAE could knock it out of the candidate set&quot; example:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f(T p) -&gt;  decltype(A(p)) { ... }
+</I>&gt;&gt;<i>   template&lt;class T&gt;  auto f(T p) -&gt;  decltype(A(p, 5)) { ... }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> This seems to argue for a third designation, &quot;partially-dependent&quot;, for cases where the expression type is non-dependent, but because of the new SFINAE rules, it can be distinguished by the programmer and therefore requires a distinct mangling (as though it were dependent).
+</I>&gt;<i> 
+</I>&gt;<i> The important thing is that we use different mangling for functions that are not functionally equivalent (14.5.6.1).  The definition of functionally equivalent doesn't mention well-formedness of the expression, but I think it can be read into it, since an ill-formed expression produces no value.
+</I>&gt;<i> 
+</I>&gt;<i> Adding value-dependency would get us closer, but that still doesn't cover f4 and f5 above.
+</I>&gt;<i> 
+</I>&gt;<i> Perhaps we should just always use the dependent mangling in template scope, as G++ does for sizeof.
+</I>
+I'm not sure what you mean by &quot;template scope&quot;.  Certainly some expressions in &quot;template scope&quot; are folded to constant results in current practice going back many years, and we wouldn't want to change that.  We could say that the new decltype/sizeof cases would always get a full expression, but there doesn't seem to be a good dividing line between &quot;old&quot; sizeof/decltype cases and &quot;new&quot; ones.  Though distinguishing between &quot;old&quot; and &quot;new&quot; cases would make it easier for backward compatibility (for example, introducing new manglings for static_cast, etc. in decltype expressions without breaking the existing ABI).
+
+We think it makes sense to mangle full expressions only for things that are dependent or value-dependent.
+
+Mike.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002330.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+	<LI>Next message: <A HREF="002334.html">[cxx-abi-dev] Decltype mangling and type dependency
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2333">[ date ]</a>
+              <a href="thread.html#2333">[ thread ]</a>
+              <a href="subject.html#2333">[ subject ]</a>
+              <a href="author.html#2333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

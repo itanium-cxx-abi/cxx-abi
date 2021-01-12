@@ -1,0 +1,446 @@
+From matthew at dempsky.org  Fri Jun  7 23:45:01 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Fri, 7 Jun 2013 16:45:01 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+Message-ID: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+
+It looks like GCC and Clang have both decided to use
+__cxa_thread_atexit() to register destructors for C++11 thread_local
+objects:
+
+http://gcc.gnu.org/viewcvs/gcc/trunk/gcc/cp/decl.c?view=co
+http://llvm.org/svn/llvm-project/cfe/trunk/lib/CodeGen/ItaniumCXXABI.cpp
+
+The semantics seem to be described here (but under the name
+__cxa_thread_atexit_impl()):
+
+http://sourceware.org/glibc/wiki/Destructor%20support%20for%20thread_local%20variables
+
+Can/will this function be added to the C++ ABI as well?
+
+It looks like there was some discussion about this back in September
+(http://sourcerytools.com/pipermail/cxx-abi-dev/2012-September/002472.html),
+but I don't see any subsequent discussion about standardizing the name
+and semantics.
+
+From matthew at dempsky.org  Tue Jun 11 04:59:41 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Mon, 10 Jun 2013 21:59:41 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point literals
+Message-ID: <CANKkrzEV3WRkwo-DRvTqR0cCSKxD_KT3nbc5pxYN3UMw07-dxg@mail.gmail.com>
+
+According to the C++ ABI:
+
+"Floating-point literals are encoded using a fixed-length lowercase
+hexadecimal string corresponding to the internal representation (IEEE
+on Itanium), high-order bytes first, without leading zeroes."
+
+Can someone please clarify for me how floating-point literals can be
+encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+how should 0.0f be encoded?
+
+From dhandly at cup.hp.com  Tue Jun 11 05:40:17 2013
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 10 Jun 2013 22:40:17 -0700 (PDT)
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+Message-ID: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+
+>From: Matthew Dempsky <matthew at dempsky.org>
+>"Floating-point literals are encoded using a fixed-length lowercase
+>hexadecimal string corresponding to the internal representation (IEEE
+>on Itanium), high-order bytes first, without leading zeroes."
+
+This seems a contradiction.  How can you have a fixed length and have
+"without"?  Unless you start with the fixed length, then remove.
+
+>Can someone please clarify for me how floating-point literals can be
+>encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>how should 0.0f be encoded?
+
+I would assume you remove all but the only zero nibble. 
+I.e. The last zero isn't leading.
+
+From dhandly at cup.hp.com  Tue Jun 11 05:53:09 2013
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 10 Jun 2013 22:53:09 -0700 (PDT)
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+Message-ID: <201306110553.r5B5r9I22668@adlwrk05.cce.hp.com>
+
+>From: Dennis Handly <dhandly at cup.hp.com>
+>>Can someone please clarify for me how floating-point literals can be
+>>encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>>how should 0.0f be encoded?
+
+>I would assume you remove all but the only zero nibble. 
+
+I did find:
+http://mentorembedded.github.io/cxx-abi/abi.html#mangle.number
+<number>s appearing in mangled names never have leading zeroes, except
+for the value zero, represented as '0'.
+
+Also there is no anchor for:
+http://mentorembedded.github.io/cxx-abi/abi.html#mangle.float
+
+It should point to:
+Literals
+...
+Floating-point literals ...
+
+From matthew at dempsky.org  Tue Jun 11 06:18:36 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Mon, 10 Jun 2013 23:18:36 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+Message-ID: <CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+
+On Mon, Jun 10, 2013 at 10:40 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>>From: Matthew Dempsky <matthew at dempsky.org>
+>>Can someone please clarify for me how floating-point literals can be
+>>encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>>how should 0.0f be encoded?
+>
+> I would assume you remove all but the only zero nibble.
+> I.e. The last zero isn't leading.
+
+For what it's worth, GCC 4.6.3 and Clang 3.2 when targeting
+x86_64-linux-gnu both mangle 0.0f as Lf00000000E.
+
+(But Clang 3.2 mangles 0.0l as Le3fff8000000000000000E, whereas GCC
+4.6.3 mangles it as Le0000000000003fff8000000000000000E.  I don't have
+newer versions readily available to check.)
+
+From mjh at edg.com  Tue Jun 11 12:31:01 2013
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 11 Jun 2013 08:31:01 -0400
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+Message-ID: <9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+
+This point appears to have come up multiple times over the years, with this post being the earliest I could find:
+
+http://communities.mentor.com/community/cs/archives/cxx-abi-dev/msg01527.html
+
+We proposed striking the "without leading zeros" wording in this post, but those changes were never integrated into the document:
+
+http://communities.mentor.com/community/cs/archives/cxx-abi-dev/msg02291.html
+
+Since then, the issue of mangling a floating-point zero was also brought up by Jason in a post titled "Mangling 0.0f" dated January 18, 2012 (the mailing list archives don't appear to cover newer posts):
+
+> I notice that G++ and EDG mangle 0.0f as Lf00000000E, while clang produces Lf0E.  I assume that the latter is based on the "without leading zeroes" in the ABI document, while the former is based on the "fixed-length" earlier in the sentence.
+
+
+It seems the document should be updated to prevent future confusion.
+
+Mike Herrick
+Edison Design Group
+
+On Jun 11, 2013, at 2:18 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+
+> On Mon, Jun 10, 2013 at 10:40 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>>> From: Matthew Dempsky <matthew at dempsky.org>
+>>> Can someone please clarify for me how floating-point literals can be
+>>> encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>>> how should 0.0f be encoded?
+>> 
+>> I would assume you remove all but the only zero nibble.
+>> I.e. The last zero isn't leading.
+> 
+> For what it's worth, GCC 4.6.3 and Clang 3.2 when targeting
+> x86_64-linux-gnu both mangle 0.0f as Lf00000000E.
+> 
+> (But Clang 3.2 mangles 0.0l as Le3fff8000000000000000E, whereas GCC
+> 4.6.3 mangles it as Le0000000000003fff8000000000000000E.  I don't have
+> newer versions readily available to check.)
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From matthew at dempsky.org  Wed Jun 12 16:27:32 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Wed, 12 Jun 2013 09:27:32 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+Message-ID: <CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+
+Ah, thanks for the background, Mike!
+
+What needs to be done then to ensure the document gets updated?
+Should I file a proper bug report somewhere?
+
+On Tue, Jun 11, 2013 at 5:31 AM, Mike Herrick <mjh at edg.com> wrote:
+> This point appears to have come up multiple times over the years, with this post being the earliest I could find:
+>
+> http://communities.mentor.com/community/cs/archives/cxx-abi-dev/msg01527.html
+>
+> We proposed striking the "without leading zeros" wording in this post, but those changes were never integrated into the document:
+>
+> http://communities.mentor.com/community/cs/archives/cxx-abi-dev/msg02291.html
+>
+> Since then, the issue of mangling a floating-point zero was also brought up by Jason in a post titled "Mangling 0.0f" dated January 18, 2012 (the mailing list archives don't appear to cover newer posts):
+>
+>> I notice that G++ and EDG mangle 0.0f as Lf00000000E, while clang produces Lf0E.  I assume that the latter is based on the "without leading zeroes" in the ABI document, while the former is based on the "fixed-length" earlier in the sentence.
+>
+>
+> It seems the document should be updated to prevent future confusion.
+>
+> Mike Herrick
+> Edison Design Group
+>
+> On Jun 11, 2013, at 2:18 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+>
+>> On Mon, Jun 10, 2013 at 10:40 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>>>> From: Matthew Dempsky <matthew at dempsky.org>
+>>>> Can someone please clarify for me how floating-point literals can be
+>>>> encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>>>> how should 0.0f be encoded?
+>>>
+>>> I would assume you remove all but the only zero nibble.
+>>> I.e. The last zero isn't leading.
+>>
+>> For what it's worth, GCC 4.6.3 and Clang 3.2 when targeting
+>> x86_64-linux-gnu both mangle 0.0f as Lf00000000E.
+>>
+>> (But Clang 3.2 mangles 0.0l as Le3fff8000000000000000E, whereas GCC
+>> 4.6.3 mangles it as Le0000000000003fff8000000000000000E.  I don't have
+>> newer versions readily available to check.)
+>> _______________________________________________
+>> cxx-abi-dev mailing list
+>> cxx-abi-dev at codesourcery.com
+>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+
+From rjmccall at apple.com  Tue Jun 18 02:15:45 2013
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 17 Jun 2013 19:15:45 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating
+	point	literals
+In-Reply-To: <CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+Message-ID: <C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+
+On Jun 12, 2013, at 9:27 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+> Ah, thanks for the background, Mike!
+> 
+> What needs to be done then to ensure the document gets updated?
+> Should I file a proper bug report somewhere?
+
+No, reporting it here should be sufficient, optionally plus badgering
+me a bit.  It's fixed now.
+
+> On Tue, Jun 11, 2013 at 5:31 AM, Mike Herrick <mjh at edg.com> wrote:
+>> On Jun 11, 2013, at 2:18 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+>>> On Mon, Jun 10, 2013 at 10:40 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>>>>> From: Matthew Dempsky <matthew at dempsky.org>
+>>>>> Can someone please clarify for me how floating-point literals can be
+>>>>> encoded as a "fixed-length" string but "without leading zeros"?  E.g.,
+>>>>> how should 0.0f be encoded?
+>>>> 
+>>>> I would assume you remove all but the only zero nibble.
+>>>> I.e. The last zero isn't leading.
+>>> 
+>>> For what it's worth, GCC 4.6.3 and Clang 3.2 when targeting
+>>> x86_64-linux-gnu both mangle 0.0f as Lf00000000E.
+>>> 
+>>> (But Clang 3.2 mangles 0.0l as Le3fff8000000000000000E, whereas GCC
+>>> 4.6.3 mangles it as Le0000000000003fff8000000000000000E.  I don't have
+>>> newer versions readily available to check.)
+
+(That's 1.0L.)
+
+Interesting;  I guess we need to rule on that.  As far as I know, this situation
+is unique to x87 long doubles.  Clang is mangling the abstract long double
+value representation, whereas GCC is mangling the contents of a long double
+object in memory, including its tail padding.
+
+(Just in case anybody isn't aware:  on x87 Unix-ish platforms, 'long double'
+is usually the x87 native 80-bit IEEE format.  Loads and stores from the
+floating-point stack really do load and store 10-byte chunks.  The processor
+does not enforce alignment on these accesses, but nonetheless It is common
+for alignof(long double) to exceed 2;  here it is 16, which dynamically ensures
+that the access doesn't cross cache lines but which also adds 6 bytes of tail
+padding.  Since x86 is little-endian, these padding bytes are being treated as
+high-order.)
+
+I think Clang's interpretation is pretty clearly the right one; literals are r-values,
+and their "internal representation" should be the representation of an abstract
+value.  Also, the padding bytes will always be zero and so contribute
+absolutely nothing.
+
+John.
+
+From matthew at dempsky.org  Tue Jun 18 04:15:57 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Mon, 17 Jun 2013 21:15:57 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+	<C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+Message-ID: <CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+
+On Mon, Jun 17, 2013 at 7:15 PM, John McCall <rjmccall at apple.com> wrote:
+> On Jun 12, 2013, at 9:27 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+>> Ah, thanks for the background, Mike!
+>>
+>> What needs to be done then to ensure the document gets updated?
+>> Should I file a proper bug report somewhere?
+>
+> No, reporting it here should be sufficient, optionally plus badgering
+> me a bit.  It's fixed now.
+
+Great, thanks!  Should there be a Revision History entry too though?
+
+>>>> (But Clang 3.2 mangles 0.0l as Le3fff8000000000000000E, whereas GCC
+>>>> 4.6.3 mangles it as Le0000000000003fff8000000000000000E.  I don't have
+>>>> newer versions readily available to check.)
+>
+> (That's 1.0L.)
+
+(Oops, yes.  Typo. :))
+
+From rjmccall at apple.com  Tue Jun 18 22:13:59 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 18 Jun 2013 15:13:59 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+	<C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+	<CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+Message-ID: <F1CF260E-262A-4715-BB03-2379AB46A385@apple.com>
+
+On Jun 17, 2013, at 9:15 PM, Matthew Dempsky <matthew at dempsky.org> wrote:
+> On Mon, Jun 17, 2013 at 7:15 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Jun 12, 2013, at 9:27 AM, Matthew Dempsky <matthew at dempsky.org> wrote:
+>>> Ah, thanks for the background, Mike!
+>>> 
+>>> What needs to be done then to ensure the document gets updated?
+>>> Should I file a proper bug report somewhere?
+>> 
+>> No, reporting it here should be sufficient, optionally plus badgering
+>> me a bit.  It's fixed now.
+> 
+> Great, thanks!  Should there be a Revision History entry too though?
+
+I haven't been maintaining those since we have an actual revision
+history on github now, and it's pretty navigable.  If people would
+find the revision history useful, I can make a point of going back and
+adding entries for the changes we've made.
+
+John.
+
+From matthew at dempsky.org  Tue Jun 18 22:18:02 2013
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Tue, 18 Jun 2013 15:18:02 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <F1CF260E-262A-4715-BB03-2379AB46A385@apple.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+	<C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+	<CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+	<F1CF260E-262A-4715-BB03-2379AB46A385@apple.com>
+Message-ID: <CANKkrzFDnAoavKR+HLHVGioAXc-c0CTiJK5s+uH8Uyirqp1uXQ@mail.gmail.com>
+
+On Tue, Jun 18, 2013 at 3:13 PM, John McCall <rjmccall at apple.com> wrote:
+> I haven't been maintaining those since we have an actual revision
+> history on github now, and it's pretty navigable.  If people would
+> find the revision history useful, I can make a point of going back and
+> adding entries for the changes we've made.
+
+Nope, that's fine.  Git history seems adequate to me.
+
+It would be nice though if that section mentioned that there have been
+recent changes though, and that for a full revision log, you should
+look at [github change history URL].  Otherwise it's a bit misleading
+thinking that the document hasn't been updated in a few years.
+
+Thanks! :)
+
+From rjmccall at apple.com  Tue Jun 18 23:05:39 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 18 Jun 2013 16:05:39 -0700
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <CANKkrzFDnAoavKR+HLHVGioAXc-c0CTiJK5s+uH8Uyirqp1uXQ@mail.gmail.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+	<C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+	<CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+	<F1CF260E-262A-4715-BB03-2379AB46A385@apple.com>
+	<CANKkrzFDnAoavKR+HLHVGioAXc-c0CTiJK5s+uH8Uyirqp1uXQ@mail.gmail.com>
+Message-ID: <14A3385D-A03D-470C-8313-618680144713@apple.com>
+
+On Jun 18, 2013, at 3:18 PM, Matthew Dempsky <matthew at dempsky.org> wrote:
+> On Tue, Jun 18, 2013 at 3:13 PM, John McCall <rjmccall at apple.com> wrote:
+>> I haven't been maintaining those since we have an actual revision
+>> history on github now, and it's pretty navigable.  If people would
+>> find the revision history useful, I can make a point of going back and
+>> adding entries for the changes we've made.
+> 
+> Nope, that's fine.  Git history seems adequate to me.
+> 
+> It would be nice though if that section mentioned that there have been
+> recent changes though, and that for a full revision log, you should
+> look at [github change history URL].  Otherwise it's a bit misleading
+> thinking that the document hasn't been updated in a few years.
+
+Actually, I changed my mind on this and updated the revision history
+with everything (other than very minor editorial/formatting changes)
+we've done since the move to github.
+
+John.
+
+From gdr at integrable-solutions.net  Wed Jun 19 02:01:25 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 18 Jun 2013 21:01:25 -0500
+Subject: [cxx-abi-dev] Clarification about mangling floating point
+	literals
+In-Reply-To: <14A3385D-A03D-470C-8313-618680144713@apple.com>
+References: <201306110540.r5B5eHW22626@adlwrk05.cce.hp.com>
+	<CANKkrzH+1aszqEYXdxR5S7WzayW7pTSWEe56tyDOVwq3iReskQ@mail.gmail.com>
+	<9055AEBE-8634-40B6-BF34-FFE73C8E20C7@edg.com>
+	<CANKkrzEUBmUujH31F9dNtYOiyzJap+fs1cFunQkFQWyYVkuajw@mail.gmail.com>
+	<C943B346-1BAB-4C02-A0C9-DF324288F2EE@apple.com>
+	<CANKkrzHrcC=ANPGrXXqGKTt6FYQMA3jFMGc3idSN=2zZE3KQ-w@mail.gmail.com>
+	<F1CF260E-262A-4715-BB03-2379AB46A385@apple.com>
+	<CANKkrzFDnAoavKR+HLHVGioAXc-c0CTiJK5s+uH8Uyirqp1uXQ@mail.gmail.com>
+	<14A3385D-A03D-470C-8313-618680144713@apple.com>
+Message-ID: <CAAiZkiD-qgCjKCWFDhu2mMjO10abU1yXxzMwtjNLGrNiy5MCwQ@mail.gmail.com>
+
+On Tue, Jun 18, 2013 at 6:05 PM, John McCall <rjmccall at apple.com> wrote:
+
+> Actually, I changed my mind on this and updated the revision history
+> with everything (other than very minor editorial/formatting changes)
+> we've done since the move to github.
+
+Thanks!
+
+-- Gaby
+

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Pointers-to-members
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Pointers-to-members&In-Reply-To=%3C20000222160313J.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000642.html">
+   <LINK REL="Next"  HREF="000640.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Pointers-to-members</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Pointers-to-members&In-Reply-To=%3C20000222160313J.mitchell%40codesourcery.com%3E"
+       TITLE="Pointers-to-members">mark at codesourcery.com
+       </A><BR>
+    <I>Wed Feb 23 00:03:13 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000642.html">Pointers-to-data members
+</A></li>
+        <LI>Next message: <A HREF="000640.html">Pointers-to-members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#628">[ date ]</a>
+              <a href="thread.html#628">[ thread ]</a>
+              <a href="subject.html#628">[ subject ]</a>
+              <a href="author.html#628">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+  &gt; Yes.  I apologize for my own idiocy.
+				 ^^^^^^
+  Another typo, I guess :-)
+
+No, that's the right spelling. :-) Check www.dictionary.com.  I might
+be an idiot, but at least I can spell! :-)
+
+  Ach, but, what is the value for the NULL pointer to data member? I guess -1
+  would do, unless there are cases I can't think of where the pointer to member
+  would legitimately have a negative value. Maybe 0x8000000000000000
+  is better...
+
+I'm a step ahead of you. :-) I already started a thread on precisely
+this.  Here's some more analysis:
+
+  o All pointer-to-member offsets start out non-negative.
+  o Only casts which would increase the `this' pointer could cause
+    the pointer-to-member to go negative.
+  o A reinterpret_cast leaves the value unspecified, except that:
+
+     - NULL is converted to NULL
+     - If you convert back, you're OK.
+
+    But, therefore, converting a non-NULL value to NULL is explicitly
+    permitted by the standard.
+
+  o A pointer-to-base can be converted to a pointer-to-derived via
+    an implicit conversion/static_cast.
+
+    It's illegal to do this if the base is virtual.  But, that's the
+    only case in which the `this' pointer can increase.
+
+  o A pointer-to-derived can be converted to a pointer-to-base.  This
+    will normally increase the `this' pointer.  The standard is a
+    little unclear here, but I think it wants to say that this is
+    illegal precisely in the cases where the offset would go negative:
+
+      [expr.static.cast]
+
+      If class B contains the original member, or is a base or derived
+      class of the class containing the original member, the resulting
+      pointer to member points to the original member.  Otherwise, the
+      result of the cast is undefined.
+
+    Consider this program:
+
+      struct S
+      {
+	char c;
+      };
+
+      struct U 
+      {
+	char d;
+      };
+
+      struct T : public U, public S
+      {
+      };
+
+      typedef char S::*sp;
+      typedef char T::*tp;
+
+      int main ()
+      {
+	sp s;
+	tp t;
+
+	t = &amp;T::d;
+	s = static_cast&lt;sp&gt; (t);
+
+	if (s == 0)
+	  return 1;
+      }
+  
+   With GCC, this program wil return 1, i.e., the `&amp;T::d' pointer has
+   become NULL when converted to `char S::*'.  But, I think this
+   behavior is OK: `S' does not contain the original member `U::d'.
+
+So, adding `1' to the offset (and using `0' for NULL) is OK; so is
+using `-1' for NULL, and using the offset for the pointer-to-member
+itself.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000642.html">Pointers-to-data members
+</A></li>
+	<LI>Next message: <A HREF="000640.html">Pointers-to-members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#628">[ date ]</a>
+              <a href="thread.html#628">[ thread ]</a>
+              <a href="subject.html#628">[ subject ]</a>
+              <a href="author.html#628">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

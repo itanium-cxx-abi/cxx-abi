@@ -1,0 +1,363 @@
+From jason at redhat.com  Wed Aug  4 22:24:07 2004
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 04 Aug 2004 18:24:07 -0400
+Subject: One-time Construction API (3.3.2)
+Message-ID: <xyp657ywni0.fsf@miranda.boston.redhat.com>
+
+I'm working on using this stuff in g++, and finding it rather unwieldy,
+primarily because if construction of the object throws, we need to call
+__cxa_guard_abort, but if destruction of any temporaries throws, we need to
+call __cxa_guard_release.  To make this work, we need to do something like
+
+if (__cxa_guard_acquire (&guard))
+  {
+    bool flag = false;
+    try
+      {
+        /* initialize */, flag = true, __cxa_atexit (dtor);
+      }
+    finally
+      {
+        if (flag)
+          __cxa_guard_release (&guard);
+        else
+          __cxa_guard_abort (&guard);
+      }
+  }
+
+The flag is necessary to avoid non-nested overlapping EH regions.  It would
+have been simpler to have one function that takes the flag as an argument.
+
+Also, 2.8 refers to "the first byte", while 3.3.2 refers to "the low-order
+byte".  These are the same on little-endian targets, but not big-endian.
+
+I've been thinking about how to implement the actual locking, and the best
+I've come up with is to have the guard be an index into an array of mutexes
+(or mutex pointers), with magic values for uninitialized and "creating
+mutex"; in the latter case another thread that comes to it should just spin
+until it takes on another value.
+
+Has anyone actually implemented this?
+
+Jason
+
+
+From dhandly at cup.hp.com  Thu Aug  5 05:45:21 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 4 Aug 2004 22:45:21 -0700 (PDT)
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+Message-ID: <200408050545.WAA10974@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>primarily because if construction of the object throws, we need to call
+>__cxa_guard_abort, but if destruction of any temporaries throws, we need to
+>call __cxa_guard_release.
+
+Hmm, we seem to do the same for both.  And it is left on the atexit list
+for the latter.
+
+>  To make this work, we need to do something like
+>if (__cxa_guard_acquire (&guard)) {
+
+You didn't optimize by checking the guard before calling
+_cxa_guard_acquire.
+
+>The flag is necessary to avoid non-nested overlapping EH regions.
+
+We don't use a flag.  We use try/catch:
+    try {
+        /* initialize */
+        __cxa_atexit(dtor);
+        __cxa_guard_release(&guard);
+    }
+    catch(...) {
+          __cxa_guard_abort(&guard);
+    }
+
+>2.8 refers to "the first byte", while 3.3.2 refers to "the low-order
+>byte".  These are the same on little-endian targets, but not big-endian.
+
+Are you sure?  It says byte with lowest address.  Not low-order byte.
+First and lowest are the same for big-endian.
+
+>I've been thinking about how to implement the actual locking, and the best
+>I've come up with is to have the guard be an index into an array of mutexes
+
+We use one mutex for all statics.  The same one that synchronizes the
+__cxa_atexit list.
+
+>with magic values for uninitialized and "creating
+>mutex"; in the latter case another thread that comes to it should just spin
+>until it takes on another value.
+
+We do use the second byte to handle (stop) recursion.  Though this seems
+flawed in that it won't wait until constructed.  :-(
+
+>Has anyone actually implemented this?
+Jason
+
+Naturally, 3 years ago.
+
+
+From jason at redhat.com  Thu Aug  5 15:22:32 2004
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Aug 2004 11:22:32 -0400
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+In-Reply-To: <200408050545.WAA10974@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Wed, 4 Aug 2004 22:45:21 -0700 (PDT)")
+References: <200408050545.WAA10974@hpcll183.cup.hp.com>
+Message-ID: <xypvffxvccn.fsf@miranda.boston.redhat.com>
+
+On Wed, 4 Aug 2004 22:45:21 -0700 (PDT), Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>>From: Jason Merrill <jason at redhat.com>
+>>primarily because if construction of the object throws, we need to call
+>>__cxa_guard_abort, but if destruction of any temporaries throws, we need to
+>>call __cxa_guard_release.
+>
+> Hmm, we seem to do the same for both.  And it is left on the atexit list
+> for the latter.
+
+Doing the same for both is wrong, I think; once construction of the object
+is complete, it's complete, whether or not the subsequent cleanup throws.
+
+>>  To make this work, we need to do something like
+>>if (__cxa_guard_acquire (&guard)) {
+>
+> You didn't optimize by checking the guard before calling
+> _cxa_guard_acquire.
+
+Yep, I left that out for brevity.
+
+>>The flag is necessary to avoid non-nested overlapping EH regions.
+>
+> We don't use a flag.  We use try/catch:
+>     try {
+>         /* initialize */
+>         __cxa_atexit(dtor);
+>         __cxa_guard_release(&guard);
+>     }
+>     catch(...) {
+>           __cxa_guard_abort(&guard);
+>     }
+
+Yes, here it looks like you incorrectly call abort rather than release if a
+cleanup throws.
+
+>>2.8 refers to "the first byte", while 3.3.2 refers to "the low-order
+>>byte".  These are the same on little-endian targets, but not big-endian.
+>
+> Are you sure?  It says byte with lowest address.  Not low-order byte.
+> First and lowest are the same for big-endian.
+
+You're right, I was looking at an old copy of the ABI on my laptop; the
+wording was fixed to be consistent in September 2002.
+
+>>I've been thinking about how to implement the actual locking, and the best
+>>I've come up with is to have the guard be an index into an array of mutexes
+>
+> We use one mutex for all statics.  The same one that synchronizes the
+> __cxa_atexit list.
+
+Yes, that's a much simpler solution, and I think reasonable.
+
+>>with magic values for uninitialized and "creating mutex"; in the latter
+>>case another thread that comes to it should just spin until it takes on
+>>another value.
+>
+> We do use the second byte to handle (stop) recursion.  Though this seems
+> flawed in that it won't wait until constructed.  :-(
+
+I'm not sure what you mean.  If you already have a mutex, what are you
+using the second byte for?
+
+Jason
+
+
+From dhandly at cup.hp.com  Fri Aug  6 09:14:42 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 6 Aug 2004 02:14:42 -0700 (PDT)
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+Message-ID: <200408060914.CAA12954@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>> we seem to do the same for both.  And it is left on the atexit list
+>> for the latter.
+
+>Doing the same for both is wrong, I think; once construction of the object
+>is complete, it's complete, whether or not the subsequent cleanup throws.
+
+I guess we could reduce the size of the catch to not include the cleanup.
+
+>>     try {
+>>         /* initialize */
+>>         __cxa_atexit(dtor);
+>>         __cxa_guard_release(&guard);
+>>     }
+>>     catch(...) {
+>>           __cxa_guard_abort(&guard);
+>>     }
+
+>Yes, here it looks like you incorrectly call abort rather than release if a
+>cleanup throws.
+
+I suppose we can use gotos or a flag so that __cxa_guard_abort is skipped.
+There really should be a rethrow in the catch block.
+       catch(...) {
+             __cxa_guard_abort(&guard);
+             throw;
+       }
+       // cleanup temps
+
+>> We do use the second byte to handle (stop) recursion.
+
+>I'm not sure what you mean.  If you already have a mutex, what are you
+>using the second byte for?
+Jason
+
+In undefined case where the code to initialize the function scope static
+recursively calls the current function.
+
+(Note the single mutex is recursive to handle the defined case of multiple
+function scope statics being used.)
+
+
+From jason at redhat.com  Fri Aug  6 14:52:20 2004
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Aug 2004 10:52:20 -0400
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+In-Reply-To: <200408060914.CAA12954@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Fri, 6 Aug 2004 02:14:42 -0700 (PDT)")
+References: <200408060914.CAA12954@hpcll183.cup.hp.com>
+Message-ID: <xypisbwuxnf.fsf@miranda.boston.redhat.com>
+
+On Fri, 6 Aug 2004 02:14:42 -0700 (PDT), Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>>From: Jason Merrill <jason at redhat.com>
+>>> we seem to do the same for both.  And it is left on the atexit list
+>>> for the latter.
+>
+>>Doing the same for both is wrong, I think; once construction of the object
+>>is complete, it's complete, whether or not the subsequent cleanup throws.
+>
+> I guess we could reduce the size of the catch to not include the cleanup.
+
+If cleanup throws, you need to call __cxa_guard_release, so it also needs
+to be in the throw path somehow.  Which is how I came to the code I posted
+earlier.
+
+>>> We do use the second byte to handle (stop) recursion.
+>
+> In undefined case where the code to initialize the function scope static
+> recursively calls the current function.
+
+Ah, makes sense.
+
+Jason
+
+
+From dhandly at cup.hp.com  Fri Aug  6 22:23:02 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 6 Aug 2004 15:23:02 -0700 (PDT)
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+Message-ID: <200408062223.PAA13321@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>If cleanup throws, you need to call __cxa_guard_release, so it also needs
+>to be in the throw path somehow.
+
+Or do __cxa_guard_release before that cleanup.
+
+
+From jason at redhat.com  Sat Aug  7 02:11:52 2004
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Aug 2004 22:11:52 -0400
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+In-Reply-To: <200408062223.PAA13321@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Fri, 6 Aug 2004 15:23:02 -0700 (PDT)")
+References: <200408062223.PAA13321@hpcll183.cup.hp.com>
+Message-ID: <xypvffvu26v.fsf@miranda.boston.redhat.com>
+
+On Fri, 6 Aug 2004 15:23:02 -0700 (PDT), Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>>From: Jason Merrill <jason at redhat.com>
+>>If cleanup throws, you need to call __cxa_guard_release, so it also needs
+>>to be in the throw path somehow.
+>
+> Or do __cxa_guard_release before that cleanup.
+
+Yes, I suppose that would also work.
+
+Jason
+
+
+From yanliu at ca.ibm.com  Tue Aug 31 22:14:36 2004
+From: yanliu at ca.ibm.com (Yan Liu)
+Date: Tue, 31 Aug 2004 18:14:36 -0400
+Subject: question on the virtual base offset
+Message-ID: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com>
+
+
+
+
+
+I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+following testcase:
+struct A {char a;};
+
+struct B: virtual public A {};
+
+struct C:public B{
+  int c;
+  virtual void f() {};
+};
+struct D {
+        char d;
+};
+struct E {int:3;};
+struct F: public C, virtual E, public D {
+        char f1;
+        virtual void f(){}
+};
+int main()
+{F f;}
+
+Attached files are the class and vft  layout results with three g++
+compilers using -fdump-class-hierarchy option.
+
+
+(See attached file: temp4.g++35.class)(See attached file:
+temp4.g++33.class)(See attached file: temp4.C.g++34_32.class)
+According to the C++ ABI online document chapter 2.4
+(http://www.codesourcery.com/cxx-abi/abi.html).  After mapping the virtual
+base class A while mapping of the most derived class F,  the dsize(F)=11,
+size(F)=11, align(F)=4, and nvsize(E)=4, nvalign(E)=4.  So, when mapping
+virtual base class E, the next available bits are at offset dsize(F)=11.  E
+should be put at offset(F) which is the dsize(F) =11, and the final class
+size should be 12. To me, g++3.4 gives the most reasonable result, I don't
+understand why g++3.5 put E at offset 12, and the final class size is 16.
+Is it means that ABI has changed or just a gcc bug?
+
+Your kind help is highly appreciated. Thanks.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: temp4.g++35.class
+Type: application/octet-stream
+Size: 2200 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040831/2a42679a/attachment.obj>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: temp4.g++33.class
+Type: application/octet-stream
+Size: 1744 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040831/2a42679a/attachment-0001.obj>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: temp4.C.g++34_32.class
+Type: application/octet-stream
+Size: 2200 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040831/2a42679a/attachment-0002.obj>
+

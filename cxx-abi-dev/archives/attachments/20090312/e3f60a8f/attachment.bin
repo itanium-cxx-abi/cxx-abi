@@ -1,0 +1,145 @@
+*** abi.html.~16~	2009-01-02 18:17:15.000000000 -0500
+--- abi.html	2009-03-12 01:44:29.000000000 -0400
+*************** the first of which is lowercase.
+*** 3972,3984 ****
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
+  		  ::= cv &lt;type&gt;	# (cast)        
+  		  ::= v &lt;digit&gt; &lt;source-name&gt;	# vendor extended operator
+  
+  </code></font></a></pre>
+  
+  <p>
+! <a name="mangling-operator">Vendors who define builtin extended operators (e.g. __alignof)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID&gt; form.
+--- 3972,3986 ----
+  		  ::= qu	# ?             
+  		  ::= st	# sizeof (a type)
+  		  ::= sz	# sizeof (an expression)
++                   ::= at        # alignof (a type)
++                   ::= az        # alignof (an expression)
+  		  ::= cv &lt;type&gt;	# (cast)        
+  		  ::= v &lt;digit&gt; &lt;source-name&gt;	# vendor extended operator
+  
+  </code></font></a></pre>
+  
+  <p>
+! <a name="mangling-operator">Vendors who define builtin extended operators (e.g. __imag)
+  shall encode them as a 'v' prefix followed by
+  the operand count as a single decimal digit, and
+  the name in &lt;length,ID&gt; form.
+*************** that is the actual parameter.
+*** 4364,4369 ****
+--- 4366,4379 ----
+  </font></code></pre>
+  
+  <p>
++ Function parameters referenced in a late-specified return type are handled similarly:
++ 
++ </p><pre><code><font color="blue">
++   &lt;function-param&gt; ::= fp_	# first function parameter
++ 		   ::= fp &lt;<i>parameter-2 non-negative</i> number&gt; _
++ </font></code></pre>
++ 
++ <p>
+  Template argument lists appear after the unqualified template name,
+  and are bracketed by I/E.  This is used in names for specializations
+  in particular, but also in types and scope identification.  Template
+*************** from other arguments.
+*** 4382,4391 ****
+  	       ::= &lt;<i>binary</i> operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+  	       ::= &lt;<i>trinary</i> operator-name&gt; &lt;expression&gt; &lt;expression&gt; &lt;expression&gt;
+                 ::= cl &lt;expression&gt;* E	        # call
+!                ::= st &lt;type&gt;		        # sizeof
+! 	       ::= sT &lt;type&gt;		        # lvalue of specified type
+! 	       ::= sR &lt;type&gt;		        # rvalue of specified type
+                 ::= &lt;template-param&gt;
+                 ::= sr &lt;type&gt; &lt;unqualified-name&gt;                   # dependent name
+                 ::= sr &lt;type&gt; &lt;unqualified-name&gt; &lt;template-args&gt;   # dependent template-id
+                 ::= sZ &lt;template-param&gt;                            # size of a parameter pack
+--- 4392,4403 ----
+  	       ::= &lt;<i>binary</i> operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+  	       ::= &lt;<i>trinary</i> operator-name&gt; &lt;expression&gt; &lt;expression&gt; &lt;expression&gt;
+                 ::= cl &lt;expression&gt;* E	        # call
+!                ::= cv &lt;type&gt; expression           # conversion with one argument
+!                ::= cv &lt;type&gt; _ &lt;expression&gt;* E # conversion with a different number of arguments
+!                ::= st &lt;type&gt;		        # sizeof (a type)
+!                ::= at &lt;type&gt;                      # alignof (a type)
+                 ::= &lt;template-param&gt;
++                ::= &lt;function-param&gt;
+                 ::= sr &lt;type&gt; &lt;unqualified-name&gt;                   # dependent name
+                 ::= sr &lt;type&gt; &lt;unqualified-name&gt; &lt;template-args&gt;   # dependent template-id
+                 ::= sZ &lt;template-param&gt;                            # size of a parameter pack
+*************** are available, the mangling chosen is th
+*** 4469,4522 ****
+  version.
+  </p>
+  
+- <p>
+- The <code>sT</code> and <code>sR</code> forms are used within the
+- C++0x <code>decltype</code> forms <code>DT</code> and <code>Dt</code>.
+- Within these contexts, the value of the expression doesn't matter, only the
+- type, so we just mangle the type of the expression directly as an
+- expression stub in some cases.  This is done for all non-type-dependent
+- expressions, and the following forms of type-dependent expressions, for
+- which the type can always be described other than in terms of the
+- expression even if it is dependent, and therefore is said to
+- have <i>describable type</i>:
+- </p>
+- 
+- <ul>
+-   <li>An expression that names a variable, function, function parameter,
+-   enumerator, data member or template non-type parameter from an enclosing
+-   function or the current instantiation.</li>
+-   <li>A cast (C-style, functional or *_cast).</li>
+-   <li>A literal.</li>
+-   <li>A new-expression.</li>
+-   <li>A unary <code>*</code> expression where the operand has describable type.</li>
+- </ul>
+- 
+- <p>A variable or new-expression which uses the
+- <code>auto</code> type specifier has describable type if and only if its
+- initializer is an expression with describable type.
+- </p>
+- 
+- <p>
+- If the expression is an lvalue, the <code>sT</code> mangling is used;
+- otherwise the <code>sR</code> mangling.  If the immediate operand
+- of <code>decltype</code> has describable type, the type is mangled directly,
+- omitting the decltype and expression type stub manglings.
+- </p>
+- 
+- <p>
+-  <img src="abi_files/warning.gif" alt="&lt;b&gt;Rationale&lt;/b&gt;:">
+-  <i>
+-  Note that this convention means that
+-  </i></p><pre><i>   template &lt;class T&gt; decltype (*(T*)0 + *(T*)0) f(T t);
+-  </i></pre>
+- <i> and
+-  </i><pre><i>   template &lt;class T&gt; auto f(T t) -&gt; decltype (t + t);
+-  </i></pre>
+- <i> have the same mangling, so library maintainers can switch to or from using
+-  a late-specified return type without affecting the library ABI.
+-  </i>
+- 
+- 
+  <a name="mangling-scope">
+  </a><h4><a name="mangling-scope"> 5.1.6 Scope Encoding </a></h4>
+  
+--- 4481,4486 ----
+*************** unwind table location.
+*** 5005,5010 ****
+--- 4969,4978 ----
+  significance should be attached to the form of the revision number; it
+  is simply a identifying number.</a></p>
+  
++ <p><a name="revisions"><font color="blue">[090312]</font>
++ Remove type stub expressions. Add mangling for alignof, function parameters,
++ and a different mangling for N-argument function casts.</a></p>
++ 
+  <p><a name="revisions"><font color="blue">[090102]</font>
+  Remove mangling for N-argument functional casts.</a></p>
+  

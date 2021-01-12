@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Empty bases layout closure
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Empty%20bases%20layout%20closure&In-Reply-To=%3C199907200553.WAA95466%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000163.html">
+   <LINK REL="Next"  HREF="000165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Empty bases layout closure</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Empty%20bases%20layout%20closure&In-Reply-To=%3C199907200553.WAA95466%40baalbek.engr.sgi.com%3E"
+       TITLE="Empty bases layout closure">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Jul 20 05:53:02 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000163.html">Notes from the 14 July meeting
+</A></li>
+        <LI>Next message: <A HREF="000165.html">empty base packing strategy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Pardon me if this has been discussed in the meetings I missed.  I will
+try to at least describe what I was thinking.
+
+&gt;<i> Date: Wed, 07 Jul 1999 11:03:32 -0700
+</I>&gt;<i> From: Daveed Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> I am interested in resolving the issue of what to do with empty bases that
+</I>&gt;<i> cannot be located at the object's origin (because of the type conflict).
+</I>&gt;<i> 
+</I>&gt;<i> Empty classes appear in a complete object's layout in one of the following
+</I>&gt;<i> ways:
+</I>&gt;<i> 	(a) a nonvirtual direct base
+</I>&gt;<i> 	(b) a virtual base
+</I>&gt;<i> 	(c) a direct member
+</I>&gt;<i> 	(d) a nondirect member or nondirect nonvirtual base
+</I>&gt;<i> Cases (a-c) can be laid out specifically for the complete object, while
+</I>&gt;<i> (d) is  determined by the direct subobject that contains the (d) case.
+</I>&gt;<i> (d) is nonetheless important because of the type constraint that two
+</I>&gt;<i> empty subobjects of the same type should not be allocated at the same
+</I>&gt;<i> address.  I'm leaving case (b) out of this discussion and assume that
+</I>&gt;<i> its resolution as it stands today is fine, (but subordinate to prior
+</I>&gt;<i> layout decisions).
+</I>&gt;<i> 
+</I>&gt;<i> An example:
+</I>&gt;<i> 
+</I>&gt;<i> 	struct E1 {};
+</I>&gt;<i> 	struct E2: E1 {};
+</I>&gt;<i> 	struct E3 {};
+</I>&gt;<i> 	struct E4: E3 {};
+</I>&gt;<i> 	struct N1 { E1 n1; }
+</I>&gt;<i> 
+</I>&gt;<i> 	struct D: E1, E2, N1, E3, E4 {
+</I>&gt;<i> 	  E3 e3;
+</I>&gt;<i> 	};
+</I>&gt;<i> 
+</I>&gt;<i> D could be laid out in many ways. An optimal layout could be:
+</I>&gt;<i> 	this+0:	base E1, base E3
+</I>&gt;<i> 	this+1: base E2, member e3
+</I>&gt;<i> 	this+2: base N1, base E4
+</I>&gt;<i> However, an algorithm that would reliably generate such optimal layouts is 
+</I>&gt;<i> likely hard to describe.
+</I>&gt;<i>
+</I>&gt;<i> I also think there is value in decribing the layout in terms of an algorithm
+</I>&gt;<i> instead of trying to describe the results of that algorithm.
+</I>
+I intended the following process.  Note that I view each subobject as
+having size 1, all tail padding.
+
+ 1) E1 goes at this+0:  it is first empty subobject.
+    This leaves end of data at 0, end of padding at 1.
+ 2) E2 goes at this+1:  it conflicts with E1 and is shifted.
+    This leaves end of (last subobject's) data at 1, end of padding at 2.
+ 3) N1 goes at this+2:  it conflicts with E1 and E2 and is shifted.
+    This leaves end of data at 2, end of padding at 3.
+ 4) E3 goes at this+0:  it does not conflict with E1.
+    This leaves end of data at 2, end of padding at 3.
+ 5) E4 goes at this+2:  it conflicts with E3 at 0, but not with N1 at
+    end of data.  (Note that the intermediate point at 1 is not tried.)
+    This leaves end of data at 2, end of padding at 3.
+ 6) e3 goes at this+3:  it conflicts with E3 at 0, and with E4 at 2.
+    This leaves end of data at 3, end of padding at 4.
+
+The end result is size 4 -- not optimal, but straightforard to
+accomplish by sequential processing.  This doesn't match any of
+Daveed's versions, but matches the size of his case (3).  It simply
+assumes that processing order is (a) non-virtual bases, (b) members,
+and finally (c) virtual bases, and that for an empty one we first
+attempt to put it at 0, and given a conflict we look at end-of-data,
+shifting further if necessary.
+
+(Actually, e3 is different -- not a base -- and our rules didn't
+contemplate considering 0.  Should they?  Further, I've treated
+end-of-data above as at least the beginning of the last object
+deposited.  We could well not increment it when a new empty object is
+laid down past the end.  If we make these two improvements to my
+process, we get the optimal layout with a simple algorithm.  Note that
+I would like the end result here to be treated as all tail padding when
+it becomes a component itself.  This is probably cleaner in conjunction
+with the second improvement.)
+
+&gt;<i> Here are three general approaches to the empty base layout algorithm:
+</I>&gt;<i> 
+</I>&gt;<i> (1) No reordering at all:
+</I>&gt;<i> An empty base can take up zero bytes, but all direct bases and members are 
+</I>&gt;<i> allocated in declaration order.  If allocating an element would create a type 
+</I>&gt;<i> conflict with a previously allocated empty base, move to the next alignment 
+</I>&gt;<i> slot.  This is not compatible with our issues list so far. For the above 
+</I>&gt;<i> example, it leads to:
+</I>&gt;<i> 	this+0:	base E1
+</I>&gt;<i> 	this+1:	base E2 (shift since conflict)
+</I>&gt;<i> 	this+2:	base N1 (shift since conflict with E2::E1)
+</I>&gt;<i> 	this+3:	base E3 (previous was not empty)
+</I>&gt;<i> 	this+4:	base E4	(shift since conflict)
+</I>&gt;<i> 	this+5:	member e3 (shift since conflict with E4::E3)
+</I>&gt;<i> Not great, but the example is quite artificial.
+</I>&gt;<i> 
+</I>&gt;<i> (2) Reorder only to origin:
+</I>&gt;<i> Same as (1) but if an empty base to be allocated can be allocated at offset
+</I>&gt;<i> zero with size zero this is done (in declaration order).  This is more or
+</I>&gt;<i> less compatible with what the issues list says so far, except it might be
+</I>&gt;<i> read to say that if this fails once, it is never reattempted again.  With 
+</I>&gt;<i> the latter constraint the layout of the example would be identical to (1).  
+</I>&gt;<i> Without that constraint, you get:
+</I>&gt;<i> 	this+0:	base E1, base E3
+</I>&gt;<i> 	this+1:	base E2
+</I>&gt;<i> 	this+2:	base N1
+</I>&gt;<i> 	this+3:	base E4
+</I>&gt;<i> 	this+4:	member e4
+</I>&gt;<i> 
+</I>&gt;<i> (3) Layout empty bases in second pass:
+</I>&gt;<i> There are various subalternatives in this option: the pass can be inserted
+</I>&gt;<i> before or after the layout of direct members; the location granularity can
+</I>&gt;<i> be a byte or the boundaries of already allocated subobjects; and there are
+</I>&gt;<i> probably other tweaks that can be made.  In our example the granularity
+</I>&gt;<i> doesn't matter since no subobject is larger than a byte.  Assuming that the
+</I>&gt;<i> pass occurs after direct member layout, you get:
+</I>&gt;<i> 	this+0:	base N1
+</I>&gt;<i> 	this+1:	member e3, base E1
+</I>&gt;<i> 	this+2:	base E2, base E3
+</I>&gt;<i> 	this+3: base E4
+</I>&gt;<i> 
+</I>&gt;<i> Comments?  Preferences?
+</I>&gt;<i> 
+</I>&gt;<i> My order of preference is:
+</I>&gt;<i> 	(1) As for other decisions, this option has the merits of being
+</I>&gt;<i> 	    simple and influencable by the knowledgeable programmer.
+</I>&gt;<i> 	(3 with no intrasubobject allocation)
+</I>&gt;<i> 	    I also prefer to have the second pass occur after direct member
+</I>&gt;<i> 	    layout to increase opportunities (including opportunities that
+</I>&gt;<i> 	    could not be emulated by the knowledgeable user of scheme (1)).
+</I>&gt;<i> 	(2) I anticipate the added specification complexity may not be worth
+</I>&gt;<i> 	    potential gains.
+</I>&gt;<i> 	(3 with intrasubobject allocation; i.e. byte-granularity)
+</I>&gt;<i> 	    This is a form of interleaving which I think was already unpopular
+</I>&gt;<i> 	    when we discussed the allocation of different access-sections.
+</I>&gt;<i> 
+</I>&gt;<i> 	Daveed
+</I>&gt;<i> 
+</I>-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000163.html">Notes from the 14 July meeting
+</A></li>
+	<LI>Next message: <A HREF="000165.html">empty base packing strategy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

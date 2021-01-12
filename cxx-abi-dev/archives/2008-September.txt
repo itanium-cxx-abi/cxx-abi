@@ -1,0 +1,743 @@
+From jason at redhat.com  Fri Sep  5 17:26:30 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Sep 2008 13:26:30 -0400
+Subject: Mangling of template parameter packs
+Message-ID: <48C16BC6.6050204@redhat.com>
+
+While I was looking at the decltype mangling issues, I noticed that the 
+mangling for parameter packs seems odd.  For instance, given
+
+template<typename... T>
+int f(T...);
+int i = f();
+
+we get
+
+_Z1fIEiDpT_
+
+which has no template arguments, but the function parameter type wants 
+to refer to the first one.
+
+I think it would be better for a parameter pack to be mangled as a 
+nested template argument list, i.e.
+
+_Z1fIIEEiDpT_
+
+and then T_ refers to the inner (empty) template argument list, rather 
+than a non-existent template argument.
+
+G++ 4.3 has already been released with variadic template support, but it 
+still uses U10variadic for pack expansions, so there will be a binary 
+compatibility issue regardless of this change.
+
+Jason
+
+
+From jason at redhat.com  Fri Sep  5 17:27:06 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Sep 2008 13:27:06 -0400
+Subject: Mangling late-specified return types/decltype
+Message-ID: <48C16BEA.1050301@redhat.com>
+
+Consider
+
+template<class T, class U>
+auto add(T t, U u) -> decltype (t+u);
+
+There is currently no way to mangle "t" in the ABI.  Currently I'm 
+dealing this by replacing "t" in the return type with *(T*)0, but that 
+seems inelegant (and unnecessarily long).
+
+I think we don't want to mangle it as a reference to a function 
+parameter, but rather as a placeholder expression with the type of the 
+parameter.  Perhaps sT <type>?
+
+Incidentally, the ABI still lacks any way to mangle T() or myfn(args).
+
+We could mangle T() using 'v' for the operand.
+
+We could mangle myfn(args) as a binary expression using the encoding for 
+operator() where the first operand is the name of the function and the 
+second operand is the list of args wrapped in some delimiters.
+
+Do these seem reasonable to other people?
+
+
+
+From jhs at edg.com  Fri Sep  5 19:02:18 2008
+From: jhs at edg.com (John H. Spicer)
+Date: Fri, 5 Sep 2008 15:02:18 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com>
+
+
+On Sep 5, 2008, at 1:27 PM, Jason Merrill wrote:
+
+> Consider
+>
+> template<class T, class U>
+> auto add(T t, U u) -> decltype (t+u);
+>
+> There is currently no way to mangle "t" in the ABI.  Currently I'm  
+> dealing this by replacing "t" in the return type with *(T*)0, but  
+> that seems inelegant (and unnecessarily long).
+>
+> I think we don't want to mangle it as a reference to a function  
+> parameter, but rather as a placeholder expression with the type of  
+> the parameter.  Perhaps sT <type>?
+
+That might be okay, but I'm not sure what the advantage is.  You need  
+to be able to handle things like decltype(t.x + u.x) so you need to  
+represent expressions of which the parameter is component.
+
+John.
+
+>
+>
+> Incidentally, the ABI still lacks any way to mangle T() or myfn(args).
+>
+> We could mangle T() using 'v' for the operand.
+>
+> We could mangle myfn(args) as a binary expression using the encoding  
+> for operator() where the first operand is the name of the function  
+> and the second operand is the list of args wrapped in some delimiters.
+>
+> Do these seem reasonable to other people?
+>
+
+
+
+From jason at redhat.com  Fri Sep  5 20:09:06 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Sep 2008 16:09:06 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com>
+References: <48C16BEA.1050301@redhat.com> <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com>
+Message-ID: <48C191E2.4000608@redhat.com>
+
+John H. Spicer wrote:
+> On Sep 5, 2008, at 1:27 PM, Jason Merrill wrote:
+
+>> I think we don't want to mangle it as a reference to a function 
+>> parameter, but rather as a placeholder expression with the type of the 
+>> parameter.  Perhaps sT <type>?
+> 
+> That might be okay, but I'm not sure what the advantage is.  You need to 
+> be able to handle things like decltype(t.x + u.x) so you need to 
+> represent expressions of which the parameter is component.
+
+That doesn't seem like a problem; t.x would be represented as (T 
+placeholder).x.  We already have a mangling for component ref.
+
+Of course, we are already representing the parameter types in the 
+mangled name, so it would be nice to avoid the (minor) duplication, but 
+the problem is that the return type comes first in the mangled name.
+
+Jason
+
+
+From doug.gregor at gmail.com  Fri Sep  5 20:27:32 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Fri, 5 Sep 2008 16:27:32 -0400
+Subject: Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <24b520d20809051327l3e2de5ccn39a5bd4c005c1c0a@mail.gmail.com>
+
+On Fri, Sep 5, 2008 at 1:27 PM, Jason Merrill <jason at redhat.com> wrote:
+> Consider
+>
+> template<class T, class U>
+> auto add(T t, U u) -> decltype (t+u);
+>
+> There is currently no way to mangle "t" in the ABI.  Currently I'm dealing
+> this by replacing "t" in the return type with *(T*)0, but that seems
+> inelegant (and unnecessarily long).
+>
+> I think we don't want to mangle it as a reference to a function parameter,
+> but rather as a placeholder expression with the type of the parameter.
+>  Perhaps sT <type>?
+
+This seems like an odd choice to me. Is it okay that these two will
+have the same mangling:
+
+  template<typename T> void f(T x, T y) -> decltype(x + y) { } // #1
+  template<typename T> void f(T x, T y) -> decltype(x + x) { } // #2
+
+while these two, which also have the same return type, have different manglings?
+
+  template<typename T> void f(T&& x, T& y) -> decltype(x + y) { } // #3
+  template<typename T> void f(T&& x, T& y) -> decltype(x + x) { } // #4
+
+The return types are the same because parameters whose type is an
+rvalue reference are treated as lvalues, so "x" and "y" behave the
+same way from the point of view of the type system. However, we're
+mangling x and y differently because they have different declared
+types.
+
+It seems like we either want #1 and #2 to have different manglings (by
+making references to function parameters like we do with template
+parameters) or we want #3 and #4 to have the same mangling (e.g., by
+using the type of the expression with an lvalue or rvalue marker).
+
+> Incidentally, the ABI still lacks any way to mangle T() or myfn(args).
+>
+> We could mangle T() using 'v' for the operand.
+>
+> We could mangle myfn(args) as a binary expression using the encoding for
+> operator() where the first operand is the name of the function and the
+> second operand is the list of args wrapped in some delimiters.
+
+These seem fine to me.
+
+  - Doug
+
+
+From doug.gregor at gmail.com  Fri Sep  5 20:31:16 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Fri, 5 Sep 2008 16:31:16 -0400
+Subject: [cxx-abi-dev] Mangling of template parameter packs
+In-Reply-To: <48C16BC6.6050204@redhat.com>
+References: <48C16BC6.6050204@redhat.com>
+Message-ID: <24b520d20809051331k110902e5idc7d3bf2d993c343@mail.gmail.com>
+
+On Fri, Sep 5, 2008 at 1:26 PM, Jason Merrill <jason at redhat.com> wrote:
+> While I was looking at the decltype mangling issues, I noticed that the
+> mangling for parameter packs seems odd.  For instance, given
+>
+> template<typename... T>
+> int f(T...);
+> int i = f();
+>
+> we get
+>
+> _Z1fIEiDpT_
+>
+> which has no template arguments, but the function parameter type wants to
+> refer to the first one.
+>
+> I think it would be better for a parameter pack to be mangled as a nested
+> template argument list, i.e.
+>
+> _Z1fIIEEiDpT_
+>
+> and then T_ refers to the inner (empty) template argument list, rather than
+> a non-existent template argument.
+
+This is much better. Thanks!
+
+> G++ 4.3 has already been released with variadic template support, but it
+> still uses U10variadic for pack expansions, so there will be a binary
+> compatibility issue regardless of this change.
+
+... and users of GCC's *experimental* C++0x mode have been loudly
+warned that details may change. We shouldn't be concerned at all about
+this compatibility issue.
+
+  - Doug
+
+
+From jason at redhat.com  Fri Sep  5 21:11:45 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Sep 2008 17:11:45 -0400
+Subject: Mangling late-specified return types/decltype
+In-Reply-To: <24b520d20809051327l3e2de5ccn39a5bd4c005c1c0a@mail.gmail.com>
+References: <48C16BEA.1050301@redhat.com> <24b520d20809051327l3e2de5ccn39a5bd4c005c1c0a@mail.gmail.com>
+Message-ID: <48C1A091.3080501@redhat.com>
+
+Doug Gregor wrote:
+> This seems like an odd choice to me. Is it okay that these two will
+> have the same mangling:
+> 
+>   template<typename T> void f(T x, T y) -> decltype(x + y) { } // #1
+>   template<typename T> void f(T x, T y) -> decltype(x + x) { } // #2
+> 
+> while these two, which also have the same return type, have different manglings?
+> 
+>   template<typename T> void f(T&& x, T& y) -> decltype(x + y) { } // #3
+>   template<typename T> void f(T&& x, T& y) -> decltype(x + x) { } // #4
+ >
+> The return types are the same because parameters whose type is an
+> rvalue reference are treated as lvalues, so "x" and "y" behave the
+> same way from the point of view of the type system. However, we're
+> mangling x and y differently because they have different declared
+> types.
+> 
+> It seems like we either want #1 and #2 to have different manglings (by
+> making references to function parameters like we do with template
+> parameters) or we want #3 and #4 to have the same mangling (e.g., by
+> using the type of the expression with an lvalue or rvalue marker).
+
+I would expect 1/2 and 3/4 to have the same mangling.  That is, the 
+placeholder would have the type of the parameter when used in an 
+expression (T), not a reference type.
+
+Jason
+
+
+
+From doug.gregor at gmail.com  Fri Sep  5 21:21:46 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Fri, 5 Sep 2008 17:21:46 -0400
+Subject: Mangling late-specified return types/decltype
+In-Reply-To: <48C1A091.3080501@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+	 <24b520d20809051327l3e2de5ccn39a5bd4c005c1c0a@mail.gmail.com>
+	 <48C1A091.3080501@redhat.com>
+Message-ID: <24b520d20809051421h390ad2b7k46299b2e8c04c150@mail.gmail.com>
+
+On Fri, Sep 5, 2008 at 5:11 PM, Jason Merrill <jason at redhat.com> wrote:
+> Doug Gregor wrote:
+>>
+>> This seems like an odd choice to me. Is it okay that these two will
+>> have the same mangling:
+>>
+>>  template<typename T> void f(T x, T y) -> decltype(x + y) { } // #1
+>>  template<typename T> void f(T x, T y) -> decltype(x + x) { } // #2
+>>
+>> while these two, which also have the same return type, have different
+>> manglings?
+>>
+>>  template<typename T> void f(T&& x, T& y) -> decltype(x + y) { } // #3
+>>  template<typename T> void f(T&& x, T& y) -> decltype(x + x) { } // #4
+>
+>>
+>>
+>> The return types are the same because parameters whose type is an
+>> rvalue reference are treated as lvalues, so "x" and "y" behave the
+>> same way from the point of view of the type system. However, we're
+>> mangling x and y differently because they have different declared
+>> types.
+>>
+>> It seems like we either want #1 and #2 to have different manglings (by
+>> making references to function parameters like we do with template
+>> parameters) or we want #3 and #4 to have the same mangling (e.g., by
+>> using the type of the expression with an lvalue or rvalue marker).
+>
+> I would expect 1/2 and 3/4 to have the same mangling.  That is, the
+> placeholder would have the type of the parameter when used in an expression
+> (T), not a reference type.
+
+I didn't realize we were stripping reference types. In that case, it's
+fine. Thanks for the clarification.
+
+  - Doug
+
+
+From jason at redhat.com  Mon Sep  8 02:30:16 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Sun, 07 Sep 2008 22:30:16 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <48C48E38.6020600@redhat.com>
+
+Jason Merrill wrote:
+> We could mangle myfn(args) as a binary expression using the encoding for 
+> operator() where the first operand is the name of the function and the 
+> second operand is the list of args wrapped in some delimiters.
+
+Or just
+
+cl <function> <arg1> ... <argn> E
+
+There doesn't seem to be a need for the opening delimiter.
+
+Jason
+
+
+
+
+From jason at redhat.com  Mon Sep  8 18:32:56 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Sep 2008 14:32:56 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <48C56FD8.4090807@redhat.com>
+
+Thus:
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: mangling.patch
+Type: text/x-patch
+Size: 3836 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20080908/9885c755/attachment.bin>
+
+From crowl at google.com  Mon Sep  8 21:20:00 2008
+From: crowl at google.com (Lawrence Crowl)
+Date: Mon, 8 Sep 2008 14:20:00 -0700
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <29bd08b70809081420n32e27bedk6e713b9a2098e9cc@mail.gmail.com>
+
+On 9/5/08, Jason Merrill <jason at redhat.com> wrote:
+> Consider
+>
+>  template<class T, class U>
+>  auto add(T t, U u) -> decltype (t+u);
+>
+> There is currently no way to mangle "t" in the ABI.  Currently I'm dealing
+> this by replacing "t" in the return type with *(T*)0, but that seems
+> inelegant (and unnecessarily long).
+
+Are you suggesting the mangling of the template itself or of its instances?
+For the latter, shouldn't we be using the regular mangling?
+
+>
+> I think we don't want to mangle it as a reference to a function parameter,
+> but rather as a placeholder expression with the type of the parameter.
+> Perhaps sT <type>?
+>
+>  Incidentally, the ABI still lacks any way to mangle T() or myfn(args).
+>
+>  We could mangle T() using 'v' for the operand.
+>
+>  We could mangle myfn(args) as a binary expression using the encoding for
+> operator() where the first operand is the name of the function and the
+> second operand is the list of args wrapped in some delimiters.
+>
+>  Do these seem reasonable to other people?
+>
+>
+
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Mon Sep  8 21:49:18 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Sep 2008 17:49:18 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <29bd08b70809081420n32e27bedk6e713b9a2098e9cc@mail.gmail.com>
+References: <48C16BEA.1050301@redhat.com> <29bd08b70809081420n32e27bedk6e713b9a2098e9cc@mail.gmail.com>
+Message-ID: <48C59DDE.4060505@redhat.com>
+
+Lawrence Crowl wrote:
+> On 9/5/08, Jason Merrill <jason at redhat.com> wrote:
+>> Consider
+>>
+>>  template<class T, class U>
+>>  auto add(T t, U u) -> decltype (t+u);
+>>
+>> There is currently no way to mangle "t" in the ABI.  Currently I'm dealing
+>> this by replacing "t" in the return type with *(T*)0, but that seems
+>> inelegant (and unnecessarily long).
+> 
+> Are you suggesting the mangling of the template itself or of its instances?
+> For the latter, shouldn't we be using the regular mangling?
+
+The mangling of specializations is basically the mangling of the 
+template plus the template arguments.  This is done to distinguish 
+between instantiations of different templates that have the same 
+function signature.
+
+Jason
+
+
+From mark at codesourcery.com  Tue Sep  9 02:29:47 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 08 Sep 2008 19:29:47 -0700
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C56FD8.4090807@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48C56FD8.4090807@redhat.com>
+Message-ID: <48C5DF9B.5060802@codesourcery.com>
+
+Jason Merrill wrote:
+> Thus:
+
+I'll update the spec to include Jason's mangling change in a week if (a)
+nobody objects, and (b) Jason reminds me. :-)
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Tue Sep  9 16:47:15 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 09 Sep 2008 12:47:15 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C56FD8.4090807@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48C56FD8.4090807@redhat.com>
+Message-ID: <48C6A893.5080608@redhat.com>
+
+Jason Merrill wrote:
+> !                ::= cv v                         # type()
+
+Oops, that should be cv <type> v.
+
+Jason
+
+
+
+From jason at redhat.com  Thu Sep 11 23:18:37 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 11 Sep 2008 19:18:37 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C191E2.4000608@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com> <48C191E2.4000608@redhat.com>
+Message-ID: <48C9A74D.2020101@redhat.com>
+
+Jason Merrill wrote:
+> We already have a mangling for component ref.
+
+Or I thought we did; apparently we don't have an operator code for '.', 
+as it isn't an overloadable operator.  How does "dt" sound?
+
+After that issue is taken care of, there's the question of what to do 
+with the dependent member name.  Just
+
+dt <expression> <unqualified-name>?
+
+Jason
+
+
+
+From mark at codesourcery.com  Thu Sep 11 23:31:18 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 11 Sep 2008 16:31:18 -0700
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C9A74D.2020101@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com> <48C191E2.4000608@redhat.com> <48C9A74D.2020101@redhat.com>
+Message-ID: <48C9AA46.8000803@codesourcery.com>
+
+Jason Merrill wrote:
+
+> dt <expression> <unqualified-name>?
+
+Don't we have to worry about
+
+  x.X::template Y<Z>::w
+
+?
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Thu Sep 11 23:40:12 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 11 Sep 2008 19:40:12 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C9AA46.8000803@codesourcery.com>
+References: <48C16BEA.1050301@redhat.com> <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com> <48C191E2.4000608@redhat.com> <48C9A74D.2020101@redhat.com> <48C9AA46.8000803@codesourcery.com>
+Message-ID: <48C9AC5C.3090801@redhat.com>
+
+Mark Mitchell wrote:
+> Jason Merrill wrote:
+> 
+>> dt <expression> <unqualified-name>?
+> 
+> Don't we have to worry about
+> 
+>   x.X::template Y<Z>::w
+
+Yep, so we'll also want
+
+  dt <expression> <unqualified-name> <template-args>
+
+Jason
+
+
+
+From jason at redhat.com  Mon Sep 15 18:28:07 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 15 Sep 2008 11:28:07 -0700
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C9AC5C.3090801@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <CB54A5BC-BD82-402E-9F46-FBAFFD6616FB@edg.com> <48C191E2.4000608@redhat.com> <48C9A74D.2020101@redhat.com> <48C9AA46.8000803@codesourcery.com> <48C9AC5C.3090801@redhat.com>
+Message-ID: <48CEA937.5000205@redhat.com>
+
+Jason Merrill wrote:
+> Mark Mitchell wrote:
+>> Don't we have to worry about
+>>
+>>   x.X::template Y<Z>::w
+
+Ah, I didn't read your example closely enough.  I'd expect that to be 
+encoded as
+
+dt sT {type of x} sr N {X} 1Y I 1Z E E 1w
+
+using the more general binary expression encoding rule.
+
+Jason
+
+
+From jason at redhat.com  Mon Sep 15 18:27:16 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 15 Sep 2008 11:27:16 -0700
+Subject: [cxx-abi-dev] C++0x: mangling of char16_t and char32_t
+In-Reply-To: <200806100158.SAA02833@hpcll183.cup.hp.com>
+References: <200806100158.SAA02833@hpcll183.cup.hp.com>
+Message-ID: <48CEA904.7070801@redhat.com>
+
+Dennis Handly wrote:
+>> David Vandevoorde wrote:
+>>> although I'd prefer something a little more "mnemonical"; 
+>>> maybe W2 and W4.
+> 
+> My only suggestion is to use the "D" extension.
+> Possibly Dt and Dj from the corresponding unsigned short and unsigned int.
+
+Dt is already used for decltype.  But Ds/Dj would work.
+
+Anyone else have a preference between these two suggestions?
+
+Jason
+
+
+From jason at redhat.com  Wed Sep 17 18:49:01 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 17 Sep 2008 11:49:01 -0700
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48C16BEA.1050301@redhat.com>
+References: <48C16BEA.1050301@redhat.com>
+Message-ID: <48D1511D.60402@redhat.com>
+
+More generally, within decltype/sizeof/alignof we aren't interested in 
+the value of a type, only the type itself, so there's a lot of 
+information in the expression which is irrelevant.  Within decltype, 
+*(T*)0 and t are equivalent: both are T lvalues. T(42) and T() and 
+T(a,b,0932) are also equivalent: all are T rvalues.
+
+In all these cases, it seems like we could replace these expressions 
+with "lvalue placeholder" (sT) or "rvalue placeholder", and simplify 
+decltype (T lvalue placeholder) to T so we don't have to mangle as much 
+random expression gunk.
+
+Otherwise we still need to establish a mangling for T(more,than,one,arg).
+
+Jason
+
+
+
+
+From jason at redhat.com  Thu Sep 18 17:44:09 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 18 Sep 2008 10:44:09 -0700
+Subject: [cxx-abi-dev] C++0x: mangling of char16_t and char32_t
+In-Reply-To: <48CEA904.7070801@redhat.com>
+References: <200806100158.SAA02833@hpcll183.cup.hp.com> <48CEA904.7070801@redhat.com>
+Message-ID: <48D29369.4000605@redhat.com>
+
+Jason Merrill wrote:
+> Dt is already used for decltype.  But Ds/Dj would work.
+
+Michael Wong suggests Ds/Di for sign parity.  If nobody objects I think 
+I'll go ahead with that.
+
+Jason
+
+
+From jason at redhat.com  Fri Sep 26 22:05:45 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 26 Sep 2008 18:05:45 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48D1511D.60402@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com>
+Message-ID: <48DD5CB9.1010401@redhat.com>
+
+Jason Merrill wrote:
+> More generally, within decltype/sizeof/alignof we aren't interested in 
+> the value of a type, only the type itself, so there's a lot of 
+> information in the expression which is irrelevant.  Within decltype, 
+> *(T*)0 and t are equivalent: both are T lvalues. T(42) and T() and 
+> T(a,b,0932) are also equivalent: all are T rvalues.
+> 
+> In all these cases, it seems like we could replace these expressions 
+> with "lvalue placeholder" (sT) or "rvalue placeholder", and simplify 
+> decltype (T lvalue placeholder) to T so we don't have to mangle as much 
+> random expression gunk.
+> 
+> Otherwise we still need to establish a mangling for T(more,than,one,arg).
+
+Now that the C++ meeting is over, did people have reactions to this?  We 
+would probably want to define exactly what expression forms get reduced 
+like this to avoid incompatibilities.
+
+Simplifications within sizeof/alignof/decltype:
+
+lvalue forms:
+
+var
+exp.member (where type of exp is not dependent)
+exp->member (ditto *exp and exp doesn't overload op->)
+*exp (where type of exp is known to be pointer to something)
+
+rvalue forms:
+
+T(args)
+literals
+rvalue.member
+
+Should decltype(non-type-dependent expr) just get resolved to its type? 
+  Do we want to handle anything else specially?  And/or leave member 
+access out and mangle them using the normal rules?
+
+Jason
+
+
+
+From dhandly at cup.hp.com  Sat Sep 27 04:59:37 2008
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 26 Sep 2008 21:59:37 -0700 (PDT)
+Subject: [cxx-abi-dev] Discuss DFP mangling was(Re: [cxx-abi-dev] C++0x: mangling of char16_t and char32_t)
+Message-ID: <200809270459.VAA10753@hpcll183.cup.hp.com>
+
+>From: PremAnand M Rao <premanand.rao at hp.com>
+>but here is the "fine tuned" document that Michael was referring to.
+
+--------------060602000603020001050105
+>Towards Common Vendor DFP Mangling
+
+>The C++ Decimal FP TR allows an implementation to implement the C++
+>Decimal FP class as a builtin type, provided the user cannot tell the
+>difference.
+
+>Calling convention interoperability
+>DFP classes are standard layout types, so they are memcpy-able.  
+>In summary, they are memcpy-able and you can move them around registers.
+
+>This means that if a class is a DFP, or a struct whose only member is a
+>DFP type, they can all be passed in GPR and exchange data properly with
+>other structs.
+
+Unfortunately this isn't true for _Decimal32.
+
+>C and C++ interoperability
+>This is strictly not a C++ ABI issue. ...
+>Since C does no mangling, it is not a mangling issue.  But we can ask
+>that if we have an extern C function with DFP type, then change the ABI
+>to match C
+
+>5. C++ class library and native interoperability
+>It would seem it is possible for the C++ library to talk to the native
+>type as long as there are no special copy constructor/assignment
+>operator/destructors.
+
+Due do an unrelated bug in our C99 _Decimal32 implementation, it logically
+follows that we are hosed.  Unless we special case the C++ version of
+_Decimal32.
+
+I.e. the ia64 C++ ABI and the C ABI say that builtin types are passed
+right justified in a 64 bit register.
+
+But structs/classes are left justified!!
+And this causes problems with _Decimal32 but not _Decimal64 and _Decimal128.
+
+

@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> problem with local name mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problem%20with%20local%20name%20mangling&In-Reply-To=%3C14761.61987.489878.303355%40watercress.indetermi.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001147.html">
+   <LINK REL="Next"  HREF="001150.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>problem with local name mangling</H1>
+    <B>Alex Samuel</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problem%20with%20local%20name%20mangling&In-Reply-To=%3C14761.61987.489878.303355%40watercress.indetermi.net%3E"
+       TITLE="problem with local name mangling">samuel at codesourcery.com
+       </A><BR>
+    <I>Mon Aug 28 05:01:23 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001147.html">runtime mangling API
+</A></li>
+        <LI>Next message: <A HREF="001150.html">31 August meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1149">[ date ]</a>
+              <a href="thread.html#1149">[ thread ]</a>
+              <a href="subject.html#1149">[ subject ]</a>
+              <a href="author.html#1149">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Folks,
+
+I've come across problems while debugging mangling of local names.
+Currently,
+
+  &lt;name&gt; ::= &lt;local-name&gt;
+
+and also 
+
+  &lt;component&gt; ::= &lt;local-name&gt;
+
+where
+
+  &lt;local-name&gt; ::= Z &lt;function encoding&gt; E &lt;entity name&gt; [&lt;discriminator&gt;]
+
+This means that the &lt;local-name&gt; and therefore the function's
+&lt;encoding&gt; appears twice for each local name, once at the top level,
+in &lt;name&gt;, and once when expanding the list of components that makes
+up the name.  There should be no need for the &lt;component&gt; production
+above; function scope should be handled at the &lt;name&gt; level.
+
+Two other things that should probably be spelled out explicitly:
+
+  - In the case of nested function scopes, the first &lt;local-name&gt;
+    evaluated should be the innermost function scope.
+
+  - When invoking &lt;entity name&gt; from &lt;local-name&gt;, the expansion of
+    &lt;name&gt; needs to stop at the innermost function scope, to prevent
+    an infinite recusion.
+
+Also, if the &lt;component&gt; production above is removed, &lt;component&gt;
+is synonymous with &lt;unqualified-name&gt; and therefore can be removed.
+
+Finally, the production
+
+  &lt;class-enum-type&gt; ::= &lt;local-name&gt;
+
+is redundant because of
+
+  &lt;class-enum-type&gt; ::= &lt;name&gt;
+
+
+Here's an example of a local name expansion, as I understand it:
+
+  void foo () {
+    struct C {
+      void bar () {
+        struct D {
+          void baz () {
+          }
+        };
+      }
+    };
+  }
+
+This requires two levels of &lt;local-name&gt;.  The mangling for baz() is
+
+  _ZZZ3foovEN1C3barEvEN1D3bazEv
+     &lt;--local-name---&gt;
+    &lt;-------local-name-------&gt;
+
+
+To summarize, the changes I think we need are:
+
+  - Remove: &lt;component&gt;
+
+  - Replace: all uses of &lt;component&gt; with &lt;unqualified-name&gt;
+
+  - Remove: &lt;class-enum-type&gt; ::= &lt;local-name&gt;
+
+     ( one might even imagine removing &lt;class-enum-type&gt; altogether and
+       simply using  &lt;type&gt; ::= &lt;class-enum name&gt; )
+
+  - Specify that, in the production &lt;name&gt; ::= &lt;local-name&gt;, the
+    innermost local name is handled first.
+
+  - Specify that, in the production for &lt;local-name&gt;, when &lt;name&gt; is
+    used the assumption is that local function scopes are subsequently
+    ignored.  (One could do this with an alternate production for
+    &lt;name&gt;, instead.)
+
+
+Does this make sense to people?
+
+Regards
+Alex
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001147.html">runtime mangling API
+</A></li>
+	<LI>Next message: <A HREF="001150.html">31 August meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1149">[ date ]</a>
+              <a href="thread.html#1149">[ thread ]</a>
+              <a href="subject.html#1149">[ subject ]</a>
+              <a href="author.html#1149">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

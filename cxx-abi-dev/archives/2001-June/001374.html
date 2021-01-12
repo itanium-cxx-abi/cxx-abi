@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] What thunks are needed?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20What%20thunks%20are%20needed%3F&In-Reply-To=%3Cm3y9r54ruu.fsf%40prospero.cambridge.redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001373.html">
+   <LINK REL="Next"  HREF="001378.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] What thunks are needed?</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20What%20thunks%20are%20needed%3F&In-Reply-To=%3Cm3y9r54ruu.fsf%40prospero.cambridge.redhat.com%3E"
+       TITLE="[cxx-abi-dev] What thunks are needed?">jason_merrill at redhat.com
+       </A><BR>
+    <I>Wed Jun  6 14:16:58 UTC 2001</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001373.html">[cxx-abi-dev] What thunks are needed?
+</A></li>
+        <LI>Next message: <A HREF="001378.html">[cxx-abi-dev] What thunks are needed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Nathan&quot; == Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt; writes:
+</I>
+&gt;<i> Jason Merrill wrote:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Consider:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> class A { virtual void f (); };
+</I>&gt;&gt;<i> class B1 : virtual public A { virtual void f (); };
+</I>&gt;&gt;<i> class B2 : virtual public A { virtual void f (); };
+</I>&gt;&gt;<i> class C: public B1, public B2 { virtual void f (); };
+</I>
+&gt;&gt;<i> So: For C::f, we need a virtual thunk for A, no thunk for B1, and a
+</I>&gt;&gt;<i> non-virtual thunk for B2. 
+</I>
+&gt;<i> Disagree.
+</I>
+&gt;<i> C::f needs a virtual thunk for A, no thunk for B1 no thunk for B2.
+</I>&gt;<i> In C's vtable there will be a subvtable for B1 which contains a sub
+</I>&gt;<i> vtable for A. There will be a secondary vtable for B2, which will
+</I>&gt;<i> contain a sub vtable for the A base of B2. There is no A base inside
+</I>&gt;<i> the B2 base in an object, but B2's vtable will need space allocating
+</I>&gt;<i> as if there was one.
+</I>
+Yes.
+
+&gt;<i> Also it has to be set up correctly, so that if we have a pointer to the
+</I>&gt;<i> B2 base in C, a call to f will correctly adjust. (As B2 also defines an
+</I>&gt;<i> f, we don't have to convert the pointer down to an A * before the virtual
+</I>&gt;<i> function call.)
+</I>
+Yes.  But B2 is not a virtual base, so according to the current ABI
+converting from B2 to C should use a non-virtual thunk.
+
+&gt;&gt;<i> But it occurs to me that since the B2 vtable
+</I>&gt;&gt;<i> already has a vcall slot for f, we can use the virtual thunk there, too,
+</I>&gt;&gt;<i> so we only really need one thunk.
+</I>
+&gt;<i> agreed.
+</I>
+But this is a change from what the ABI currently says.
+
+&gt;&gt;<i> Thoughts?  The current g++ implementation doesn't generate the non-virtual
+</I>&gt;&gt;<i> thunk, so this change would actually improve compatibility between a
+</I>&gt;<i> The current g++ implementation is wrong in this regard. I've
+</I>&gt;<i> just fixed some stuff concerning nearly-empty virtual primary base
+</I>&gt;<i> classes that g++ was getting wrong. Mark's looking at that patch
+</I>&gt;<i> at the moment, and, if he doesn't find anything amiss, it'll go in
+</I>&gt;<i> tomorrow.
+</I>
+Ack!  Please don't put it in; I've just overhauled this stuff, which is why
+I'm thinking about it.  Didn't he mention to you that I was working on
+this?  Sorry I didn't cc you on the heads-up I sent him.
+
+Please send your patch to me, and I'll integrate any bits I missed.
+
+&gt;<i> here is what C's vtable should look like (and does with my patch)
+</I>
+&gt;<i> Vtable for C
+</I>&gt;<i> C::_ZTV1C: 10 entries
+</I>&gt;<i> 0     0
+</I>&gt;<i> 4     0
+</I>&gt;<i> 8     0
+</I>&gt;<i> 12    &amp;_ZTI1C
+</I>&gt;<i> 16    C::_ZTv0_n12_N1C1fEv
+</I>&gt;<i> 20    -4
+</I>&gt;<i> 24    -4		&lt;- vcall adjust from B2 to C is -4
+</I>&gt;<i> 28    -4
+</I>&gt;<i> 32    &amp;_ZTI1C
+</I>&gt;<i> 36    C::_ZTv0_n12_N1C1fEv &lt;- virtual adjust
+</I>
+With my patch, it looks like
+
+Vtable for C
+C::_ZTV1C: 10 entries
+0     0
+4     0
+8     0
+12    &amp;_ZTI1C
+16    C::f              &lt;- no thunk necessary
+20    -4
+24    -4		&lt;- vcall adjust from B2 to C is -4
+28    -4
+32    &amp;_ZTI1C
+36    C::_ZTv0_n12_N1C1fEv &lt;- virtual adjust
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001373.html">[cxx-abi-dev] What thunks are needed?
+</A></li>
+	<LI>Next message: <A HREF="001378.html">[cxx-abi-dev] What thunks are needed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

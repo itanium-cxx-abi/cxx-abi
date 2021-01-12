@@ -1,0 +1,481 @@
+From mjh at edg.com  Mon Aug  2 12:49:34 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 2 Aug 2010 08:49:34 -0400
+Subject: Clarification on floating point literal mangling
+Message-ID: <2779AA9A-C9AA-49D4-AF22-2063AA2F3BF5@edg.com>
+
+We recently ran across this seeming inconsistency with the description of mangling for floating point literals.  The current wording calls for both "fixed-length" and "without leading zeroes".  We think the "without leading zeroes" portion should be removed to match existing practice:
+
+*** abi.orig.html       Mon Aug  2 08:34:44 2010
+--- abi.html    Mon Aug  2 08:35:09 2010
+***************
+*** 4578,4584 ****
+  <p>
+  Floating-point literals are encoded using a fixed-length lowercase
+  hexadecimal string corresponding to the internal representation (IEEE
+! on Itanium), high-order bytes first, without leading zeroes.  For
+  example: "Lf bf800000 E" is -1.0f on Itanium.
+  
+  <p>
+--- 4578,4584 ----
+  <p>
+  Floating-point literals are encoded using a fixed-length lowercase
+  hexadecimal string corresponding to the internal representation (IEEE
+! on Itanium), high-order bytes first.  For
+  example: "Lf bf800000 E" is -1.0f on Itanium.
+  
+  <p>
+
+
+Thanks.
+
+Mike Herrick
+Edison Design Group
+
+
+
+From mark at codesourcery.com  Mon Aug  2 17:38:01 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 02 Aug 2010 10:38:01 -0700
+Subject: [cxx-abi-dev] Clarification on floating point literal mangling
+In-Reply-To: <2779AA9A-C9AA-49D4-AF22-2063AA2F3BF5@edg.com>
+References: <2779AA9A-C9AA-49D4-AF22-2063AA2F3BF5@edg.com>
+Message-ID: <4C570279.2070108@codesourcery.com>
+
+Mike Herrick wrote:
+
+> We recently ran across this seeming inconsistency with the
+> description of mangling for floating point literals.  The current
+> wording calls for both "fixed-length" and "without leading zeroes".
+> We think the "without leading zeroes" portion should be removed to
+> match existing practice:
+
+Makes sense to me.  I suppose that "without leading zeroes" is actually
+technically superior, in that it leads to a more compact mangling in
+some cases, but if that's not what anybody implements then we should
+correct the specification.
+
+If any of the other implementors (HP, IBM, etc.) do not emit the leading
+zeroes, please speak up!
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From dhandly at cup.hp.com  Tue Aug  3 22:35:33 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 3 Aug 2010 15:35:33 -0700 (PDT)
+Subject: [cxx-abi-dev] Clarification on floating point literal mangling
+Message-ID: <201008032235.PAA12732@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>Mike Herrick wrote:
+>> We recently ran across this seeming inconsistency with the
+>> description of mangling for floating point literals.  The current
+>> wording calls for both "fixed-length" and "without leading zeroes".
+>> We think the "without leading zeroes" portion should be removed to
+>> match existing practice:
+
+Note: leading zeroes may be important for decimal floating point?
+
+>I suppose that "without leading zeroes" is actually
+>technically superior, in that it leads to a more compact mangling in
+>some cases
+
+Yes.
+
+>If any of the other implementors (HP, IBM, etc.) do not emit the leading
+>zeroes, please speak up!
+Mark Mitchell
+
+We do what EDG does but I can't get our version to accept floating point
+for templates.
+Leading zeroes for integral types is suppressed and converted from octal
+to decimal.
+
+
+From dhandly at cup.hp.com  Wed Aug  4 05:35:48 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 3 Aug 2010 22:35:48 -0700 (PDT)
+Subject: [cxx-abi-dev] Clarification on floating point literal mangling
+Message-ID: <201008040535.WAA14683@hpcll183.cup.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>We recently ran across this seeming inconsistency with the description
+>of mangling for floating point literals.  The current wording calls for
+>both "fixed-length" and "without leading zeroes".  We think the "without
+>leading zeroes" portion should be removed to match existing practice:
+
+(Please ignore my previous reply, I didn't see this message first.)
+
+And it seems to be contradictory.  (And "leading zero nibbles" would be better
+wording.)
+And in practice, there won't be many leading zero nibbles except for very
+small numbers:
+float  small zero nibble: 2.524355e-29
+double small zero nibble: 1.288230e-231
+
+(Of course if you assumed the numbers were distributed uniformly as bit
+patterns, 1/16 of all floats would have at least one leading zero nibble.  :-)
+
+Do we have something similar for Decimal floating point mangling?
+Also do we care that there are two internal representation for Dec FP?
+BID and DPD.
+
+Do we expect that one compiler will want to have both at the same time?
+Or just the natural one and the other is an opague type?
+(HP plans to use BID and the other is a user defined opague type.)
+
+And speaking of multiple types for decimal, if a compiler supports N
+different binary floating point encodings, we have L x nibble-stream E, where
+"x" can be the vendor defined type for alternate float formats?
+
+I suppose this isn't important, if the compiler can only support one type
+at the same time and just uses "f" for the float type.
+
+*** abi.orig.html       Mon Aug  2 08:34:44 2010
+  Floating-point literals are encoded using a fixed-length lowercase
+  hexadecimal string corresponding to the internal representation (IEEE
+! on Itanium), high-order bytes first, without leading zeroes.  For
+  example: "Lf bf800000 E" is -1.0f on Itanium.
+
+
+From mjh at edg.com  Tue Aug 10 19:36:57 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 10 Aug 2010 15:36:57 -0400
+Subject: Demangling ambiguity for templated conversion operators
+Message-ID: <9BA91A38-8DC7-4073-900D-DBF84D690F5B@edg.com>
+
+I was doing some "house cleaning" and came upon this apparent demangling ambiguity in the IA-64 ABI that we ran into a while back (unrelated to recent SFINAE discussions).  I thought I'd highlight it here along with the demangler heuristic we implemented as a workaround in case that information is useful to other implementers.
+
+Take this example:
+
+$ cat ex.c
+  template <class T> struct A { };
+  template <class T> struct B { };
+  struct S {
+   template <class T> operator T();
+  } s;
+  void f() {
+   s.operator A< A<int> >();
+   s.operator A< B< A<int> > >();
+  }
+$ g++450 -c ex.c
+$ nm -u ex.o
+                 U _ZN1ScvT_I1AI1BIS2_IiEEEEEv
+                 U _ZN1ScvT_I1AIS2_IiEEEEv
+$ nm -u -C ex.o
+                 U S::operator A<B<B<int> > ><A<B<B<int> > > >()
+                 U _ZN1ScvT_I1AIS2_IiEEEEv
+
+GNU (and EDG and others) can't correctly demangle these names (the substitutions are wrong in the first demangled name above).
+
+I believe the problem arises when using this rule for a template conversion function:
+
+	<operator-name> ::= cv <type>	# (cast)
+
+In the case for "_ZN1ScvT_I1AIS2_IiEEEEv" above, after the demangler sees the "cv", it's presented with "T_I1AIS2_IiEEEEv" and asked to demangle a <type>, but <type> can be either "T_" (a <template-param>) or "T_I1AIS2_IiEEE" (a <template-template-param> <template-args>).  As far as I can tell, there's no way to know if the <template-args> are part of the <type> or belong to an enclosing production (i.e., <template-prefix> <template-args> -- where <template-prefix> is reduced to <operator-name>).
+
+Here's an example that produces both cases depending on whether or not FOO is defined:
+
+  template <class T> struct A { };
+  struct S {
+  #ifdef FOO
+    template <class T> operator T();
+  #else
+    template <template <class> class T> operator T<int>();
+  #endif
+  } s;
+  void f() {
+    s.operator A<int>();
+  }
+
+We've made a change to our demangler to initially not parse any <template-args> as part of the <type> when demangling a conversion function, but if the demangling fails, it makes a second attempt, this time allowing <template-args> as part of the <type>.  With these changes, we now give these demangled names (for the initial example):
+
+$ nm -u ex.o | edg_decode
+                 U S::operator T1<A<B<A<int>>>>()
+                 U S::operator T1<A<A<int>>>()
+
+Mike Herrick
+Edison Design Group
+
+
+
+From dhandly at cup.hp.com  Tue Aug 10 21:39:07 2010
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 10 Aug 2010 14:39:07 -0700 (PDT)
+Subject: [cxx-abi-dev] Demangling ambiguity for templated conversion operators
+Message-ID: <201008102139.OAA13132@hpcll183.cup.hp.com>
+
+>From: Mike Herrick <mjh at edg.com>
+>I was doing some "house cleaning" and came upon this apparent demangling
+>ambiguity in the IA-64 ABI that we ran into a while back (unrelated to
+>recent SFINAE discussions).
+
+Do we need to document this IA-64 ABI flaw in some kind of NOTE?
+(And while we are at it, what should we have done next time to prevent
+ambiguities?)
+
+
+From daveed at edg.com  Wed Aug 11 17:54:56 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Aug 2010 13:54:56 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com>
+Message-ID: <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com>
+
+Attached are updated diffs for the ABI spec.  Besides a couple of minor fixes, this includes an updated treatment of parameter references in signature expressions.  There was a separate thread discussing nested function declarators, but at the recent Rapperswil meeting of WG21, an additional issue came up.  Consider:
+
+	template<class T> auto f(T const x)->decltype(x);  // #1
+	template<class T> auto f(T x)->decltype(x);        // #2
+
+Ordinarily, top-level cv-qualifiers are ignored when forming the function type.  E.g., "int(*)(T)" and "int(*)(T const)" are the same type.  However, in expression contexts we cannot ignore the cv-qualifiers because the expression must mean the same there as it would if it appeared in the function definition (where cv-qualifiers matter).
+
+So #1 and #2 above must be distinct templates.  Rather than encoding the cv-qualifier on the parameter type of the template signature (which would presumably be a serious break of backward compatibility), we're proposing to encode it in the reference in expression contexts (except for known non-class types in rvalue contexts, where the cv-qualifier is meaningless).  E.g., rather than encoding "decltype(x)" in #1 as "Dtfp_E" (as we'd do for #2) we use "DtfpK_E".
+
+As usual, feedback is welcome.
+
+Thanks,
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: SFINAE_diffs-3
+Type: application/octet-stream
+Size: 36162 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100811/5b64bf74/attachment.obj>
+
+From daveed at edg.com  Wed Aug 11 17:57:22 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 11 Aug 2010 13:57:22 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com>
+Message-ID: <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com>
+
+Oops, I attached the wrong file in my previous e-mail.  Should be fixed now.
+
+	Daveed
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: SFINAE_diffs-3
+Type: application/octet-stream
+Size: 36160 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100811/c73e66f2/attachment.obj>
+-------------- next part --------------
+
+
+On Aug 11, 2010, at 1:54 PM, David Vandevoorde wrote:
+
+> Attached are updated diffs for the ABI spec.  Besides a couple of minor fixes, this includes an updated treatment of parameter references in signature expressions.  There was a separate thread discussing nested function declarators, but at the recent Rapperswil meeting of WG21, an additional issue came up.  Consider:
+> 
+> 	template<class T> auto f(T const x)->decltype(x);  // #1
+> 	template<class T> auto f(T x)->decltype(x);        // #2
+> 
+> Ordinarily, top-level cv-qualifiers are ignored when forming the function type.  E.g., "int(*)(T)" and "int(*)(T const)" are the same type.  However, in expression contexts we cannot ignore the cv-qualifiers because the expression must mean the same there as it would if it appeared in the function definition (where cv-qualifiers matter).
+> 
+> So #1 and #2 above must be distinct templates.  Rather than encoding the cv-qualifier on the parameter type of the template signature (which would presumably be a serious break of backward compatibility), we're proposing to encode it in the reference in expression contexts (except for known non-class types in rvalue contexts, where the cv-qualifier is meaningless).  E.g., rather than encoding "decltype(x)" in #1 as "Dtfp_E" (as we'd do for #2) we use "DtfpK_E".
+> 
+> As usual, feedback is welcome.
+> 
+> Thanks,
+> 
+> 	Daveed
+> 
+> 
+> <SFINAE_diffs-3>
+
+
+From rjmccall at apple.com  Wed Aug 18 18:30:46 2010
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Aug 2010 11:30:46 -0700
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com>
+Message-ID: <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com>
+
+On Aug 11, 2010, at 10:57 AM, David Vandevoorde wrote:
+> <SFINAE_diffs-3>
+
+We should probably specify what happens when mangling an operator of unknown arity, i.e. when mangling the signature for
+  template <class T> void f(decltype(&T::operator+));
+I think all the existing frontends mangle this as the binary operator in all four cases (+ - * &), but it would be good to spell this out in the ABI.
+
+Suggested wording:
+  Unlike Cfront, unary and binary operators using the same symbol have different encodings. 
+INSERT: When the arity of an operator name is not known, the operator is encoded as a binary operator.
+
+This prompts interesting questions about when, exactly, we know the arity of an operator.  For example, do we know the arity here?
+  template <typename T> void g(decltype(T().operator+()));
+
+What about here?  (This comes from a Clang bug, http://llvm.org/bugs/show_bug.cgi?id=7891)
+  template <int (A::*)()> struct S {};
+  template <typename T> void g (S<&T::operator + >) {}
+Since S is a class template, we can actually determine contextually that the 'operator+' must be unary.  If S were a function template, this wouldn't necessarily be possible.  I assume we don't actually want to require this analysis in either case.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100818/5603cb44/attachment.html>
+
+From rjmccall at apple.com  Wed Aug 18 19:09:16 2010
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Aug 2010 12:09:16 -0700
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C6C2B92.3070705@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com> <4C6C2B92.3070705@redhat.com>
+Message-ID: <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com>
+
+
+On Aug 18, 2010, at 11:50 AM, Jason Merrill wrote:
+
+> On 08/18/2010 02:30 PM, John McCall wrote:
+>> On Aug 11, 2010, at 10:57 AM, David Vandevoorde wrote:
+>>> <SFINAE_diffs-3>
+>> 
+>> We should probably specify what happens when mangling an operator of
+>> unknown arity, i.e. when mangling the signature for
+>> template <class T> void f(decltype(&T::operator+));
+>> I think all the existing frontends mangle this as the binary operator in
+>> all four cases (+ - * &), but it would be good to spell this out in the ABI.
+> 
+> At the end of 5.1.5:
+> 
+> "If the qualified name refers to an operator for which both unary and binary manglings are available, the mangling chosen is the mangling for the binary version."
+
+Aha, missed that, thank you.  I think this resolves my third question as well, since that's inherently a qualified name.  To be pedantic, I think this doesn't cover unresolved-name cases like
+  template <class T> void f(decltype(T::foo(&operator+)));
+but the intent is obvious.
+
+Is there anything specifically saying that we mangle operator names based on the deduced arity from a call site?
+
+John.
+
+From jason at redhat.com  Wed Aug 18 18:50:58 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Aug 2010 14:50:58 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com>
+Message-ID: <4C6C2B92.3070705@redhat.com>
+
+On 08/18/2010 02:30 PM, John McCall wrote:
+> On Aug 11, 2010, at 10:57 AM, David Vandevoorde wrote:
+>> <SFINAE_diffs-3>
+>
+> We should probably specify what happens when mangling an operator of
+> unknown arity, i.e. when mangling the signature for
+> template <class T> void f(decltype(&T::operator+));
+> I think all the existing frontends mangle this as the binary operator in
+> all four cases (+ - * &), but it would be good to spell this out in the ABI.
+
+At the end of 5.1.5:
+
+"If the qualified name refers to an operator for which both unary and 
+binary manglings are available, the mangling chosen is the mangling for 
+the binary version."
+
+Jason
+
+
+From jason at redhat.com  Wed Aug 18 19:24:45 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Aug 2010 15:24:45 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com> <4C6C2B92.3070705@redhat.com> <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com>
+Message-ID: <4C6C337D.1000103@redhat.com>
+
+On 08/18/2010 03:09 PM, John McCall wrote:
+> Is there anything specifically saying that we mangle operator names based on the deduced arity from a call site?
+
+Not that I've noticed.  I think the unary mangling is just for 
+expression uses.
+
+Jason
+
+
+From daveed at edg.com  Wed Aug 18 19:47:03 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 18 Aug 2010 15:47:03 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com> <4C6C2B92.3070705@redhat.com> <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com>
+Message-ID: <1B4AF8E2-149A-4C1F-ADB8-5A166533B986@edg.com>
+
+
+On Aug 18, 2010, at 3:09 PM, John McCall wrote:
+
+> 
+> On Aug 18, 2010, at 11:50 AM, Jason Merrill wrote:
+> 
+>> On 08/18/2010 02:30 PM, John McCall wrote:
+>>> On Aug 11, 2010, at 10:57 AM, David Vandevoorde wrote:
+>>>> <SFINAE_diffs-3>
+>>> 
+>>> We should probably specify what happens when mangling an operator of
+>>> unknown arity, i.e. when mangling the signature for
+>>> template <class T> void f(decltype(&T::operator+));
+>>> I think all the existing frontends mangle this as the binary operator in
+>>> all four cases (+ - * &), but it would be good to spell this out in the ABI.
+>> 
+>> At the end of 5.1.5:
+>> 
+>> "If the qualified name refers to an operator for which both unary and binary manglings are available, the mangling chosen is the mangling for the binary version."
+> 
+> Aha, missed that, thank you.  I think this resolves my third question as well, since that's inherently a qualified name.  To be pedantic, I think this doesn't cover unresolved-name cases like
+>  template <class T> void f(decltype(T::foo(&operator+)));
+> but the intent is obvious.
+
+Actually, note that Jason's quote is modified by my proposed patch:
+
+! If the <code>&lt;unresolved-name></code> refers to an operator for
+! which both unary and binary manglings are available, the mangling
+! chosen is the mangling for the binary version.
+! For example:
+! <code><pre>
+!           template&lt;class T> auto f(T p)->decltype(&T::operator-);
+!             // The return type in the mangling of the template signature
+!             // is encoded as "DTadsrT_onmiE".
+! </pre></code>
+
+which should handle that case too.
+
+	Daveed
+
+> 
+> Is there anything specifically saying that we mangle operator names based on the deduced arity from a call site?
+
+
+
+
+
+From rjmccall at apple.com  Wed Aug 18 20:23:52 2010
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Aug 2010 13:23:52 -0700
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C6C337D.1000103@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <3C9076C5-639C-4637-842A-6294CC43EAB8@edg.com> <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <7EEC2702-C03C-4E00-BAAE-C915C3960A0B@apple.com> <4C6C2B92.3070705@redhat.com> <5B0BC729-0FE0-45F3-8F2E-41FE42B75A7B@apple.com> <4C6C337D.1000103@redhat.com>
+Message-ID: <3819F6CA-1106-41B2-B4DD-A651561CC1B3@apple.com>
+
+On Aug 18, 2010, at 12:24 PM, Jason Merrill wrote:
+> On 08/18/2010 03:09 PM, John McCall wrote:
+>> Is there anything specifically saying that we mangle operator names based on the deduced arity from a call site?
+> 
+> Not that I've noticed.  I think the unary mangling is just for expression uses.
+
+Okay.  So we're in agreement that '+x' is mangled with 'ps', but 'operator+(x)'
+is 'pl' regardless of the number of arguments?
+
+John.
+

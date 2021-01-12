@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> substitutions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20substitutions&In-Reply-To=%3C38FCDD9A.BB2E9503%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000941.html">
+   <LINK REL="Next"  HREF="000949.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>substitutions</H1>
+    <B>Alain Miniussi</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20substitutions&In-Reply-To=%3C38FCDD9A.BB2E9503%40cup.hp.com%3E"
+       TITLE="substitutions">alainm at cup.hp.com
+       </A><BR>
+    <I>Tue Apr 18 22:11:38 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000941.html">substitutions
+</A></li>
+        <LI>Next message: <A HREF="000949.html">substitutions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#944">[ date ]</a>
+              <a href="thread.html#944">[ thread ]</a>
+              <a href="subject.html#944">[ subject ]</a>
+              <a href="author.html#944">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jim Dehnert wrote:
+&gt;<i> 
+</I>&gt;<i> I'll take a shot at this, but please correct me if I get it wrong.
+</I>&gt;<i> 
+</I>&gt;<i> &gt; From: Alain Miniussi &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">alainm at cup.hp.com</A>&gt;
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Suppose that we need to encode the following
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; C1::C2
+</I>&gt;<i> &gt; C1::C3::C4
+</I>&gt;<i> &gt; C1::C3::C5
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; in a name, we'll get :
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; N2C12C2E .... NS&lt;n1&gt;_2C32C4E  NS&lt;n2&gt;_2C5E ......
+</I>&gt;<i> 
+</I>&gt;<i> So, the substitution dictionary that gets built up is:
+</I>&gt;<i> 
+</I>&gt;<i> C1
+</I>&gt;<i> C1::C2
+</I>&gt;<i> ...
+</I>&gt;<i> C1::C3
+</I>&gt;<i> C1::C3::C4
+</I>&gt;<i> ...
+</I>&gt;<i> C1::C3::C6
+</I>
+Yes, except that the corresponding string in the encoding are:
+
+C1       -&gt;   2C1
+C1::C2   -&gt;   2C12C2
+...
+C1::C3   -&gt;   S&lt;c1n&gt;_2C3
+C1::C3::C4 -&gt; S&lt;c1n&gt;_2C32C4
+...
+C1::C3::C5 -&gt; ????2C5
+
+&gt;<i> Assuming nothing in the ellipses, these are, at the point of the last
+</I>&gt;<i> one:
+</I>&gt;<i>   S2_
+</I>&gt;<i>   S1_
+</I>&gt;<i>   S0_
+</I>&gt;<i>   S_
+</I>&gt;<i> 
+</I>&gt;<i> &gt; The problem:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; We accept the substitution only if the size of the encoded
+</I>&gt;<i> &gt; substitution is strictly smaller than the size of the
+</I>&gt;<i> &gt; substituted entity.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Now, let's say that S&lt;n2&gt;_ is longuer than S&lt;n1&gt;_2C3, what should
+</I>&gt;<i> &gt; we do ?
+</I>&gt;<i> 
+</I>&gt;<i> Ah, I think I see your problem.  The entity that we're considering for
+</I>&gt;<i> substitution is 2C12C3, _not_ S&lt;n1&gt;_2C3.  Earlier substitutions don't
+</I>&gt;<i> come into play.
+</I>
+But we don't have the string 2C12C3 in the encoding, if C1::C2 already
+appear before, we need to reuse (let say that C1 is a long enough name)
+the C1 preffix, so we only have S&lt;nc1&gt;2C2 appearing in the encoding.
+And probably some map indicating that C1::C3 is encoded with that
+string.
+
+&gt;<i> &gt; Clearly, we can't write NS&lt;n1&gt;_2C3 instead of S&lt;n2&gt;_ because
+</I>&gt;<i> &gt; n1 does not reffers to the same entity at that point.
+</I>&gt;<i> 
+</I>&gt;<i> Right.  Our choices at this point are (with the above numbering)
+</I>&gt;<i> 2C12C3 (no substitution), S2_2C3 (substitute for C1), or S0_
+</I>&gt;<i> (substitute for C1::C3).  We wouldn't choose the second because it's
+</I>&gt;<i> not shorter, and would choose the third unless &lt;n&gt; were &gt; 3 digits.
+</I>
+Maybe my problem will be more clear with the following example:
+
+struct C1xxxx {
+    struct C2 {};
+    struct C3 {
+        struct C4 {};
+    };
+}
+
+template &lt;class T12, class T13, class Tune, class T134&gt;
+struct Temp : virtual something{};
+
+And we need to encode the name:
+
+Temp&lt;C1xxxx::C2,C1xxxx::C3,int,C1xxxx::C3::C4&gt;
+
+(to encode it's vptr for example)
+
+We have:
+
+4Temp 
+  I
+    N 6C1xxxx 2C2 E 
+    N S1_ 2C3 ES
+    i
+    N S2_ 2C4 E // S2_ -&gt; S1_ 2C3, let's call S2_ S&lt;C13n&gt;_ instead.
+  E
+
+Now imagine, instead of &quot;int&quot;, we have something very 
+big that generate a 5 digit (or more) C13n (sure, it's 
+a big number, it won't append very often) so that 
+strlen( &quot;S&lt;C13n&gt;_2C4&quot; ) &gt; strlen (&quot;S1_ 2C3&quot;)
+
+At that point, I don't see what to write instead of &quot;S&lt;C13n&gt;_2C4&quot;.
+ 
+&gt;<i> &gt; If we are
+</I>&gt;<i> &gt; ready to replace n1 with it's updated value n1+delta, the rule
+</I>&gt;<i> &gt; and the implementation becomes more complicated (imagine that
+</I>&gt;<i> &gt; we have something more complex than S&lt;n1&gt;_2C3, with some
+</I>&gt;<i> &gt; substitued template args and so on...).
+</I>&gt;<i> 
+</I>&gt;<i> I don't think this is true if you recognize that you're not
+</I>&gt;<i> substituting for already-substituted strings.  Do you?
+</I>&gt;<i> 
+</I>&gt;<i> &gt; Now, the typical size of a substitution will be 3, encoded source
+</I>&gt;<i> &gt; names are at least 2 char long (and I don't think it's the typical
+</I>&gt;<i> &gt; size).
+</I>&gt;<i> &gt; So the only &quot;real world&quot; (but every one has it's own, so...)
+</I>&gt;<i> &gt; waste of space of more than 1 char/substitution I can think of
+</I>&gt;<i> &gt; involve builtin type. What about supressing the &quot;smaller size&quot;
+</I>&gt;<i> &gt; rule and saying that builtin types can't be source of further
+</I>&gt;<i> &gt; substitution ?
+</I>&gt;<i> 
+</I>&gt;<i> I don't feel strongly about this.  Does anyone else?
+</I>&gt;<i> 
+</I>&gt;<i> Jim
+</I>&gt;<i> 
+</I>&gt;<i> -           Jim Dehnert         <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+</I>&gt;<i>                                 (650)933-4272
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000941.html">substitutions
+</A></li>
+	<LI>Next message: <A HREF="000949.html">substitutions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#944">[ date ]</a>
+              <a href="thread.html#944">[ thread ]</a>
+              <a href="subject.html#944">[ subject ]</a>
+              <a href="author.html#944">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

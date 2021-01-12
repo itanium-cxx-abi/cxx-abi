@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Mangling ambiguity
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity&In-Reply-To=%3C3909FBEC.EF984DB4%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000958.html">
+   <LINK REL="Next"  HREF="000962.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Mangling ambiguity</H1>
+    <B>Alain Miniussi</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity&In-Reply-To=%3C3909FBEC.EF984DB4%40cup.hp.com%3E"
+       TITLE="Mangling ambiguity">alainm at cup.hp.com
+       </A><BR>
+    <I>Fri Apr 28 21:00:28 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000958.html">Mangling ambiguity
+</A></li>
+        <LI>Next message: <A HREF="000962.html">Mangling ambiguity
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#960">[ date ]</a>
+              <a href="thread.html#960">[ thread ]</a>
+              <a href="subject.html#960">[ subject ]</a>
+              <a href="author.html#960">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Daveed Vandevoorde wrote:
+&gt;<i> 
+</I>&gt;<i> Matt Austern wrote:
+</I>&gt;<i> [...]
+</I>&gt;<i> &gt;        template &lt;class T&gt; struct A { };
+</I>&gt;<i> &gt;        template &lt;class T&gt; struct B { };
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;        template &lt;class T&gt; struct X        { void f(T); };
+</I>&gt;<i> &gt;        template &lt;class T&gt; struct X&lt;A&lt;T&gt; &gt; { void f(T); };
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Now consider how to mangle these instantiations:
+</I>&gt;<i> &gt;     void X&lt;A&lt;int&gt; &gt;::f(int);
+</I>&gt;<i> &gt;     void X&lt;B&lt;int&gt; &gt;::f(B&lt;int&gt; &gt;);
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Under our current rules, I claim that the latter is clearly
+</I>&gt;<i> &gt;     _Z N 1X I1BIiEE 1f E vT1_
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; How about the former?  It depends on how &quot;multiple levels of template&quot;
+</I>&gt;<i> &gt; is to be interpreted, and we could reasonably interpret it as saying
+</I>&gt;<i> &gt; either that the mangling should be
+</I>&gt;<i> &gt;     _Z N 1X I1AIiEE 1f E vT1_
+</I>&gt;<i> &gt; or that it should be
+</I>&gt;<i> &gt;     _Z N 1X I1AIiEE 1f E vT2_
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; We should clarify the rules to make sure we say that it's &quot;T2_&quot;
+</I>&gt;<i> &gt; instead of &quot;T1_&quot;, because otherwise we'll have an ambiguity that can
+</I>&gt;<i> &gt; be resolved only by the demangler knowing whether or not it's dealing
+</I>&gt;<i> &gt; with a partial specialization.
+</I>&gt;<i> 
+</I>&gt;<i> I must be going blank, but where is the ambiguity with the first
+</I>&gt;<i> mangling? 
+</I>
+Let's start with:
+template &lt;class T&gt; struct X { void f(T); };
+
+we want to encode X&lt;A&lt;int&gt; &gt;::void f(T):
+_Z N 1X I1AIiEE 1f E vT1_
+
+Here, that mangled name seems to refer to void X&lt;%1&gt;::f(%1) with
+%1=A&lt;int&gt;
+Now, if we also consider:
+
+template &lt;class T&gt; struct X&lt;A&lt;T&gt; &gt; { void f(T); };
+
+and consider that 1 is the number of the first and only parameter T, we
+have(for the same mangling):
+
+void X&lt;A&lt;%1&gt;::f(%1) with %1=int
+
+And we don't know, while demangling, if we have a specialization.
+So the idea is to say that we want to consider an occurence 
+(probably the first but it's not explictly said yet) of T in the
+actual instantiation parameters:
+
+Instead of considering things like this:
+template&lt;class T:1&gt; struct X&lt;A&lt;T&gt; &gt; { void f(%1); }
+
+consider:
+template&lt;class T&gt; struct X&lt;A:1&lt;int:2&gt; &gt; { void f(%2); }
+
+Note that I think that the most general case must take into 
+account that T can appears different time ( X&lt;C&lt;T,T&gt; &gt;) and 
+that we need to put a number on every subtype  
+(X&lt;int*&gt; -&gt; X&lt;int:2*:1&gt;).
+
+Alain
+
+
+&gt;<i> In the latter case, what does &quot;T2_&quot; refer to given that
+</I>&gt;<i> there is only one template parameter?
+</I>&gt;<i> 
+</I>&gt;<i>         Daveed
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000958.html">Mangling ambiguity
+</A></li>
+	<LI>Next message: <A HREF="000962.html">Mangling ambiguity
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#960">[ date ]</a>
+              <a href="thread.html#960">[ thread ]</a>
+              <a href="subject.html#960">[ subject ]</a>
+              <a href="author.html#960">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

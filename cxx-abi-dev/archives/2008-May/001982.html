@@ -1,0 +1,97 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI modification for exception propagation
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483BC8AE.8010108%40getdesigned.at%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001980.html">
+   <LINK REL="Next"  HREF="001983.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI modification for exception propagation</H1>
+    <B>Sebastian Redl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483BC8AE.8010108%40getdesigned.at%3E"
+       TITLE="[cxx-abi-dev] ABI modification for exception propagation">sebastian.redl at getdesigned.at
+       </A><BR>
+    <I>Tue May 27 08:39:10 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001980.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+        <LI>Next message: <A HREF="001983.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1982">[ date ]</a>
+              <a href="thread.html#1982">[ thread ]</a>
+              <a href="subject.html#1982">[ subject ]</a>
+              <a href="author.html#1982">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>David Vandevoorde wrote:
+&gt;<i>
+</I>&gt;<i> Note that it doesn't have to copy the thrown object: It can 
+</I>&gt;<i> essentially return a smartptr&lt;__cxa_exception&gt; (which is what 
+</I>&gt;<i> std::exception_ptr would be) for the top exception.  The constructor 
+</I>&gt;<i> for this smart pointer must behave a bit like __cxa_rethrow() in that 
+</I>&gt;<i> it must avoid having __cxa_end_catch destroy the exception.  Instead, 
+</I>&gt;<i> that destruction must now be handled by the destructor of 
+</I>&gt;<i> smartptr&lt;__cxa_exception&gt; (when the reference count goes to zero).
+</I>I have tried that. It doesn't work. Yes, I can make an exception_ptr 
+that refers to an existing __cxa_exception, but I can't rethrow it. That 
+would mean allowing a single __cxa_exception to be in multiple throws at 
+once, and _Unwind_Exception cannot handle that. Also, __cxa_exception 
+cannot handle having been caught by several threads at once. It would 
+mess up the nextException chain.
+I HAVE to duplicate the __cxa_exception, and as long as the 
+__cxa_exception and the exception object are in the same memory block, 
+that means copying the exception object too.
+
+You can read my rationale in the thread at the libstdc++ mailing list.
+<A HREF="http://gcc.gnu.org/ml/libstdc++/2008-05/msg00079.html">http://gcc.gnu.org/ml/libstdc++/2008-05/msg00079.html</A>
+
+
+Although, thinking about it some more, there might be a way. There could 
+be essentially two kinds of __cxa_exception. One looks like the old one, 
+with an added reference count. The other holds a pointer to the first 
+kind instead. All exception_ptrs refer to the primary __cxa_exception, 
+but on rethrow they allocate a secondary that also refers to the first.
+
+This might work. But *only* if all modules link to the support library 
+dynamically, of course. If any of them links statically, it would keep 
+the old implementation, which would wreak havoc.
+
+I'll look into implementing that.
+
+Sebastian
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001980.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+	<LI>Next message: <A HREF="001983.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1982">[ date ]</a>
+              <a href="thread.html#1982">[ thread ]</a>
+              <a href="subject.html#1982">[ subject ]</a>
+              <a href="author.html#1982">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

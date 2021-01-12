@@ -1,0 +1,316 @@
+From jason at redhat.com  Thu Dec  8 18:41:02 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 8 Dec 2016 13:41:02 -0500
+Subject: [cxx-abi-dev] Mangling of generic lambda
+Message-ID: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+
+How should 'auto' parameters in a generic lambda be mangled?  Mangling
+them as normal template parameters doesn't really work, as they can
+end up with the same mangling as the template parameter for which they
+are an argument.
+
+template<typename T>
+T &&forward (T &v)
+{
+  return static_cast<T &&>(v);
+}
+
+template<typename FN>
+  void indirect (FN &&handler)
+{
+  forward<FN> (handler);
+}
+
+inline void Foo ()
+{
+  auto lambda = [](auto &) { };
+
+  forward (lambda);
+  indirect (lambda);
+}
+
+void (*p)() = Foo;
+
+For this GCC and Clang both currently produce
+
+_Z7forwardIZ3FoovEUlRT_E_EOS0_S1_
+
+where the T_ refers to the template parameter currently being
+described, causing the demangler to crash due to infinite recursion
+(https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252).
+
+Nathan proposes to change the parameters to mangle using Da, which
+seems reasonable.  I'm not sure how that will extend to concepts, but
+concepts mangling as a whole is an unsolved problem.
+
+Any thoughts?
+
+Jason
+
+From richardsmith at googlers.com  Thu Dec  8 22:31:52 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 8 Dec 2016 14:31:52 -0800
+Subject: [cxx-abi-dev] Mangling of generic lambda
+In-Reply-To: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+References: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+Message-ID: <CAGL0aWeuoL2to=xbS9n2L1Sc_NTMMMAgjxvr0VhO-+_342Ld6A@mail.gmail.com>
+
+On 8 December 2016 at 10:41, Jason Merrill <jason at redhat.com> wrote:
+
+> How should 'auto' parameters in a generic lambda be mangled?  Mangling
+> them as normal template parameters doesn't really work, as they can
+> end up with the same mangling as the template parameter for which they
+> are an argument.
+>
+> template<typename T>
+> T &&forward (T &v)
+> {
+>   return static_cast<T &&>(v);
+> }
+>
+> template<typename FN>
+>   void indirect (FN &&handler)
+> {
+>   forward<FN> (handler);
+> }
+>
+> inline void Foo ()
+> {
+>   auto lambda = [](auto &) { };
+>
+>   forward (lambda);
+>   indirect (lambda);
+> }
+>
+> void (*p)() = Foo;
+>
+> For this GCC and Clang both currently produce
+>
+> _Z7forwardIZ3FoovEUlRT_E_EOS0_S1_
+>
+> where the T_ refers to the template parameter currently being
+> described, causing the demangler to crash due to infinite recursion
+> (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252).
+>
+> Nathan proposes to change the parameters to mangle using Da, which
+> seems reasonable.  I'm not sure how that will extend to concepts, but
+> concepts mangling as a whole is an unsolved problem.
+>
+> Any thoughts?
+>
+
+Are there cases where the current scheme causes mangling collisions (where
+T_ can actually be interpreted two different ways)? It seems to me that, so
+long as we continue to be careful to restrict lambda-expressions from
+appearing in a signature (either directly or via an alias template), T_
+within the scope of Ul...E can /only/ mean the template parameter of the
+lambda-expression itself, and not an enclosing template parameter.
+
+Of note is the repeated suggestion to allow explicit template parameter
+lists in lambdas (at this point, I'd give this a very solid chance of being
+part of C++20):
+
+  auto lambda = []<typename T>(T a, T b) {};
+
+We would presumably need to mangle that as UlT_T_E even with the Da
+suggestion, so it seems that demanglers are just going to need to cope with
+Ul introducing a new template parameter scope.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161208/09c8e9d9/attachment.html>
+
+From jason at redhat.com  Fri Dec  9 14:29:20 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 9 Dec 2016 09:29:20 -0500
+Subject: [cxx-abi-dev] Mangling of generic lambda
+In-Reply-To: <CAGL0aWeuoL2to=xbS9n2L1Sc_NTMMMAgjxvr0VhO-+_342Ld6A@mail.gmail.com>
+References: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+	<CAGL0aWeuoL2to=xbS9n2L1Sc_NTMMMAgjxvr0VhO-+_342Ld6A@mail.gmail.com>
+Message-ID: <CADzB+2n4JVfcQzrbubdjmHpoo4aoVV+CW+mr7eiOgwgnEui-iw@mail.gmail.com>
+
+On Thu, Dec 8, 2016 at 5:31 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 8 December 2016 at 10:41, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> How should 'auto' parameters in a generic lambda be mangled?  Mangling
+>> them as normal template parameters doesn't really work, as they can
+>> end up with the same mangling as the template parameter for which they
+>> are an argument.
+>>
+>> template<typename T>
+>> T &&forward (T &v)
+>> {
+>>   return static_cast<T &&>(v);
+>> }
+>>
+>> template<typename FN>
+>>   void indirect (FN &&handler)
+>> {
+>>   forward<FN> (handler);
+>> }
+>>
+>> inline void Foo ()
+>> {
+>>   auto lambda = [](auto &) { };
+>>
+>>   forward (lambda);
+>>   indirect (lambda);
+>> }
+>>
+>> void (*p)() = Foo;
+>>
+>> For this GCC and Clang both currently produce
+>>
+>> _Z7forwardIZ3FoovEUlRT_E_EOS0_S1_
+>>
+>> where the T_ refers to the template parameter currently being
+>> described, causing the demangler to crash due to infinite recursion
+>> (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252).
+>>
+>> Nathan proposes to change the parameters to mangle using Da, which
+>> seems reasonable.  I'm not sure how that will extend to concepts, but
+>> concepts mangling as a whole is an unsolved problem.
+>>
+>> Any thoughts?
+>
+>
+> Are there cases where the current scheme causes mangling collisions (where
+> T_ can actually be interpreted two different ways)? It seems to me that, so
+> long as we continue to be careful to restrict lambda-expressions from
+> appearing in a signature (either directly or via an alias template), T_
+> within the scope of Ul...E can /only/ mean the template parameter of the
+> lambda-expression itself, and not an enclosing template parameter.
+>
+> Of note is the repeated suggestion to allow explicit template parameter
+> lists in lambdas (at this point, I'd give this a very solid chance of being
+> part of C++20):
+>
+>   auto lambda = []<typename T>(T a, T b) {};
+>
+> We would presumably need to mangle that as UlT_T_E even with the Da
+> suggestion, so it seems that demanglers are just going to need to cope with
+> Ul introducing a new template parameter scope.
+
+Makes sense.
+
+Jason
+
+From richardsmith at googlers.com  Fri Dec  9 16:46:06 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Fri, 9 Dec 2016 08:46:06 -0800
+Subject: [cxx-abi-dev] Mangling of generic lambda
+In-Reply-To: <CAGL0aWeUtdJFVJ4SgN44cWcHNLZsA2q9ie9dDLEy1pa+0T9FSw@mail.gmail.com>
+References: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+	<CAGL0aWeuoL2to=xbS9n2L1Sc_NTMMMAgjxvr0VhO-+_342Ld6A@mail.gmail.com>
+	<CADzB+2n4JVfcQzrbubdjmHpoo4aoVV+CW+mr7eiOgwgnEui-iw@mail.gmail.com>
+	<43a71093-85cc-5355-151c-28d9d2029c84@acm.org>
+	<CAGL0aWeUtdJFVJ4SgN44cWcHNLZsA2q9ie9dDLEy1pa+0T9FSw@mail.gmail.com>
+Message-ID: <CAGL0aWeYsL+B00t2TSFFGug9shHOS-dFGwvU1gFjWeSD7meUXg@mail.gmail.com>
+
+On 9 Dec 2016 8:14 am, "Nathan Sidwell" <nathan at acm.org> wrote:
+
+On 12/09/2016 09:29 AM, Jason Merrill wrote:
+
+> On Thu, Dec 8, 2016 at 5:31 PM, Richard Smith <richardsmith at googlers.com>
+> wrote:
+>
+
+Of note is the repeated suggestion to allow explicit template parameter
+>> lists in lambdas (at this point, I'd give this a very solid chance of
+>> being
+>> part of C++20):
+>>
+>>   auto lambda = []<typename T>(T a, T b) {};
+>>
+>> We would presumably need to mangle that as UlT_T_E even with the Da
+>> suggestion, so it seems that demanglers are just going to need to cope
+>> with
+>> Ul introducing a new template parameter scope.
+>>
+>
+> Makes sense.
+>
+
+I think the ABI doc should at least mention that uses of 'auto' in a
+generic lambda's parameter list are mangled as the artificial template
+they're represented as (as that seems to be the intent)
+
+Anyway, how do we expect the above example to be mangled as?  Something
+like 'UlI...ET_T_E_'?  I.e. are the explicit template args in that
+suggestion distinguished from synthesized 'auto' ones?  It'd be unfortunate
+if the mangling we have right now blocked something needed later.
+
+
+I would expect just UlT_T_E (modulo substitutions), as we don't generally
+mangle template parameter lists, just template argument lists, and we don't
+have a template argument list here. (But it doesn't really matter what we
+put between the Ul and the E, since we number closure types in the event of
+collisions anyway.)
+
+
+nathan
+-- 
+Nathan Sidwell
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161209/fca2f1cd/attachment.html>
+
+From nathan at acm.org  Thu Dec  8 19:23:07 2016
+From: nathan at acm.org (Nathan Sidwell)
+Date: Thu, 8 Dec 2016 14:23:07 -0500
+Subject: [cxx-abi-dev] Mangling of generic lambda
+In-Reply-To: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+References: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+Message-ID: <fd631abb-10c5-986f-d8df-d30abdcce89c@acm.org>
+
+On 12/08/2016 01:41 PM, Jason Merrill wrote:
+
+> Nathan proposes to change the parameters to mangle using Da, which
+> seems reasonable.  I'm not sure how that will extend to concepts, but
+> concepts mangling as a whole is an unsolved problem.
+
+Actually, I thought that's what the document already implied.
+
+nathan
+
+-- 
+Nathan Sidwell
+
+From nathan at acm.org  Fri Dec  9 16:14:16 2016
+From: nathan at acm.org (Nathan Sidwell)
+Date: Fri, 9 Dec 2016 11:14:16 -0500
+Subject: [cxx-abi-dev] Mangling of generic lambda
+In-Reply-To: <CADzB+2n4JVfcQzrbubdjmHpoo4aoVV+CW+mr7eiOgwgnEui-iw@mail.gmail.com>
+References: <CADzB+2mF_b6axcZVts0++7mnTaEZx+Zvgc=QcC2o=cYG-n4iAw@mail.gmail.com>
+	<CAGL0aWeuoL2to=xbS9n2L1Sc_NTMMMAgjxvr0VhO-+_342Ld6A@mail.gmail.com>
+	<CADzB+2n4JVfcQzrbubdjmHpoo4aoVV+CW+mr7eiOgwgnEui-iw@mail.gmail.com>
+Message-ID: <43a71093-85cc-5355-151c-28d9d2029c84@acm.org>
+
+On 12/09/2016 09:29 AM, Jason Merrill wrote:
+> On Thu, Dec 8, 2016 at 5:31 PM, Richard Smith <richardsmith at googlers.com> wrote:
+
+>> Of note is the repeated suggestion to allow explicit template parameter
+>> lists in lambdas (at this point, I'd give this a very solid chance of being
+>> part of C++20):
+>>
+>>   auto lambda = []<typename T>(T a, T b) {};
+>>
+>> We would presumably need to mangle that as UlT_T_E even with the Da
+>> suggestion, so it seems that demanglers are just going to need to cope with
+>> Ul introducing a new template parameter scope.
+>
+> Makes sense.
+
+I think the ABI doc should at least mention that uses of 'auto' in a 
+generic lambda's parameter list are mangled as the artificial template 
+they're represented as (as that seems to be the intent)
+
+Anyway, how do we expect the above example to be mangled as?  Something 
+like 'UlI...ET_T_E_'?  I.e. are the explicit template args in that 
+suggestion distinguished from synthesized 'auto' ones?  It'd be 
+unfortunate if the mangling we have right now blocked something needed 
+later.
+
+nathan
+-- 
+Nathan Sidwell
+

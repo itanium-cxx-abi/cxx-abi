@@ -1,0 +1,197 @@
+From mkdi94cxx-abi-dev7 at jahoopa.com  Tue Jun  4 08:33:19 2002
+From: mkdi94cxx-abi-dev7 at jahoopa.com (mkdi94cxx-abi-dev7 at jahoopa.com)
+Date: Tue, 04 Jun 2002 01:33:19 -0700
+Subject: * Mortgage Leads *
+Message-ID: <0YOU6U8MB.8C13LPSMIH0IIW6B9P.mkdi94cxx-abi-dev7@jahoopa.com>
+
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020604/c0cb88ee/attachment.html>
+
+From mjd9cxx-abi-devbc at kmail.com.au  Mon Jun 10 09:31:38 2002
+From: mjd9cxx-abi-devbc at kmail.com.au (mjd9cxx-abi-devbc at kmail.com.au)
+Date: Mon, 10 Jun 2002 02:31:38 -0700
+Subject: * Mortgage Leads!! *
+Message-ID: <QRNC8QK.FHD70L4OBBLAO9UKG.mjd9cxx-abi-devbc@kmail.com.au>
+
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020610/a331254a/attachment.html>
+
+From jason at redhat.com  Fri Jun 14 14:45:57 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 14 Jun 2002 15:45:57 +0100
+Subject: Mangling of template conversion ops
+Message-ID: <wvlwut19avu.fsf@prospero.cambridge.redhat.com>
+
+We recently received a bug report, at
+
+  http://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=65035
+
+for the mangling of C::operator int in this testcase.
+
+  struct C {
+      template <class T>
+      operator T ();
+  };
+
+  template <class T>
+  C::operator T () { return 0; }
+
+  template C::operator int ();
+
+g++ currently emits
+
+  _ZN1CcviIiEEv
+
+but he argues, and I agree, that it should be
+
+  _ZN1CcvT_IiEEv
+
+mangling the template arg appropriately.  What do other people think?
+
+Note, this is a forward reference, which is kind of awkward for the
+demangler.  We probably should have mangled the return type of a conversion
+op in the same place as other return types, to avoid this oddity.  It's too
+late for this change now, of course.
+
+Jason
+
+
+From mark at codesourcery.com  Fri Jun 14 17:19:58 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 14 Jun 2002 10:19:58 -0700
+Subject: [cxx-abi-dev] Mangling of template conversion ops
+In-Reply-To: <wvlwut19avu.fsf@prospero.cambridge.redhat.com>
+References: <wvlwut19avu.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3310000.1024075198@gandalf.codesourcery.com>
+
+
+
+--On Friday, June 14, 2002 03:45:57 PM +0100 Jason Merrill 
+<jason at redhat.com> wrote:
+
+> We recently received a bug report, at
+>
+>   http://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=65035
+>
+> for the mangling of C::operator int in this testcase.
+>
+>   struct C {
+>       template <class T>
+>       operator T ();
+>   };
+>
+>   template <class T>
+>   C::operator T () { return 0; }
+>
+>   template C::operator int ();
+>
+> g++ currently emits
+>
+>   _ZN1CcviIiEEv
+>
+> but he argues, and I agree, that it should be
+>
+>   _ZN1CcvT_IiEEv
+>
+> mangling the template arg appropriately.  What do other people think?
+
+I agree.  I have verified that two different EDG implementations both
+behave the way we think they should.
+
+If nobody objects, would you either send me a patch for the ABI
+document, or remind me to do it?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 27 22:01:39 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 27 Jun 2002 15:01:39 -0700
+Subject: Mangling of sizeof when applied to a type
+Message-ID: <81740000.1025215299@warlock.codesourcery.com>
+
+The ABI document does not currently specify the mangling of sizeof when
+applied to a type.  For example:
+
+  template <typename X>
+  void f(S<sizeof(X)>);
+
+When instantiating f, we need a mangling for the argument type in the
+uninstantiated form.
+
+To that end, I suggest we introduce a new operator "st" which takes one
+operand, but which is a type, rather than an expression.
+
+This changes the mangling grammar like so:
+
+  <expression> ::= st <type>
+
+It's better not to overload sz since that will make demangling harder.
+
+If I don't hear objections in the next few days, I'll make this change
+to the ABI document.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sabre at nondot.org  Fri Jun 28 01:46:08 2002
+From: sabre at nondot.org (Chris Lattner)
+Date: Thu, 27 Jun 2002 20:46:08 -0500 (CDT)
+Subject: [cxx-abi-dev] Mangling of sizeof when applied to a type
+In-Reply-To: <81740000.1025215299@warlock.codesourcery.com>
+Message-ID: <Pine.LNX.4.44.0206272045060.2121-100000@nondot.org>
+
+
+> The ABI document does not currently specify the mangling of sizeof when
+> applied to a type.  For example:
+> 
+>   template <typename X>
+>   void f(S<sizeof(X)>);
+
+Are f<sizeof(int32_t)> and f<4> different instantiations?  If not, why not 
+evaluate the size, then mangle?
+
+-Chris
+
+http://www.nondot.org/~sabre/os/
+http://www.nondot.org/~sabre/Projects/
+
+
+
+From daveed at edg.com  Fri Jun 28 02:31:31 2002
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Thu, 27 Jun 2002 22:31:31 -0400
+Subject: [cxx-abi-dev] Mangling of sizeof when applied to a type
+References: <Pine.LNX.4.44.0206272045060.2121-100000@nondot.org>
+Message-ID: <3D1BCA83.E6C27417@edg.com>
+
+Chris Lattner wrote:
+> 
+> > The ABI document does not currently specify the mangling of sizeof when
+> > applied to a type.  For example:
+> >
+> >   template <typename X>
+> >   void f(S<sizeof(X)>);
+> 
+> Are f<sizeof(int32_t)> and f<4> different instantiations?  If not, why not
+> evaluate the size, then mangle?
+
+You need to mangle the generic form.  The following function templates (and
+their instantiations) might coexist:
+
+	template<typename X> void f(S<sizeof(X)>);
+	template<typename X> void f(S<X::size>);
+
+For a given X, X::size and sizeof(X) may evaluate to the same value, but
+the templates must instantiate to distinct entities.
+
+	Daveed
+
+

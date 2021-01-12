@@ -1,0 +1,92 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Do%20zero-length%20arrays%20make%20a%20class%20type%20non-empty%3F&In-Reply-To=%3C722BA6B2-06CA-42C6-88E1-10EDA581B869%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002836.html">
+   <LINK REL="Next"  HREF="002831.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Do zero-length arrays make a class type non-empty?</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Do%20zero-length%20arrays%20make%20a%20class%20type%20non-empty%3F&In-Reply-To=%3C722BA6B2-06CA-42C6-88E1-10EDA581B869%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Do zero-length arrays make a class type non-empty?">rjmccall at apple.com
+       </A><BR>
+    <I>Sun Apr 26 04:10:35 UTC 2015</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002836.html">[cxx-abi-dev] What is alignof(decltype(nullptr))?
+</A></li>
+        <LI>Next message: <A HREF="002831.html">[cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2829">[ date ]</a>
+              <a href="thread.html#2829">[ thread ]</a>
+              <a href="subject.html#2829">[ subject ]</a>
+              <a href="author.html#2829">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The standard says that std::is_empty&lt;T&gt;::value is true if:
+  - T is a class type, but not a union type, with no non-static data members other than bit-fields of length 0, no virtual member functions, no virtual base classes, and no base class B for which is_empty&lt;B&gt;::value is false.
+
+The standard also says that array bounds must be greater than zero, but there&#8217;s a common extension to permit zero-length array types (hereafter, ZLATs).
+
+In GCC and Clang, at least, a ZLAT conventionally has size 0, both formally (as a result of sizeof) and for struct layout (a ZLAT field takes up no direct space, although it does cause the next offset to be rounded up to the field&#8217;s alignment).  Moreover, a ZLAT field inhibits the general rule rounding a class's size up to at least 1, recursively.
+
+Oddly, though, GCC and Clang also say that a struct containing a ZLAT is not empty, at least as far as std::is_empty is concerned.  On the other hand, ICC says that a struct containing only one (or more) ZLATs is empty; as does MSVC, for what it&#8217;s worth.
+
+This touches on the ABI because:
+  - the results of these metaprogramming traits can affect the ABI in a number of ways,
+  - class sizes are also obviously ABI, and
+  - whether a base class is empty dramatically affects Itanium class layout.
+
+The current Itanium definition mirrors the std::is_empty definition:
+  [a] class with no non-static data members other than zero-width bitfields, no virtual functions, no virtual base classes, and no non-empty non-virtual proper base classes.
+
+Now, of course, this is an extension, and we don&#8217;t have to standardize behavior on it; but my preference is to specify this sort of common extension wherever possible.
+
+I propose the following changes:
+
+1.  Add &#8220;or members of zero-length array type&#8221; to the ABI definition of &quot;empty class&#8221;.
+2.  Specify std::is_empty to behave as if the same clause were there.
+3.  Change the ABI class layout rule (in IV. Finalization) to not require sizeof(C) to be non-zero if C contains a ZLAT subobject.  That is, replace this sentence:
+  Round sizeof(C) up to a non-zero multiple of align(C). 
+with:
+  If C does not contain (recursively) a subobject of zero-length array type, and sizeof(C) is 0, set sizeof(C) to align(C); otherwise, round sizeof(C) up to a multiple of align(C).
+
+John.
+</PRE>
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002836.html">[cxx-abi-dev] What is alignof(decltype(nullptr))?
+</A></li>
+	<LI>Next message: <A HREF="002831.html">[cxx-abi-dev] Do zero-length arrays make a class type non-empty?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2829">[ date ]</a>
+              <a href="thread.html#2829">[ thread ]</a>
+              <a href="subject.html#2829">[ subject ]</a>
+              <a href="author.html#2829">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

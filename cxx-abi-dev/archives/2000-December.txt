@@ -1,0 +1,600 @@
+From christophe_de-dinechin at hp.com  Mon Dec  4 19:40:09 2000
+From: christophe_de-dinechin at hp.com (DE-DINECHIN,CHRISTOPHE (HP-Cupertino,ex1))
+Date: Mon, 4 Dec 2000 11:40:09 -0800 
+Subject: C++ Exception object layout
+Message-ID: <87FB8F5CE210D311B60500A0C9F4871C0A143075@xcup01.cup.hp.com>
+
+Ravi,
+
+
+I think the code example is correct. The text is misleading, but I think the
+intent is that the second occurence of "exception object" in 2.2.1 refered
+to the C++ object being thrown, as explained in a further paragraph in
+2.2.1:
+
+By convention, a __cxa_exception pointer points at the C++ object
+representing the exception being thrown, immediately following the header.
+The header structure is accessed at a negative offset from the
+__cxa_exception pointer. This layout allows consistent treatment of
+exception objects from different languages (or different implementations of
+the same language), and allows future extensions of the header structure
+while maintaining binary compatibility. 
+
+To clarify, I propose we rephrase the initial paragraph from:
+
+A C++ exception object consists of a header, which is a wrapper around an
+unwind object header with additional C++ specific information, followed by
+the exception object itself. The structure of the header is as follows: 
+
+to:
+
+A complete C++ exception object consists of a header, which is a wrapper
+around an unwind object header with additional C++ specific information,
+followed by the thrown C++ exception object itself. The structure of the
+header is as follows: 
+
+ 
+
+Regards
+
+Christophe de Dinechin
+
+ 
+
+
+
+> -----Original Message-----
+> From: owner-cxx-abi at corp.sgi.com [ mailto:owner-cxx-abi at corp.sgi.com
+<mailto:owner-cxx-abi at corp.sgi.com> ]On
+> Behalf Of Narayanaswamy, Ravi
+> Sent: Thursday, November 30, 2000 10:09 AM
+> To: cxx-abi at baalbek.engr.sgi.com
+> Subject: C++ Exception object layout
+>
+>
+> In section 2.2.1 C++ Exception Objects,  the text part says
+> that the unwind
+> header
+> structure is followed by the exception object itself, where
+> as the layout
+> of the structure is just the opposite.  Can someone tell me
+> which is the
+> correct
+> one.
+> Below is part of the section.
+> Thanks
+> Ravi
+> Intel Corporation.
+>
+> 2.2.1 C++ Exception Objects
+> A C++ exception object consists of a header, which is a
+> wrapper around an
+> unwind object header with additional C++ specific
+> information, followed by
+> the exception object itself. The structure of the header is
+> as follows:
+>
+>   struct __cxa_exception {
+>       std::type_info *        exceptionType;
+>       void (*exceptionDestructor) (void *);
+>       unexpected_handler      unexpectedHandler;
+>       terminate_handler       terminateHandler;
+>       __cxa_exception *       nextException;
+>
+>       int                     handlerCount;
+>       int                     handlerSwitchValue;
+>       const char *            actionRecord;
+>       const char *            languageSpecificData;
+>       void *                  catchTemp;
+>       void *                  adjustedPtr;
+>
+>       _Unwind_Exception       unwindHeader;
+>    };
+>
+> 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20001204/8408a1ba/attachment.html>
+
+From dehnert at transmeta.com  Mon Dec  4 20:47:46 2000
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Mon, 04 Dec 2000 12:47:46 -0800
+Subject: C++ Exception object layout
+References: <10C8636AE359D4119118009027AE9987168945@FMSMSX34>
+Message-ID: <3A2C02F2.B241AB57@transmeta.com>
+
+"Narayanaswamy, Ravi" wrote:
+> 
+> In section 2.2.1 C++ Exception Objects,  the text part says that the unwind
+> header
+> structure is followed by the exception object itself, where as the layout
+> of the structure is just the opposite.  Can someone tell me which is the
+> correct one. Below is part of the section.
+
+They are both correct.
+
+The "unwind header" is the  "_Unwind_Exception unwindHeader;" at the end
+of the C++ exception header.  It immediately precedes the exception object
+itself, which follows the header.  The unwind runtime is not expected to
+be conscious of the rest of the C++ header.
+
+Jim
+
+> Thanks
+> Ravi
+> Intel Corporation.
+> 
+> 2.2.1 C++ Exception Objects
+> A C++ exception object consists of a header, which is a wrapper around an
+> unwind object header with additional C++ specific information, followed by
+> the exception object itself. The structure of the header is as follows:
+> 
+>   struct __cxa_exception {
+>         std::type_info *        exceptionType;
+>         void (*exceptionDestructor) (void *);
+>         unexpected_handler      unexpectedHandler;
+>         terminate_handler       terminateHandler;
+>         __cxa_exception *       nextException;
+> 
+>         int                     handlerCount;
+>         int                     handlerSwitchValue;
+>         const char *            actionRecord;
+>         const char *            languageSpecificData;
+>         void *                  catchTemp;
+>         void *                  adjustedPtr;
+> 
+>         _Unwind_Exception       unwindHeader;
+>    };
+
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+
+From mark at codesourcery.com  Tue Dec  5 22:35:56 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 05 Dec 2000 14:35:56 -0800
+Subject: Empty class passing
+Message-ID: <20001205143556G.mitchell@codesourcery.com>
+
+
+As it stands, the current document does not quite say what I thought
+Jim and I agreed upon when we met last with respect to passing empty
+classes.
+
+In particular, after polling lots of C++ experts, it turns out that
+nobody cares about optimizing empty class passing.  Therefore, I think
+that we shouldn't say anything special about this case, which will
+make life easier for implementors.
+
+In particular, we should not say that "an empty class type will
+normally occupy a position in the parameter sequence as though it were
+a single-byte integer".  In general, empty classes can take up more
+than one byte; we should just say that empty classes will be passed no
+differently from ordinary classes, and that if passed in registers the
+NaT bit must not be set on all registers that make up the class.
+
+Any objections?
+
+Jim, are you still maintaining the document?  If not, since nobody
+objected, should we pass the source to Alex?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at transmeta.com  Wed Dec  6 01:03:18 2000
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Tue, 05 Dec 2000 17:03:18 -0800
+Subject: Transition (was Moving on)
+References: <200011200653.WAA54181@baalbek.engr.sgi.com> <20001120110301V.mitchell@codesourcery.com>
+Message-ID: <3A2D9056.A878D528@transmeta.com>
+
+I apologize for being silent for the past week or two.  Configuring
+new systems is always a pain...
+
+Mark Mitchell wrote:
+
+> If you're looking for someone to take over the organizational duties,
+> I'd suggest Alex Samuel (samuel at codesourcery.com).  Alex has done a
+> lot of work on mangling, has implemented most of the ABI in the EDG
+> front-end, and is presently working on implementing some of the EH
+> bits, so he's familiar with all the issues.
+
+This sounds fine to me.  And I haven't seen any objections to the
+suggestion, though I also haven't seen Alex confirm his enthusiasm...
+(Of course, recently this also hasn't been much work for me.)
+
+There are two outstanding requests from the past couple of weeks,
+that I could incorporate before sending the files to Alex:
+
+ - Mark's loosening of the empty parameter language.
+
+ - Christophe's clarification of the exception header language.
+
+If Alex wants to get the web pages, how would he like them?  I
+would suggest just sending the HTML, as the PDF is generated from
+it, but could send both.  If we do move them, as Martin points out,
+we would need to replace them at the SGI site with a pointer.  I'm
+sure we can manage that.
+
+I presume that noone feels a need for the 7 December meeting.
+
+Happy Holidays,
+Jim
+
+
+
+From dehnert at transmeta.com  Wed Dec  6 01:06:16 2000
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Tue, 05 Dec 2000 17:06:16 -0800
+Subject: Moving on
+References: <200011200653.WAA54181@baalbek.engr.sgi.com> <20001120110301V.mitchell@codesourcery.com> <200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+Message-ID: <3A2D9108.E8EE7C95@transmeta.com>
+
+Martin von Loewis wrote:
+> 
+> I think there might be a problem with the Web location of the
+> specification;
+> http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html is a
+> well-known location for it, known beyond the ABI working group.  So I
+> think it is important that this link continues to operate; I'd
+> appreciate if somebody from SGI could comment on whether there are any
+> plans to remove Jim's pages from the 'net. In any case, it seems
+> crucial that whoever takes over management has a chance to modify this
+> content (of course, the Web offers a number of possible solutions).
+
+SGI won't remove these from the site, but it won't be convenient
+to update them for someone not at SGI.  So moving them to a
+codesourcery webserver would be a good thing if Alex is
+maintaining them.
+
+Jim
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+
+From samuel at codesourcery.com  Wed Dec  6 01:45:05 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Tue, 5 Dec 2000 17:45:05 -0800 (PST)
+Subject: Moving on
+In-Reply-To: <3A2D9108.E8EE7C95@transmeta.com>
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+	<20001120110301V.mitchell@codesourcery.com>
+	<200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+	<3A2D9108.E8EE7C95@transmeta.com>
+Message-ID: <14893.39457.402174.669159@watercress.indetermi.net>
+
+Jim Dehnert <dehnert at transmeta.com> writes:
+
+  Jim> This sounds fine to me.  And I haven't seen any objections to
+  Jim> the suggestion, though I also haven't seen Alex confirm his
+  Jim> enthusiasm...  
+
+I am hereby enthusiastic.  :)
+
+  Jim> If Alex wants to get the web pages, how would he like them?  I
+  Jim> would suggest just sending the HTML, as the PDF is generated
+  Jim> from it, but could send both.  
+
+Just HTML is fine -- but no need to send it, I can retrieve it from
+its current location.  Better would be an RCS .html,v file if you have
+it, or similar, so that the revision history is available.
+
+  Jim> SGI won't remove these from the site, but it won't be
+  Jim> convenient to update them for someone not at SGI.  So moving
+  Jim> them to a codesourcery webserver would be a good thing if Alex
+  Jim> is maintaining them.
+
+I will coordinate with you or whomever at SGI is appropriate to link
+to the new ABI home when appropriate.
+
+Has anyone given thought to registering cxxabi.org or some similar
+domain name for the web site?  If people are amenable, I'll take care
+of this.
+
+Regards
+Alex
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Dec  6 08:14:53 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 6 Dec 2000 09:14:53 +0100 (MET)
+Subject: Moving on
+In-Reply-To: <14893.39457.402174.669159@watercress.indetermi.net> (message
+	from Alex Samuel on Tue, 5 Dec 2000 17:45:05 -0800 (PST))
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+	<20001120110301V.mitchell@codesourcery.com>
+	<200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+	<3A2D9108.E8EE7C95@transmeta.com> <14893.39457.402174.669159@watercress.indetermi.net>
+Message-ID: <200012060814.JAA18250@pandora.informatik.hu-berlin.de>
+
+> Has anyone given thought to registering cxxabi.org or some similar
+> domain name for the web site?  If people are amenable, I'll take care
+> of this.
+
+It sounds like a good idea, although I don't consider it a pressing
+need. cxxabi.org is a good choice.
+
+Regards,
+Martin
+
+
+
+
+From murthy at sgi.com  Wed Dec  6 17:41:04 2000
+From: murthy at sgi.com (Chandrasekhar Murthy)
+Date: Wed, 06 Dec 2000 09:41:04 -0800
+Subject: Moving on
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+		<20001120110301V.mitchell@codesourcery.com>
+		<200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+		<3A2D9108.E8EE7C95@transmeta.com> <14893.39457.402174.669159@watercress.indetermi.net>
+Message-ID: <3A2E7A30.77DE6DE4@sgi.com>
+
+Alex Samuel wrote:
+> 
+> Jim Dehnert <dehnert at transmeta.com> writes:
+> 
+>   Jim> This sounds fine to me.  And I haven't seen any objections to
+>   Jim> the suggestion, though I also haven't seen Alex confirm his
+>   Jim> enthusiasm...
+> 
+> I am hereby enthusiastic.  :)
+> 
+>   Jim> If Alex wants to get the web pages, how would he like them?  I
+>   Jim> would suggest just sending the HTML, as the PDF is generated
+>   Jim> from it, but could send both.
+> 
+> Just HTML is fine -- but no need to send it, I can retrieve it from
+> its current location.  Better would be an RCS .html,v file if you have
+> it, or similar, so that the revision history is available.
+> 
+
+Jim if you could point me to where it is,
+I can forward the same to Alex.
+
+>   Jim> SGI won't remove these from the site, but it won't be
+>   Jim> convenient to update them for someone not at SGI.  So moving
+>   Jim> them to a codesourcery webserver would be a good thing if Alex
+>   Jim> is maintaining them.
+> 
+> I will coordinate with you or whomever at SGI is appropriate to link
+> to the new ABI home when appropriate.
+> 
+> Has anyone given thought to registering cxxabi.org or some similar
+> domain name for the web site?  If people are amenable, I'll take care
+> of this.
+> 
+> Regards
+> Alex
+
+
+
+From jason at redhat.com  Wed Dec 13 11:11:35 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 13 Dec 2000 11:11:35 +0000
+Subject: Empty class passing
+In-Reply-To: <20001205143556G.mitchell@codesourcery.com>
+References: <20001205143556G.mitchell@codesourcery.com>
+Message-ID: <u94s09na12.fsf@casey.cygnus.co.uk>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> In particular, after polling lots of C++ experts, it turns out that
+> nobody cares about optimizing empty class passing.
+
+Nobody may care in the abstract, but STL uses empty classes quite a bit
+(for iterator tags), and passes them to functions, so I still think it's
+useful to optimize.  But perhaps not in a way that affects the ABI; your
+change sounds fine to me.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Dec 13 15:51:14 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 13 Dec 2000 07:51:14 -0800
+Subject: Empty class passing
+In-Reply-To: <u94s09na12.fsf@casey.cygnus.co.uk>
+References: <20001205143556G.mitchell@codesourcery.com>
+	<u94s09na12.fsf@casey.cygnus.co.uk>
+Message-ID: <20001213075114I.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> In particular, after polling lots of C++ experts, it turns out
+    >> that nobody cares about optimizing empty class passing.
+
+    Jason> Nobody may care in the abstract, but STL uses empty classes
+    Jason> quite a bit (for iterator tags), and passes them to
+
+Right.  The consensus from the people I talked to (mostly various
+kinds of generic programming people) was that there are two cases:
+
+  - The function is inline.  In that case, the paramter should
+    be optimized away by the compiler.
+
+  - The function is not inline.  In that case, the function call
+    overhead dwarfs the use of one additional register.
+
+Obviously, there is bound to be some pathological example involving
+tons and tons of empty parameters to a single function where this
+isn't true, but I think the idea is right in principle.
+
+    Jason> functions, so I still think it's useful to optimize.  But
+    Jason> perhaps not in a way that affects the ABI; your change
+    Jason> sounds fine to me.
+
+Good.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Fri Dec 22 19:25:55 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 22 Dec 2000 11:25:55 -0800
+Subject: VTT issue
+Message-ID: <20001222112555X.mitchell@codesourcery.com>
+
+
+There is an unclarity in the description of VTTs.  In particular,
+consider:
+
+  struct S { virtual void f(); };
+  struct T : virtual public S {};
+  struct U : virtual public T {};
+
+In a complete object of type U, the S, T, and U subobjects will all be
+located at the same address.
+
+The VTT for U contains the following entries:
+
+  - Primary vtable for U
+  - Secondary vtables for U
+  - Sub-VTT for T-in-U
+
+Consider the second category.  We need a VTT entry for T, even though
+it is a primary base, because T is virtual and might end up at a 
+different offset in some class derived from U.
+
+The present description suggests that we should use 
+
+  "the address of the secondary virtual table for X-in-D"
+
+where X means T here.  
+
+However, that is incorrect.  We have not specified the order in which
+constructors assign to the secondary vptrs, so it is possible that the
+construtor could copy the primary vptr out of the VTT and then fill in
+the secondary vptr for T-in-U -- only to clobber the primary vptr.
+Therefore, in this case, the VTT entry for T-in-U should actually hold
+the primary vtable for U.
+
+The best way to express this might be as pseudo-code -- that gives
+implementors a blueprint to follow.  Of course, someone should check
+that the code below actually matches what the document is trying to
+say at present.
+
+  /* Parameters:
+
+       completeClass: 
+         The derived class whose VTT we are building.
+
+       baseClass:
+         The base subobject for the sub-VTT we are building -- or
+         the same as completeClass is we are building the main VTT.
+
+      Note that baseClass and baseOffset together uniquely identify 
+      a subobject of completClass.  */
+
+  InitializeVTT(completeClass, baseClass) {
+    if baseClass does not have virtual bases:
+      return;
+
+    // Add primary vptr.
+    add entry for baseClass-in-completeClass vtable.
+
+    // Build sub-VTTs for non-virtual bases.
+    for each direct non-virtual base b of baseClass in declaration order:
+      InitializeVTT(completeClass, b);
+
+    // Add secondary vptrs.
+    for each proper direct or indirect base b of baseClass 
+    in inheritance graph order:
+      if b is not primary:
+        continue;
+      if b does not have a vtable:
+        continue;
+
+      if b does not have virtual bases and no functions are overriden
+      along a virtual path between b and baseClass:
+        continue;
+        
+      if b is virtual and b is primary:
+        let b' = the most derived subobject in baseClass (when
+                 considered as a subobject of completeClass) that has
+                 the same offset as b
+      else
+        let b' = b
+
+      add entry for b'-in-completeClass
+
+    // Build sub-VTTs for virtual bases.
+    for each direct virtual base b of baseClass in inheritance graph order:
+      InitializeVTT(completeClass, b);
+  }
+        
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Fri Dec 22 19:31:46 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 22 Dec 2000 11:31:46 -0800
+Subject: Another VTT issue
+Message-ID: <20001222113146Q.mitchell@codesourcery.com>
+
+
+In addition to the problem in my last mail, there is an issue with:
+
+  struct S {};
+  struct T: virtual S {};
+  struct U {};
+  struct V: virtual T, virtual U {};
+
+When we construct V, we will first recursively construct T.  As a
+result, T's virtual pointer will be set.  Note that T's virtual
+pointer and V's virtual pointer are located at the same place.
+Therefore, when V's constructor goes to construct U, it cannot find U
+by looking at the vbase offset in the vtable.
+
+That means that to find virtual bases during construction you must not
+use the vbase offsets in the vtable -- you must instead know the
+locations statically.  That works, since you only need to construct
+virtual bases when building the complete object, and then you
+statically know all offsets.
+
+It would be good if this were mentioned in the ABI document somewhere.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Fri Dec 29 12:39:49 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 29 Dec 2000 12:39:49 +0000
+Subject: Fwd: cxa_vec_dtor question
+Message-ID: <u9ofxvbg1i.fsf@casey.cambridge.redhat.com>
+
+I think he's right; we can't use uncaught_exception to determine whether or
+not we're actually being called for a cleanup.  I suppose we'll need a
+different entry point.
+
+-------------- next part --------------
+An embedded message was scrubbed...
+From: Kenny Simpson <Kenny.Simpson at gs.com>
+Subject: cxa_vec_dtor question
+Date: no date
+Size: 1826
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20001229/e8ff3407/attachment.mht>
+

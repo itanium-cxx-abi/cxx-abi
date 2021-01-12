@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of generic lambda
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20generic%20lambda&In-Reply-To=%3CCADzB%2B2n4JVfcQzrbubdjmHpoo4aoVV%2BCW%2Bmr7eiOgwgnEui-iw%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003016.html">
+   <LINK REL="Next"  HREF="003020.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of generic lambda</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20generic%20lambda&In-Reply-To=%3CCADzB%2B2n4JVfcQzrbubdjmHpoo4aoVV%2BCW%2Bmr7eiOgwgnEui-iw%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of generic lambda">jason at redhat.com
+       </A><BR>
+    <I>Fri Dec  9 14:29:20 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003016.html">[cxx-abi-dev] Mangling of generic lambda
+</A></li>
+        <LI>Next message: <A HREF="003020.html">[cxx-abi-dev] Mangling of generic lambda
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3017">[ date ]</a>
+              <a href="thread.html#3017">[ thread ]</a>
+              <a href="subject.html#3017">[ subject ]</a>
+              <a href="author.html#3017">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Dec 8, 2016 at 5:31 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+&gt;<i> On 8 December 2016 at 10:41, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> How should 'auto' parameters in a generic lambda be mangled?  Mangling
+</I>&gt;&gt;<i> them as normal template parameters doesn't really work, as they can
+</I>&gt;&gt;<i> end up with the same mangling as the template parameter for which they
+</I>&gt;&gt;<i> are an argument.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> template&lt;typename T&gt;
+</I>&gt;&gt;<i> T &amp;&amp;forward (T &amp;v)
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   return static_cast&lt;T &amp;&amp;&gt;(v);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> template&lt;typename FN&gt;
+</I>&gt;&gt;<i>   void indirect (FN &amp;&amp;handler)
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   forward&lt;FN&gt; (handler);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> inline void Foo ()
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>   auto lambda = [](auto &amp;) { };
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   forward (lambda);
+</I>&gt;&gt;<i>   indirect (lambda);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> void (*p)() = Foo;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> For this GCC and Clang both currently produce
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> _Z7forwardIZ3FoovEUlRT_E_EOS0_S1_
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> where the T_ refers to the template parameter currently being
+</I>&gt;&gt;<i> described, causing the demangler to crash due to infinite recursion
+</I>&gt;&gt;<i> (<A HREF="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252">https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78252</A>).
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Nathan proposes to change the parameters to mangle using Da, which
+</I>&gt;&gt;<i> seems reasonable.  I'm not sure how that will extend to concepts, but
+</I>&gt;&gt;<i> concepts mangling as a whole is an unsolved problem.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Any thoughts?
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Are there cases where the current scheme causes mangling collisions (where
+</I>&gt;<i> T_ can actually be interpreted two different ways)? It seems to me that, so
+</I>&gt;<i> long as we continue to be careful to restrict lambda-expressions from
+</I>&gt;<i> appearing in a signature (either directly or via an alias template), T_
+</I>&gt;<i> within the scope of Ul...E can /only/ mean the template parameter of the
+</I>&gt;<i> lambda-expression itself, and not an enclosing template parameter.
+</I>&gt;<i>
+</I>&gt;<i> Of note is the repeated suggestion to allow explicit template parameter
+</I>&gt;<i> lists in lambdas (at this point, I'd give this a very solid chance of being
+</I>&gt;<i> part of C++20):
+</I>&gt;<i>
+</I>&gt;<i>   auto lambda = []&lt;typename T&gt;(T a, T b) {};
+</I>&gt;<i>
+</I>&gt;<i> We would presumably need to mangle that as UlT_T_E even with the Da
+</I>&gt;<i> suggestion, so it seems that demanglers are just going to need to cope with
+</I>&gt;<i> Ul introducing a new template parameter scope.
+</I>
+Makes sense.
+
+Jason
+</PRE>
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003016.html">[cxx-abi-dev] Mangling of generic lambda
+</A></li>
+	<LI>Next message: <A HREF="003020.html">[cxx-abi-dev] Mangling of generic lambda
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3017">[ date ]</a>
+              <a href="thread.html#3017">[ thread ]</a>
+              <a href="subject.html#3017">[ subject ]</a>
+              <a href="author.html#3017">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,290 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> demangling issues
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20demangling%20issues&In-Reply-To=%3C14673.58666.416969.170482%40coriander.indetermi.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001032.html">
+   <LINK REL="Next"  HREF="001035.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>demangling issues</H1>
+    <B>Alex Samuel</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20demangling%20issues&In-Reply-To=%3C14673.58666.416969.170482%40coriander.indetermi.net%3E"
+       TITLE="demangling issues">samuel at codesourcery.com
+       </A><BR>
+    <I>Thu Jun 22 10:06:34 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001032.html">mangling type_info for local related types
+</A></li>
+        <LI>Next message: <A HREF="001035.html">&quot;Minutes&quot; of today's meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1033">[ date ]</a>
+              <a href="thread.html#1033">[ thread ]</a>
+              <a href="subject.html#1033">[ subject ]</a>
+              <a href="author.html#1033">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+Here are some issues we've run across while implementing the ABI
+mangling scheme (and a demangler) in gcc over recent months, and how
+we addressed them.  I apologize that this description isn't too
+detailed; I've been rushing to tie up some loose ends in the
+implementation in the last few days.  I'll supply more details as
+necessary.
+
+Our mangling implementation is checked into the gcc's CVS trunk, in
+case anyone wants to experiment with it.  A particularly easy way to
+try out mangling on a particular case is with this online compilation
+web form, which uses a recent snapshot build of gcc:
+
+    <A HREF="http://www.codesourcery.com/gcc-compile.shtml">http://www.codesourcery.com/gcc-compile.shtml</A>
+
+Enter your code into the form, and enter `-fnew-abi' as an additional
+compiler flag.  Compile to assembly or object and check out your
+mangled names.  I'm happy to help anyone who'se interested build the
+standalone demangler too.
+
+Regards
+Alex Samuel
+CodeSourcery LLC
+
+
+---
+
+First, shortly before the hiatus in ABI committee meetings, I sent out
+a proposed modification of the mangling grammar.  The modifications
+correct some errors and brought the substitution rules in line with
+the committee's intent, I think.  They've also proven easier to
+implement.  We've implemented this grammar, with slight modifications.
+Here are the relevant productions:
+
+    &lt;mangled-name&gt;      ::= _Z &lt;encoding&gt;
+
+    &lt;encoding&gt;		::= &lt;function name&gt; &lt;bare-function-type&gt;
+			::= &lt;data name&gt;
+			::= &lt;special-name&gt;   # see below
+			::= &lt;substitution&gt;
+
+    &lt;name&gt;              ::= &lt;unscoped-name&gt;
+                        ::= &lt;unscoped-template-name&gt; &lt;template-args&gt;
+			::= &lt;nested-name&gt;
+                        ::= &lt;local-name&gt;
+
+    &lt;unscoped-name&gt;     ::= &lt;unqualified-name&gt;
+			::= St &lt;unqualified-name&gt;   # ::std::
+
+    &lt;unscoped-template-name&gt;    
+                        ::= &lt;unscoped-name&gt;
+                        ::= &lt;substitution&gt;
+
+    &lt;nested-name&gt;       ::= N [&lt;CV-qualifiers&gt;] &lt;prefix&gt; &lt;component&gt; E
+			::= N [&lt;CV-qualifiers&gt;] &lt;template-prefix&gt; 
+			    &lt;template-args&gt; E
+
+    &lt;prefix&gt;            ::= &lt;prefix&gt; &lt;component&gt;
+                        ::= &lt;template-prefix&gt; &lt;template-args&gt;
+			::= # empty
+			::= &lt;substitution&gt;
+
+    &lt;template-prefix&gt;   ::= &lt;prefix&gt; &lt;template component&gt;
+                        ::= &lt;substitution&gt;
+
+    &lt;component&gt;         ::= &lt;unqualified-name&gt;
+                        ::= &lt;local-name&gt;
+
+    &lt;unqualified-name&gt;  ::= &lt;operator-name&gt;
+			::= &lt;ctor-dtor-name&gt;  
+			::= &lt;source-name&gt;   
+
+    &lt;class-enum-type&gt;   ::= &lt;name&gt;
+
+---
+
+We also clarified the mangling of numbers using
+
+    &lt;number&gt; ::= [n] &lt;positive-number&gt;
+
+    &lt;positive-number&gt; ::= &lt;decimal integer&gt;
+
+The `n' is for negative numbers.
+
+Then
+
+    &lt;source-name&gt; ::= &lt;length positive-number&gt; &lt;identifier&gt;
+
+---
+
+There's no operator code for for unary plus.  We used `pl'.  An
+operator code for conversions is also needed.  We used this:
+
+    &lt;operator-name&gt;     ::= cv &lt;type&gt;
+
+
+---
+
+The mangling for unions was not mentioned.  We used &lt;class-enum-name&gt;.
+
+---
+
+Template template args and parameters were not explicitly mentioned,
+except in examples.  We used these productions:
+
+    &lt;template-arg&gt;      ::= &lt;template-template-arg&gt;
+
+    &lt;template-template-arg&gt;
+			::= &lt;name&gt;
+			::= &lt;substitution&gt;
+
+    &lt;type&gt;              ::= &lt;template-template-param&gt; &lt;template-args&gt;
+
+    &lt;template-template-param&gt;
+                        ::= &lt;template-param&gt; 
+			::= &lt;substitution&gt;
+
+---
+
+We ran into trouble mangling some of the special objects like thunks
+and guard variables, and concluded that these would make more sense if
+the mangling didn't make them look like they were scoped in some
+enclosing scope.  It doesn't really make sense to think of a typeinfo
+variable, for instance, as scoped inside the type it describes --
+especially if that type is a built-in type.  Instead, it would make
+more sense to think of it as a global object, since it's fully
+specified by the type it describes.  
+
+So, we used these manglings:
+
+    &lt;special-name&gt; ::= TV &lt;type&gt;    # virtual table
+                   ::= TT &lt;type&gt;    # VTT
+                   ::= TI &lt;type&gt;    # typeinfo structure
+		   ::= TS &lt;type&gt;    # typeinfo name
+                   ::= GV &lt;name&gt;    # guard variable
+                   ::= Th &lt;offset number&gt; _ &lt;base encoding&gt;
+                        # non-virtual base override thunk
+                        # base is the nominal target function of thunk
+                   ::= Tv &lt;offset number&gt; _ &lt;vcall offset number&gt; _ 
+                         &lt;base encoding&gt;
+                        # virtual base override thunk
+                        # base is the nominal target function of thunk
+
+That's why &lt;special-name&gt; is a production for &lt;encoding&gt;, above.  
+
+The only special names left are ctors and dtors, so we used
+
+    &lt;unqualified-name&gt; ::= &lt;ctor-dtor-name&gt;
+
+where
+
+    &lt;ctor-dtor-name&gt; ::= C1 # complete object (in-charge) ctor
+		     ::= C2 # base object (not-in-charge) ctor
+		     ::= C3 # complete object (in-charge) allocating ctor
+		     ::= C4 # base object (not-in-charge) allocating ctor
+		     ::= D0 # deleting (in-charge) dtor
+		     ::= D1 # complete object (in-charge) dtor
+		     ::= D2 # base object (not-in-charge) dtor
+
+So, for instance given
+
+    namespace NS { class C { virtual void foo (); }; }
+
+the virtual table for C would be mangled
+
+    _ZTVN2NS1CE
+
+and the typeinfo struct for C would be mangled
+
+    _ZTIN2NS1CE
+
+
+The typeinfo struct for int is mangled
+
+    _ZTIi
+
+and in the function
+
+    int C::foo (int i) 
+    {
+      static int j = 0;
+      return ++j + i;
+    }
+
+the guard variable for j is mangled
+
+    _ZGVZN1C3fooEiE1j
+
+---
+
+We need a way of talking about classes declared in function scopes, so
+add this production:
+
+    &lt;class-enum-type&gt; ::= &lt;local-name&gt;
+
+---
+
+The &lt;local-name&gt; production should be
+
+    &lt;local-name&gt; := Z &lt;function encoding&gt; E &lt;entity unqualified-name&gt; 
+                      [&lt;discriminator&gt;]
+
+If &lt;name&gt; is used instead of &lt;unqualified-name&gt;, it's infinitely recursive.
+
+---
+
+Literals in template parameters that are pointer-to-member constants
+cause problems.  It is in fact not always possible to tell whether
+they are pointer-to-member literals at all.  Given the template
+instantiation
+
+    template void f (C&lt;S, &amp;S::j&gt;);
+
+of
+
+    template &lt;class T&gt; void f (C&lt;T, &amp;T::j&gt;) {}
+
+the second template parameter could be a pointer-to-member, or a
+pointer to a static member function or data member.  You can't know if
+you're mangling it without substituting S for T.
+
+So, we added a new operator that denotes scope resolution (the ::
+token), represented by the code `sr'.  The template instantiation
+given above mangles to 
+
+    _Z1fI1SEv1CIT_XadsrS2_1jEE
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001032.html">mangling type_info for local related types
+</A></li>
+	<LI>Next message: <A HREF="001035.html">&quot;Minutes&quot; of today's meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1033">[ date ]</a>
+              <a href="thread.html#1033">[ thread ]</a>
+              <a href="subject.html#1033">[ subject ]</a>
+              <a href="author.html#1033">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Placement of vtables, inlines and such
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3C199906290615.XAA61829%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000131.html">
+   <LINK REL="Next"  HREF="000133.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Placement of vtables, inlines and such</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3C199906290615.XAA61829%40baalbek.engr.sgi.com%3E"
+       TITLE="Placement of vtables, inlines and such">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Jun 29 06:15:07 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000131.html">C++ ABI Summary
+</A></li>
+        <LI>Next message: <A HREF="000133.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#132">[ date ]</a>
+              <a href="thread.html#132">[ thread ]</a>
+              <a href="subject.html#132">[ subject ]</a>
+              <a href="author.html#132">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>A variety of questions and observations on this thread...
+
+&gt;<i> From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at cygnus.com</A>&gt;
+</I>&gt;<i> Date: 24 Jun 1999 04:36:42 -0700
+</I>&gt;<i> 
+</I>&gt;<i> 1) Emit them everywhere and only use one.
+</I>&gt;<i> 2) Use some heuristic to decide where to emit them.
+</I>&gt;<i> 3) Use a database to decide where to emit them.
+</I>&gt;<i> 4) Generate them at link time.
+</I>&gt;<i> 
+</I>&gt;<i> #3 and #4 are feasible for templates, but I consider them too heavyweight
+</I>&gt;<i> to be used for other things.
+</I>
+Does that remain true if you're already using them for templates?
+&gt;<i> 
+</I>&gt;<i> The way to handle this in standard ELF is weak symbols.  If all definitions
+</I>&gt;<i> are marked weak, the linker will choose one and the others will just sit
+</I>&gt;<i> there taking up space.
+</I>
+It has become apparent in the base IA-64 ABI discussions that weak
+symbols are problematic.  Different vendors treat them differently,
+both in terms of whether they cause archive objects to be extracted,
+and in terms of how they are handled in DSOs (some vendors treat them
+like normal globals once linked, some also defer to non-weak at
+runtime.)
+
+&gt;<i> Christophe mentioned the other day that the HP compiler used the typical
+</I>&gt;<i> heuristic above, and handled the case of different results by encoding the
+</I>&gt;<i> key function in the vtable name.  But this seems unnecessary when we can
+</I>&gt;<i> just choose one of multiple defns.
+</I>
+It would be helpful to me if someone would describe the &quot;typical
+heuristic&quot; (or any heuristic being used).
+
+&gt;<i> The GNU ELF toolchain does a variant of #1 here; any sections with names
+</I>&gt;<i> beginning with &quot;.gnu.linkonce.&quot; are treated as COMDAT sections.  It seems
+</I>&gt;<i> more sensible to me to key off of the section name than the first symbol
+</I>&gt;<i> name as in PE.
+</I>
+Keying off section names is evil.  If we're going to use (the
+equivalent of) COMDAT sections, let's mark them with a section header
+flag.
+
+&gt;<i> I further propose that we not use heuristics to cut down the number of
+</I>&gt;<i> copies ahead of time; they usually work fine, but can cause problems in
+</I>&gt;<i> some situations, such as when not all of the class's members are in the
+</I>&gt;<i> same symbol space.
+</I>
+What do you mean by the same symbol space?
+
+&gt;<i> Does the ia64 ABI provide for controlling which symbols
+</I>&gt;<i> are exported from a shared library?
+</I>
+Yes.  We have changed the gABI to add an export class to the symbol
+record (in st_other).  The compiler (or linker) may mark a symbol
+PROTECTED, preventing preemption, or HIDDEN, preventing export.
+(The latter is converted to LOCAL binding at link time.)
+
+&gt;<i> A side issue: What do we want to do with dynamically-initialized variables?
+</I>&gt;<i> The same thing, or use COMMON?  I propose COMMON.
+</I>
+COMMON is another problem, due to different treatment across DSOs by
+different vendors.  But I don't really know what you're suggesting
+here.  What is the issue with dynamically-initialized variables?  There
+should still be a unique definition, shouldn't there?  (Except in cases
+which have nothing to do with the dynamic definition, like statics in
+inlines, classes, etc.)  So COMMON doesn't seem to help.  Furthermore,
+if you were to optimize an initialization that were partially static,
+you can't use COMMON, which doesn't have iniital values.
+&gt;<i> 
+</I>&gt;<i> Jason
+</I>
+
+&gt;<i> From: Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at cygnus.com</A>&gt;
+</I>&gt;<i>
+</I>&gt;<i> I don't know if catching a problem  
+</I>&gt;<i> &quot;sometimes&quot; is better than &quot;never&quot;, or if it is actually worse...
+</I>
+Usually better, I'd say...
+
+&gt;<i> It looks to me like garbage collection requires one extra operation,  
+</I>&gt;<i> namely selecting the &quot;blessed&quot; symbol that will not be discarded,  
+</I>&gt;<i> right? Isn't that some other form of COMDATing? In other words, isn't  
+</I>&gt;<i> garbage collection just an additional optimization which may be  
+</I>&gt;<i> placed on top of COMDATs?
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> &gt; I further propose that we not use heuristics to cut down the number of 
+</I>&gt;<i> &gt; copies ahead of time; they usually work fine, but can cause problems in 
+</I>&gt;<i> &gt; some situations, such as when not all of the class's members are in the 
+</I>&gt;<i> &gt; same symbol space.
+</I>&gt;<i> 
+</I>&gt;<i> As you said, &quot;they usually work fine&quot;.
+</I>
+Again, could I please have an explanation of what the heuristics being
+discussed are, and what &quot;usually&quot; means?
+
+&gt;<i> The problem is that some compiler may be smarter at inlining that  
+</I>&gt;<i> another, and figure out that it actually can initialize it  
+</I>&gt;<i> statically. In that case, it cannot go into COMMON (or you force that  
+</I>&gt;<i> smart compiler to not do that optimization for binary compatibility  
+</I>&gt;<i> reasons...). For instance:
+</I>&gt;<i> 
+</I>&gt;<i> 	inline int f() { return 1; }
+</I>&gt;<i> 	static int i = f();
+</I>
+We would certainly inline this one...
+
+&gt;<i> Christophe
+</I>
+
+&gt;<i> From: Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at cygnus.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i>  If one implementation uses COMMON, and another uses
+</I>&gt;<i> COMDAT, they will be combined by the linker (I think; does a weak symbol
+</I>&gt;<i> take precedence over COMMON?)
+</I>
+Depends on the vendor, and on whether they are in the same DSO.  Yecch.
+&gt;<i> 
+</I>&gt;<i> Jason
+</I>
+
+&gt;<i> From: Daveed Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> Jason Merrill wrote:
+</I>&gt;<i> [...]
+</I>&gt;<i> &gt; No.  gc works by sweeping from main, finding all the referenced symbols;
+</I>&gt;<i> &gt; any sections that haven't provided any symbols are discarded.  If we use
+</I>&gt;<i> &gt; weak symbols for vtables and put them in separate sections, gc will keep at
+</I>&gt;<i> &gt; most one copy, as needed.  There is no notion of a special symbol.
+</I>&gt;<i> 
+</I>&gt;<i> How does this work in shared libraries? Is GC done at load time?
+</I>&gt;<i> 
+</I>&gt;<i> &gt; gc is a more general solution, as it also can discard normal code that
+</I>&gt;<i> &gt; isn't actually needed.  It also allows us to discard all copies in cases
+</I>&gt;<i> &gt; where that is appropriate, such as when we can get the vtable from one of
+</I>&gt;<i> &gt; our shared libs. 
+</I>&gt;<i> 
+</I>&gt;<i> I guess that means the answer to the above is &quot;yes&quot;?
+</I>
+I don't think you can do GC at load time.  However, at that point, the
+extra copies should disappear by virtue of preemption, if you've done
+it all with exported global symbols.
+
+&gt;<i> 	Daveed
+</I>
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000131.html">C++ ABI Summary
+</A></li>
+	<LI>Next message: <A HREF="000133.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#132">[ date ]</a>
+              <a href="thread.html#132">[ thread ]</a>
+              <a href="subject.html#132">[ subject ]</a>
+              <a href="author.html#132">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

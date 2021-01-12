@@ -1,0 +1,998 @@
+From jason at redhat.com  Wed Nov  2 18:13:12 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 2 Nov 2016 14:13:12 -0400
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+Message-ID: <CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+
+On Sun, Oct 23, 2016 at 1:10 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 11 October 2016 at 14:11, Richard Smith <richardsmith at google.com> wrote:
+>>
+>> Under
+>>   http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0012r1.html
+>>
+>> the noexceptness of a function type is now part of the type. As a result,
+>> we need manglings for exception-specifications on function pointer/reference
+>> types:
+>>
+>> void f(void()) {}
+>> void f(void() noexcept) {} // ok, overload not redefinition
+>>
+>> (It's not clear to me whether or not this was also necessary prior to
+>> C++17 to handle dependent exception specifications that appear lexically
+>> within the parameter list of a function template, and actual implementation
+>> practice varies as to whether such exception specifications are SFINAEable.)
+>>
+>> In order to handle overloading/SFINAE on exception specifications in
+>> dependent cases, we need to be able to mangle not only "noexcept", but also
+>> "noexcept(expression)" and "throw(<types>)". Suggestion for manglings:
+>>
+>> <exception-spec> ::=
+>>   nx  -- non-throwing exception specification
+>>   nX <expression> E  -- computed (value-dependent) noexcept
+>
+> Minor correction: this should be mangled if instantiation-dependent, not
+> only if value-dependent. It appears that SFINAE can happen here.
+>
+>>   tw <type>* E  -- throw (types)
+>> <function-type> ::= [<CV-qualifiers>] [<exception-spec>] [Dx] F [Y]
+>> <bare-function-type> [<ref-qualifier>] E
+>>
+>> In the case of throw(a, b, c), we could omit types that are neither
+>> instantiation-dependent nor pack expansions (if that omits all types, we can
+>> use the 'nx' mangling instead), since C++17 says you can't overload on the
+>> actual types in the dynamic exception specification, and we otherwise only
+>> need them to be present if they might result in a substitution failure.
+>>
+>> Thoughts?
+
+I'm uncomfortable with adding new mangling for the intersection of a
+new C++17 feature and a deprecated feature that just barely missed
+being removed from C++17 (though we'll see what happens next week),
+especially since you can't overload on it, and before C++17 putting an
+exception specification on a nested function type was ill-formed; we
+can just restore that prohibition for dynamic exception specs if they
+stay in the language.
+
+Jason
+
+From jason at redhat.com  Wed Nov  2 18:18:38 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 2 Nov 2016 14:18:38 -0400
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+	<CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+Message-ID: <CADzB+2=RtV7qMVPgRFtFobQwFznM6VL+K+AR-sJZZsqEp4pOEA@mail.gmail.com>
+
+On Wed, Nov 2, 2016 at 2:13 PM, Jason Merrill <jason at redhat.com> wrote:
+> before C++17 putting an exception specification on a nested function type was ill-formed
+
+Sorry, I was misremembering this.  But I'm still dubious about the addition.
+
+Jason
+
+From richardsmith at google.com  Wed Nov  2 18:19:16 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 2 Nov 2016 11:19:16 -0700
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+	<CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+Message-ID: <CAGL0aWdwD=Qz2ffR21fw7+YTXAKLzKRLEdbh9S99jEDMhxe+0Q@mail.gmail.com>
+
+On 2 November 2016 at 11:13, Jason Merrill <jason at redhat.com> wrote:
+
+> On Sun, Oct 23, 2016 at 1:10 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > On 11 October 2016 at 14:11, Richard Smith <richardsmith at google.com>
+> wrote:
+> >>
+> >> Under
+> >>   http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0012r1.html
+> >>
+> >> the noexceptness of a function type is now part of the type. As a
+> result,
+> >> we need manglings for exception-specifications on function
+> pointer/reference
+> >> types:
+> >>
+> >> void f(void()) {}
+> >> void f(void() noexcept) {} // ok, overload not redefinition
+> >>
+> >> (It's not clear to me whether or not this was also necessary prior to
+> >> C++17 to handle dependent exception specifications that appear lexically
+> >> within the parameter list of a function template, and actual
+> implementation
+> >> practice varies as to whether such exception specifications are
+> SFINAEable.)
+> >>
+> >> In order to handle overloading/SFINAE on exception specifications in
+> >> dependent cases, we need to be able to mangle not only "noexcept", but
+> also
+> >> "noexcept(expression)" and "throw(<types>)". Suggestion for manglings:
+> >>
+> >> <exception-spec> ::=
+> >>   nx  -- non-throwing exception specification
+> >>   nX <expression> E  -- computed (value-dependent) noexcept
+> >
+> > Minor correction: this should be mangled if instantiation-dependent, not
+> > only if value-dependent. It appears that SFINAE can happen here.
+> >
+> >>   tw <type>* E  -- throw (types)
+> >> <function-type> ::= [<CV-qualifiers>] [<exception-spec>] [Dx] F [Y]
+> >> <bare-function-type> [<ref-qualifier>] E
+> >>
+> >> In the case of throw(a, b, c), we could omit types that are neither
+> >> instantiation-dependent nor pack expansions (if that omits all types,
+> we can
+> >> use the 'nx' mangling instead), since C++17 says you can't overload on
+> the
+> >> actual types in the dynamic exception specification, and we otherwise
+> only
+> >> need them to be present if they might result in a substitution failure.
+> >>
+> >> Thoughts?
+>
+> I'm uncomfortable with adding new mangling for the intersection of a
+> new C++17 feature and a deprecated feature that just barely missed
+> being removed from C++17 (though we'll see what happens next week),
+> especially since you can't overload on it,
+
+
+Why not? [temp.over.link]/4 doesn't have any special case for exception
+specifications, so as far as I can see, this is valid:
+
+// If T has a nested type 'exception', the function might throw it.
+template<typename T> void f(void p() throw(typename T::exception)) { try {
+p(); } catch (...) { /*...*/ } }
+// Otherwise we can assume it doesn't throw anything.
+template<typename T> void f(void p() noexcept) { p(); }
+
+... and will do SFINAE on the existence of a nested type 'exception' within
+T.
+
+
+> and before C++17 putting an
+> exception specification on a nested function type was ill-formed; we
+> can just restore that prohibition for dynamic exception specs if they
+> stay in the language.
+>
+> Jason
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161102/0b92d9a2/attachment.html>
+
+From jason at redhat.com  Wed Nov  2 19:39:45 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 2 Nov 2016 15:39:45 -0400
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CAGL0aWdwD=Qz2ffR21fw7+YTXAKLzKRLEdbh9S99jEDMhxe+0Q@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+	<CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+	<CAGL0aWdwD=Qz2ffR21fw7+YTXAKLzKRLEdbh9S99jEDMhxe+0Q@mail.gmail.com>
+Message-ID: <CADzB+2m0YCfuViC5ZOEor+buWrzktB-AhwZRf2ev5CuZtQxb=Q@mail.gmail.com>
+
+On Wed, Nov 2, 2016 at 2:19 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 2 November 2016 at 11:13, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> On Sun, Oct 23, 2016 at 1:10 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > On 11 October 2016 at 14:11, Richard Smith <richardsmith at google.com>
+>> > wrote:
+>> >>
+>> >> Under
+>> >>   http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0012r1.html
+>> >>
+>> >> the noexceptness of a function type is now part of the type. As a
+>> >> result,
+>> >> we need manglings for exception-specifications on function
+>> >> pointer/reference
+>> >> types:
+>> >>
+>> >> void f(void()) {}
+>> >> void f(void() noexcept) {} // ok, overload not redefinition
+>> >>
+>> >> (It's not clear to me whether or not this was also necessary prior to
+>> >> C++17 to handle dependent exception specifications that appear
+>> >> lexically
+>> >> within the parameter list of a function template, and actual
+>> >> implementation
+>> >> practice varies as to whether such exception specifications are
+>> >> SFINAEable.)
+>> >>
+>> >> In order to handle overloading/SFINAE on exception specifications in
+>> >> dependent cases, we need to be able to mangle not only "noexcept", but
+>> >> also
+>> >> "noexcept(expression)" and "throw(<types>)". Suggestion for manglings:
+>> >>
+>> >> <exception-spec> ::=
+>> >>   nx  -- non-throwing exception specification
+>> >>   nX <expression> E  -- computed (value-dependent) noexcept
+>> >
+>> > Minor correction: this should be mangled if instantiation-dependent, not
+>> > only if value-dependent. It appears that SFINAE can happen here.
+>> >
+>> >>   tw <type>* E  -- throw (types)
+>> >> <function-type> ::= [<CV-qualifiers>] [<exception-spec>] [Dx] F [Y]
+>> >> <bare-function-type> [<ref-qualifier>] E
+>> >>
+>> >> In the case of throw(a, b, c), we could omit types that are neither
+>> >> instantiation-dependent nor pack expansions (if that omits all types,
+>> >> we can
+>> >> use the 'nx' mangling instead), since C++17 says you can't overload on
+>> >> the
+>> >> actual types in the dynamic exception specification, and we otherwise
+>> >> only
+>> >> need them to be present if they might result in a substitution failure.
+>> >>
+>> >> Thoughts?
+>>
+>> I'm uncomfortable with adding new mangling for the intersection of a
+>> new C++17 feature and a deprecated feature that just barely missed
+>> being removed from C++17 (though we'll see what happens next week),
+>> especially since you can't overload on it,
+>
+> Why not? [temp.over.link]/4 doesn't have any special case for exception
+> specifications, so as far as I can see, this is valid:
+>
+> // If T has a nested type 'exception', the function might throw it.
+> template<typename T> void f(void p() throw(typename T::exception)) { try {
+> p(); } catch (...) { /*...*/ } }
+> // Otherwise we can assume it doesn't throw anything.
+> template<typename T> void f(void p() noexcept) { p(); }
+>
+> ... and will do SFINAE on the existence of a nested type 'exception' within
+> T.
+
+I suppose so, sigh.
+
+I notice that with this specification,
+
+void f (void (*p)() noexcept) { }
+
+would mangle as
+
+_Z1fPnxFvvE
+
+which currently means
+
+f(__int128*, long long, void ())
+
+which is ill-formed, but I'd rather not require the demangler to recognize that.
+
+Maybe Do, DO and Dw instead?
+
+Jason
+
+From richardsmith at google.com  Wed Nov  2 20:36:42 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 2 Nov 2016 13:36:42 -0700
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CADzB+2m0YCfuViC5ZOEor+buWrzktB-AhwZRf2ev5CuZtQxb=Q@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<CAGL0aWdEsSu8Q96-XkSWKvrpG0yO6xmP4nP7qQK0oGKiUquD5Q@mail.gmail.com>
+	<CADzB+2mLtveivgrPFvRag_JEWqu+RsmO6XAf7SaTXaj-GkF_+Q@mail.gmail.com>
+	<CAGL0aWdwD=Qz2ffR21fw7+YTXAKLzKRLEdbh9S99jEDMhxe+0Q@mail.gmail.com>
+	<CADzB+2m0YCfuViC5ZOEor+buWrzktB-AhwZRf2ev5CuZtQxb=Q@mail.gmail.com>
+Message-ID: <CAGL0aWf8Ukb7iioT5Q_vgoFLab4t-f1SEZvC_UKjkSyqUJszGA@mail.gmail.com>
+
+On 2 Nov 2016 12:40 pm, "Jason Merrill" <jason at redhat.com> wrote:
+
+On Wed, Nov 2, 2016 at 2:19 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> On 2 November 2016 at 11:13, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> On Sun, Oct 23, 2016 at 1:10 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > On 11 October 2016 at 14:11, Richard Smith <richardsmith at google.com>
+>> > wrote:
+>> >>
+>> >> Under
+>> >>   http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0012r1.html
+>> >>
+>> >> the noexceptness of a function type is now part of the type. As a
+>> >> result,
+>> >> we need manglings for exception-specifications on function
+>> >> pointer/reference
+>> >> types:
+>> >>
+>> >> void f(void()) {}
+>> >> void f(void() noexcept) {} // ok, overload not redefinition
+>> >>
+>> >> (It's not clear to me whether or not this was also necessary prior to
+>> >> C++17 to handle dependent exception specifications that appear
+>> >> lexically
+>> >> within the parameter list of a function template, and actual
+>> >> implementation
+>> >> practice varies as to whether such exception specifications are
+>> >> SFINAEable.)
+>> >>
+>> >> In order to handle overloading/SFINAE on exception specifications in
+>> >> dependent cases, we need to be able to mangle not only "noexcept", but
+>> >> also
+>> >> "noexcept(expression)" and "throw(<types>)". Suggestion for manglings:
+>> >>
+>> >> <exception-spec> ::=
+>> >>   nx  -- non-throwing exception specification
+>> >>   nX <expression> E  -- computed (value-dependent) noexcept
+>> >
+>> > Minor correction: this should be mangled if instantiation-dependent,
+not
+>> > only if value-dependent. It appears that SFINAE can happen here.
+>> >
+>> >>   tw <type>* E  -- throw (types)
+>> >> <function-type> ::= [<CV-qualifiers>] [<exception-spec>] [Dx] F [Y]
+>> >> <bare-function-type> [<ref-qualifier>] E
+>> >>
+>> >> In the case of throw(a, b, c), we could omit types that are neither
+>> >> instantiation-dependent nor pack expansions (if that omits all types,
+>> >> we can
+>> >> use the 'nx' mangling instead), since C++17 says you can't overload on
+>> >> the
+>> >> actual types in the dynamic exception specification, and we otherwise
+>> >> only
+>> >> need them to be present if they might result in a substitution
+failure.
+>> >>
+>> >> Thoughts?
+>>
+>> I'm uncomfortable with adding new mangling for the intersection of a
+>> new C++17 feature and a deprecated feature that just barely missed
+>> being removed from C++17 (though we'll see what happens next week),
+>> especially since you can't overload on it,
+>
+> Why not? [temp.over.link]/4 doesn't have any special case for exception
+> specifications, so as far as I can see, this is valid:
+>
+> // If T has a nested type 'exception', the function might throw it.
+> template<typename T> void f(void p() throw(typename T::exception)) { try {
+> p(); } catch (...) { /*...*/ } }
+> // Otherwise we can assume it doesn't throw anything.
+> template<typename T> void f(void p() noexcept) { p(); }
+>
+> ... and will do SFINAE on the existence of a nested type 'exception'
+within
+> T.
+
+I suppose so, sigh.
+
+I notice that with this specification,
+
+void f (void (*p)() noexcept) { }
+
+would mangle as
+
+_Z1fPnxFvvE
+
+which currently means
+
+f(__int128*, long long, void ())
+
+which is ill-formed, but I'd rather not require the demangler to recognize
+that.
+
+
+Yeah, that's no good :(
+
+Demangler heroics don't even save this; X<void() noexcept> would mangle the
+same as X<__int128, long long, void()>.
+
+Maybe Do, DO and Dw instead?
+
+
+Works for me.
+
+Jason
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161102/22fcb3f4/attachment.html>
+
+From jason at redhat.com  Thu Nov  3 21:35:45 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 3 Nov 2016 17:35:45 -0400
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+Message-ID: <CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+
+On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com> wrote:
+> On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com> wrote:
+>> We'll also need a new flag on type_info objects to model this. In line with
+>> the transaction_safe changes that Jason proposed, I suggest adding a
+>> __noexcept_mask = 0x40 to __pbase_type_info, and representing a pointer to
+>> noexcept function as a pointer with __noexcept_mask bit set to the
+>> corresponding *non-noexcept* function pointer type.
+>
+> I strongly disagree; we should take this opportunity to revisit that
+> decision.  The floodgates are open, and this set of function type attributes
+> is clearly going to grow over time.  (It's actually transaction_safe that
+> really drives this point home; noexcept is at least a longstanding part of
+> the core language in various forms.)  We also have a lot of vendor-specific
+> function type attributes that are part of the type but just aren't
+> standardized and can't be represented in type_info.  I don't think it makes
+> sense to indefinitely keep hacking these things into the pointer type flags;
+> we should just bite the bullet and create a new function_type_info subclass.
+
+But the various vendor-specific attributes don't create a different
+type, so they shouldn't be represented in RTTI; this definitely seems
+true of noreturn.
+
+Jason
+
+From richardsmith at google.com  Fri Nov  4 00:41:50 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 3 Nov 2016 17:41:50 -0700
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+Message-ID: <CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+
+On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+
+> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com> wrote:
+> > On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >> We'll also need a new flag on type_info objects to model this. In line
+> with
+> >> the transaction_safe changes that Jason proposed, I suggest adding a
+> >> __noexcept_mask = 0x40 to __pbase_type_info, and representing a pointer
+> to
+> >> noexcept function as a pointer with __noexcept_mask bit set to the
+> >> corresponding *non-noexcept* function pointer type.
+> >
+> > I strongly disagree; we should take this opportunity to revisit that
+> > decision.  The floodgates are open, and this set of function type
+> attributes
+> > is clearly going to grow over time.  (It's actually transaction_safe that
+> > really drives this point home; noexcept is at least a longstanding part
+> of
+> > the core language in various forms.)  We also have a lot of
+> vendor-specific
+> > function type attributes that are part of the type but just aren't
+> > standardized and can't be represented in type_info.  I don't think it
+> makes
+> > sense to indefinitely keep hacking these things into the pointer type
+> flags;
+> > we should just bite the bullet and create a new function_type_info
+> subclass.
+>
+> But the various vendor-specific attributes don't create a different
+> type, so they shouldn't be represented in RTTI; this definitely seems
+> true of noreturn.
+
+
+Whether this appears in the type_info would presumably depend on whether
+the implementation considers noreturn to be part of the type. Clang and GCC
+make somewhat different decisions here.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161103/b33edcee/attachment.html>
+
+From jason at redhat.com  Fri Nov  4 13:32:48 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 4 Nov 2016 09:32:48 -0400
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+	<CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+Message-ID: <CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+
+On Thu, Nov 3, 2016 at 8:41 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com> wrote:
+>> > On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+>> > wrote:
+>> >> We'll also need a new flag on type_info objects to model this. In line
+>> >> with
+>> >> the transaction_safe changes that Jason proposed, I suggest adding a
+>> >> __noexcept_mask = 0x40 to __pbase_type_info, and representing a pointer
+>> >> to
+>> >> noexcept function as a pointer with __noexcept_mask bit set to the
+>> >> corresponding *non-noexcept* function pointer type.
+>> >
+>> > I strongly disagree; we should take this opportunity to revisit that
+>> > decision.  The floodgates are open, and this set of function type
+>> > attributes
+>> > is clearly going to grow over time.  (It's actually transaction_safe
+>> > that
+>> > really drives this point home; noexcept is at least a longstanding part
+>> > of
+>> > the core language in various forms.)  We also have a lot of
+>> > vendor-specific
+>> > function type attributes that are part of the type but just aren't
+>> > standardized and can't be represented in type_info.  I don't think it
+>> > makes
+>> > sense to indefinitely keep hacking these things into the pointer type
+>> > flags;
+>> > we should just bite the bullet and create a new function_type_info
+>> > subclass.
+>>
+>> But the various vendor-specific attributes don't create a different
+>> type, so they shouldn't be represented in RTTI; this definitely seems
+>> true of noreturn.
+>
+> Whether this appears in the type_info would presumably depend on whether the
+> implementation considers noreturn to be part of the type. Clang and GCC make
+> somewhat different decisions here.
+
+OK, but I still don't see the benefit of this change.  Since function
+types can only appear in RTTI under a pointer (to member), what is the
+benefit of adding a new RTTI class to store some of the qualifiers,
+wasting space and creating an ABI transition headache?
+
+Jason
+
+From rjmccall at apple.com  Mon Nov  7 19:33:04 2016
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 7 Nov 2016 11:33:04 -0800
+Subject: [cxx-abi-dev] manglings for exception specifications in
+ function types
+In-Reply-To: <CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+	<CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+	<CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+Message-ID: <521E9F29-8955-40B9-8BAA-3A5E9F992A1F@apple.com>
+
+
+> On Nov 4, 2016, at 6:32 AM, Jason Merrill <jason at redhat.com> wrote:
+> 
+> On Thu, Nov 3, 2016 at 8:41 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+>>> 
+>>> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com> wrote:
+>>>> On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>> We'll also need a new flag on type_info objects to model this. In line
+>>>>> with
+>>>>> the transaction_safe changes that Jason proposed, I suggest adding a
+>>>>> __noexcept_mask = 0x40 to __pbase_type_info, and representing a pointer
+>>>>> to
+>>>>> noexcept function as a pointer with __noexcept_mask bit set to the
+>>>>> corresponding *non-noexcept* function pointer type.
+>>>> 
+>>>> I strongly disagree; we should take this opportunity to revisit that
+>>>> decision.  The floodgates are open, and this set of function type
+>>>> attributes
+>>>> is clearly going to grow over time.  (It's actually transaction_safe
+>>>> that
+>>>> really drives this point home; noexcept is at least a longstanding part
+>>>> of
+>>>> the core language in various forms.)  We also have a lot of
+>>>> vendor-specific
+>>>> function type attributes that are part of the type but just aren't
+>>>> standardized and can't be represented in type_info.  I don't think it
+>>>> makes
+>>>> sense to indefinitely keep hacking these things into the pointer type
+>>>> flags;
+>>>> we should just bite the bullet and create a new function_type_info
+>>>> subclass.
+>>> 
+>>> But the various vendor-specific attributes don't create a different
+>>> type, so they shouldn't be represented in RTTI; this definitely seems
+>>> true of noreturn.
+>> 
+>> Whether this appears in the type_info would presumably depend on whether the
+>> implementation considers noreturn to be part of the type. Clang and GCC make
+>> somewhat different decisions here.
+> 
+> OK, but I still don't see the benefit of this change.  Since function
+> types can only appear in RTTI under a pointer (to member),
+
+Well, this isn't true, for one.  Exceptions have to have object type, but typeid
+can be used with an arbitrary type.  But with that said...
+
+> what is the benefit of adding a new RTTI class to store some of the qualifiers,
+> wasting space and creating an ABI transition headache?
+
+...I am coming around to this point of view.  The existing RTTI representations are
+already extremely lossy and cannot usefully support a runtime reflection system, so
+there's no point designing with that in mind.  Our only requirements are to (1) distinguish
+different types and (2) support the subtyping conversions on (member) pointers
+mandated by the exceptions rules.  (1) is covered by way of the mangled type name,
+which can "represent" arbitrary type structure.  (2) is covered by your proposal to include
+attributes as a bitfield at the (member) pointer level.  The only considerations, then, are
+what attributes should be represented there and whether we're in danger of running out
+of space in the pointer bitfield; and I think the answers are: only the attributes
+meaningful for subtyping (so not, say, calling conventions), and no, we have plenty
+of bits remaining before we need to reserve one for extended qualifiers.
+
+So a function pointer type like
+  __attribute__((fastcall)) void (*)() noexcept
+would be represented as a pointer_type_info with just the noexcept qualifier and
+with a pointee that's a function_type_info whose mangled name includes the CC attribute.
+
+John.
+
+From richardsmith at google.com  Tue Nov 15 18:38:45 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 15 Nov 2016 10:38:45 -0800
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <521E9F29-8955-40B9-8BAA-3A5E9F992A1F@apple.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+	<CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+	<CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+	<521E9F29-8955-40B9-8BAA-3A5E9F992A1F@apple.com>
+Message-ID: <CAGL0aWfn6bppyLTfV5LQgkcif5pWr3uiqtJjkC+e3fGvwEMVug@mail.gmail.com>
+
+On 7 November 2016 at 11:33, John McCall <rjmccall at apple.com> wrote:
+
+> > On Nov 4, 2016, at 6:32 AM, Jason Merrill <jason at redhat.com> wrote:
+> >
+> > On Thu, Nov 3, 2016 at 8:41 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >> On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+> >>>
+> >>> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com>
+> wrote:
+> >>>> On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+> >>>> wrote:
+> >>>>> We'll also need a new flag on type_info objects to model this. In
+> line
+> >>>>> with
+> >>>>> the transaction_safe changes that Jason proposed, I suggest adding a
+> >>>>> __noexcept_mask = 0x40 to __pbase_type_info, and representing a
+> pointer
+> >>>>> to
+> >>>>> noexcept function as a pointer with __noexcept_mask bit set to the
+> >>>>> corresponding *non-noexcept* function pointer type.
+> >>>>
+> >>>> I strongly disagree; we should take this opportunity to revisit that
+> >>>> decision.  The floodgates are open, and this set of function type
+> >>>> attributes
+> >>>> is clearly going to grow over time.  (It's actually transaction_safe
+> >>>> that
+> >>>> really drives this point home; noexcept is at least a longstanding
+> part
+> >>>> of
+> >>>> the core language in various forms.)  We also have a lot of
+> >>>> vendor-specific
+> >>>> function type attributes that are part of the type but just aren't
+> >>>> standardized and can't be represented in type_info.  I don't think it
+> >>>> makes
+> >>>> sense to indefinitely keep hacking these things into the pointer type
+> >>>> flags;
+> >>>> we should just bite the bullet and create a new function_type_info
+> >>>> subclass.
+> >>>
+> >>> But the various vendor-specific attributes don't create a different
+> >>> type, so they shouldn't be represented in RTTI; this definitely seems
+> >>> true of noreturn.
+> >>
+> >> Whether this appears in the type_info would presumably depend on
+> whether the
+> >> implementation considers noreturn to be part of the type. Clang and GCC
+> make
+> >> somewhat different decisions here.
+> >
+> > OK, but I still don't see the benefit of this change.  Since function
+> > types can only appear in RTTI under a pointer (to member),
+>
+> Well, this isn't true, for one.  Exceptions have to have object type, but
+> typeid
+> can be used with an arbitrary type.  But with that said...
+>
+> > what is the benefit of adding a new RTTI class to store some of the
+> qualifiers,
+> > wasting space and creating an ABI transition headache?
+>
+> ...I am coming around to this point of view.  The existing RTTI
+> representations are
+> already extremely lossy and cannot usefully support a runtime reflection
+> system, so
+> there's no point designing with that in mind.  Our only requirements are
+> to (1) distinguish
+> different types and (2) support the subtyping conversions on (member)
+> pointers
+> mandated by the exceptions rules.  (1) is covered by way of the mangled
+> type name,
+> which can "represent" arbitrary type structure.  (2) is covered by your
+> proposal to include
+> attributes as a bitfield at the (member) pointer level.  The only
+> considerations, then, are
+> what attributes should be represented there and whether we're in danger of
+> running out
+> of space in the pointer bitfield; and I think the answers are: only the
+> attributes
+> meaningful for subtyping (so not, say, calling conventions), and no, we
+> have plenty
+> of bits remaining before we need to reserve one for extended qualifiers.
+>
+> So a function pointer type like
+>   __attribute__((fastcall)) void (*)() noexcept
+> would be represented as a pointer_type_info with just the noexcept
+> qualifier and
+> with a pointee that's a function_type_info whose mangled name includes the
+> CC attribute.
+
+
+If we want to change our minds here, we should do it sooner rather than
+later. Clang and libc++abi already have an implementation of the previous
+proposal (although the Clang side is off by default due to the ABI issue).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20161115/ab3ac588/attachment.html>
+
+From jason at redhat.com  Tue Nov 15 19:01:10 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 15 Nov 2016 14:01:10 -0500
+Subject: [cxx-abi-dev] manglings for exception specifications in
+	function types
+In-Reply-To: <CAGL0aWfn6bppyLTfV5LQgkcif5pWr3uiqtJjkC+e3fGvwEMVug@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+	<CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+	<CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+	<521E9F29-8955-40B9-8BAA-3A5E9F992A1F@apple.com>
+	<CAGL0aWfn6bppyLTfV5LQgkcif5pWr3uiqtJjkC+e3fGvwEMVug@mail.gmail.com>
+Message-ID: <CADzB+2k6MMZ+gMmQ2h-rpyYBD6KcFc8h5XJJdfQxA5mWiemjAA@mail.gmail.com>
+
+On Tue, Nov 15, 2016 at 1:38 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 7 November 2016 at 11:33, John McCall <rjmccall at apple.com> wrote:
+>> > On Nov 4, 2016, at 6:32 AM, Jason Merrill <jason at redhat.com> wrote:
+>> > On Thu, Nov 3, 2016 at 8:41 PM, Richard Smith <richardsmith at google.com>
+>> > wrote:
+>> >> On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+>> >>> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com>
+>> >>> wrote:
+>> >>>> On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+>> >>>> wrote:
+>> >>>>> We'll also need a new flag on type_info objects to model this. In
+>> >>>>> line
+>> >>>>> with
+>> >>>>> the transaction_safe changes that Jason proposed, I suggest adding a
+>> >>>>> __noexcept_mask = 0x40 to __pbase_type_info, and representing a
+>> >>>>> pointer
+>> >>>>> to
+>> >>>>> noexcept function as a pointer with __noexcept_mask bit set to the
+>> >>>>> corresponding *non-noexcept* function pointer type.
+>> >>>>
+>> >>>> I strongly disagree; we should take this opportunity to revisit that
+>> >>>> decision.  The floodgates are open, and this set of function type
+>> >>>> attributes
+>> >>>> is clearly going to grow over time.  (It's actually transaction_safe
+>> >>>> that
+>> >>>> really drives this point home; noexcept is at least a longstanding
+>> >>>> part
+>> >>>> of
+>> >>>> the core language in various forms.)  We also have a lot of
+>> >>>> vendor-specific
+>> >>>> function type attributes that are part of the type but just aren't
+>> >>>> standardized and can't be represented in type_info.  I don't think it
+>> >>>> makes
+>> >>>> sense to indefinitely keep hacking these things into the pointer type
+>> >>>> flags;
+>> >>>> we should just bite the bullet and create a new function_type_info
+>> >>>> subclass.
+>> >>>
+>> >>> But the various vendor-specific attributes don't create a different
+>> >>> type, so they shouldn't be represented in RTTI; this definitely seems
+>> >>> true of noreturn.
+>> >>
+>> >> Whether this appears in the type_info would presumably depend on
+>> >> whether the
+>> >> implementation considers noreturn to be part of the type. Clang and GCC
+>> >> make
+>> >> somewhat different decisions here.
+>> >
+>> > OK, but I still don't see the benefit of this change.  Since function
+>> > types can only appear in RTTI under a pointer (to member),
+>>
+>> Well, this isn't true, for one.  Exceptions have to have object type, but
+>> typeid
+>> can be used with an arbitrary type.  But with that said...
+>>
+>> > what is the benefit of adding a new RTTI class to store some of the
+>> > qualifiers,
+>> > wasting space and creating an ABI transition headache?
+>>
+>> ...I am coming around to this point of view.  The existing RTTI
+>> representations are
+>> already extremely lossy and cannot usefully support a runtime reflection
+>> system, so
+>> there's no point designing with that in mind.  Our only requirements are
+>> to (1) distinguish
+>> different types and (2) support the subtyping conversions on (member)
+>> pointers
+>> mandated by the exceptions rules.  (1) is covered by way of the mangled
+>> type name,
+>> which can "represent" arbitrary type structure.  (2) is covered by your
+>> proposal to include
+>> attributes as a bitfield at the (member) pointer level.  The only
+>> considerations, then, are
+>> what attributes should be represented there and whether we're in danger of
+>> running out
+>> of space in the pointer bitfield; and I think the answers are: only the
+>> attributes
+>> meaningful for subtyping (so not, say, calling conventions), and no, we
+>> have plenty
+>> of bits remaining before we need to reserve one for extended qualifiers.
+>>
+>> So a function pointer type like
+>>   __attribute__((fastcall)) void (*)() noexcept
+>> would be represented as a pointer_type_info with just the noexcept
+>> qualifier and
+>> with a pointee that's a function_type_info whose mangled name includes the
+>> CC attribute.
+>
+> If we want to change our minds here, we should do it sooner rather than
+> later. Clang and libc++abi already have an implementation of the previous
+> proposal (although the Clang side is off by default due to the ABI issue).
+
+It looks like there's consensus around your original proposal.  John's
+elaboration here sounds right to me.
+
+Jason
+
+From rjmccall at apple.com  Tue Nov 15 19:16:45 2016
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 15 Nov 2016 11:16:45 -0800
+Subject: [cxx-abi-dev] manglings for exception specifications in
+ function types
+In-Reply-To: <CADzB+2k6MMZ+gMmQ2h-rpyYBD6KcFc8h5XJJdfQxA5mWiemjAA@mail.gmail.com>
+References: <CAGL0aWcgK7+jVx_tdFPLZnxo8ozPm5-TZ2_dspyVEWx5ofb05A@mail.gmail.com>
+	<594764E3-9635-4285-BED3-C19142345B44@apple.com>
+	<CAGL0aWeWRWfULqF8AageG_QE6744k_S4qKStukUFTQ33+0OaNA@mail.gmail.com>
+	<5FA0BDBF-370B-4B62-9506-4D3D6E46DEEA@apple.com>
+	<CAGL0aWfBzFO720ra5mvYVifOcTQJcw00Uxjr3N3+4oUmtor4JA@mail.gmail.com>
+	<5C757759-B510-464B-83A8-2F8C8846C0C5@apple.com>
+	<CADzB+2n4easyv+W6NXXZvGU2GVf2_fDAAxm6UbzkQVChmMPMRw@mail.gmail.com>
+	<CAGL0aWc1NL2HCD68Mph7ac4muB+AEhHfyggi_r0XC0_vRd+jHA@mail.gmail.com>
+	<CADzB+2msfhynsAnnrkn5oeKm9gQ3iVAzc-m6mxif9YJ9xKT7oQ@mail.gmail.com>
+	<521E9F29-8955-40B9-8BAA-3A5E9F992A1F@apple.com>
+	<CAGL0aWfn6bppyLTfV5LQgkcif5pWr3uiqtJjkC+e3fGvwEMVug@mail.gmail.com>
+	<CADzB+2k6MMZ+gMmQ2h-rpyYBD6KcFc8h5XJJdfQxA5mWiemjAA@mail.gmail.com>
+Message-ID: <400BBA8E-CC5B-4317-95EE-A5A952233A20@apple.com>
+
+
+> On Nov 15, 2016, at 11:01 AM, Jason Merrill <jason at redhat.com> wrote:
+> 
+> On Tue, Nov 15, 2016 at 1:38 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 7 November 2016 at 11:33, John McCall <rjmccall at apple.com> wrote:
+>>>> On Nov 4, 2016, at 6:32 AM, Jason Merrill <jason at redhat.com> wrote:
+>>>> On Thu, Nov 3, 2016 at 8:41 PM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>> On 3 November 2016 at 14:35, Jason Merrill <jason at redhat.com> wrote:
+>>>>>> On Wed, Oct 12, 2016 at 4:51 PM, John McCall <rjmccall at apple.com>
+>>>>>> wrote:
+>>>>>>> On Oct 12, 2016, at 11:58 AM, Richard Smith <richardsmith at google.com>
+>>>>>>> wrote:
+>>>>>>>> We'll also need a new flag on type_info objects to model this. In
+>>>>>>>> line
+>>>>>>>> with
+>>>>>>>> the transaction_safe changes that Jason proposed, I suggest adding a
+>>>>>>>> __noexcept_mask = 0x40 to __pbase_type_info, and representing a
+>>>>>>>> pointer
+>>>>>>>> to
+>>>>>>>> noexcept function as a pointer with __noexcept_mask bit set to the
+>>>>>>>> corresponding *non-noexcept* function pointer type.
+>>>>>>> 
+>>>>>>> I strongly disagree; we should take this opportunity to revisit that
+>>>>>>> decision.  The floodgates are open, and this set of function type
+>>>>>>> attributes
+>>>>>>> is clearly going to grow over time.  (It's actually transaction_safe
+>>>>>>> that
+>>>>>>> really drives this point home; noexcept is at least a longstanding
+>>>>>>> part
+>>>>>>> of
+>>>>>>> the core language in various forms.)  We also have a lot of
+>>>>>>> vendor-specific
+>>>>>>> function type attributes that are part of the type but just aren't
+>>>>>>> standardized and can't be represented in type_info.  I don't think it
+>>>>>>> makes
+>>>>>>> sense to indefinitely keep hacking these things into the pointer type
+>>>>>>> flags;
+>>>>>>> we should just bite the bullet and create a new function_type_info
+>>>>>>> subclass.
+>>>>>> 
+>>>>>> But the various vendor-specific attributes don't create a different
+>>>>>> type, so they shouldn't be represented in RTTI; this definitely seems
+>>>>>> true of noreturn.
+>>>>> 
+>>>>> Whether this appears in the type_info would presumably depend on
+>>>>> whether the
+>>>>> implementation considers noreturn to be part of the type. Clang and GCC
+>>>>> make
+>>>>> somewhat different decisions here.
+>>>> 
+>>>> OK, but I still don't see the benefit of this change.  Since function
+>>>> types can only appear in RTTI under a pointer (to member),
+>>> 
+>>> Well, this isn't true, for one.  Exceptions have to have object type, but
+>>> typeid
+>>> can be used with an arbitrary type.  But with that said...
+>>> 
+>>>> what is the benefit of adding a new RTTI class to store some of the
+>>>> qualifiers,
+>>>> wasting space and creating an ABI transition headache?
+>>> 
+>>> ...I am coming around to this point of view.  The existing RTTI
+>>> representations are
+>>> already extremely lossy and cannot usefully support a runtime reflection
+>>> system, so
+>>> there's no point designing with that in mind.  Our only requirements are
+>>> to (1) distinguish
+>>> different types and (2) support the subtyping conversions on (member)
+>>> pointers
+>>> mandated by the exceptions rules.  (1) is covered by way of the mangled
+>>> type name,
+>>> which can "represent" arbitrary type structure.  (2) is covered by your
+>>> proposal to include
+>>> attributes as a bitfield at the (member) pointer level.  The only
+>>> considerations, then, are
+>>> what attributes should be represented there and whether we're in danger of
+>>> running out
+>>> of space in the pointer bitfield; and I think the answers are: only the
+>>> attributes
+>>> meaningful for subtyping (so not, say, calling conventions), and no, we
+>>> have plenty
+>>> of bits remaining before we need to reserve one for extended qualifiers.
+>>> 
+>>> So a function pointer type like
+>>>  __attribute__((fastcall)) void (*)() noexcept
+>>> would be represented as a pointer_type_info with just the noexcept
+>>> qualifier and
+>>> with a pointee that's a function_type_info whose mangled name includes the
+>>> CC attribute.
+>> 
+>> If we want to change our minds here, we should do it sooner rather than
+>> later. Clang and libc++abi already have an implementation of the previous
+>> proposal (although the Clang side is off by default due to the ABI issue).
+> 
+> It looks like there's consensus around your original proposal.
+
+Agreed.
+
+John.
+
+

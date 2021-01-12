@@ -1,0 +1,105 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Additional mangled encodings for variadic templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Additional%20mangled%20encodings%20for%20variadic%20templates&In-Reply-To=%3C703DE2E0-9992-4605-A4F6-944CC830F727%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002379.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Additional mangled encodings for variadic templates</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Additional%20mangled%20encodings%20for%20variadic%20templates&In-Reply-To=%3C703DE2E0-9992-4605-A4F6-944CC830F727%40edg.com%3E"
+       TITLE="Additional mangled encodings for variadic templates">mjh at edg.com
+       </A><BR>
+    <I>Tue Nov 30 22:20:37 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002379.html">Fwd: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>It appears that there are a few missing encodings in the IA-64 ABI document having to do with variadic templates and function parameters.
+
+Take for example:
+
+  template&lt;class T, class... U&gt; auto f1(T x, U... y) -&gt; decltype(sizeof...(y),x);
+  int main() {
+    f1(0, 'c');
+  }
+
+The only option to encode a sizeof...() expression is:
+
+  &lt;expression&gt; ::= sZ &lt;template-param&gt;         # size of a parameter pack
+
+but the argument to sizeof...() in f1 above is a function parameter, not a template parameter.  Similarly, in this example:
+
+  template&lt;class... T&gt; void f(T... t);
+  template&lt;class T, class... U&gt; auto f2(T x, U... y) -&gt; decltype(f(y...),x);
+  int main() {
+    f2(0, 'c');
+  }
+
+there appears to be no encoding for the function parameter pack expansion (i.e., y...) in this context; the only pack expansion is in &lt;template-arg&gt;:
+
+  &lt;template-arg&gt; ::= sp &lt;expression&gt;           # pack expansion (C++0x)
+
+but y... is used in an &lt;expression&gt; context.
+
+I think adding these two productions to &lt;expression&gt; will address these problems:
+
+                 ::= sZ &lt;function-param&gt;       # size of a function parameter pack
+                 ::= sp &lt;expression&gt;           # expression pattern expansion
+
+g++ 4.5.1 seems to already be using the second of these; the &quot;sZ&quot; mangling doesn't appear to be implemented in g++ as yet.
+
+We'd also like to propose removing this production:
+
+  &lt;template-arg&gt; ::= sp &lt;expression&gt;           # pack expansion (C++0x)
+
+from the existing grammar.  If needed, this can be mangled with the existing rule (and the newly proposed rule above):
+
+                 ::= X &lt;expression&gt; E          # expression
+
+Keeping the existing rule as it is eliminates any future use of &quot;p&quot; as a single-letter &lt;type&gt; code (since &lt;template-arg&gt; can also be a &lt;type&gt; and &quot;s&quot; is already a valid &lt;type&gt; encoding).  Currently &quot;p&quot; is one of the few single-letter &lt;type&gt; codes not in use.  We realize this may not be practical due to backward compatibility issues.
+
+Is there any other implementation experience for these cases?
+
+Mike.
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002379.html">Fwd: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,561 @@
+From thiago at kde.org  Sat Sep  3 08:40:32 2016
+From: thiago at kde.org (Thiago Macieira)
+Date: Sat, 3 Sep 2016 10:40:32 +0200
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+Message-ID: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+
+Hello
+
+Summary: abi::__foced_unwind is available when #include <cxxabi.h> from GCC 
+(libsupc++), but is not documented in https://mentorembedded.github.io/cxx-abi/abi-eh.html nor is it available in other implementations. Should it be 
+adde to the spec so we can detect forced unwinds? Or is there another way to 
+detect the forced unwinding not caused by an exception?
+
+Background:
+
+30.3.1.2 [thread.thread.constr] p5 says
+
+" If the invocation of INVOKE (DECAY_COPY ( std::forward<F>(f)), DECAY_COPY 
+(std::forward<Args>(args))...) terminates with an uncaught exception, 
+std::terminate shall be called."
+
+When trying to implement this requirement for QThread, we've run into a snag: 
+with glibc's pthread implementation on Linux, pthread_exit() as well as all 
+POSIX asynchronous cancellations happen by way of a forced stack unwinding. 
+This means the obvious solution to implement the requirement from the standard 
+fails:
+
+	try {
+		thr->run();
+	} catch (...) {
+		std::terminate();
+	}
+
+That catch (...) block is run by the forced stack unwinding started with 
+_Unwind_ForcedUnwind. Since it then calls std::terminate(), the whole 
+application terminates instead of just the thread.
+
+Now, the libstdc++ implementation[1][2] handles this gracefully, but does so 
+by catching abi::__forced_unwind.
+
+That brings me to my original question in the subject: how can code outside of 
+the compiler's own implementations detect a forced stack unwinding not caused 
+by a thrown exception in a portable fashion?
+
+Option 1: make abi::__forced_unwind documented and have the other 
+implementations (besides GCC) implement it too.
+
+Option 2: add a getter to either the Base ABI for unwinding (_Unwind_*) or the 
+C++ ABI to get a flag indicating whether the unwind is forced. In fact, this 
+information is already available in the actions parameter to the personality 
+routine: https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-personality 
+has:
+    static const _Unwind_Action _UA_FORCE_UNWIND = 8;
+
+Option 3: change the way that GCC and glibc force unwinding from non-C++ 
+contexts.
+
+[1] https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B
+%2B11/thread.cc#L77
+[2] I don't see any code in libc++ for handling exceptions at all.
+
+-- 
+Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+   Software Architect - Intel Open Source Technology Center
+
+
+From richardsmith at google.com  Sat Sep  3 17:21:07 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Sat, 3 Sep 2016 10:21:07 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <CAGL0aWex7nsRNffbJCc46CkMyLq0ps+1ojFArHJptr2nnHGuLw@mail.gmail.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<CAGL0aWex7nsRNffbJCc46CkMyLq0ps+1ojFArHJptr2nnHGuLw@mail.gmail.com>
+Message-ID: <CAGL0aWd1MaGe+fQxh-+B+kQU9RPrTM1oYswd0R7ORKLV-Q8v1w@mail.gmail.com>
+
+On 3 Sep 2016 1:49 am, "Thiago Macieira" <thiago at kde.org> wrote:
+
+Hello
+
+Summary: abi::__foced_unwind is available when #include <cxxabi.h> from GCC
+(libsupc++), but is not documented in https://mentorembedded.github.
+io/cxx-abi/abi-eh.html nor is it available in other implementations. Should
+it be
+adde to the spec so we can detect forced unwinds? Or is there another way to
+detect the forced unwinding not caused by an exception?
+
+Background:
+
+30.3.1.2 [thread.thread.constr] p5 says
+
+" If the invocation of INVOKE (DECAY_COPY ( std::forward<F>(f)), DECAY_COPY
+(std::forward<Args>(args))...) terminates with an uncaught exception,
+std::terminate shall be called."
+
+When trying to implement this requirement for QThread, we've run into a
+snag:
+with glibc's pthread implementation on Linux, pthread_exit() as well as all
+POSIX asynchronous cancellations happen by way of a forced stack unwinding.
+This means the obvious solution to implement the requirement from the
+standard
+fails:
+
+        try {
+                thr->run();
+        } catch (...) {
+                std::terminate();
+        }
+
+That catch (...) block is run by the forced stack unwinding started with
+_Unwind_ForcedUnwind.
+
+
+What does std::current_exception() return here?
+
+Since it then calls std::terminate(), the whole
+application terminates instead of just the thread.
+
+Now, the libstdc++ implementation[1][2] handles this gracefully, but does so
+by catching abi::__forced_unwind.
+
+That brings me to my original question in the subject: how can code outside
+of
+the compiler's own implementations detect a forced stack unwinding not
+caused
+by a thrown exception in a portable fashion?
+
+Option 1: make abi::__forced_unwind documented and have the other
+implementations (besides GCC) implement it too.
+
+Option 2: add a getter to either the Base ABI for unwinding (_Unwind_*) or
+the
+C++ ABI to get a flag indicating whether the unwind is forced. In fact, this
+information is already available in the actions parameter to the personality
+routine: https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-
+personality
+has:
+    static const _Unwind_Action _UA_FORCE_UNWIND = 8;
+
+Option 3: change the way that GCC and glibc force unwinding from non-C++
+contexts.
+
+[1] https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B
+%2B11/thread.cc#L77
+[2] I don't see any code in libc++ for handling exceptions at all.
+
+--
+Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+   Software Architect - Intel Open Source Technology Center
+
+_______________________________________________
+cxx-abi-dev mailing list
+cxx-abi-dev at codesourcery.com
+http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160903/d020afcf/attachment.html>
+
+From thiago at kde.org  Sat Sep  3 22:47:11 2016
+From: thiago at kde.org (Thiago Macieira)
+Date: Sun, 4 Sep 2016 00:47:11 +0200
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <CAGL0aWd1MaGe+fQxh-+B+kQU9RPrTM1oYswd0R7ORKLV-Q8v1w@mail.gmail.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<CAGL0aWex7nsRNffbJCc46CkMyLq0ps+1ojFArHJptr2nnHGuLw@mail.gmail.com>
+	<CAGL0aWd1MaGe+fQxh-+B+kQU9RPrTM1oYswd0R7ORKLV-Q8v1w@mail.gmail.com>
+Message-ID: <73649584.zHma1Q8HD8@tjmaciei-mobl1>
+
+Em s?bado, 3 de setembro de 2016, ?s 10:21:07 CEST, Richard Smith escreveu:
+> When trying to implement this requirement for QThread, we've run into a
+> snag:
+> with glibc's pthread implementation on Linux, pthread_exit() as well as all
+> POSIX asynchronous cancellations happen by way of a forced stack unwinding.
+> This means the obvious solution to implement the requirement from the
+> standard
+> fails:
+> 
+>         try {
+>                 thr->run();
+>         } catch (...) {
+>                 std::terminate();
+>         }
+> 
+> That catch (...) block is run by the forced stack unwinding started with
+> _Unwind_ForcedUnwind.
+> 
+> 
+> What does std::current_exception() return here?
+
+$1 = {_M_exception_object = 0x0}
+
+This suggests a solution:
+
+    try {
+        thr->run();
+    } catch (...) {
+        if (std::current_exception())
+            std::terminate();
+        throw;
+    }
+
+This code allows a thread to exit cleanly if the run() function above did 
+pthread_exit(0).
+
+Is this what would be recommended?
+
+-- 
+Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+   Software Architect - Intel Open Source Technology Center
+
+
+From rjmccall at apple.com  Tue Sep  6 18:38:43 2016
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 6 Sep 2016 11:38:43 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+Message-ID: <C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+
+> On Sep 3, 2016, at 1:40 AM, Thiago Macieira <thiago at kde.org> wrote:
+> Hello
+> 
+> Summary: abi::__foced_unwind is available when #include <cxxabi.h> from GCC 
+> (libsupc++), but is not documented in https://mentorembedded.github.io/cxx-abi/abi-eh.html nor is it available in other implementations. Should it be 
+> adde to the spec so we can detect forced unwinds? Or is there another way to 
+> detect the forced unwinding not caused by an exception?
+> 
+> Background:
+> 
+> 30.3.1.2 [thread.thread.constr] p5 says
+> 
+> " If the invocation of INVOKE (DECAY_COPY ( std::forward<F>(f)), DECAY_COPY 
+> (std::forward<Args>(args))...) terminates with an uncaught exception, 
+> std::terminate shall be called."
+> 
+> When trying to implement this requirement for QThread, we've run into a snag: 
+> with glibc's pthread implementation on Linux, pthread_exit() as well as all 
+> POSIX asynchronous cancellations happen by way of a forced stack unwinding. 
+> This means the obvious solution to implement the requirement from the standard 
+> fails:
+> 
+> 	try {
+> 		thr->run();
+> 	} catch (...) {
+> 		std::terminate();
+> 	}
+> 
+> That catch (...) block is run by the forced stack unwinding started with 
+> _Unwind_ForcedUnwind. Since it then calls std::terminate(), the whole 
+> application terminates instead of just the thread.
+> 
+> Now, the libstdc++ implementation[1][2] handles this gracefully, but does so 
+> by catching abi::__forced_unwind.
+> 
+> That brings me to my original question in the subject: how can code outside of 
+> the compiler's own implementations detect a forced stack unwinding not caused 
+> by a thrown exception in a portable fashion?
+> 
+> Option 1: make abi::__forced_unwind documented and have the other 
+> implementations (besides GCC) implement it too.
+
+This would be inappropriate; the appropriate solution would be to ask the committee
+for a new function in namespace std that could be implemented with
+abi::__forced_unwind.  I believe that's the chief purpose of that function, to allow that
+sort of functionality to be implemented in the future.
+
+If std::current_exception works, of course, all the better.
+
+John.
+
+> 
+> Option 2: add a getter to either the Base ABI for unwinding (_Unwind_*) or the 
+> C++ ABI to get a flag indicating whether the unwind is forced. In fact, this 
+> information is already available in the actions parameter to the personality 
+> routine: https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-personality 
+> has:
+>    static const _Unwind_Action _UA_FORCE_UNWIND = 8;
+> 
+> Option 3: change the way that GCC and glibc force unwinding from non-C++ 
+> contexts.
+> 
+> [1] https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B
+> %2B11/thread.cc#L77
+> [2] I don't see any code in libc++ for handling exceptions at all.
+> 
+> -- 
+> Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+>   Software Architect - Intel Open Source Technology Center
+> 
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From thiago at kde.org  Tue Sep  6 18:50:05 2016
+From: thiago at kde.org (Thiago Macieira)
+Date: Tue, 6 Sep 2016 11:50:05 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+Message-ID: <4453161.HaruAWYfmc@tjmaciei-mobl1>
+
+Em ter?a-feira, 6 de setembro de 2016, ?s 11:38:43 PDT, John McCall escreveu:
+> This would be inappropriate; the appropriate solution would be to ask the
+> committee for a new function in namespace std that could be implemented
+> with abi::__forced_unwind.  I believe that's the chief purpose of that
+> function, to allow that sort of functionality to be implemented in the
+> future.
+> 
+> If std::current_exception works, of course, all the better.
+
+ I will post to std-discussion and see if there's a consensus. I'm not sure 
+there can be because this is outside of the C++ language: there's no such 
+thing as forced unwinds in the standard.
+
+-- 
+Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+   Software Architect - Intel Open Source Technology Center
+
+
+From rjmccall at apple.com  Tue Sep  6 18:56:24 2016
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 6 Sep 2016 11:56:24 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <4453161.HaruAWYfmc@tjmaciei-mobl1>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+	<4453161.HaruAWYfmc@tjmaciei-mobl1>
+Message-ID: <F72DDF0E-FC1C-468D-AF0F-46F473BF5E5E@apple.com>
+
+> On Sep 6, 2016, at 11:50 AM, Thiago Macieira <thiago at kde.org> wrote:
+> Em ter?a-feira, 6 de setembro de 2016, ?s 11:38:43 PDT, John McCall escreveu:
+>> This would be inappropriate; the appropriate solution would be to ask the
+>> committee for a new function in namespace std that could be implemented
+>> with abi::__forced_unwind.  I believe that's the chief purpose of that
+>> function, to allow that sort of functionality to be implemented in the
+>> future.
+>> 
+>> If std::current_exception works, of course, all the better.
+> 
+> I will post to std-discussion and see if there's a consensus. I'm not sure 
+> there can be because this is outside of the C++ language: there's no such 
+> thing as forced unwinds in the standard.
+
+Hmm.  I think this used to not be true; there were library features (e.g. longjmp)
+that were allowed, but not required, to be implemented by unwinding the stack.
+But now it seems that these places have all been changed to specify undefined
+behavior if they would bypass any non-trivial destructors.
+
+That said, I think force-unwinding is a feature in all the major EH implementations.
+
+John.
+
+From richardsmith at googlers.com  Tue Sep  6 19:39:10 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Tue, 6 Sep 2016 12:39:10 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <F72DDF0E-FC1C-468D-AF0F-46F473BF5E5E@apple.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+	<4453161.HaruAWYfmc@tjmaciei-mobl1>
+	<F72DDF0E-FC1C-468D-AF0F-46F473BF5E5E@apple.com>
+Message-ID: <CAGL0aWceAhdtkGgcASGf4X-G_ds9uVEyg+BZd4Rd4ckUGfB++w@mail.gmail.com>
+
+On 6 September 2016 at 11:56, John McCall <rjmccall at apple.com> wrote:
+
+> > On Sep 6, 2016, at 11:50 AM, Thiago Macieira <thiago at kde.org> wrote:
+> > Em ter?a-feira, 6 de setembro de 2016, ?s 11:38:43 PDT, John McCall
+> escreveu:
+> >> This would be inappropriate; the appropriate solution would be to ask
+> the
+> >> committee for a new function in namespace std that could be implemented
+> >> with abi::__forced_unwind.  I believe that's the chief purpose of that
+> >> function, to allow that sort of functionality to be implemented in the
+> >> future.
+> >>
+> >> If std::current_exception works, of course, all the better.
+> >
+> > I will post to std-discussion and see if there's a consensus. I'm not
+> sure
+> > there can be because this is outside of the C++ language: there's no such
+> > thing as forced unwinds in the standard.
+>
+> Hmm.  I think this used to not be true; there were library features (e.g.
+> longjmp)
+> that were allowed, but not required, to be implemented by unwinding the
+> stack.
+> But now it seems that these places have all been changed to specify
+> undefined
+> behavior if they would bypass any non-trivial destructors.
+>
+
+That's true, but it does not place restrictions on intervening 'catch
+(...)' blocks, and (since no exception has been thrown) they presumably
+must /not/ be entered. (You don't get UB from a longjmp where a
+corresponding throw would enter a catch(...) block -- although that may
+just be a wording defect.)
+
+The possibility of forced unwinding invoking a 'catch (...)' block with no
+current exception seems broken to me. For instance, this may or may not
+call terminate() if f() results in a forced unwind, depending on how
+'throw;' is implemented:
+
+  try {
+    f();
+  } catch (...) {
+    log_error(); // might reasonably assert(std::current_exception())
+    throw;
+  }
+
+Pretending that a forced unwind throws a C++ exception of some known type
+seems likely to be the best approach -- and I'd expect that exception to be
+capturable via std::current_exception and counted by
+std::uncaught_exceptions, or exception-safe code using those facilities
+will not function correctly in the presence of a forced unwind. (And
+likewise for foreign exceptions; we presumably want to pretend that they
+are just like C++ exceptions but are of a type that doesn't match that of
+any handlers.)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160906/b24b9365/attachment-0001.html>
+
+From gdr at integrable-solutions.net  Wed Sep  7 15:56:31 2016
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Wed, 7 Sep 2016 08:56:31 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <CAGL0aWceAhdtkGgcASGf4X-G_ds9uVEyg+BZd4Rd4ckUGfB++w@mail.gmail.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+	<4453161.HaruAWYfmc@tjmaciei-mobl1>
+	<F72DDF0E-FC1C-468D-AF0F-46F473BF5E5E@apple.com>
+	<CAGL0aWceAhdtkGgcASGf4X-G_ds9uVEyg+BZd4Rd4ckUGfB++w@mail.gmail.com>
+Message-ID: <CAAiZkiCdL=6DDX2NRW07ov=Y-euwERrD-bdjuMqMYiJF2trw1w@mail.gmail.com>
+
+Didn't we have a similar discussion all the way back when we were
+considering whether IO cancellation  should be modeled as a "catchable" C++
+exception?
+
+On Tue, Sep 6, 2016 at 12:39 PM, Richard Smith <richardsmith at googlers.com>
+wrote:
+
+> On 6 September 2016 at 11:56, John McCall <rjmccall at apple.com> wrote:
+>
+>> > On Sep 6, 2016, at 11:50 AM, Thiago Macieira <thiago at kde.org> wrote:
+>> > Em ter?a-feira, 6 de setembro de 2016, ?s 11:38:43 PDT, John McCall
+>> escreveu:
+>> >> This would be inappropriate; the appropriate solution would be to ask
+>> the
+>> >> committee for a new function in namespace std that could be implemented
+>> >> with abi::__forced_unwind.  I believe that's the chief purpose of that
+>> >> function, to allow that sort of functionality to be implemented in the
+>> >> future.
+>> >>
+>> >> If std::current_exception works, of course, all the better.
+>> >
+>> > I will post to std-discussion and see if there's a consensus. I'm not
+>> sure
+>> > there can be because this is outside of the C++ language: there's no
+>> such
+>> > thing as forced unwinds in the standard.
+>>
+>> Hmm.  I think this used to not be true; there were library features (e.g.
+>> longjmp)
+>> that were allowed, but not required, to be implemented by unwinding the
+>> stack.
+>> But now it seems that these places have all been changed to specify
+>> undefined
+>> behavior if they would bypass any non-trivial destructors.
+>>
+>
+> That's true, but it does not place restrictions on intervening 'catch
+> (...)' blocks, and (since no exception has been thrown) they presumably
+> must /not/ be entered. (You don't get UB from a longjmp where a
+> corresponding throw would enter a catch(...) block -- although that may
+> just be a wording defect.)
+>
+> The possibility of forced unwinding invoking a 'catch (...)' block with no
+> current exception seems broken to me. For instance, this may or may not
+> call terminate() if f() results in a forced unwind, depending on how
+> 'throw;' is implemented:
+>
+>   try {
+>     f();
+>   } catch (...) {
+>     log_error(); // might reasonably assert(std::current_exception())
+>     throw;
+>   }
+>
+> Pretending that a forced unwind throws a C++ exception of some known type
+> seems likely to be the best approach -- and I'd expect that exception to be
+> capturable via std::current_exception and counted by
+> std::uncaught_exceptions, or exception-safe code using those facilities
+> will not function correctly in the presence of a forced unwind. (And
+> likewise for foreign exceptions; we presumably want to pretend that they
+> are just like C++ exceptions but are of a type that doesn't match that of
+> any handlers.)
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160907/d63f1c0a/attachment.html>
+
+From rjmccall at apple.com  Wed Sep  7 17:20:59 2016
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 7 Sep 2016 10:20:59 -0700
+Subject: [cxx-abi-dev] How to detect a forced unwind in a catch block?
+In-Reply-To: <CAGL0aWceAhdtkGgcASGf4X-G_ds9uVEyg+BZd4Rd4ckUGfB++w@mail.gmail.com>
+References: <98195245.Rjjr2ZlP6M@tjmaciei-mobl1>
+	<C5F4112F-9CC2-4D8E-80A3-53E34FE0735E@apple.com>
+	<4453161.HaruAWYfmc@tjmaciei-mobl1>
+	<F72DDF0E-FC1C-468D-AF0F-46F473BF5E5E@apple.com>
+	<CAGL0aWceAhdtkGgcASGf4X-G_ds9uVEyg+BZd4Rd4ckUGfB++w@mail.gmail.com>
+Message-ID: <C9109789-6C79-4A18-B877-0EAB217C22C4@apple.com>
+
+> On Sep 6, 2016, at 12:39 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 6 September 2016 at 11:56, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Sep 6, 2016, at 11:50 AM, Thiago Macieira <thiago at kde.org <mailto:thiago at kde.org>> wrote:
+> > Em ter?a-feira, 6 de setembro de 2016, ?s 11:38:43 PDT, John McCall escreveu:
+> >> This would be inappropriate; the appropriate solution would be to ask the
+> >> committee for a new function in namespace std that could be implemented
+> >> with abi::__forced_unwind.  I believe that's the chief purpose of that
+> >> function, to allow that sort of functionality to be implemented in the
+> >> future.
+> >>
+> >> If std::current_exception works, of course, all the better.
+> >
+> > I will post to std-discussion and see if there's a consensus. I'm not sure
+> > there can be because this is outside of the C++ language: there's no such
+> > thing as forced unwinds in the standard.
+> 
+> Hmm.  I think this used to not be true; there were library features (e.g. longjmp)
+> that were allowed, but not required, to be implemented by unwinding the stack.
+> But now it seems that these places have all been changed to specify undefined
+> behavior if they would bypass any non-trivial destructors.
+> 
+> That's true, but it does not place restrictions on intervening 'catch (...)' blocks, and (since no exception has been thrown) they presumably must /not/ be entered. (You don't get UB from a longjmp where a corresponding throw would enter a catch(...) block -- although that may just be a wording defect.)
+> 
+> The possibility of forced unwinding invoking a 'catch (...)' block with no current exception seems broken to me. For instance, this may or may not call terminate() if f() results in a forced unwind, depending on how 'throw;' is implemented:
+> 
+>   try {
+>     f();
+>   } catch (...) {
+>     log_error(); // might reasonably assert(std::current_exception())
+>     throw;
+>   }
+> 
+> Pretending that a forced unwind throws a C++ exception of some known type seems likely to be the best approach -- and I'd expect that exception to be capturable via std::current_exception and counted by std::uncaught_exceptions, or exception-safe code using those facilities will not function correctly in the presence of a forced unwind. (And likewise for foreign exceptions; we presumably want to pretend that they are just like C++ exceptions but are of a type that doesn't match that of any handlers.)
+
+I agree that defining a standard "foreign exception" type is probably the best approach (with, I assume, a minimal set of opaque accessors) unless the committee wants to take a hard-line stance that code like this should be written as a destructor.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160907/75a124fc/attachment.html>
+

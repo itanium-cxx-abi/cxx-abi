@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Guaranteed copy elision and tail padding
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3C88E38761-9B5D-49D5-B57A-DF9FFD72DDE9%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002941.html">
+   <LINK REL="Next"  HREF="002942.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Guaranteed copy elision and tail padding</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3C88E38761-9B5D-49D5-B57A-DF9FFD72DDE9%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Guaranteed copy elision and tail padding">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Jul 21 20:57:05 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002941.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+        <LI>Next message: <A HREF="002942.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2943">[ date ]</a>
+              <a href="thread.html#2943">[ thread ]</a>
+              <a href="subject.html#2943">[ subject ]</a>
+              <a href="author.html#2943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Jul 21, 2016, at 1:31 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt; wrote:
+</I>&gt;<i> On 21 July 2016 at 13:20, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt;&gt; wrote:
+</I>&gt;<i> On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+</I>&gt;<i> &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt; On 21 July 2016 at 11:02, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; P0135 seems to require that we elide the copy when using the result of
+</I>&gt;<i> &gt;&gt; a function returning by value to initialize a base class subobject,
+</I>&gt;<i> &gt;&gt; but the ABI doesn't currently require that such a function avoid
+</I>&gt;<i> &gt;&gt; clobbering tail padding when initializing its return object.
+</I>&gt;<i> &gt;&gt; Thoughts?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; If the function clobbers the tail padding of its return object, at least GCC
+</I>&gt;<i> &gt; and Clang will miscompile the program today, without P0135:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; #include &lt;string.h&gt;
+</I>&gt;<i> &gt; struct X { ~X() {} int n; char d; };
+</I>&gt;<i> &gt; struct Y { Y(); char c[3]; };
+</I>&gt;<i> &gt; struct Z : X, virtual Y { Z(); };
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; X f() { X nrvo; memset(&amp;nrvo, 0, sizeof(X)); return nrvo; }
+</I>&gt;<i> &gt; Z::Z() : Y(), X(f()) {}
+</I>&gt;<i> &gt; Y::Y() : c{1, 2, 3} {}
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; int main() {
+</I>&gt;<i> &gt;   Z z;
+</I>&gt;<i> &gt;   return z.c[0];
+</I>&gt;<i> &gt; }
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+</I>&gt;<i> &gt; optimization level, even with -fno-elide-constructors) returns 0.
+</I>&gt;<i> 
+</I>&gt;<i> Thanks for the testcase.
+</I>&gt;<i> 
+</I>&gt;<i> &gt; (It looks like Clang gets this &quot;wrong&quot; in two ways: first, NRVO is apprently
+</I>&gt;<i> &gt; never correct on a type whose tail padding could be reused
+</I>&gt;<i> 
+</I>&gt;<i> Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+</I>&gt;<i> elide the copy because the function might clobber tail padding.  But
+</I>&gt;<i> that gets back to my initial question, since P0135 requires that
+</I>&gt;<i> elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+</I>&gt;<i> create a new ABI requirement that existing code might violate.
+</I>&gt;<i> 
+</I>&gt;<i> Given John's observation that P0135 can't even work in theory for the case of a base class with virtual bases, it seems like disabling P0135 for the case of initializing a base class of a class with vbases may be the simplest way forward.
+</I>
+We re-use tail padding of all bases, not just virtual bases.  It's true that the Itanium ABI generally initializes things in ascending address order, but there are *two* exceptions.  The first, as you've noted, is virtual bases.  The second is when the primary base class is not the first base class in inheritance order:
+
+    struct A {
+      char c;
+      A() : c(15) {}
+    };
+
+    struct B {
+      virtual void foo() {}
+      char d;
+    };
+
+    struct C : A, B {};
+
+    int main() {
+        C c;
+    }
+
+Here the 'A' base is allocated in the tail padding of the 'B' base.  Now, 'B' is not technically trivially-copyable, but...
+
+Also, it's a big world, and other/alternative/future ABIs might want to do all sorts of things.  It's also not that hard to imagine future language features that would rely on knowing whether a constructor is initializing a base sub-object or a complete object (for example, the language could provide a way to declare constructors that are only allowed to initialize one or the other).
+
+It seems to me that the maximally correct thing is to disable the P0135 mandate for the case of initializing a base sub-object, full stop.  If we can define conditions in which it's acceptable to elide the copy, great, but that should be up to the implementation / ABI.
+
+(Semantic features like base-only constructors wouldn't prevent us from doing this best-effort today because adding one to an existing type is an ODR violation anyway.  We could easily adjust the ABI rule to disable in-place copy elision into base subobjects when the chosen copy constructor is base-only or something.)
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/eb0c64ea/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/eb0c64ea/attachment-0001.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002941.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+	<LI>Next message: <A HREF="002942.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2943">[ date ]</a>
+              <a href="thread.html#2943">[ thread ]</a>
+              <a href="subject.html#2943">[ subject ]</a>
+              <a href="author.html#2943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

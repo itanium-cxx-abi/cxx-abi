@@ -1,0 +1,547 @@
+From doug.gregor at gmail.com  Mon Jul  2 14:42:54 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 2 Jul 2007 10:42:54 -0400
+Subject: [cxx-abi-dev] C++0x: Mangling of rvalue reference types
+In-Reply-To: <759FA351-65B7-47BB-977F-425C7510D476@edg.com>
+References: <200706282240.PAA07756@hpcll183.hp.com>
+	 <2A9B391670DF664D97EC43AD349BC385A34736@zuk35exm20.fsl.freescale.net>
+	 <24b520d20706290559n1911fb44gfb2a89eccbabb232@mail.gmail.com>
+	 <759FA351-65B7-47BB-977F-425C7510D476@edg.com>
+Message-ID: <24b520d20707020742t50bf4fc9mdd48f4ae602736d7@mail.gmail.com>
+
+On 6/29/07, Daveed Vandevoorde <daveed at edg.com> wrote:
+>
+> On Jun 29, 2007, at 8:59 AM, Doug Gregor wrote:
+>
+> > On 6/29/07, Hommel Andreas-r58171 <andreas.hommel at freescale.com>
+> > wrote:
+> >> FWIW, the reference implementation in the Metrowerks compiler was
+> >> using
+> >> "O" to mangle rvalue refs.
+> >
+> > That's a strong argument. I'm perfectly happy with "O", then.
+
+Mark, the 'O' patch for rvalue references is below. I can ping you in
+a few days if you want to hold off before committing it.
+
+  - Doug
+
+--- orig-abi.html       2007-06-28 16:04:49.000000000 -0400
++++ abi.html    2007-06-29 10:37:51.000000000 -0400
+@@ -3717,8 +3717,8 @@
+                                   size_t* n,
+                                   int* status);
+ }
+-
+-</code></pre>
++</pre>
++</code>
+
+ <ul>
+ <p>
+@@ -4147,14 +4147,15 @@
+ cv-qualifiers and/or pointer, reference, complex, or imaginary types:
+
+ <pre><font color=blue><code>
+-  &lt;type> ::= &lt;CV-qualifiers> &lt;type>
+-        ::= P &lt;type>        # pointer-to
+-        ::= R &lt;type>        # reference-to
+-        ::= C &lt;type>        # complex pair (C 2000)
+-        ::= G &lt;type>        # imaginary (C 2000)
+-        ::= U &lt;source-name> &lt;type>       # vendor extended type qualifier
++  &lt;type&gt; ::= &lt;CV-qualifiers&gt; &lt;type&gt;
++        ::= P &lt;type&gt;     # pointer-to
++        ::= R &lt;type&gt;     # reference-to
++        ::= O &lt;type&gt;     # rvalue reference-to (C++0x)
++        ::= C &lt;type&gt;     # complex pair (C 2000)
++        ::= G &lt;type&gt;     # imaginary (C 2000)
++        ::= U &lt;source-name&gt; &lt;type&gt; # vendor extended type qualifier
+
+-  &lt;CV-qualifiers> ::= [r] [V] [K]   # restrict (C99), volatile, const
++  &lt;CV-qualifiers&gt; ::= [r] [V] [K]        # restrict (C99),
+volatile, const
+
+ </pre></font></code>
+
+--- orig-abi-mangling.html      2007-07-02 09:56:47.000000000 -0400
++++ abi-mangling.html   2007-07-02 09:55:55.000000000 -0400
+@@ -95,6 +95,7 @@
+ <tr><td>oper</td> <td>o</td> <td> o </td> <td> Operator || </td> </tr>
+ <tr><td>oper</td> <td>o</td> <td> r </td> <td> Operator | </td> </tr>
+ <tr><td>oper</td> <td>o</td> <td> R </td> <td> Operator |= </td> </tr>
++<tr><td>type</td> <td>O</td> <td></td> <td> rvalue reference type
+(C++0x) </td> </tr>
+ <tr><td>oper</td> <td>p</td> <td> l </td> <td> Operator + </td> </tr>
+ <tr><td>oper</td> <td>p</td> <td> L </td> <td> Operator += </td> </tr>
+ <tr><td>oper</td> <td>p</td> <td> m </td> <td> Operator ->* </td> </tr>
+
+
+From doug.gregor at gmail.com  Mon Jul  2 19:17:44 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 2 Jul 2007 15:17:44 -0400
+Subject: C++0x: Mangling for variadic templates
+Message-ID: <24b520d20707021217m54ab993wbbf687c064866aef@mail.gmail.com>
+
+Variadic templates are a part of the latest C++0x working paper. In
+essence, variadic templates just allow one to write templates that
+accept an arbitrary number of template arguments. This is handled
+through a special type of template parameter called a "template
+parameter pack", which binds to one or more template arguments.
+
+GCC currently uses vendor extensions to mangle variadic templates, but
+since no compiler with that mangling has been released, we can easily
+standardize on something now. You can learn about variadic templates
+here:
+
+  http://www.generic-programming.org/~dgregor/cpp/variadic-templates.html
+
+Or read the proposal here:
+
+  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2080.pdf
+
+The only concern for mangling variadic templates is in mangling "pack
+expansions", which essentially provide a pattern that will be expanded
+several times, once for each argument bound to the parameter packs
+used in the expansion. There are three places where this affects the
+mangling:
+
+  <type> ::= Dp <type>  # pack expansion of (C++0x)
+
+That's a pack expansion of a type. It can show up in a function's
+parameter type or in a template argument list.
+
+Pack expansions can also show up to expand expression patterns in a
+template argument list:
+
+  <template-arg> ::= sp <expression>            # pack expansion of (C++0x)
+
+Finally, there is a sizeof...(X) operator that returns the length of a
+parameter pack X.
+
+  <expression> ::= sZ <template-param>
+
+It's an <expression>, not an <operator-name>, because the argument is
+always a template parameter (type, non-type, or template).
+
+A patch for the ABI document is attached.
+
+  - Doug
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: variadic.patch
+Type: application/octet-stream
+Size: 4754 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20070702/4cd2e0ea/attachment.obj>
+
+From daveed at edg.com  Mon Jul  2 19:56:32 2007
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Mon, 2 Jul 2007 15:56:32 -0400
+Subject: [cxx-abi-dev] C++0x: Mangling for variadic templates
+In-Reply-To: <24b520d20707021217m54ab993wbbf687c064866aef@mail.gmail.com>
+References: <24b520d20707021217m54ab993wbbf687c064866aef@mail.gmail.com>
+Message-ID: <E934413C-4791-46A0-B887-C1CE01A0D82E@edg.com>
+
+
+On Jul 2, 2007, at 3:17 PM, Doug Gregor wrote:
+
+> Variadic templates are a part of the latest C++0x working paper. In
+> essence, variadic templates just allow one to write templates that
+> accept an arbitrary number of template arguments. This is handled
+> through a special type of template parameter called a "template
+> parameter pack", which binds to one or more template arguments.
+>
+> GCC currently uses vendor extensions to mangle variadic templates, but
+> since no compiler with that mangling has been released, we can easily
+> standardize on something now. You can learn about variadic templates
+> here:
+>
+>  http://www.generic-programming.org/~dgregor/cpp/variadic- 
+> templates.html
+>
+> Or read the proposal here:
+>
+>  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2080.pdf
+>
+> The only concern for mangling variadic templates is in mangling "pack
+> expansions", which essentially provide a pattern that will be expanded
+> several times, once for each argument bound to the parameter packs
+> used in the expansion. There are three places where this affects the
+> mangling:
+>
+>  <type> ::= Dp <type>  # pack expansion of (C++0x)
+>
+> That's a pack expansion of a type. It can show up in a function's
+> parameter type or in a template argument list.
+>
+> Pack expansions can also show up to expand expression patterns in a
+> template argument list:
+>
+>  <template-arg> ::= sp <expression>            # pack expansion of  
+> (C++0x)
+
+
+I'm curious why you chose those particular codes?  I'm guessing there  
+is a mnemonic at play (p = pack?), but I'm not sure which it is.
+
+	Daveed
+
+
+
+> Finally, there is a sizeof...(X) operator that returns the length of a
+> parameter pack X.
+>
+>  <expression> ::= sZ <template-param>
+>
+> It's an <expression>, not an <operator-name>, because the argument is
+> always a template parameter (type, non-type, or template).
+>
+> A patch for the ABI document is attached.
+>
+>  - Doug<variadic.patch>
+
+
+
+From doug.gregor at gmail.com  Mon Jul  2 20:08:50 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 2 Jul 2007 16:08:50 -0400
+Subject: [cxx-abi-dev] C++0x: Mangling for variadic templates
+In-Reply-To: <E934413C-4791-46A0-B887-C1CE01A0D82E@edg.com>
+References: <24b520d20707021217m54ab993wbbf687c064866aef@mail.gmail.com>
+	 <E934413C-4791-46A0-B887-C1CE01A0D82E@edg.com>
+Message-ID: <24b520d20707021308w47007ed7ke3c824b9faf4611b@mail.gmail.com>
+
+On 7/2/07, Daveed Vandevoorde <daveed at edg.com> wrote:
+> >  <type> ::= Dp <type>  # pack expansion of (C++0x)
+> >  <template-arg> ::= sp <expression>            # pack expansion of
+> > (C++0x)
+>
+>
+> I'm curious why you chose those particular codes?  I'm guessing there
+> is a mnemonic at play (p = pack?), but I'm not sure which it is.
+
+Yes, "p=pack". "s" seemed to be used elsewhere in <expression> for
+various operators, and I didn't want to take another single-letter
+code. 'D' was just convenience, and again, I'm getting nervous about
+single-character codes, so I decided to turn 'D' into a prefix that we
+can use for more types later on.
+
+  - Doug
+
+
+From doug.gregor at gmail.com  Wed Jul 11 13:03:39 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 11 Jul 2007 09:03:39 -0400
+Subject: C++0x recal: variadic templates and rvalue references mangling
+Message-ID: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com>
+
+It's been a little over a week since I sent out proposed mangling
+rules for rvalue references and variadic templates. Does anyone object
+to these manglings or need more time to consider them, or can we go
+ahead?
+
+Rvalue references:
+http://www.codesourcery.com/archives/cxx-abi-dev/msg01907.html
+Variadic templates:
+http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+
+  - Doug
+
+
+From doug.gregor at gmail.com  Wed Jul 11 13:35:47 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 11 Jul 2007 09:35:47 -0400
+Subject: C++0x: Mangling of decltype
+Message-ID: <24b520d20707110635w2e640f58o1556fe36731cc815@mail.gmail.com>
+
+Continuing the string of manglings for C++0x, I propose the following
+mangling schemes for decltype. decltype is like "typeof", and is
+described here:
+
+  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2115.pdf
+
+There are two mangling rules:
+
+  <type> ::= Dt <expression> E  # decltype of an id-expression or
+class member access (C++0x)
+             ::= DT <expression> E  # decltype of an expression (C++0x)
+
+We need two rules because decltype behaves differently for
+id-expressions and class member accesses vs. full expressions. For
+example:
+
+  int x;
+  decltype(x) y1; // y1 has type "int"
+  decltype((x)) y2; // y2 has type "int &"
+
+A patch to the ABI document is below.
+
+  - Doug
+
+diff -u orig/abi-mangling.html ./abi-mangling.html
+--- orig/abi-mangling.html	2007-07-11 09:21:46.000000000 -0400
++++ ./abi-mangling.html	2007-07-11 09:28:02.000000000 -0400
+@@ -50,6 +50,8 @@
+ <tr><td>oper</td> <td>d</td> <td> v </td> <td> Operator / </td> </tr>
+ <tr><td>oper</td> <td>d</td> <td> V </td> <td> Operator /= </td> </tr>
+ <tr><td>type</td> <td>D</td> <td> p </td> <td> pack expansion of
+(C++0x) </td> </tr>
++<tr><td>type</td> <td>D</td> <td> t </td> <td> decltype of an
+id-expression or class member access (C++0x) </td> </tr>
++<tr><td>type</td> <td>D</td> <td> T </td> <td> decltype of an
+expression (C++0x) </td> </tr>
+ <tr><td>obj </td> <td>D</td> <td> 0 </td> <td> Deleting destructor</td> </tr>
+ <tr><td>obj </td> <td>D</td> <td> 1 </td> <td> Complete object
+(in-charge) destructor</td> </tr>
+ <tr><td>obj </td> <td>D</td> <td> 2 </td> <td> Base object
+(not-in-charge) destructor</td> </tr>
+diff -u orig/abi.html ./abi.html
+--- orig/abi.html	2007-07-11 09:21:41.000000000 -0400
++++ ./abi.html	2007-07-11 09:27:23.000000000 -0400
+@@ -4156,6 +4156,8 @@
+ 	 ::= G &lt;type&gt;	# imaginary (C 2000)
+ 	 ::= U &lt;source-name&gt; &lt;type&gt;	# vendor extended type qualifier
+          ::= Dp &lt;type&gt;  # pack expansion of (C++0x)
++         ::= Dt &lt;expression&gt; E  # decltype of an id-expression
+or class member access (C++0x)
++         ::= DT &lt;expression&gt; E  # decltype of an expression (C++0x)
+   &lt;CV-qualifiers&gt; ::= [r] [V] [K] 	# restrict (C99), volatile, const
+
+ </pre></font></code>
+
+
+From daveed at edg.com  Wed Jul 11 14:03:40 2007
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 11 Jul 2007 10:03:40 -0400
+Subject: [cxx-abi-dev] C++0x: Mangling of decltype
+In-Reply-To: <24b520d20707110635w2e640f58o1556fe36731cc815@mail.gmail.com>
+References: <24b520d20707110635w2e640f58o1556fe36731cc815@mail.gmail.com>
+Message-ID: <6E3B7448-55CF-4F99-AD9A-2939362AFA86@edg.com>
+
+
+On Jul 11, 2007, at 9:35 AM, Doug Gregor wrote:
+
+> Continuing the string of manglings for C++0x, I propose the following
+> mangling schemes for decltype. decltype is like "typeof", and is
+> described here:
+>
+>  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2006/n2115.pdf
+>
+> There are two mangling rules:
+>
+>  <type> ::= Dt <expression> E  # decltype of an id-expression or
+> class member access (C++0x)
+>             ::= DT <expression> E  # decltype of an expression (C++0x)
+>
+> We need two rules because decltype behaves differently for
+> id-expressions and class member accesses vs. full expressions. For
+> example:
+>
+>  int x;
+>  decltype(x) y1; // y1 has type "int"
+>  decltype((x)) y2; // y2 has type "int &"
+>
+> A patch to the ABI document is below.
+
+
+The codes look good.
+
+However, I don't think those type entries belong in the "qualifiers  
+section".  Instead, I'd introduce a new paragraph somewhere after the  
+introduction of <expression>.
+
+Also (and this is about the previous patch introducing "Dp"), I'd  
+prefer the "U" entry (vendor extension) to remain the last in the  
+list.  I.e., swap the Dp and U codes.
+
+Ah, and another note regarding your previous patch: I'd change
+	C++0x pack expansions are qualified with <code>Dp</code>.
+to
+	C++0x pack expansions are prefixed with <code>Dp</code>.
+
+
+Thanks,
+
+	Daveed
+
+
+>  - Doug
+>
+> diff -u orig/abi-mangling.html ./abi-mangling.html
+> --- orig/abi-mangling.html	2007-07-11 09:21:46.000000000 -0400
+> +++ ./abi-mangling.html	2007-07-11 09:28:02.000000000 -0400
+> @@ -50,6 +50,8 @@
+> <tr><td>oper</td> <td>d</td> <td> v </td> <td> Operator / </td> </tr>
+> <tr><td>oper</td> <td>d</td> <td> V </td> <td> Operator /= </td> </tr>
+> <tr><td>type</td> <td>D</td> <td> p </td> <td> pack expansion of
+> (C++0x) </td> </tr>
+> +<tr><td>type</td> <td>D</td> <td> t </td> <td> decltype of an
+> id-expression or class member access (C++0x) </td> </tr>
+> +<tr><td>type</td> <td>D</td> <td> T </td> <td> decltype of an
+> expression (C++0x) </td> </tr>
+> <tr><td>obj </td> <td>D</td> <td> 0 </td> <td> Deleting destructor</ 
+> td> </tr>
+> <tr><td>obj </td> <td>D</td> <td> 1 </td> <td> Complete object
+> (in-charge) destructor</td> </tr>
+> <tr><td>obj </td> <td>D</td> <td> 2 </td> <td> Base object
+> (not-in-charge) destructor</td> </tr>
+> diff -u orig/abi.html ./abi.html
+> --- orig/abi.html	2007-07-11 09:21:41.000000000 -0400
+> +++ ./abi.html	2007-07-11 09:27:23.000000000 -0400
+> @@ -4156,6 +4156,8 @@
+> 	 ::= G &lt;type&gt;	# imaginary (C 2000)
+> 	 ::= U &lt;source-name&gt; &lt;type&gt;	# vendor extended type  
+> qualifier
+>          ::= Dp &lt;type&gt;  # pack expansion of (C++0x)
+> +         ::= Dt &lt;expression&gt; E  # decltype of an id-expression
+> or class member access (C++0x)
+> +         ::= DT &lt;expression&gt; E  # decltype of an expression  
+> (C++0x)
+>   &lt;CV-qualifiers&gt; ::= [r] [V] [K] 	# restrict (C99),  
+> volatile, const
+>
+> </pre></font></code>
+>
+
+
+
+From mark at codesourcery.com  Thu Jul 12 07:21:30 2007
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 12 Jul 2007 00:21:30 -0700
+Subject: [cxx-abi-dev] C++0x recal: variadic templates and rvalue references
+ mangling
+In-Reply-To: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com>
+References: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com>
+Message-ID: <4695D67A.8010203@codesourcery.com>
+
+Doug Gregor wrote:
+
+> Rvalue references:
+> http://www.codesourcery.com/archives/cxx-abi-dev/msg01907.html
+
+I've now checked this one in.
+
+> Variadic templates:
+> http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+
+It looks like there's still a bit of discussion about this one.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Thu Jul 12 20:24:33 2007
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 12 Jul 2007 16:24:33 -0400
+Subject: [cxx-abi-dev] C++0x recal: variadic templates and rvalue references
+ mangling
+In-Reply-To: <4695D67A.8010203@codesourcery.com>
+References: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com> <4695D67A.8010203@codesourcery.com>
+Message-ID: <46968E01.5040900@redhat.com>
+
+Mark Mitchell wrote:
+>> Variadic templates:
+>> http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+> 
+> It looks like there's still a bit of discussion about this one.
+
+I don't see the discussion.  Daveed asked a question out of curiosity, 
+but didn't object to the proposal.
+
+Jason
+
+
+
+From daveed at edg.com  Thu Jul 12 20:43:29 2007
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Thu, 12 Jul 2007 16:43:29 -0400
+Subject: [cxx-abi-dev] C++0x recal: variadic templates and rvalue references mangling
+In-Reply-To: <46968E01.5040900@redhat.com>
+References: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com> <4695D67A.8010203@codesourcery.com> <46968E01.5040900@redhat.com>
+Message-ID: <5E5FFE03-8C16-4A7C-AA6C-5ACE4D72871C@edg.com>
+
+
+On Jul 12, 2007, at 4:24 PM, Jason Merrill wrote:
+
+> Mark Mitchell wrote:
+>>> Variadic templates:
+>>> http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+>> It looks like there's still a bit of discussion about this one.
+>
+> I don't see the discussion.  Daveed asked a question out of  
+> curiosity, but didn't object to the proposal.
+
+I think Mark refers to my related suggestions in response to Doug's  
+mail about decltype (some of my notes referred to the parameter pack  
+changes).
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Wed Jul 25 19:14:31 2007
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 25 Jul 2007 15:14:31 -0400
+Subject: [cxx-abi-dev] C++0x recal: variadic templates and rvalue references mangling
+In-Reply-To: <4695D67A.8010203@codesourcery.com>
+References: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com>
+	 <4695D67A.8010203@codesourcery.com>
+Message-ID: <24b520d20707251214m4081c61bj9cd8056f25d35b65@mail.gmail.com>
+
+On 7/12/07, Mark Mitchell <mark at codesourcery.com> wrote:
+> I've now checked this one in.
+>
+> > Variadic templates:
+> > http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+>
+> It looks like there's still a bit of discussion about this one.
+
+Here's the updated variadics+decltype patch, incorporating Daveed's comments.
+
+  - Doug
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: decltype-variadic.patch
+Type: application/octet-stream
+Size: 5723 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20070725/f98a65a1/attachment.obj>
+
+From mark at codesourcery.com  Thu Jul 26 22:26:25 2007
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 26 Jul 2007 15:26:25 -0700
+Subject: [cxx-abi-dev] C++0x recal: variadic templates and rvalue references
+ mangling
+In-Reply-To: <24b520d20707251214m4081c61bj9cd8056f25d35b65@mail.gmail.com>
+References: <24b520d20707110603i32c8855exafa447adda256dcd@mail.gmail.com>	 <4695D67A.8010203@codesourcery.com> <24b520d20707251214m4081c61bj9cd8056f25d35b65@mail.gmail.com>
+Message-ID: <46A91F91.2030307@codesourcery.com>
+
+Doug Gregor wrote:
+> On 7/12/07, Mark Mitchell <mark at codesourcery.com> wrote:
+>> I've now checked this one in.
+>>
+>> > Variadic templates:
+>> > http://www.codesourcery.com/archives/cxx-abi-dev/msg01908.html
+>>
+>> It looks like there's still a bit of discussion about this one.
+> 
+> Here's the updated variadics+decltype patch, incorporating Daveed's
+> comments.
+
+I checked this in, since it seemed like there were no objections in the
+previous round.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+

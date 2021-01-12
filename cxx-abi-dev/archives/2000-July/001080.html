@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Notes from the meeting
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C200007070011.RAA05191%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001082.html">
+   <LINK REL="Next"  HREF="001081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Notes from the meeting</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%20meeting&In-Reply-To=%3C200007070011.RAA05191%40baalbek.engr.sgi.com%3E"
+       TITLE="Notes from the meeting">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Fri Jul  7 00:11:58 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001082.html">Mangling (Was: Notes from the meeting)
+</A></li>
+        <LI>Next message: <A HREF="001081.html">Notes from the meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; &quot;Jim&quot; == Jim Dehnert &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at baalbek.engr.sgi.com</A>&gt; writes:
+</I>&gt;<i> 
+</I>&gt;<i>     Jim&gt; 	extern &quot;C&quot; int __cxx_gv_test_and_set ( long long *gv
+</I>&gt;<i>     Jim&gt; );
+</I>&gt;<i> 
+</I>&gt;<i>     Jim&gt; The routine returns &quot;true&quot; to only one caller, and &quot;false&quot; to
+</I>&gt;<i>     Jim&gt; all others after the first has released the lock.  We
+</I>&gt;<i>     Jim&gt; neglected to note that the release also needs specification.
+</I>&gt;<i>     Jim&gt; How about:
+</I>&gt;<i> 
+</I>&gt;<i>     Jim&gt; 	extern &quot;C&quot; void __cxx_gv_release ( long long *gv );
+</I>&gt;<i> 
+</I>&gt;<i>     Jim&gt; Comments?
+</I>&gt;<i> 
+</I>&gt;<i> I suggest a simpler interface, and make it mandatory:
+</I>&gt;<i> 
+</I>&gt;<i>   extern &quot;C&quot; int __cxx_gv_set_guard_variable (long long *gv);
+</I>&gt;<i> 
+</I>&gt;<i> This function returns true if the caller is the first to call the
+</I>&gt;<i> function; false otherwise.  The right code to generate would be:
+</I>&gt;<i> 
+</I>&gt;<i>   if (/* low-order byte of guard variable not already set*
+</I>&gt;<i>       &amp;&amp; __cxx_gv_set_guard_variable (&amp;gv)) {
+</I>&gt;<i>     // Do initialization
+</I>&gt;<i>   }
+</I>&gt;<i> 
+</I>&gt;<i> This causes you to take the hit of the function call only the first
+</I>&gt;<i> time through, except that if multiple threads reach this point all at
+</I>&gt;<i> once the first time, several of them may call the function.  (A
+</I>&gt;<i> correct compiler can skip the test, but not the call, at the cost of
+</I>&gt;<i> more function calls) So, the function itself must be thread safe, if
+</I>&gt;<i> it cares.
+</I>
+This is all fine, except that the threads that get here after the first
+one, but before it has initialized the object, must wait until the
+initialization is complete before proceeding.  That means that they
+can't return from __cxx_gv_set_guard_variable (&amp;gv) until the
+initialization is done, and the initialization must be completed before
+setting the low-order byte of the guard variable.  To accomplish this,
+the first thread must have a way of signalling its completion, e.g.:
+
+  if (/* low-order byte of guard variable not already set*
+      &amp;&amp; __cxx_gv_set_guard_variable (&amp;gv)) {
+    // Do initialization
+    ...
+    __cxx_gv_release (&amp;gv);
+  }
+
+and __cxx_gv_set_guard_variable for the non-first waits for the lock
+release by the first before returning for the others.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001082.html">Mangling (Was: Notes from the meeting)
+</A></li>
+	<LI>Next message: <A HREF="001081.html">Notes from the meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> G++ ABI mismatches
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20G%2B%2B%20ABI%20mismatches&In-Reply-To=%3C20030825221907.GD19623%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001766.html">
+   <LINK REL="Next"  HREF="001774.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>G++ ABI mismatches</H1>
+    <B>Richard Henderson</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20G%2B%2B%20ABI%20mismatches&In-Reply-To=%3C20030825221907.GD19623%40redhat.com%3E"
+       TITLE="G++ ABI mismatches">rth at redhat.com
+       </A><BR>
+    <I>Mon Aug 25 22:19:07 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001766.html">G++ ABI mismatches
+</A></li>
+        <LI>Next message: <A HREF="001774.html">G++ ABI mismatches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1768">[ date ]</a>
+              <a href="thread.html#1768">[ thread ]</a>
+              <a href="subject.html#1768">[ subject ]</a>
+              <a href="author.html#1768">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Aug 25, 2003 at 08:47:51AM +0100, Nathan Sidwell wrote:
+&gt;<i> &gt;... I also noticed that G++ is building __cxa_begin_catch with type
+</I>&gt;<i> &gt;void*(*)(void*), instead of void(*)(void*) as it is defined in section
+</I>&gt;<i> &gt;2.5.3 of the ABI spec.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;Which one is wrong?
+</I>&gt;<i>
+</I>&gt;<i> gcc's implementation is incorrect. its return value is never used
+</I>
+This is false.
+
+The return value is the adjusted pointer to the exception object.
+Consider the following test case, which shows that pointer adjustment
+must happen on a per-handler basis.
+
+	extern &quot;C&quot; void abort();
+
+	struct A { int x; };
+	struct B { int y; };
+	struct C { int z; };
+	struct D : public A, B, C { };
+
+	static D *d;
+	static int match;
+
+	static void do_throw()
+	{
+	  match = 0;
+	  d = new D;
+	  throw d;
+	}
+
+	static void testA()
+	{
+	  try {
+	    do_throw();
+	  } catch (A *a) {
+	    match |= (d == a) &lt;&lt; 0;
+	    throw;
+	  }
+	}
+
+	static void testB()
+	{
+	  try {
+	    testA();
+	  } catch (B *b) {
+	    match |= (d == b) &lt;&lt; 1;
+	    throw;
+	  }
+	}
+
+	static void testC()
+	{
+	  try {
+	    testB();
+	  } catch (C *c) {
+	    match |= (d == c) &lt;&lt; 2;
+	  }
+	}
+
+	int main()
+	{
+	  testC();
+	  if (match != 7)
+	    abort ();
+	}
+
+&gt;<i> and its implementation has the following
+</I>&gt;<i>       // ??? No sensible value to return; we don't know what the
+</I>&gt;<i>       // object is, much less where it is in relation to the header.
+</I>&gt;<i>       return 0;
+</I>&gt;<i> for one of its returns :)
+</I>
+Note that this is for the case of non-C++ types being caught.  This
+case can only appear in a catch(...) clause, at which point the 
+return value indeed is not used.
+
+
+
+r~
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001766.html">G++ ABI mismatches
+</A></li>
+	<LI>Next message: <A HREF="001774.html">G++ ABI mismatches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1768">[ date ]</a>
+              <a href="thread.html#1768">[ thread ]</a>
+              <a href="subject.html#1768">[ subject ]</a>
+              <a href="author.html#1768">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

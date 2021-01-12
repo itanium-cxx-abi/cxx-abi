@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Updated files
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Updated%20files&In-Reply-To=%3C38E29FAB.1106BDB6%40zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000834.html">
+   <LINK REL="Next"  HREF="000835.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Updated files</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Updated%20files&In-Reply-To=%3C38E29FAB.1106BDB6%40zko.dec.com%3E"
+       TITLE="Updated files">coleen at zko.dec.com
+       </A><BR>
+    <I>Thu Mar 30 00:28:27 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000834.html">Updated files
+</A></li>
+        <LI>Next message: <A HREF="000835.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#838">[ date ]</a>
+              <a href="thread.html#838">[ thread ]</a>
+              <a href="subject.html#838">[ subject ]</a>
+              <a href="author.html#838">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I attached my comments on construction vtables.  I won't be able to
+listen to the con-call tomorrow (and definitely not fly out).
+
+Have fun,
+Coleen
+-------------- next part --------------
+
+
+&gt;<i>From the ctorvtbls writeup:
+</I>
+&gt;<i> c.Ed. Note: Don't we need the equivalent of secondary vptrs here, too? 
+</I>
+Yes, maybe it would be better to eliminate a,b,c and say in 2:
+
+&gt;<i>2.Secondary VTTs: for each non-virtual subobject B of D, that requires a
+</I>&gt;<i> construction vtable by virtue of having virtual bases, a sub-VTT for
+</I>&gt;<i> B-in-D, which contains: &lt;insert change color here&gt; address in #1, #2, #3.
+</I>
+Note that step #2 is recursive on #1, #2 and #3.  This might simplify
+the description somewhat.
+
+Then for #3 put the better sentence from 2b &quot;Subobject A of B needs a
+construction ...&quot;
+
+Note this changes the definition slightly.  There is only a need for a
+secondary VTT if the nonvirtual subobject has a virtual base (not if it
+has an overridden virtual function).  There is a need for the secondary ptr
+in the VTT (step #3) if either the base has virtual base or overridden virtual
+functions.
+
+The example:
+
+I changed the example slightly to add 'int' members to all the classes, so 
+there isn't so much sharing to confuse the issue.  I also added 'virtual'
+for member function 'f' which I think was intended.  The example's hard to
+follow, but I think it's mostly right, see my comments below.
+&gt;<i>
+</I>&gt;<i> // 1. Primary vptr:
+</I>&gt;<i>  D * has virtual bases
+</I>&gt;<i>
+</I>&gt;<i>  // 2. Secondary VTTs:
+</I>&gt;<i>    C1 * has virtual base
+</I>&gt;<i>      V1-in-C1 in D secondary vptr
+</I>V1 is a virtual base class, so it's not in VTT
+&gt;<i>        A1-in-...-C2 in D secondary vptr
+</I>nonvirtual base in virtual base class V1, not in VTT
+&gt;<i>
+</I>&gt;<i>    C2 * has virtual bases
+</I>&gt;<i>      V2-in-C2 in D secondary vptr *
+</I>&gt;<i>        V1-in-V2-in-C2 in D secondary vptr *
+</I>Yes, this is right. V1 and V2 secondary vptrs for C2 need
+construction vtables, because V2 has virtual bases and V1 has
+virtual calls overridden on virtual path.
+I think the nesting should be the same.
+&gt;<i>          A1-in-...-C2 in D secondary vptr *
+</I>This one is shared by V1, so not in VTT.
+&gt;<i>
+</I>&gt;<i>  // 3. Secondary vptrs:
+</I>&gt;<i>    C1-in-D secondary vptr
+</I>This is shared with D, so not in VTT.
+&gt;<i>      V1-in-D secondary vptr *
+</I>&gt;<i>        A1-in-V1-in-D secondary vptr (shared with V1)
+</I>&gt;<i>    C2-in-D secondary vptr
+</I>&gt;<i>      V2-in-D secondary vptr
+</I>&gt;<i>
+</I>&gt;<i>  // 4. Virtual VTTs:
+</I>&gt;<i>    (V1 can use complete object constructor).
+</I>&gt;<i>    V2 * has virtual base, has overridden f()
+</I>&gt;<i>      V1-in-V2 in D secondary VTT
+</I>&gt;<i>        A1-in-V1 * has overridden f()
+</I>&gt;<i>      V1-in-V2 in D secondary vptr
+</I>&gt;<i>        A1-in-V1-in-V2 in D secondary vptr
+</I>&gt;<i>
+</I>I think this is right.
+
+So, I have 10 entries in the VTT for D (ignore external names):
+
+    static const long *__VTT_1D[8] =
+    {__7__vtbl_1D,  // primary complete vptr for D
+// Secondary VTT for C1
+     __7__vtbl_2C1_2C1__1D,  // construction vtbl for C1 in D
+// Secondary VTT for C2
+     __7__vtbl_2C2_2C2__1D,  // construction vtbl for C2 in D
+     __7__vtbl_2V2_2C2__1D,  // construction vtbl for V2 in C in D
+     __7__vtbl_2V1_2C2__1D,  // construction vtbl for V1 in C in D
+// secondary vptrs for D
+     __7__vtbl_2C21D,
+     __7__vtbl_2V21D, 
+     __7__vtbl_2V11D, 
+// virtual part
+     __7__vtbl_2V2_2V2__1D, 
+     __7__vtbl_2V1_2V2__1D};
+
+The red in the 'Subobject Construction and Destruction' section looks
+fine.
+
+Coleen
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000834.html">Updated files
+</A></li>
+	<LI>Next message: <A HREF="000835.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#838">[ date ]</a>
+              <a href="thread.html#838">[ thread ]</a>
+              <a href="subject.html#838">[ subject ]</a>
+              <a href="author.html#838">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1029 @@
+From jason at redhat.com  Tue Jan  3 19:24:02 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 03 Jan 2012 14:24:02 -0500
+Subject: [cxx-abi-dev] Mangling braced-init-list
+Message-ID: <4F0355D2.6040307@redhat.com>
+
+This doesn't seem to have been discussed yet, and GCC to date has just 
+rejected any testcase that required such mangling.  It seems 
+straightforward to just represent it as a list of expressions:
+
+<expression> ::= il <expression>* E
+
+For a typed list such as T{42}, I first thought that it could be 
+represented as a conversion (cv) around the above, but that would be 
+ambiguous with T({42}), so I think it's better to give that form its own 
+code,
+
+<expression> ::= tl <type> <expression>* E
+
+Any thoughts?
+
+Jason
+
+
+From jason at redhat.com  Tue Jan  3 19:31:33 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 03 Jan 2012 14:31:33 -0500
+Subject: [cxx-abi-dev] Mangling braced-init-list
+In-Reply-To: <4F0355D2.6040307@redhat.com>
+References: <4F0355D2.6040307@redhat.com>
+Message-ID: <4F035795.8010607@redhat.com>
+
+On 01/03/2012 02:24 PM, Jason Merrill wrote:
+> This doesn't seem to have been discussed yet, and GCC to date has just
+> rejected any testcase that required such mangling. It seems
+> straightforward to just represent it as a list of expressions:
+>
+> <expression> ::= il <expression>* E
+> <expression> ::= tl <type> <expression>* E
+
+So,
+
+template <class T> T g(T t1, T t2);
+
+// _Z2f1IiEDTcl1gfp_ilEEET_
+template <class T> auto f1 (T t) -> decltype(g(t,{}));
+// _Z2f2IiEDTcl1gfp_tlT_EEES0_
+template <class T> auto f2 (T t) -> decltype(g(t,T{}));
+
+int main() { f1(0); f2(0); }
+
+Jason
+
+
+From jason at redhat.com  Wed Jan  4 14:58:35 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 04 Jan 2012 09:58:35 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <4D711EA4.1070203@redhat.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+Message-ID: <4F04691B.3060708@redhat.com>
+
+On 03/04/2011 12:17 PM, Jason Merrill wrote:
+> A related case:
+>
+> template<typename T> int cmp1(T a, T b);
+> template<typename T> int cmp2(T a, T b);
+> template<typename T, int (*cmp)(T, T)> struct A { };
+> template <typename T> void f (A<T,cmp1> &);
+> void g()
+> {
+>   A<char,cmp1> a;
+>   f(a);
+> }
+>
+> How do we mangle 'cmp1' in the signature of f? The ABI doesn't say
+> anything specific about how to mangle unresolved overloading.
+>
+> G++ currently crashes on this testcase, but some obvious fixes lead it
+> to generate "4cmp1", i.e. <unresolved-name>, which seems consistent with
+> the mangling in a dependent call.
+
+> EDG 4.2 mangles it as adL_Z4cmp1, which doesn't seem to match anything
+> in the spec; it seems to be treating the cmp1 template as an extern "C"
+> function.
+
+Clang also produces 4cmp1 for this testcase.  Curiously, if I adjust the 
+testcase to
+
+template<typename T> int cmp1(T a, T b);
+int cmp2(char a, char b);
+template<typename T, int (*cmp)(T, T)> struct A { };
+template <typename T> void f (A<T,cmp1> &);
+template <typename T> void f (A<T,cmp2> &);
+void g()
+{
+   A<char,cmp1> a;
+   f(a);
+   A<char,cmp2> a2;
+   f(a2);
+}
+
+For the second F I get three different results from the three compilers:
+
+EDG gives _Z1fIcEvR1AIT_XadL_Z4cmp2ccEEE, which is consistent with its 
+treatment of the cmp1 case (i.e. adding the unwritten address operation).
+
+G++ with my patch gives _Z1fIcEvR1AIT_L_Z4cmp2ccEE, treating cmp2 as a 
+simple literal.
+
+Clang gives _Z1fIcEvR1AIT_XL_Z4cmp2ccEEE, wrapping the literal in the 
+X/E expression delimiters.  This seems like a bug.
+
+> I tried to create an analogous dependent call to see what it
+> would do in that case:
+>
+> template <class T, int I> struct B { };
+> template <class T> void h(B<T,sizeof(cmp1(T(),T()))>);
+>
+> void i()
+> {
+>   B<int,sizeof(int)> b;
+>   h(b);
+> }
+>
+> but EDG 4.2 rejects this testcase.
+
+EDG 4.3 produces _Z1hIiEv1BIT_Xszcl4cmp1cvS1__EcvS1__EEEE for this 
+testcase, as do GCC and Clang.
+
+Jason
+
+
+From mjh at edg.com  Wed Jan  4 16:42:04 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 4 Jan 2012 11:42:04 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <4F04691B.3060708@redhat.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+Message-ID: <FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+
+
+On Jan 4, 2012, at 9:58 AM, Jason Merrill wrote:
+
+> On 03/04/2011 12:17 PM, Jason Merrill wrote:
+>> A related case:
+>> 
+>> template<typename T> int cmp1(T a, T b);
+>> template<typename T> int cmp2(T a, T b);
+>> template<typename T, int (*cmp)(T, T)> struct A { };
+>> template <typename T> void f (A<T,cmp1> &);
+>> void g()
+>> {
+>>  A<char,cmp1> a;
+>>  f(a);
+>> }
+>> 
+>> How do we mangle 'cmp1' in the signature of f? The ABI doesn't say
+>> anything specific about how to mangle unresolved overloading.
+>> 
+>> G++ currently crashes on this testcase, but some obvious fixes lead it
+>> to generate "4cmp1", i.e. <unresolved-name>, which seems consistent with
+>> the mangling in a dependent call.
+> 
+>> EDG 4.2 mangles it as adL_Z4cmp1, which doesn't seem to match anything
+>> in the spec; it seems to be treating the cmp1 template as an extern "C"
+>> function.
+> 
+> Clang also produces 4cmp1 for this testcase.  Curiously, if I adjust the testcase to
+> 
+> template<typename T> int cmp1(T a, T b);
+> int cmp2(char a, char b);
+> template<typename T, int (*cmp)(T, T)> struct A { };
+> template <typename T> void f (A<T,cmp1> &);
+> template <typename T> void f (A<T,cmp2> &);
+> void g()
+> {
+>  A<char,cmp1> a;
+>  f(a);
+>  A<char,cmp2> a2;
+>  f(a2);
+> }
+> 
+> For the second F I get three different results from the three compilers:
+> 
+> EDG gives _Z1fIcEvR1AIT_XadL_Z4cmp2ccEEE, which is consistent with its treatment of the cmp1 case (i.e. adding the unwritten address operation).
+
+We agree that <unresolved-name> is the way to go here.
+
+Mike Herrick
+Edison Design Group
+
+> 
+> G++ with my patch gives _Z1fIcEvR1AIT_L_Z4cmp2ccEE, treating cmp2 as a simple literal.
+> 
+> Clang gives _Z1fIcEvR1AIT_XL_Z4cmp2ccEEE, wrapping the literal in the X/E expression delimiters.  This seems like a bug.
+> 
+>> I tried to create an analogous dependent call to see what it
+>> would do in that case:
+>> 
+>> template <class T, int I> struct B { };
+>> template <class T> void h(B<T,sizeof(cmp1(T(),T()))>);
+>> 
+>> void i()
+>> {
+>>  B<int,sizeof(int)> b;
+>>  h(b);
+>> }
+>> 
+>> but EDG 4.2 rejects this testcase.
+> 
+> EDG 4.3 produces _Z1hIiEv1BIT_Xszcl4cmp1cvS1__EcvS1__EEEE for this testcase, as do GCC and Clang.
+> 
+> Jason
+
+
+
+From jason at redhat.com  Wed Jan  4 18:22:31 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 04 Jan 2012 13:22:31 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+	<FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+Message-ID: <4F0498E7.8040703@redhat.com>
+
+On 01/04/2012 11:42 AM, Mike Herrick wrote:
+>> template<typename T>  int cmp1(T a, T b);
+>> int cmp2(char a, char b);
+>> template<typename T, int (*cmp)(T, T)> struct A { };
+>> template<typename T>  void f (A<T,cmp1> &);
+>> template<typename T>  void f (A<T,cmp2> &);
+>> void g()
+>> {
+>>   A<char,cmp1>  a;
+>>   f(a);
+>>   A<char,cmp2>  a2;
+>>   f(a2);
+>> }
+>>
+> We agree that <unresolved-name> is the way to go here.
+
+For the first f<char>, or both?  For the two f<char>, I think we should 
+produce
+
+_Z1fIcEvR1AIT_X4cmp1EE
+_Z1fIcEvR1AIT_L_Z4cmp2ccEE
+
+Do you agree?
+
+Thanks,
+Jason
+
+
+From jason at redhat.com  Wed Jan  4 19:04:07 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 04 Jan 2012 14:04:07 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <4F0498E7.8040703@redhat.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+	<FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+	<4F0498E7.8040703@redhat.com>
+Message-ID: <4F04A2A7.5000309@redhat.com>
+
+And then similarly,
+
+template<typename T, int (*cmp)(T, T)> struct A { };
+struct B {
+   template<typename T> static int cmp1(T a, T b);
+   static int cmp2(char a, char b);
+   template <typename T> static void f (A<T,cmp1> &);
+   template <typename T> static void f (A<T,cmp2> &);
+};
+
+void g()
+{
+   A<char,B::cmp1> a;
+   B::f(a);
+   A<char,B::cmp2> a2;
+   B::f(a2);
+}
+
+Should the cmp1 in the first f be mangled as simply 4cmp1 or should it 
+include B::?  That is,
+
+_ZN1B1fIcEEvR1AIT_X4cmp1EE (which Clang produces)
+or
+_ZN1B1fIcEEvR1AIT_XsrS_4cmp1EE
+
+?  I could go either way, but it seems that we've been leaning toward 
+mangling expressions as written, which would suggest the former.
+
+I think the second f should be
+
+_ZN1B1fIcEEvR1AIT_L_ZNS_4cmp2EccEE
+
+Jason
+
+
+From jason at redhat.com  Thu Jan  5 20:20:27 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 05 Jan 2012 15:20:27 -0500
+Subject: [cxx-abi-dev] Mangling braced-init-list
+In-Reply-To: <4F0355D2.6040307@redhat.com>
+References: <4F0355D2.6040307@redhat.com>
+Message-ID: <4F06060B.6070104@redhat.com>
+
+On 01/03/2012 02:24 PM, Jason Merrill wrote:
+> This doesn't seem to have been discussed yet, and GCC to date has just
+> rejected any testcase that required such mangling. It seems
+> straightforward to just represent it as a list of expressions:
+>
+> <expression> ::= il <expression>* E
+>
+> For a typed list such as T{42}, I first thought that it could be
+> represented as a conversion (cv) around the above, but that would be
+> ambiguous with T({42}), so I think it's better to give that form its own
+> code,
+>
+> <expression> ::= tl <type> <expression>* E
+
+And also add the first form to <initializer>, so
+
+// _Z2f1IiEDTnw_T_ilEES0_
+template <class T> auto f1(T t) -> decltype(new T{});
+
+int main()
+{
+   f1(0);
+}
+
+
+From rjmccall at apple.com  Fri Jan  6 02:53:47 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 05 Jan 2012 18:53:47 -0800
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <4F0498E7.8040703@redhat.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+	<FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+	<4F0498E7.8040703@redhat.com>
+Message-ID: <CFD91C6B-1453-459C-8C12-90A7C9AA568C@apple.com>
+
+On Jan 4, 2012, at 10:22 AM, Jason Merrill wrote:
+> On 01/04/2012 11:42 AM, Mike Herrick wrote:
+>>> template<typename T>  int cmp1(T a, T b);
+>>> int cmp2(char a, char b);
+>>> template<typename T, int (*cmp)(T, T)> struct A { };
+>>> template<typename T>  void f (A<T,cmp1> &);
+>>> template<typename T>  void f (A<T,cmp2> &);
+>>> void g()
+>>> {
+>>>  A<char,cmp1>  a;
+>>>  f(a);
+>>>  A<char,cmp2>  a2;
+>>>  f(a2);
+>>> }
+>>> 
+>> We agree that <unresolved-name> is the way to go here.
+> 
+> For the first f<char>, or both?  For the two f<char>, I think we should produce
+> 
+> _Z1fIcEvR1AIT_X4cmp1EE
+> _Z1fIcEvR1AIT_L_Z4cmp2ccEE
+> 
+> Do you agree?
+
+I agree with this.
+
+John.
+
+
+From jason at redhat.com  Fri Jan  6 15:53:24 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Jan 2012 10:53:24 -0500
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+Message-ID: <4F0718F4.2060105@redhat.com>
+
+On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+>
+>> It occurs to me that now with constexpr, string constants can appear in a constant expression:
+>>
+>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+>> template<int>  struct N { };
+>> template<typename T>  N<f((const T*)"1")>  g(T);
+>> template<typename T>  N<f((const T*)"2")>  g(T);
+>>
+>> Here the two 'g's are different templates.
+>
+> Ouch :-(  I guess another tweak is needed then.
+
+So,
+
+  L <string type> <value string> E
+
+where the string value is encoded in hex, omitting the terminal NUL?
+
+Maybe use an MD5 hash for strings longer than 16 bytes?
+
+Jason
+
+
+From mjh at edg.com  Fri Jan  6 21:44:23 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Fri, 6 Jan 2012 16:44:23 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <CFD91C6B-1453-459C-8C12-90A7C9AA568C@apple.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+	<FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+	<4F0498E7.8040703@redhat.com>
+	<CFD91C6B-1453-459C-8C12-90A7C9AA568C@apple.com>
+Message-ID: <F474C981-604B-4E4C-8CB7-79F4EBB91261@edg.com>
+
+
+On Jan 5, 2012, at 9:53 PM, John McCall wrote:
+
+> On Jan 4, 2012, at 10:22 AM, Jason Merrill wrote:
+>> On 01/04/2012 11:42 AM, Mike Herrick wrote:
+>>>> template<typename T>  int cmp1(T a, T b);
+>>>> int cmp2(char a, char b);
+>>>> template<typename T, int (*cmp)(T, T)> struct A { };
+>>>> template<typename T>  void f (A<T,cmp1> &);
+>>>> template<typename T>  void f (A<T,cmp2> &);
+>>>> void g()
+>>>> {
+>>>> A<char,cmp1>  a;
+>>>> f(a);
+>>>> A<char,cmp2>  a2;
+>>>> f(a2);
+>>>> }
+>>>> 
+>>> We agree that <unresolved-name> is the way to go here.
+>> 
+>> For the first f<char>, or both?  For the two f<char>, I think we should produce
+>> 
+>> _Z1fIcEvR1AIT_X4cmp1EE
+>> _Z1fIcEvR1AIT_L_Z4cmp2ccEE
+>> 
+>> Do you agree?
+> 
+> I agree with this.
+
+Agreed.
+
+How about this case (explicit "B::" added):
+
+template<typename T, int (*cmp)(T, T)> struct A { };
+struct B {
+  template<typename T> static int cmp1(T a, T b) { return 0; }
+  static int cmp2(char a, char b) { return 0; }
+  template <typename T> static void f (A<T,B::cmp1> &);
+  template <typename T> static void f (A<T,B::cmp2> &);
+};
+int main() {
+  A<char,B::cmp1> a;
+  B::f(a);
+  A<char,B::cmp2> a2;
+  B::f(a2);
+}
+
+I'm assuming that the first "f" should now be _ZN1B1fIcEEvR1AIT_XsrS_4cmp1EE and the second "f" is unchanged (i.e., _ZN1B1fIcEEvR1AIT_L_ZNS_4cmp2EccEE).
+
+Mike Herrick
+Edison Design Group
+
+
+
+From rjmccall at apple.com  Fri Jan  6 23:40:18 2012
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 06 Jan 2012 15:40:18 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <4F0718F4.2060105@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+Message-ID: <31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+
+On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+> On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+>> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+>> 
+>>> It occurs to me that now with constexpr, string constants can appear in a constant expression:
+>>> 
+>>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+>>> template<int>  struct N { };
+>>> template<typename T>  N<f((const T*)"1")>  g(T);
+>>> template<typename T>  N<f((const T*)"2")>  g(T);
+>>> 
+>>> Here the two 'g's are different templates.
+>> 
+>> Ouch :-(  I guess another tweak is needed then.
+> 
+> So,
+> 
+> L <string type> <value string> E
+> 
+> where the string value is encoded in hex, omitting the terminal NUL?
+
+This works for me.  Clarifications:
+  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're encoding
+    the raw bytes as represented on the platform and because we're separately
+    encoding the byte-length.
+  - This implies platform endianness for multibyte encodings.
+  - We should use lowercase hex to distinguish the terminal E.
+
+> Maybe use an MD5 hash for strings longer than 16 bytes?
+
+Probably a good idea.  Clarify as "more than 16 bytes of data,
+excluding the implicit null on non-raw literals".
+
+John.
+
+
+From jason at redhat.com  Sat Jan  7 04:30:20 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Jan 2012 23:30:20 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <F474C981-604B-4E4C-8CB7-79F4EBB91261@edg.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+	<4C1A7A61.9060708@redhat.com> <4D711EA4.1070203@redhat.com>
+	<4F04691B.3060708@redhat.com>
+	<FDD3E240-891D-41B6-947A-B7324EA4032F@edg.com>
+	<4F0498E7.8040703@redhat.com>
+	<CFD91C6B-1453-459C-8C12-90A7C9AA568C@apple.com>
+	<F474C981-604B-4E4C-8CB7-79F4EBB91261@edg.com>
+Message-ID: <4F07CA5C.7060405@redhat.com>
+
+On 01/06/2012 04:44 PM, Mike Herrick wrote:
+> How about this case (explicit "B::" added):
+>
+> I'm assuming that the first "f" should now be _ZN1B1fIcEEvR1AIT_XsrS_4cmp1EE
+
+Hmm, that makes sense (and matches clang's output).  But we don't 
+currently preserve that distinction, so it also makes more work for me...
+
+Jason
+
+
+From richardsmith at googlers.com  Mon Jan  9 17:55:52 2012
+From: richardsmith at googlers.com (Richard Smith)
+Date: Mon, 9 Jan 2012 09:55:52 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+	<31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+Message-ID: <CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+
+On Fri, Jan 6, 2012 at 3:40 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+> > On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+> >> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+> >>
+> >>> It occurs to me that now with constexpr, string constants can appear
+> in a constant expression:
+> >>>
+> >>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+> >>> template<int>  struct N { };
+> >>> template<typename T>  N<f((const T*)"1")>  g(T);
+> >>> template<typename T>  N<f((const T*)"2")>  g(T);
+> >>>
+> >>> Here the two 'g's are different templates.
+> >>
+> >> Ouch :-(  I guess another tweak is needed then.
+> >
+> > So,
+> >
+> > L <string type> <value string> E
+> >
+> > where the string value is encoded in hex, omitting the terminal NUL?
+>
+> This works for me.  Clarifications:
+>  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're
+> encoding
+>    the raw bytes as represented on the platform and because we're
+> separately
+>    encoding the byte-length.
+>  - This implies platform endianness for multibyte encodings.
+>  - We should use lowercase hex to distinguish the terminal E.
+>
+> > Maybe use an MD5 hash for strings longer than 16 bytes?
+>
+> Probably a good idea.  Clarify as "more than 16 bytes of data,
+> excluding the implicit null on non-raw literals".
+
+
+Preferably "more than 15 bytes" -- this won't make any encoding longer, and
+a program could plausibly use both a 16 byte string literal and another
+string literal containing the MD5 sum of the first.
+
+- Richard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120109/5b298075/attachment.html>
+
+From rjmccall at apple.com  Mon Jan  9 19:04:32 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 09 Jan 2012 11:04:32 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+	<31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+	<CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+Message-ID: <7DA2ECA2-0409-4A27-A75C-2E8FB3B9D60D@apple.com>
+
+On Jan 9, 2012, at 9:55 AM, Richard Smith wrote:
+> On Fri, Jan 6, 2012 at 3:40 PM, John McCall <rjmccall at apple.com> wrote:
+> On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+> > On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+> >> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+> >>
+> >>> It occurs to me that now with constexpr, string constants can appear in a constant expression:
+> >>>
+> >>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+> >>> template<int>  struct N { };
+> >>> template<typename T>  N<f((const T*)"1")>  g(T);
+> >>> template<typename T>  N<f((const T*)"2")>  g(T);
+> >>>
+> >>> Here the two 'g's are different templates.
+> >>
+> >> Ouch :-(  I guess another tweak is needed then.
+> >
+> > So,
+> >
+> > L <string type> <value string> E
+> >
+> > where the string value is encoded in hex, omitting the terminal NUL?
+> 
+> This works for me.  Clarifications:
+>  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're encoding
+>    the raw bytes as represented on the platform and because we're separately
+>    encoding the byte-length.
+>  - This implies platform endianness for multibyte encodings.
+>  - We should use lowercase hex to distinguish the terminal E.
+> 
+> > Maybe use an MD5 hash for strings longer than 16 bytes?
+> 
+> Probably a good idea.  Clarify as "more than 16 bytes of data,
+> excluding the implicit null on non-raw literals".
+> 
+> Preferably "more than 15 bytes" -- this won't make any encoding longer, and a program could plausibly use both a 16 byte string literal and another string literal containing the MD5 sum of the first.
+
+I don't understand how this creates a collision.  The mangler doesn't magically let one of the strings through unmangled just because it happens to be an MD5 encoding.  A 16-byte string and its MD5 are both strings with 16 bytes of literal data.  Therefore the mangler applies the same algorithm to both, so either the first is mangled as hex("abcdef...") and the second is hex(md5("abcdef...")), or the first is hex(md5("abcdef...")) and the second is hex(md5(md5("abcdef..."))).  Both options create distinct manglings and require 32 characters in the encoding for both strings.  All your tweak accomplishes is a pair of spurious MD5-encodings.
+
+John.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120109/8e361071/attachment.html>
+
+From richardsmith at googlers.com  Mon Jan  9 19:49:41 2012
+From: richardsmith at googlers.com (Richard Smith)
+Date: Mon, 9 Jan 2012 11:49:41 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <7DA2ECA2-0409-4A27-A75C-2E8FB3B9D60D@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+	<31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+	<CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+	<7DA2ECA2-0409-4A27-A75C-2E8FB3B9D60D@apple.com>
+Message-ID: <CAGL0aWcdg3_p9OS+Ne-8YcGfJUdLYd+LsHqgwT9Yc_zrUSq-ig@mail.gmail.com>
+
+On Mon, Jan 9, 2012 at 11:04 AM, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 9, 2012, at 9:55 AM, Richard Smith wrote:
+>
+> On Fri, Jan 6, 2012 at 3:40 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+>> > On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+>> >> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+>> >>
+>> >>> It occurs to me that now with constexpr, string constants can appear
+>> in a constant expression:
+>> >>>
+>> >>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+>> >>> template<int>  struct N { };
+>> >>> template<typename T>  N<f((const T*)"1")>  g(T);
+>> >>> template<typename T>  N<f((const T*)"2")>  g(T);
+>> >>>
+>> >>> Here the two 'g's are different templates.
+>> >>
+>> >> Ouch :-(  I guess another tweak is needed then.
+>> >
+>> > So,
+>> >
+>> > L <string type> <value string> E
+>> >
+>> > where the string value is encoded in hex, omitting the terminal NUL?
+>>
+>> This works for me.  Clarifications:
+>>  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're
+>> encoding
+>>    the raw bytes as represented on the platform and because we're
+>> separately
+>>    encoding the byte-length.
+>>  - This implies platform endianness for multibyte encodings.
+>>  - We should use lowercase hex to distinguish the terminal E.
+>>
+>> > Maybe use an MD5 hash for strings longer than 16 bytes?
+>>
+>> Probably a good idea.  Clarify as "more than 16 bytes of data,
+>> excluding the implicit null on non-raw literals".
+>
+>
+> Preferably "more than 15 bytes" -- this won't make any encoding longer,
+> and a program could plausibly use both a 16 byte string literal and another
+> string literal containing the MD5 sum of the first.
+>
+>
+> I don't understand how this creates a collision.  The mangler doesn't
+> magically let one of the strings through unmangled just because it happens
+> to be an MD5 encoding.
+>
+
+Sorry, there was a typo in my description. I meant '[...] use both a >16
+byte string literal and [...]'. The same 32 character sequence can then
+easily be produced by two distinct string literals:
+
+#define STR1 "some string which is more than 16 bytes long"
+#define STR2
+"\x22\xea\x22\x46\x30\xd1\xa3\xc9\x44\x97\xe0\x86\xd7\x21\xda\x7a" // md5
+of STR1
+constexpr bool eq(const char *p1, const char *p2);
+template<typename T> std::enable_if<eq(STR1, T::s), void> f() { ... }
+template<typename T> std::enable_if<eq(STR2, T::s), void> f() { ... }
+
+Under the proposed rule, STR1 gets md5sum'd, STR2 does not, and we create
+the same mangled name for both functions. Under my rule, both STR1 and STR2
+get mangled: all 32-character encodings are now MD5 sums of string
+literals, so the user can't easily create collisions.
+
+- Richard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120109/482f7102/attachment.html>
+
+From rjmccall at apple.com  Mon Jan  9 20:07:15 2012
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 09 Jan 2012 12:07:15 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <CAGL0aWcdg3_p9OS+Ne-8YcGfJUdLYd+LsHqgwT9Yc_zrUSq-ig@mail.gmail.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+	<31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+	<CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+	<7DA2ECA2-0409-4A27-A75C-2E8FB3B9D60D@apple.com>
+	<CAGL0aWcdg3_p9OS+Ne-8YcGfJUdLYd+LsHqgwT9Yc_zrUSq-ig@mail.gmail.com>
+Message-ID: <8520EF1A-185C-4F95-9F82-B493AEFD1233@apple.com>
+
+
+On Jan 9, 2012, at 11:49 AM, Richard Smith wrote:
+
+> On Mon, Jan 9, 2012 at 11:04 AM, John McCall <rjmccall at apple.com> wrote:
+> On Jan 9, 2012, at 9:55 AM, Richard Smith wrote:
+>> On Fri, Jan 6, 2012 at 3:40 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+>> > On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+>> >> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+>> >>
+>> >>> It occurs to me that now with constexpr, string constants can appear in a constant expression:
+>> >>>
+>> >>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+>> >>> template<int>  struct N { };
+>> >>> template<typename T>  N<f((const T*)"1")>  g(T);
+>> >>> template<typename T>  N<f((const T*)"2")>  g(T);
+>> >>>
+>> >>> Here the two 'g's are different templates.
+>> >>
+>> >> Ouch :-(  I guess another tweak is needed then.
+>> >
+>> > So,
+>> >
+>> > L <string type> <value string> E
+>> >
+>> > where the string value is encoded in hex, omitting the terminal NUL?
+>> 
+>> This works for me.  Clarifications:
+>>  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're encoding
+>>    the raw bytes as represented on the platform and because we're separately
+>>    encoding the byte-length.
+>>  - This implies platform endianness for multibyte encodings.
+>>  - We should use lowercase hex to distinguish the terminal E.
+>> 
+>> > Maybe use an MD5 hash for strings longer than 16 bytes?
+>> 
+>> Probably a good idea.  Clarify as "more than 16 bytes of data,
+>> excluding the implicit null on non-raw literals".
+>> 
+>> Preferably "more than 15 bytes" -- this won't make any encoding longer, and a program could plausibly use both a 16 byte string literal and another string literal containing the MD5 sum of the first.
+> 
+> I don't understand how this creates a collision.  The mangler doesn't magically let one of the strings through unmangled just because it happens to be an MD5 encoding.
+> 
+> Sorry, there was a typo in my description. I meant '[...] use both a >16 byte string literal and [...]'. The same 32 character sequence can then easily be produced by two distinct string literals:
+> 
+> #define STR1 "some string which is more than 16 bytes long"
+> #define STR2 "\x22\xea\x22\x46\x30\xd1\xa3\xc9\x44\x97\xe0\x86\xd7\x21\xda\x7a" // md5 of STR1
+> constexpr bool eq(const char *p1, const char *p2);
+> template<typename T> std::enable_if<eq(STR1, T::s), void> f() { ... }
+> template<typename T> std::enable_if<eq(STR2, T::s), void> f() { ... }
+> 
+> Under the proposed rule, STR1 gets md5sum'd, STR2 does not, and we create the same mangled name for both functions.
+
+No.  The length of the literal is also mangled.  This was necessary before we considered constexpr.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120109/a5729200/attachment.html>
+
+From richardsmith at googlers.com  Mon Jan  9 21:57:11 2012
+From: richardsmith at googlers.com (Richard Smith)
+Date: Mon, 9 Jan 2012 13:57:11 -0800
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <8520EF1A-185C-4F95-9F82-B493AEFD1233@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+	<A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+	<43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+	<4D765CC0.5060904@redhat.com>
+	<0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+	<4F0718F4.2060105@redhat.com>
+	<31A38BCF-9413-4ACC-A8CD-4C2815A88814@apple.com>
+	<CAGL0aWdN6hFn7mA3T3ReQHQy_jhzjx8ZO7dg+SxqqR2CAtGUbg@mail.gmail.com>
+	<7DA2ECA2-0409-4A27-A75C-2E8FB3B9D60D@apple.com>
+	<CAGL0aWcdg3_p9OS+Ne-8YcGfJUdLYd+LsHqgwT9Yc_zrUSq-ig@mail.gmail.com>
+	<8520EF1A-185C-4F95-9F82-B493AEFD1233@apple.com>
+Message-ID: <CAGL0aWexx336YPZRKf_MP+i7p4-3fibH_Hbft81FgXJ3t0phbw@mail.gmail.com>
+
+On Mon, Jan 9, 2012 at 12:07 PM, John McCall <rjmccall at apple.com> wrote:
+
+>
+> On Jan 9, 2012, at 11:49 AM, Richard Smith wrote:
+>
+> On Mon, Jan 9, 2012 at 11:04 AM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 9, 2012, at 9:55 AM, Richard Smith wrote:
+>>
+>> On Fri, Jan 6, 2012 at 3:40 PM, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 6, 2012, at 7:53 AM, Jason Merrill wrote:
+>>> > On 03/08/2011 04:12 PM, David Vandevoorde wrote:
+>>> >> On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+>>> >>
+>>> >>> It occurs to me that now with constexpr, string constants can appear
+>>> in a constant expression:
+>>> >>>
+>>> >>> template<typename T>  constexpr T f(const T* p) { return p[0]; }
+>>> >>> template<int>  struct N { };
+>>> >>> template<typename T>  N<f((const T*)"1")>  g(T);
+>>> >>> template<typename T>  N<f((const T*)"2")>  g(T);
+>>> >>>
+>>> >>> Here the two 'g's are different templates.
+>>> >>
+>>> >> Ouch :-(  I guess another tweak is needed then.
+>>> >
+>>> > So,
+>>> >
+>>> > L <string type> <value string> E
+>>> >
+>>> > where the string value is encoded in hex, omitting the terminal NUL?
+>>>
+>>> This works for me.  Clarifications:
+>>>  - We don't need to distinguish "a" vs. u8"a" vs. R"a" because we're
+>>> encoding
+>>>    the raw bytes as represented on the platform and because we're
+>>> separately
+>>>    encoding the byte-length.
+>>>  - This implies platform endianness for multibyte encodings.
+>>>  - We should use lowercase hex to distinguish the terminal E.
+>>>
+>>> > Maybe use an MD5 hash for strings longer than 16 bytes?
+>>>
+>>> Probably a good idea.  Clarify as "more than 16 bytes of data,
+>>> excluding the implicit null on non-raw literals".
+>>
+>>
+>> Preferably "more than 15 bytes" -- this won't make any encoding longer,
+>> and a program could plausibly use both a 16 byte string literal and another
+>> string literal containing the MD5 sum of the first.
+>>
+>>
+>> I don't understand how this creates a collision.  The mangler doesn't
+>> magically let one of the strings through unmangled just because it happens
+>> to be an MD5 encoding.
+>>
+>
+> Sorry, there was a typo in my description. I meant '[...] use both a >16
+> byte string literal and [...]'. The same 32 character sequence can then
+> easily be produced by two distinct string literals:
+>
+> #define STR1 "some string which is more than 16 bytes long"
+> #define STR2
+> "\x22\xea\x22\x46\x30\xd1\xa3\xc9\x44\x97\xe0\x86\xd7\x21\xda\x7a" // md5
+> of STR1
+> constexpr bool eq(const char *p1, const char *p2);
+> template<typename T> std::enable_if<eq(STR1, T::s), void> f() { ... }
+> template<typename T> std::enable_if<eq(STR2, T::s), void> f() { ... }
+>
+> Under the proposed rule, STR1 gets md5sum'd, STR2 does not, and we create
+> the same mangled name for both functions.
+>
+>
+> No.  The length of the literal is also mangled.  This was necessary before
+> we considered constexpr.
+>
+
+Ah, my apologies for the noise then! (I was led astray by the terminating E)
+
+- Richard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120109/59b18bd7/attachment.html>
+
+From jason at redhat.com  Mon Jan 16 20:29:55 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 16 Jan 2012 15:29:55 -0500
+Subject: [cxx-abi-dev] Mangling 0.0f
+Message-ID: <4F1488C3.3020801@redhat.com>
+
+I notice that G++ and EDG mangle 0.0f as Lf00000000E, while clang 
+produces Lf0E.  I assume that the latter is based on the "without 
+leading zeroes" in the ABI document, while the former is based on the 
+"fixed-length" earlier in the sentence.
+
+Jason
+
+
+From mjh at edg.com  Wed Jan 18 20:13:13 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 18 Jan 2012 15:13:13 -0500
+Subject: [cxx-abi-dev] Mangling 0.0f
+In-Reply-To: <4F1488C3.3020801@redhat.com>
+References: <4F1488C3.3020801@redhat.com>
+Message-ID: <554B0EFB-A774-403D-A287-549A977D115F@edg.com>
+
+
+On Jan 16, 2012, at 3:29 PM, Jason Merrill wrote:
+
+> I notice that G++ and EDG mangle 0.0f as Lf00000000E, while clang produces Lf0E.  I assume that the latter is based on the "without leading zeroes" in the ABI document, while the former is based on the "fixed-length" earlier in the sentence.
+
+We proposed getting rid of "without leading zeros" in a post entitled "Clarification on floating point literal mangling" dated August 2, 2010:
+
+> We recently ran across this seeming inconsistency with the description of mangling for floating point literals.  The current wording calls for both "fixed-length" and "without leading zeroes". We think the "without leading zeroes" portion should be removed to match existing practice:
+> 
+> *** abi.orig.html       Mon Aug  2 08:34:44 2010
+> --- abi.html    Mon Aug  2 08:35:09 2010
+> ***************
+> *** 4578,4584 ****
+>  <p>
+>  Floating-point literals are encoded using a fixed-length lowercase
+>  hexadecimal string corresponding to the internal representation (IEEE
+> ! on Itanium), high-order bytes first, without leading zeroes.  For
+>  example: "Lf bf800000 E" is -1.0f on Itanium.
+> 
+>  <p>
+> --- 4578,4584 ----
+>  <p>
+>  Floating-point literals are encoded using a fixed-length lowercase
+>  hexadecimal string corresponding to the internal representation (IEEE
+> ! on Itanium), high-order bytes first.  For
+>  example: "Lf bf800000 E" is -1.0f on Itanium.
+> 
+>  <p>
+> 
+> 
+> Thanks.
+> 
+> Mike Herrick
+> Edison Design Group
+
+
+From rjmccall at apple.com  Wed Jan 18 21:04:10 2012
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Jan 2012 13:04:10 -0800
+Subject: [cxx-abi-dev] Mangling 0.0f
+In-Reply-To: <4F1488C3.3020801@redhat.com>
+References: <4F1488C3.3020801@redhat.com>
+Message-ID: <7CF004A6-959A-4C12-B796-19858707F9B5@apple.com>
+
+On Jan 16, 2012, at 12:29 PM, Jason Merrill wrote:
+> I notice that G++ and EDG mangle 0.0f as Lf00000000E, while clang produces Lf0E.  I assume that the latter is based on the "without leading zeroes" in the ABI document, while the former is based on the "fixed-length" earlier in the sentence.
+
+This exact point seems to have come up nine years ago:
+  http://communities.mentor.com/community/cs/archives/cxx-abi-dev/msg01527.html
+Mark then suggested better wording that would've forced Lf00000000E, but apparently that did not make it into the document.
+
+The only merit in using a fixed-size mangling here is because G++ and EDG already do so, but that's a good enough reason for me.  If we're interested in re-opening this, dropping leading zeroes is a really silly way to optimize for size;  a much better alternative, given the overwhelming probability of an IEEE 754 interchange format, would be to drop *trailing* zeroes.
+
+John.
+
+

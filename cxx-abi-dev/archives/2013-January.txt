@@ -1,0 +1,1629 @@
+From michaelw at ca.ibm.com  Wed Jan 16 16:34:22 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Wed, 16 Jan 2013 11:34:22 -0500
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+Message-ID: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+
+
+
+Does the C++ Standard committee intend for the ODR to imply that lambdas
+need to have an ABI specified layout in order to deal with inline
+functions.
+
+Consider the following with one object compiled with -DMAIN and another
+without:
+- in one case the layout needs to be compatible between different
+implementations since the static local is shared between translation units
+
+/data/a.o: In function `main':
+a.cpp:(.text+0x18): undefined reference to `bar()'
+collect2: error: ld returned 1 exit status
+
+- in the other case, the layout needs to be compatible between different
+implementations in order to satisfy the ODR requirement that the program
+behave as if there was only one definition of the inline function
+
+extern "C" int printf(const char *, ...);
+extern long gz;
+
+inline void foo() {
+   long x = 0, q = 0, &z = gz;
+   static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+
+   long a, b;
+   auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b < &a); };
+   f();
+   ff();
+}
+
+void bar();
+
+#if ! MAIN
+void bar() { foo(); }
+#else
+long gz;
+int main() {
+   foo();
+   bar();
+   foo();
+   return gz;
+}
+#endif
+
+I apologize if this issue has been dealt with.
+
+Regards, Michael
+
+OpenMP CEO:
+http://openmp.org/wp/about-openmp/
+My Blogs:
+http://ibm.co/pCvPHR
+C++11 status:
+http://tinyurl.com/43y8xgf
+Boost test results
+http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+
+C/C++ Compilers Support/Feature Request Page
+http://www.ibm.com/software/awdtools/ccompilers/support/
+http://www.ibm.com/support/docview.wss?uid=swg27005811
+STM:
+https://sites.google.com/site/tmforcplusplus/
+
+Director & Vice President ISOCPP.org
+Canada and IBM C++Standard HoD
+Chair of WG21 SG5 Transactional Memory
+
+XL C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130116/a9dc54a1/attachment.html>
+
+From michaelw at ca.ibm.com  Thu Jan 17 19:46:37 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Thu, 17 Jan 2013 14:46:37 -0500
+Subject: [cxx-abi-dev] Itanium ABI fails to specify how to mangle lambdas
+Message-ID: <OFAA207DB6.3BE52984-ON85257AF6.006C8516-85257AF6.006CA40A@ca.ibm.com>
+
+
+
+Lambdas can appear in contexts where the ABI requires that the expression
+be mangled.
+Note that the lambdas below participate in SFINAE as far as I know.
+
+template <typename T>
+void foo(const int *, char (*)[sizeof(T) > 1 || [] { goto lab; for (;;)
+lab: return T(); }] = 0) { }
+
+template <typename T>
+void foo(int *ptr, char (*)[sizeof(T) > 1 || [] { goto lab; decltype(ptr)
+ptr; lab: return T(ptr); }] = 0) { }
+
+int main() {
+   foo<float>(static_cast<int *>(0));
+}
+
+
+
+Regards, Michael
+
+OpenMP CEO:
+http://openmp.org/wp/about-openmp/
+My Blogs:
+http://ibm.co/pCvPHR
+C++11 status:
+http://tinyurl.com/43y8xgf
+Boost test results
+http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+
+C/C++ Compilers Support/Feature Request Page
+http://www.ibm.com/software/awdtools/ccompilers/support/
+http://www.ibm.com/support/docview.wss?uid=swg27005811
+STM:
+https://sites.google.com/site/tmforcplusplus/
+
+Director & Vice President ISOCPP.org
+Canada and IBM C++Standard HoD
+Chair of WG21 SG5 Transactional Memory
+
+XL C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/536b35c1/attachment.html>
+
+From richardsmith at google.com  Thu Jan 17 20:16:57 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 17 Jan 2013 12:16:57 -0800
+Subject: [cxx-abi-dev] Itanium ABI fails to specify how to mangle lambdas
+In-Reply-To: <OFAA207DB6.3BE52984-ON85257AF6.006C8516-85257AF6.006CA40A@ca.ibm.com>
+References: <OFAA207DB6.3BE52984-ON85257AF6.006C8516-85257AF6.006CA40A@ca.ibm.com>
+Message-ID: <CAGL0aWe8MZKtW6Hkr1zDQKnLsBq0=EOSWs64rr0fD=RCNmV_Uw@mail.gmail.com>
+
+This is a defect in the standard; the intent was that lambdas would not
+ever need to be mangled. See the top of page 2 here:
+
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2009/n2859.pdf
+
+
+On Thu, Jan 17, 2013 at 11:46 AM, Michael Wong <michaelw at ca.ibm.com> wrote:
+
+> Lambdas can appear in contexts where the ABI requires that the expression
+> be mangled.
+> Note that the lambdas below participate in SFINAE as far as I know.
+>
+> template <typename T>
+> void foo(const int *, char (*)[sizeof(T) > 1 || [] { goto lab; for (;;)
+> lab: return T(); }] = 0) { }
+>
+> template <typename T>
+> void foo(int *ptr, char (*)[sizeof(T) > 1 || [] { goto lab; decltype(ptr)
+> ptr; lab: return T(ptr); }] = 0) { }
+>
+> int main() {
+>    foo<float>(static_cast<int *>(0));
+> }
+>
+>
+>
+> Regards, Michael
+>
+> OpenMP CEO:
+> http://openmp.org/wp/about-openmp/
+> My Blogs:
+> http://ibm.co/pCvPHR
+> C++11 status:
+> http://tinyurl.com/43y8xgf
+> Boost test results
+> http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+> C/C++ Compilers Support/Feature Request Page
+> http://www.ibm.com/software/awdtools/ccompilers/support/
+> http://www.ibm.com/support/docview.wss?uid=swg27005811
+> STM:
+> https://sites.google.com/site/tmforcplusplus/
+>
+> Director & Vice President ISOCPP.org
+> Canada and IBM C++Standard HoD
+> Chair of WG21 SG5 Transactional Memory
+>
+> XL C++ Compiler kernel Development
+> IBM Canada Ltd., C2/KD2/8200/MKM
+> 8200 Warden Avenue
+> Markham, Ontario  L6G 1C7
+> W:905-413-3283 F:905-413-4839
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/ccdaec5a/attachment.html>
+
+From michaelw at ca.ibm.com  Thu Jan 17 22:35:18 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Thu, 17 Jan 2013 17:35:18 -0500
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+Message-ID: <OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+
+
+Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+
+> From:
+>
+> Lawrence Crowl <crowl at googlers.com>
+>
+> To:
+>
+> Michael Wong/Toronto/IBM at IBMCA
+>
+> Cc:
+>
+> cxx-abi-dev at codesourcery.com
+>
+> Date:
+>
+> 01/17/2013 04:50 PM
+>
+> Subject:
+>
+> Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+>
+> On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > Does the C++ Standard committee intend for the ODR to imply that
+lambdas
+> > need to have an ABI specified layout in order to deal with inline
+> > functions.
+>
+> I believe that we thought it was not an issue.
+>
+> >
+> > Consider the following with one object compiled with -DMAIN and another
+> > without:
+> > - in one case the layout needs to be compatible between different
+> > implementations since the static local is shared between translation
+units
+> >
+> > /data/a.o: In function `main':
+> > a.cpp:(.text+0x18): undefined reference to `bar()'
+> > collect2: error: ld returned 1 exit status
+> >
+> > - in the other case, the layout needs to be compatible between
+different
+> > implementations in order to satisfy the ODR requirement that the
+program
+> > behave as if there was only one definition of the inline function
+> >
+> > extern "C" int printf(const char *, ...);
+> > extern long gz;
+> >
+> > inline void foo() {
+> >    long x = 0, q = 0, &z = gz;
+> >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+> >
+> >    long a, b;
+> >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b <
+&a); };
+> >    f();
+> >    ff();
+> > }
+> >
+> > void bar();
+> >
+> > #if ! MAIN
+> > void bar() { foo(); }
+> > #else
+> > long gz;
+> > int main() {
+> >    foo();
+> >    bar();
+> >    foo();
+> >    return gz;
+> > }
+> > #endif
+>
+> And this code demonstrates that it is an issue.
+Agreed.
+
+>
+> Do you have a proposal?
+
+Probably 2 thoughts:
+1. Make a static in an inline a violation of the ODR rule in the C++ Std
+(add in suitable wording covering all uses with external linkage)or
+2. create an ABI binding in the C++ ABI such that all vendors follow the
+same behavior in this case
+
+I think I am OK with either solution.
+There may be other solutions I have not entertained yet ...
+
+>
+> >
+> > I apologize if this issue has been dealt with.
+> >
+> > Regards, Michael
+> >
+> > OpenMP CEO:
+> > http://openmp.org/wp/about-openmp/
+> > My Blogs:
+> > http://ibm.co/pCvPHR
+> > C++11 status:
+> > http://tinyurl.com/43y8xgf
+> > Boost test results
+> > http://www.ibm.com/support/docview.wss?
+> rs=2239&context=SSJT9L&uid=swg27006911
+> >
+> > C/C++ Compilers Support/Feature Request Page
+> > http://www.ibm.com/software/awdtools/ccompilers/support/
+> > http://www.ibm.com/support/docview.wss?uid=swg27005811
+> > STM:
+> > https://sites.google.com/site/tmforcplusplus/
+> >
+> > Director & Vice President ISOCPP.org
+> > Canada and IBM C++Standard HoD
+> > Chair of WG21 SG5 Transactional Memory
+> >
+> > XL C++ Compiler kernel Development
+> > IBM Canada Ltd., C2/KD2/8200/MKM
+> > 8200 Warden Avenue
+> > Markham, Ontario  L6G 1C7
+> > W:905-413-3283 F:905-413-4839
+>
+>
+> --
+> Lawrence Crowl
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/c3663c44/attachment-0001.html>
+
+From richardsmith at google.com  Fri Jan 18 00:12:25 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 17 Jan 2013 16:12:25 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+Message-ID: <CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+
+On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com> wrote:
+
+> Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+>
+> > From:
+> >
+> > Lawrence Crowl <crowl at googlers.com>
+> >
+> > To:
+> >
+> > Michael Wong/Toronto/IBM at IBMCA
+> >
+> > Cc:
+> >
+> > cxx-abi-dev at codesourcery.com
+> >
+> > Date:
+> >
+> > 01/17/2013 04:50 PM
+> >
+> > Subject:
+> >
+> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+> >
+> > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > > Does the C++ Standard committee intend for the ODR to imply that
+> lambdas
+> > > need to have an ABI specified layout in order to deal with inline
+> > > functions.
+> >
+> > I believe that we thought it was not an issue.
+>
+> >
+> > >
+> > > Consider the following with one object compiled with -DMAIN and another
+> > > without:
+> > > - in one case the layout needs to be compatible between different
+> > > implementations since the static local is shared between translation
+> units
+> > >
+> > > /data/a.o: In function `main':
+> > > a.cpp:(.text+0x18): undefined reference to `bar()'
+> > > collect2: error: ld returned 1 exit status
+> > >
+> > > - in the other case, the layout needs to be compatible between
+> different
+> > > implementations in order to satisfy the ODR requirement that the
+> program
+> > > behave as if there was only one definition of the inline function
+> > >
+> > > extern "C" int printf(const char *, ...);
+> > > extern long gz;
+> > >
+> > > inline void foo() {
+> > >    long x = 0, q = 0, &z = gz;
+> > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+> > >
+> > >    long a, b;
+> > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b <
+> &a); };
+> > >    f();
+> > >    ff();
+> > > }
+> > >
+> > > void bar();
+> > >
+> > > #if ! MAIN
+> > > void bar() { foo(); }
+> > > #else
+> > > long gz;
+> > > int main() {
+> > >    foo();
+> > >    bar();
+> > >    foo();
+> > >    return gz;
+> > > }
+> > > #endif
+> >
+> > And this code demonstrates that it is an issue.
+> Agreed.
+>
+> >
+> > Do you have a proposal?
+>
+> Probably 2 thoughts:
+> 1. Make a static in an inline a violation of the ODR rule in the C++ Std
+> (add in suitable wording covering all uses with external linkage)or
+> 2. create an ABI binding in the C++ ABI such that all vendors follow the
+> same behavior in this case
+>
+> I think I am OK with either solution.
+> There may be other solutions I have not entertained yet ...
+>
+
+For option 1, we would only need to disallow static local variables from
+having types involving local lambdas with captures, right? All the other
+problems I can think of would be handled by putting the lambda's symbols in
+a COMDAT with the containing function.
+
+
+> >
+> > >
+> > > I apologize if this issue has been dealt with.
+> > >
+> > > Regards, Michael
+> > >
+> > > OpenMP CEO:
+> > > http://openmp.org/wp/about-openmp/
+> > > My Blogs:
+> > > http://ibm.co/pCvPHR
+> > > C++11 status:
+> > > http://tinyurl.com/43y8xgf
+> > > Boost test results
+> > > http://www.ibm.com/support/docview.wss?
+> > rs=2239&context=SSJT9L&uid=swg27006911
+> > >
+> > > C/C++ Compilers Support/Feature Request Page
+> > > http://www.ibm.com/software/awdtools/ccompilers/support/
+> > > http://www.ibm.com/support/docview.wss?uid=swg27005811
+> > > STM:
+> > > https://sites.google.com/site/tmforcplusplus/
+> > >
+> > > Director & Vice President ISOCPP.org
+> > > Canada and IBM C++Standard HoD
+> > > Chair of WG21 SG5 Transactional Memory
+> > >
+> > > XL C++ Compiler kernel Development
+> > > IBM Canada Ltd., C2/KD2/8200/MKM
+> > > 8200 Warden Avenue
+> > > Markham, Ontario  L6G 1C7
+> > > W:905-413-3283 F:905-413-4839
+> >
+> >
+> > --
+> > Lawrence Crowl
+> >
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/50cedc44/attachment.html>
+
+From crowl at googlers.com  Thu Jan 17 21:50:52 2013
+From: crowl at googlers.com (Lawrence Crowl)
+Date: Thu, 17 Jan 2013 13:50:52 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+Message-ID: <CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+
+On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> Does the C++ Standard committee intend for the ODR to imply that lambdas
+> need to have an ABI specified layout in order to deal with inline
+> functions.
+
+I believe that we thought it was not an issue.
+
+>
+> Consider the following with one object compiled with -DMAIN and another
+> without:
+> - in one case the layout needs to be compatible between different
+> implementations since the static local is shared between translation units
+>
+> /data/a.o: In function `main':
+> a.cpp:(.text+0x18): undefined reference to `bar()'
+> collect2: error: ld returned 1 exit status
+>
+> - in the other case, the layout needs to be compatible between different
+> implementations in order to satisfy the ODR requirement that the program
+> behave as if there was only one definition of the inline function
+>
+> extern "C" int printf(const char *, ...);
+> extern long gz;
+>
+> inline void foo() {
+>    long x = 0, q = 0, &z = gz;
+>    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+>
+>    long a, b;
+>    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b < &a); };
+>    f();
+>    ff();
+> }
+>
+> void bar();
+>
+> #if ! MAIN
+> void bar() { foo(); }
+> #else
+> long gz;
+> int main() {
+>    foo();
+>    bar();
+>    foo();
+>    return gz;
+> }
+> #endif
+
+And this code demonstrates that it is an issue.
+
+Do you have a proposal?
+
+>
+> I apologize if this issue has been dealt with.
+>
+> Regards, Michael
+>
+> OpenMP CEO:
+> http://openmp.org/wp/about-openmp/
+> My Blogs:
+> http://ibm.co/pCvPHR
+> C++11 status:
+> http://tinyurl.com/43y8xgf
+> Boost test results
+> http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+>
+> C/C++ Compilers Support/Feature Request Page
+> http://www.ibm.com/software/awdtools/ccompilers/support/
+> http://www.ibm.com/support/docview.wss?uid=swg27005811
+> STM:
+> https://sites.google.com/site/tmforcplusplus/
+>
+> Director & Vice President ISOCPP.org
+> Canada and IBM C++Standard HoD
+> Chair of WG21 SG5 Transactional Memory
+>
+> XL C++ Compiler kernel Development
+> IBM Canada Ltd., C2/KD2/8200/MKM
+> 8200 Warden Avenue
+> Markham, Ontario  L6G 1C7
+> W:905-413-3283 F:905-413-4839
+
+
+-- 
+Lawrence Crowl
+
+From rjmccall at apple.com  Fri Jan 18 02:01:24 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 17 Jan 2013 18:01:24 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+Message-ID: <F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+
+On Jan 17, 2013, at 4:12 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com> wrote:
+> Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+> 
+> > From:
+> > 
+> > Lawrence Crowl <crowl at googlers.com>
+> > 
+> > To:
+> > 
+> > Michael Wong/Toronto/IBM at IBMCA
+> > 
+> > Cc:
+> > 
+> > cxx-abi-dev at codesourcery.com
+> > 
+> > Date:
+> > 
+> > 01/17/2013 04:50 PM
+> > 
+> > Subject:
+> > 
+> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+> 
+> > 
+> > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > > Does the C++ Standard committee intend for the ODR to imply that lambdas
+> > > need to have an ABI specified layout in order to deal with inline
+> > > functions.
+> > 
+> > I believe that we thought it was not an issue.
+> 
+> > 
+> > >
+> > > Consider the following with one object compiled with -DMAIN and another
+> > > without:
+> > > - in one case the layout needs to be compatible between different
+> > > implementations since the static local is shared between translation units
+> > >
+> > > /data/a.o: In function `main':
+> > > a.cpp:(.text+0x18): undefined reference to `bar()'
+> > > collect2: error: ld returned 1 exit status
+> > >
+> > > - in the other case, the layout needs to be compatible between different
+> > > implementations in order to satisfy the ODR requirement that the program
+> > > behave as if there was only one definition of the inline function
+> > >
+> > > extern "C" int printf(const char *, ...);
+> > > extern long gz;
+> > >
+> > > inline void foo() {
+> > >    long x = 0, q = 0, &z = gz;
+> > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+> > >
+> > >    long a, b;
+> > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b < &a); };
+> > >    f();
+> > >    ff();
+> > > }
+> > >
+> > > void bar();
+> > >
+> > > #if ! MAIN
+> > > void bar() { foo(); }
+> > > #else
+> > > long gz;
+> > > int main() {
+> > >    foo();
+> > >    bar();
+> > >    foo();
+> > >    return gz;
+> > > }
+> > > #endif
+> > 
+> > And this code demonstrates that it is an issue.
+> Agreed.
+> 
+> > 
+> > Do you have a proposal?
+> 
+> Probably 2 thoughts:
+> 1. Make a static in an inline a violation of the ODR rule in the C++ Std (add in suitable wording covering all uses with external linkage)or 
+> 2. create an ABI binding in the C++ ABI such that all vendors follow the same behavior in this case
+> 
+> I think I am OK with either solution.
+> There may be other solutions I have not entertained yet ...
+> 
+> For option 1, we would only need to disallow static local variables from having types involving local lambdas with captures, right? All the other problems I can think of would be handled by putting the lambda's symbols in a COMDAT with the containing function.
+
+We could also have problems with template specializations involving the lambda type, no?
+
+template <class T> InstanceCount {
+  static int count;
+};
+template <class T> int InstanceCount<T>::count = 0;
+
+inline void foo(int x) {
+  auto lambda = [=] { return x; };
+  InstanceCount<decltype(lambda)>::count++; // is this count consistent across translation units?
+}
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/95302ba9/attachment-0001.html>
+
+From richardsmith at google.com  Fri Jan 18 02:38:03 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 17 Jan 2013 18:38:03 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+Message-ID: <CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+
+On Thu, Jan 17, 2013 at 6:01 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 17, 2013, at 4:12 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com> wrote:
+>
+>> Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+>>
+>> > From:
+>> >
+>> > Lawrence Crowl <crowl at googlers.com>
+>> >
+>> > To:
+>> >
+>> > Michael Wong/Toronto/IBM at IBMCA
+>> >
+>> > Cc:
+>> >
+>> > cxx-abi-dev at codesourcery.com
+>> >
+>> > Date:
+>> >
+>> > 01/17/2013 04:50 PM
+>> >
+>> > Subject:
+>> >
+>> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+>> >
+>> > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+>> > > Does the C++ Standard committee intend for the ODR to imply that
+>> lambdas
+>> > > need to have an ABI specified layout in order to deal with inline
+>> > > functions.
+>> >
+>> > I believe that we thought it was not an issue.
+>>
+>> >
+>> > >
+>> > > Consider the following with one object compiled with -DMAIN and
+>> another
+>> > > without:
+>> > > - in one case the layout needs to be compatible between different
+>> > > implementations since the static local is shared between translation
+>> units
+>> > >
+>> > > /data/a.o: In function `main':
+>> > > a.cpp:(.text+0x18): undefined reference to `bar()'
+>> > > collect2: error: ld returned 1 exit status
+>> > >
+>> > > - in the other case, the layout needs to be compatible between
+>> different
+>> > > implementations in order to satisfy the ODR requirement that the
+>> program
+>> > > behave as if there was only one definition of the inline function
+>> > >
+>> > > extern "C" int printf(const char *, ...);
+>> > > extern long gz;
+>> > >
+>> > > inline void foo() {
+>> > >    long x = 0, q = 0, &z = gz;
+>> > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+>> > >
+>> > >    long a, b;
+>> > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b <
+>> &a); };
+>> > >    f();
+>> > >    ff();
+>> > > }
+>> > >
+>> > > void bar();
+>> > >
+>> > > #if ! MAIN
+>> > > void bar() { foo(); }
+>> > > #else
+>> > > long gz;
+>> > > int main() {
+>> > >    foo();
+>> > >    bar();
+>> > >    foo();
+>> > >    return gz;
+>> > > }
+>> > > #endif
+>> >
+>> > And this code demonstrates that it is an issue.
+>> Agreed.
+>>
+>> >
+>> > Do you have a proposal?
+>>
+>> Probably 2 thoughts:
+>> 1. Make a static in an inline a violation of the ODR rule in the C++ Std
+>> (add in suitable wording covering all uses with external linkage)or
+>> 2. create an ABI binding in the C++ ABI such that all vendors follow the
+>> same behavior in this case
+>>
+>> I think I am OK with either solution.
+>> There may be other solutions I have not entertained yet ...
+>
+>
+> For option 1, we would only need to disallow static local variables from
+> having types involving local lambdas with captures, right? All the other
+> problems I can think of would be handled by putting the lambda's symbols in
+> a COMDAT with the containing function.
+>
+>
+> We could also have problems with template specializations involving the
+> lambda type, no?
+>
+> template <class T> InstanceCount {
+>   static int count;
+> };
+> template <class T> int InstanceCount<T>::count = 0;
+>
+> inline void foo(int x) {
+>   auto lambda = [=] { return x; };
+>   InstanceCount<decltype(lambda)>::count++; // is this count consistent
+> across translation units?
+> }
+>
+
+That's OK; it just needs the mangling of the lambda's type.
+
+This case seems more problematic:
+
+void *p;
+inline void f(int a, int b) {
+  auto lambda = [=] { return a + b; };
+  if (p)
+    (*reinterpret_cast<decltype(lambda)*>(p))();
+  else
+    p = new auto(lambda);
+}
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/813568dd/attachment.html>
+
+From rjmccall at apple.com  Fri Jan 18 07:52:52 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 17 Jan 2013 23:52:52 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+	<CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+Message-ID: <04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+
+On Jan 17, 2013, at 6:38 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, Jan 17, 2013 at 6:01 PM, John McCall <rjmccall at apple.com> wrote:
+> On Jan 17, 2013, at 4:12 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com> wrote:
+>> Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+>> 
+>> > From:
+>> > 
+>> > Lawrence Crowl <crowl at googlers.com>
+>> > 
+>> > To:
+>> > 
+>> > Michael Wong/Toronto/IBM at IBMCA
+>> > 
+>> > Cc:
+>> > 
+>> > cxx-abi-dev at codesourcery.com
+>> > 
+>> > Date:
+>> > 
+>> > 01/17/2013 04:50 PM
+>> > 
+>> > Subject:
+>> > 
+>> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+>> 
+>> > 
+>> > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+>> > > Does the C++ Standard committee intend for the ODR to imply that lambdas
+>> > > need to have an ABI specified layout in order to deal with inline
+>> > > functions.
+>> > 
+>> > I believe that we thought it was not an issue.
+>> 
+>> > 
+>> > >
+>> > > Consider the following with one object compiled with -DMAIN and another
+>> > > without:
+>> > > - in one case the layout needs to be compatible between different
+>> > > implementations since the static local is shared between translation units
+>> > >
+>> > > /data/a.o: In function `main':
+>> > > a.cpp:(.text+0x18): undefined reference to `bar()'
+>> > > collect2: error: ld returned 1 exit status
+>> > >
+>> > > - in the other case, the layout needs to be compatible between different
+>> > > implementations in order to satisfy the ODR requirement that the program
+>> > > behave as if there was only one definition of the inline function
+>> > >
+>> > > extern "C" int printf(const char *, ...);
+>> > > extern long gz;
+>> > >
+>> > > inline void foo() {
+>> > >    long x = 0, q = 0, &z = gz;
+>> > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+>> > >
+>> > >    long a, b;
+>> > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n", &b < &a); };
+>> > >    f();
+>> > >    ff();
+>> > > }
+>> > >
+>> > > void bar();
+>> > >
+>> > > #if ! MAIN
+>> > > void bar() { foo(); }
+>> > > #else
+>> > > long gz;
+>> > > int main() {
+>> > >    foo();
+>> > >    bar();
+>> > >    foo();
+>> > >    return gz;
+>> > > }
+>> > > #endif
+>> > 
+>> > And this code demonstrates that it is an issue.
+>> Agreed.
+>> 
+>> > 
+>> > Do you have a proposal?
+>> 
+>> Probably 2 thoughts:
+>> 1. Make a static in an inline a violation of the ODR rule in the C++ Std (add in suitable wording covering all uses with external linkage)or 
+>> 2. create an ABI binding in the C++ ABI such that all vendors follow the same behavior in this case
+>> 
+>> I think I am OK with either solution.
+>> There may be other solutions I have not entertained yet ...
+>> 
+>> For option 1, we would only need to disallow static local variables from having types involving local lambdas with captures, right? All the other problems I can think of would be handled by putting the lambda's symbols in a COMDAT with the containing function.
+> 
+> We could also have problems with template specializations involving the lambda type, no?
+> 
+> template <class T> InstanceCount {
+>   static int count;
+> };
+> template <class T> int InstanceCount<T>::count = 0;
+> 
+> inline void foo(int x) {
+>   auto lambda = [=] { return x; };
+>   InstanceCount<decltype(lambda)>::count++; // is this count consistent across translation units?
+> }
+> 
+> That's OK; it just needs the mangling of the lambda's type.
+> 
+> This case seems more problematic:
+> 
+> void *p;
+> inline void f(int a, int b) {
+>   auto lambda = [=] { return a + b; };
+>   if (p)
+>     (*reinterpret_cast<decltype(lambda)*>(p))();
+>   else
+>     p = new auto(lambda);
+> }
+
+Right, sorry, I assumed it would be taken as given that a template
+specialization could do something that actually relied on the layout
+of the lambda type.
+
+Basically, different translation units either agree that the lambda type
+is the same or they don't.  If they don't, my example breaks.  If they do,
+then (almost) any template specialization used which involves that
+type or properties thereof (char_buffer<sizeof(lambda)>!  Enjoy
+reasoning about that!) becomes an ODR violation if the translation
+units disagree.
+
+Normally, in a situation like this, I would say that the right thing to do
+is to make strong guarantees but liberally exploit as-if.  Unfortunately,
+as-if reasoning about lambda types is probably infeasible for nearly
+every interesting use case.  By design, the feature just bleeds the
+lambda type onto everything;  it escapes in ways that would be challenging
+to limit.  Those few library features (like std::function) that do erase the
+lambda type necessarily use things like polymorphic classes that are
+quite challenging to reason about.  We'd likely end up just white-listing
+those templates, maybe with an attribute.
+
+I see three options:
+
+1.  Guarantee the layout of lambdas in functions with weak linkage.
+We'd still be able to optimize all other lambdas, so this isn't really that
+bad;  it's just a bit disappointing for us compiler hackers and (a subset
+of) our users.
+
+2.  Ban lambdas in functions with weak linkage, similar to how C bans
+static variables in (C's definition of) inline functions.  Of course, "weak
+linkage" is not a concept in the standard, and you'd have to formalize
+that quite carefully to avoid sweeping up a ton of interesting cases
+involving anonymous namespaces.  And, of course, this would mean
+banning a bunch of code that doesn't actually run afoul of this.
+
+3.  Give lambdas internal linkage by fiat and hack the ODR to make
+that work out.  I imagine this rule would come across like "lambdas in
+inline functions will behave like they have different types in different
+translation units, and that's not a formal ODR violation, but if it affects
+the semantics of your program, tough cookies."
+
+I tend to favor #3, but I'll admit to not having really considered the
+consequences.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130117/429a5095/attachment-0001.html>
+
+From michaelw at ca.ibm.com  Fri Jan 18 18:36:46 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Fri, 18 Jan 2013 13:36:46 -0500
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+	<CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+	<04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+Message-ID: <OF4982D498.4E28C28E-ON85257AF7.0065BF01-85257AF7.00663F42@ca.ibm.com>
+
+
+John McCall <rjmccall at apple.com> wrote on 01/18/2013 02:52:52 AM:
+
+> From:
+>
+> John McCall <rjmccall at apple.com>
+>
+> To:
+>
+> Richard Smith <richardsmith at google.com>
+>
+> Cc:
+>
+> Michael Wong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com" <cxx-
+> abi-dev at codesourcery.com>, Lawrence Crowl <crowl at googlers.com>
+>
+> Date:
+>
+> 01/18/2013 02:52 AM
+>
+> Subject:
+>
+> Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+>
+> On Jan 17, 2013, at 6:38 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> On Thu, Jan 17, 2013 at 6:01 PM, John McCall <rjmccall at apple.com> wrote:
+> On Jan 17, 2013, at 4:12 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com>
+wrote:
+> Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+>
+> > From:
+> >
+> > Lawrence Crowl <crowl at googlers.com>
+> >
+> > To:
+> >
+> > Michael Wong/Toronto/IBM at IBMCA
+> >
+> > Cc:
+> >
+> > cxx-abi-dev at codesourcery.com
+> >
+> > Date:
+> >
+> > 01/17/2013 04:50 PM
+> >
+> > Subject:
+> >
+> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+> >
+> > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > > Does the C++ Standard committee intend for the ODR to imply that
+lambdas
+> > > need to have an ABI specified layout in order to deal with inline
+> > > functions.
+> >
+> > I believe that we thought it was not an issue.
+>
+> >
+> > >
+> > > Consider the following with one object compiled with -DMAIN and
+another
+> > > without:
+> > > - in one case the layout needs to be compatible between different
+> > > implementations since the static local is shared between translation
+units
+> > >
+> > > /data/a.o: In function `main':
+> > > a.cpp:(.text+0x18): undefined reference to `bar()'
+> > > collect2: error: ld returned 1 exit status
+> > >
+> > > - in the other case, the layout needs to be compatible between
+different
+> > > implementations in order to satisfy the ODR requirement that the
+program
+> > > behave as if there was only one definition of the inline function
+> > >
+> > > extern "C" int printf(const char *, ...);
+> > > extern long gz;
+> > >
+> > > inline void foo() {
+> > >    long x = 0, q = 0, &z = gz;
+> > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+> > >
+> > >    long a, b;
+> > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n",
+> &b < &a); };
+> > >    f();
+> > >    ff();
+> > > }
+> > >
+> > > void bar();
+> > >
+> > > #if ! MAIN
+> > > void bar() { foo(); }
+> > > #else
+> > > long gz;
+> > > int main() {
+> > >    foo();
+> > >    bar();
+> > >    foo();
+> > >    return gz;
+> > > }
+> > > #endif
+> >
+> > And this code demonstrates that it is an issue.
+> Agreed.
+>
+> >
+> > Do you have a proposal?
+>
+> Probably 2 thoughts:
+> 1. Make a static in an inline a violation of the ODR rule in the C++
+> Std (add in suitable wording covering all uses with external linkage)or
+> 2. create an ABI binding in the C++ ABI such that all vendors follow
+> the same behavior in this case
+>
+> I think I am OK with either solution.
+> There may be other solutions I have not entertained yet ...
+>
+> For option 1, we would only need to disallow static local variables
+> from having types involving local lambdas with captures, right? All
+> the other problems I can think of would be handled by putting the
+> lambda's symbols in a COMDAT with the containing function.
+>
+> We could also have problems with template specializations involving
+> the lambda type, no?
+>
+> template <class T> InstanceCount {
+>   static int count;
+> };
+> template <class T> int InstanceCount<T>::count = 0;
+>
+> inline void foo(int x) {
+>   auto lambda = [=] { return x; };
+>   InstanceCount<decltype(lambda)>::count++; // is this count
+> consistent across translation units?
+> }
+>
+> That's OK; it just needs the mangling of the lambda's type.
+Banning ODR wil lalso fix this case, I think, not that I am saying we
+should do that.
+
+>
+> This case seems more problematic:
+>
+> void *p;
+> inline void f(int a, int b) {
+>   auto lambda = [=] { return a + b; };
+>   if (p)
+>     (*reinterpret_cast<decltype(lambda)*>(p))();
+>   else
+>     p = new auto(lambda);
+> }
+>
+Banning ODR fixes this one too.
+
+> Right, sorry, I assumed it would be taken as given that a template
+> specialization could do something that actually relied on the layout
+> of the lambda type.
+>
+> Basically, different translation units either agree that the lambda type
+> is the same or they don't.  If they don't, my example breaks.  If they
+do,
+> then (almost) any template specialization used which involves that
+> type or properties thereof (char_buffer<sizeof(lambda)>!  Enjoy
+> reasoning about that!) becomes an ODR violation if the translation
+> units disagree.
+>
+> Normally, in a situation like this, I would say that the right thing to
+do
+> is to make strong guarantees but liberally exploit as-if.  Unfortunately,
+> as-if reasoning about lambda types is probably infeasible for nearly
+> every interesting use case.  By design, the feature just bleeds the
+> lambda type onto everything;  it escapes in ways that would be
+challenging
+> to limit.  Those few library features (like std::function) that do erase
+the
+> lambda type necessarily use things like polymorphic classes that are
+> quite challenging to reason about.  We'd likely end up just white-listing
+> those templates, maybe with an attribute.
+>
+> I see three options:
+>
+> 1.  Guarantee the layout of lambdas in functions with weak linkage.
+> We'd still be able to optimize all other lambdas, so this isn't really
+that
+> bad;  it's just a bit disappointing for us compiler hackers and (a subset
+> of) our users.
+>
+> 2.  Ban lambdas in functions with weak linkage, similar to how C bans
+> static variables in (C's definition of) inline functions.  Of course,
+"weak
+> linkage" is not a concept in the standard, and you'd have to formalize
+> that quite carefully to avoid sweeping up a ton of interesting cases
+> involving anonymous namespaces.  And, of course, this would mean
+> banning a bunch of code that doesn't actually run afoul of this.
+>
+> 3.  Give lambdas internal linkage by fiat and hack the ODR to make
+> that work out.  I imagine this rule would come across like "lambdas in
+> inline functions will behave like they have different types in different
+> translation units, and that's not a formal ODR violation, but if it
+affects
+> the semantics of your program, tough cookies."
+
+#3 matches our suggestion for the fix exactly.
+
+>
+> I tend to favor #3, but I'll admit to not having really considered the
+> consequences.
+>
+> John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130118/3d1eea9a/attachment.html>
+
+From michaelw at ca.ibm.com  Fri Jan 18 18:51:17 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Fri, 18 Jan 2013 13:51:17 -0500
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <OF4982D498.4E28C28E-ON85257AF7.0065BF01-85257AF7.00663F42@ca.ibm.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>	<CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+	<04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+	<OF4982D498.4E28C28E-ON85257AF7.0065BF01-85257AF7.00663F42@ca.ibm.com>
+Message-ID: <OFDC9BD40A.69F5D77C-ON85257AF7.00675FFB-85257AF7.0067936F@ca.ibm.com>
+
+I should explain a little more my motivation for supporting #3. I think #1
+would require significant ABI committee work and #2 would require
+significant Standard committee (and implementation) work.
+
+cxx-abi-dev-bounces at codesourcery.com wrote on 01/18/2013 01:36:46 PM:
+
+> From:
+>
+> Michael Wong/Toronto/IBM at IBMCA
+>
+> To:
+>
+> John McCall <rjmccall at apple.com>
+>
+> Cc:
+>
+> "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>,
+> Lawrence Crowl <crowl at googlers.com>, Richard Smith
+<richardsmith at google.com>
+>
+> Date:
+>
+> 01/18/2013 01:38 PM
+>
+> Subject:
+>
+> Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+>
+> Sent by:
+>
+> cxx-abi-dev-bounces at codesourcery.com
+>
+> John McCall <rjmccall at apple.com> wrote on 01/18/2013 02:52:52 AM:
+>
+> > From:
+> >
+> > John McCall <rjmccall at apple.com>
+> >
+> > To:
+> >
+> > Richard Smith <richardsmith at google.com>
+> >
+> > Cc:
+> >
+> > Michael Wong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com" <cxx-
+> > abi-dev at codesourcery.com>, Lawrence Crowl <crowl at googlers.com>
+> >
+> > Date:
+> >
+> > 01/18/2013 02:52 AM
+> >
+> > Subject:
+> >
+> > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+> >
+> > On Jan 17, 2013, at 6:38 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> > On Thu, Jan 17, 2013 at 6:01 PM, John McCall <rjmccall at apple.com>
+wrote:
+> > On Jan 17, 2013, at 4:12 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> > On Thu, Jan 17, 2013 at 2:35 PM, Michael Wong <michaelw at ca.ibm.com>
+wrote:
+> > Lawrence Crowl <crowl at googlers.com> wrote on 01/17/2013 04:50:52 PM:
+> >
+> > > From:
+> > >
+> > > Lawrence Crowl <crowl at googlers.com>
+> > >
+> > > To:
+> > >
+> > > Michael Wong/Toronto/IBM at IBMCA
+> > >
+> > > Cc:
+> > >
+> > > cxx-abi-dev at codesourcery.com
+> > >
+> > > Date:
+> > >
+> > > 01/17/2013 04:50 PM
+> > >
+> > > Subject:
+> > >
+> > > Re: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+> > >
+> > > On 1/16/13, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > > > Does the C++ Standard committee intend for the ODR to imply that
+lambdas
+> > > > need to have an ABI specified layout in order to deal with inline
+> > > > functions.
+> > >
+> > > I believe that we thought it was not an issue.
+> >
+> > >
+> > > >
+> > > > Consider the following with one object compiled with -DMAIN and
+another
+> > > > without:
+> > > > - in one case the layout needs to be compatible between different
+> > > > implementations since the static local is shared between
+> translation units
+> > > >
+> > > > /data/a.o: In function `main':
+> > > > a.cpp:(.text+0x18): undefined reference to `bar()'
+> > > > collect2: error: ld returned 1 exit status
+> > > >
+> > > > - in the other case, the layout needs to be compatible
+betweendifferent
+> > > > implementations in order to satisfy the ODR requirement that the
+program
+> > > > behave as if there was only one definition of the inline function
+> > > >
+> > > > extern "C" int printf(const char *, ...);
+> > > > extern long gz;
+> > > >
+> > > > inline void foo() {
+> > > >    long x = 0, q = 0, &z = gz;
+> > > >    static auto f = [=, &z]() mutable { q += ++x; gz = q + x; };
+> > > >
+> > > >    long a, b;
+> > > >    auto ff = [=]{ sizeof(a /*not an odr-use*/), printf("%u\n",
+> > &b < &a); };
+> > > >    f();
+> > > >    ff();
+> > > > }
+> > > >
+> > > > void bar();
+> > > >
+> > > > #if ! MAIN
+> > > > void bar() { foo(); }
+> > > > #else
+> > > > long gz;
+> > > > int main() {
+> > > >    foo();
+> > > >    bar();
+> > > >    foo();
+> > > >    return gz;
+> > > > }
+> > > > #endif
+> > >
+> > > And this code demonstrates that it is an issue.
+> > Agreed.
+> >
+> > >
+> > > Do you have a proposal?
+> >
+> > Probably 2 thoughts:
+> > 1. Make a static in an inline a violation of the ODR rule in the C++
+> > Std (add in suitable wording covering all uses with external linkage)or
+
+> > 2. create an ABI binding in the C++ ABI such that all vendors follow
+> > the same behavior in this case
+> >
+> > I think I am OK with either solution.
+> > There may be other solutions I have not entertained yet ...
+> >
+> > For option 1, we would only need to disallow static local variables
+> > from having types involving local lambdas with captures, right? All
+> > the other problems I can think of would be handled by putting the
+> > lambda's symbols in a COMDAT with the containing function.
+> >
+> > We could also have problems with template specializations involving
+> > the lambda type, no?
+> >
+> > template <class T> InstanceCount {
+> >   static int count;
+> > };
+> > template <class T> int InstanceCount<T>::count = 0;
+> >
+> > inline void foo(int x) {
+> >   auto lambda = [=] { return x; };
+> >   InstanceCount<decltype(lambda)>::count++; // is this count
+> > consistent across translation units?
+> > }
+> >
+> > That's OK; it just needs the mangling of the lambda's type.
+> Banning ODR wil lalso fix this case, I think, not that I am saying
+> we should do that.
+>
+> >
+> > This case seems more problematic:
+> >
+> > void *p;
+> > inline void f(int a, int b) {
+> >   auto lambda = [=] { return a + b; };
+> >   if (p)
+> >     (*reinterpret_cast<decltype(lambda)*>(p))();
+> >   else
+> >     p = new auto(lambda);
+> > }
+> >
+> Banning ODR fixes this one too.
+>
+> > Right, sorry, I assumed it would be taken as given that a template
+> > specialization could do something that actually relied on the layout
+> > of the lambda type.
+> >
+> > Basically, different translation units either agree that the lambda
+type
+> > is the same or they don't.  If they don't, my example breaks.  If they
+do,
+> > then (almost) any template specialization used which involves that
+> > type or properties thereof (char_buffer<sizeof(lambda)>!  Enjoy
+> > reasoning about that!) becomes an ODR violation if the translation
+> > units disagree.
+> >
+> > Normally, in a situation like this, I would say that the right thing to
+do
+> > is to make strong guarantees but liberally exploit as-if.
+Unfortunately,
+> > as-if reasoning about lambda types is probably infeasible for nearly
+> > every interesting use case.  By design, the feature just bleeds the
+> > lambda type onto everything;  it escapes in ways that would be
+challenging
+> > to limit.  Those few library features (like std::function) that doerase
+the
+> > lambda type necessarily use things like polymorphic classes that are
+> > quite challenging to reason about.  We'd likely end up just
+white-listing
+> > those templates, maybe with an attribute.
+> >
+> > I see three options:
+> >
+> > 1.  Guarantee the layout of lambdas in functions with weak linkage.
+> > We'd still be able to optimize all other lambdas, so this isn't really
+that
+> > bad;  it's just a bit disappointing for us compiler hackers and (a
+subset
+> > of) our users.
+> >
+> > 2.  Ban lambdas in functions with weak linkage, similar to how C bans
+> > static variables in (C's definition of) inline functions.  Of course,
+"weak
+> > linkage" is not a concept in the standard, and you'd have to formalize
+> > that quite carefully to avoid sweeping up a ton of interesting cases
+> > involving anonymous namespaces.  And, of course, this would mean
+> > banning a bunch of code that doesn't actually run afoul of this.
+> >
+> > 3.  Give lambdas internal linkage by fiat and hack the ODR to make
+> > that work out.  I imagine this rule would come across like "lambdas in
+> > inline functions will behave like they have different types in
+different
+> > translation units, and that's not a formal ODR violation, but if it
+affects
+> > the semantics of your program, tough cookies."
+>
+> #3 matches our suggestion for the fix exactly.
+>
+> >
+> > I tend to favor #3, but I'll admit to not having really considered the
+> > consequences.
+> >
+> > John._______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130118/1f9ed634/attachment-0001.html>
+
+From rjmccall at apple.com  Fri Jan 18 19:05:29 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 18 Jan 2013 11:05:29 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <OFDC9BD40A.69F5D77C-ON85257AF7.00675FFB-85257AF7.0067936F@ca.ibm.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+	<CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+	<04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+	<OF4982D498.4E28C28E-ON85257AF7.0065BF01-85257AF7.00663F42@ca.ibm.com>
+	<OFDC9BD40A.69F5D77C-ON85257AF7.00675FFB-85257AF7.0067936F@ca.ibm.com>
+Message-ID: <C4128C75-CFE0-4313-94E5-192D6A1E7230@apple.com>
+
+On Jan 18, 2013, at 10:51 AM, Michael Wong <michaelw at ca.ibm.com> wrote:
+> I should explain a little more my motivation for supporting #3. I think #1 would require significant ABI committee work and #2 would require significant Standard committee (and implementation) work.
+
+That it might require us to do a modest amount of work isn't really a compelling
+reason to oppose a proposal.  The good reason to oppose proposal #2 (banning
+lambdas in weak-linkage functions) is that it takes away functionality for very
+obscure reasons, and the good reason to oppose proposal #1 (guaranteeing a
+layout) is that it's a potentially significant performance restriction imposed for,
+again, fairly obscure reasons.
+
+Reasons to oppose #3 (internal linkage) include a) that it introduces a new
+source of undefined behavior and b) that it somewhat complicates the language
+design of the feature, albeit in a way that feels fairly natural given the anonymity
+of the type.  I'm comfortable with both of these, but we should admit them.
+
+John.
+
+From crowl at googlers.com  Fri Jan 18 21:56:17 2013
+From: crowl at googlers.com (Lawrence Crowl)
+Date: Fri, 18 Jan 2013 13:56:17 -0800
+Subject: [cxx-abi-dev] lambda ABI inline function ODR compatibility issue
+In-Reply-To: <C4128C75-CFE0-4313-94E5-192D6A1E7230@apple.com>
+References: <OFFE3EB4B3.2DAFBE3A-ON85257AF5.005A9D7D-85257AF5.005B0A3E@ca.ibm.com>
+	<CAGqM8fZkVFA-FjC+JpKkg78ta9PnYjfZhgK8u7g5hmmtCUaYxw@mail.gmail.com>
+	<OF3A956D3D.F7FB5C63-ON85257AF6.007BDB9F-85257AF6.007C15D2@ca.ibm.com>
+	<CAGL0aWc_L7yt=DdKd98qtGFmzTA-FD82+Mz2g9xc28Jqp+NP0w@mail.gmail.com>
+	<F804BE6F-F671-44B5-82D8-7DFF680E5686@apple.com>
+	<CAGL0aWd726i_zZ4FwV6zb4YYAUGnHfcN6ejA=+1yTuBM2+FODw@mail.gmail.com>
+	<04ED8AFD-4D5E-41A5-8FFB-73261A075670@apple.com>
+	<OF4982D498.4E28C28E-ON85257AF7.0065BF01-85257AF7.00663F42@ca.ibm.com>
+	<OFDC9BD40A.69F5D77C-ON85257AF7.00675FFB-85257AF7.0067936F@ca.ibm.com>
+	<C4128C75-CFE0-4313-94E5-192D6A1E7230@apple.com>
+Message-ID: <CAGqM8fbx5H2Gk1e9xMitgY9gPv_aw-GAfQCLV8VWOvrTvnaoRQ@mail.gmail.com>
+
+On 1/18/13, John McCall <rjmccall at apple.com> wrote:
+> On Jan 18, 2013, at 10:51 AM, Michael Wong <michaelw at ca.ibm.com> wrote:
+> > I should explain a little more my motivation for supporting
+> > #3. I think #1 would require significant ABI committee work
+> > and #2 would require significant Standard committee (and
+> > implementation) work.
+>
+> That it might require us to do a modest amount of work isn't
+> really a compelling reason to oppose a proposal.  The good reason
+> to oppose proposal #2 (banning lambdas in weak-linkage functions)
+> is that it takes away functionality for very obscure reasons,
+> and the good reason to oppose proposal #1 (guaranteeing a layout)
+> is that it's a potentially significant performance restriction
+> imposed for, again, fairly obscure reasons.
+
+Another reason to oppose #2 is that in a template context, you don't
+know if the call is a lambda, and hence #2 imposes a restrictions
+on many template definitions because of a few potential instances.
+
+> Reasons to oppose #3 (internal linkage) include a) that it
+> introduces a new source of undefined behavior and b) that it
+> somewhat complicates the language design of the feature, albeit in
+> a way that feels fairly natural given the anonymity of the type.
+> I'm comfortable with both of these, but we should admit them.
+
+-- 
+Lawrence Crowl
+

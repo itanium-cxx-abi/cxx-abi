@@ -1,0 +1,57 @@
+<tt>
+&lt;div&nbsp;dir=&quot;ltr&quot;&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;On&nbsp;21&nbsp;July&nbsp;2016&nbsp;at&nbsp;13:20,&nbsp;Jason&nbsp;Merrill&nbsp;&lt;span&nbsp;dir=&quot;ltr&quot;&gt;&lt;&lt;a&nbsp;href=&quot;mailto:jason@redhat.com&quot;&nbsp;target=&quot;_blank&quot;&gt;jason@redhat.com&lt;/a&gt;&gt;&lt;/span&gt;&nbsp;wrote:&lt;br&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;&lt;span&nbsp;class=&quot;&quot;&gt;On&nbsp;Thu,&nbsp;Jul&nbsp;21,&nbsp;2016&nbsp;at&nbsp;2:45&nbsp;PM,&nbsp;Richard&nbsp;Smith&lt;br&gt;<br>
+&lt;&lt;a&nbsp;href=&quot;mailto:richardsmith@googlers.com&quot;&gt;richardsmith@googlers.com&lt;/a&gt;&gt;&nbsp;wrote:&lt;br&gt;<br>
+&gt;&nbsp;On&nbsp;21&nbsp;July&nbsp;2016&nbsp;at&nbsp;11:02,&nbsp;Jason&nbsp;Merrill&nbsp;&lt;&lt;a&nbsp;href=&quot;mailto:jason@redhat.com&quot;&gt;jason@redhat.com&lt;/a&gt;&gt;&nbsp;wrote:&lt;br&gt;<br>
+&gt;&gt;&lt;br&gt;<br>
+&gt;&gt;&nbsp;P0135&nbsp;seems&nbsp;to&nbsp;require&nbsp;that&nbsp;we&nbsp;elide&nbsp;the&nbsp;copy&nbsp;when&nbsp;using&nbsp;the&nbsp;result&nbsp;of&lt;br&gt;<br>
+&gt;&gt;&nbsp;a&nbsp;function&nbsp;returning&nbsp;by&nbsp;value&nbsp;to&nbsp;initialize&nbsp;a&nbsp;base&nbsp;class&nbsp;subobject,&lt;br&gt;<br>
+&gt;&gt;&nbsp;but&nbsp;the&nbsp;ABI&nbsp;doesn&#39;t&nbsp;currently&nbsp;require&nbsp;that&nbsp;such&nbsp;a&nbsp;function&nbsp;avoid&lt;br&gt;<br>
+&gt;&gt;&nbsp;clobbering&nbsp;tail&nbsp;padding&nbsp;when&nbsp;initializing&nbsp;its&nbsp;return&nbsp;object.&lt;br&gt;<br>
+&gt;&gt;&nbsp;Thoughts?&lt;br&gt;<br>
+&gt;&lt;br&gt;<br>
+&gt;&nbsp;If&nbsp;the&nbsp;function&nbsp;clobbers&nbsp;the&nbsp;tail&nbsp;padding&nbsp;of&nbsp;its&nbsp;return&nbsp;object,&nbsp;at&nbsp;least&nbsp;GCC&lt;br&gt;<br>
+&gt;&nbsp;and&nbsp;Clang&nbsp;will&nbsp;miscompile&nbsp;the&nbsp;program&nbsp;today,&nbsp;without&nbsp;P0135:&lt;br&gt;<br>
+&gt;&lt;br&gt;<br>
+&gt;&nbsp;#include&nbsp;&lt;string.h&gt;&lt;br&gt;<br>
+&gt;&nbsp;struct&nbsp;X&nbsp;{&nbsp;~X()&nbsp;{}&nbsp;int&nbsp;n;&nbsp;char&nbsp;d;&nbsp;};&lt;br&gt;<br>
+&gt;&nbsp;struct&nbsp;Y&nbsp;{&nbsp;Y();&nbsp;char&nbsp;c[3];&nbsp;};&lt;br&gt;<br>
+&gt;&nbsp;struct&nbsp;Z&nbsp;:&nbsp;X,&nbsp;virtual&nbsp;Y&nbsp;{&nbsp;Z();&nbsp;};&lt;br&gt;<br>
+&gt;&lt;br&gt;<br>
+&gt;&nbsp;X&nbsp;f()&nbsp;{&nbsp;X&nbsp;nrvo;&nbsp;memset(&amp;nrvo,&nbsp;0,&nbsp;sizeof(X));&nbsp;return&nbsp;nrvo;&nbsp;}&lt;br&gt;<br>
+&gt;&nbsp;Z::Z()&nbsp;:&nbsp;Y(),&nbsp;X(f())&nbsp;{}&lt;br&gt;<br>
+&gt;&nbsp;Y::Y()&nbsp;:&nbsp;c{1,&nbsp;2,&nbsp;3}&nbsp;{}&lt;br&gt;<br>
+&gt;&lt;br&gt;<br>
+&gt;&nbsp;int&nbsp;main()&nbsp;{&lt;br&gt;<br>
+&gt; &nbsp; Z&nbsp;z;&lt;br&gt;<br>
+&gt; &nbsp; return&nbsp;z.c[0];&lt;br&gt;<br>
+&gt;&nbsp;}&lt;br&gt;<br>
+&gt;&lt;br&gt;<br>
+&gt;&nbsp;GCC&nbsp;-O0&nbsp;returns&nbsp;1&nbsp;from&nbsp;main,&nbsp;as&nbsp;it&nbsp;should.&nbsp;GCC&nbsp;-O2&nbsp;and&nbsp;Clang&nbsp;(any&lt;br&gt;<br>
+&gt;&nbsp;optimization&nbsp;level,&nbsp;even&nbsp;with&nbsp;-fno-elide-constructors)&nbsp;returns&nbsp;0.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Thanks&nbsp;for&nbsp;the&nbsp;testcase.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;(It&nbsp;looks&nbsp;like&nbsp;Clang&nbsp;gets&nbsp;this&nbsp;&quot;wrong&quot;&nbsp;in&nbsp;two&nbsp;ways:&nbsp;first,&nbsp;NRVO&nbsp;is&nbsp;apprently&lt;br&gt;<br>
+&gt;&nbsp;never&nbsp;correct&nbsp;on&nbsp;a&nbsp;type&nbsp;whose&nbsp;tail&nbsp;padding&nbsp;could&nbsp;be&nbsp;reused&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Hmm,&nbsp;I&nbsp;was&nbsp;thinking&nbsp;that&nbsp;the&nbsp;NRVO&nbsp;was&nbsp;fine,&nbsp;but&nbsp;the&nbsp;caller&nbsp;shouldn&#39;t&lt;br&gt;<br>
+elide&nbsp;the&nbsp;copy&nbsp;because&nbsp;the&nbsp;function&nbsp;might&nbsp;clobber&nbsp;tail&nbsp;padding. &nbsp;But&lt;br&gt;<br>
+that&nbsp;gets&nbsp;back&nbsp;to&nbsp;my&nbsp;initial&nbsp;question,&nbsp;since&nbsp;P0135&nbsp;requires&nbsp;that&lt;br&gt;<br>
+elision. &nbsp;Avoiding&nbsp;NRVO&nbsp;here&nbsp;doesn&#39;t&nbsp;conflict&nbsp;with&nbsp;P0135,&nbsp;but&nbsp;it&nbsp;does&lt;br&gt;<br>
+create&nbsp;a&nbsp;new&nbsp;ABI&nbsp;requirement&nbsp;that&nbsp;existing&nbsp;code&nbsp;might&nbsp;violate.&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Given&nbsp;John&#39;s&nbsp;observation&nbsp;that&nbsp;P0135&nbsp;can&#39;t&nbsp;even&nbsp;work&nbsp;in&nbsp;theory&nbsp;for&nbsp;the&nbsp;case&nbsp;of&nbsp;a&nbsp;base&nbsp;class&nbsp;with&nbsp;virtual&nbsp;bases,&nbsp;it&nbsp;seems&nbsp;like&nbsp;disabling&nbsp;P0135&nbsp;for&nbsp;the&nbsp;case&nbsp;of&nbsp;initializing&nbsp;a&nbsp;base&nbsp;class&nbsp;of&nbsp;a&nbsp;class&nbsp;with&nbsp;vbases&nbsp;may&nbsp;be&nbsp;the&nbsp;simplest&nbsp;way&nbsp;forward.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;&lt;span&nbsp;class=&quot;&quot;&gt;<br>
+&gt;&nbsp;and&nbsp;second,&nbsp;we&lt;br&gt;<br>
+&gt;&nbsp;assume&nbsp;that&nbsp;we&nbsp;can&nbsp;memcpy&nbsp;a&nbsp;trivially-copyable&nbsp;base&nbsp;class&nbsp;at&nbsp;its&nbsp;full&nbsp;size&lt;br&gt;<br>
+&gt;&nbsp;--&nbsp;effectively,&nbsp;we&nbsp;seem&nbsp;to&nbsp;assume&nbsp;that&nbsp;we&nbsp;won&#39;t&nbsp;initialize&nbsp;the&nbsp;tail&nbsp;padding&lt;br&gt;<br>
+&gt;&nbsp;of&nbsp;a&nbsp;base&nbsp;class&nbsp;before&nbsp;we&nbsp;initialize&nbsp;the&nbsp;base&nbsp;class&nbsp;itself.)&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;And&nbsp;I&#39;d&nbsp;fixed&nbsp;that&nbsp;in&nbsp;one&nbsp;place&nbsp;already,&nbsp;but&nbsp;still&nbsp;needed&nbsp;to&nbsp;fix&nbsp;it&nbsp;in&nbsp;another.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;&quot;&gt;&lt;br&gt;<br>
+&gt;&nbsp;At&nbsp;this&nbsp;point&nbsp;I&#39;m&nbsp;questioning&nbsp;the&nbsp;wisdom&nbsp;of&nbsp;allowing&nbsp;a&nbsp;virtual&nbsp;base&nbsp;to&nbsp;be&lt;br&gt;<br>
+&gt;&nbsp;allocated&nbsp;into&nbsp;tail&nbsp;padding.&lt;br&gt;<br>
+&lt;br&gt;<br>
+&lt;/span&gt;Yep.&lt;br&gt;<br>
+&lt;span&nbsp;class=&quot;HOEnZb&quot;&gt;&lt;font&nbsp;color=&quot;#888888&quot;&gt;&lt;br&gt;<br>
+Jason&lt;br&gt;<br>
+&lt;/font&gt;&lt;/span&gt;&lt;/blockquote&gt;&lt;/div&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;<br>
+
+</tt>

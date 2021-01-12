@@ -1,0 +1,94 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Type mismatch in __cxa_atexit and __cxa_finalize
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Type%20mismatch%20in%20__cxa_atexit%20and%20__cxa_finalize&In-Reply-To=%3C1336AC4B-68B1-11D8-832A-000A95AA5E5E%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001808.html">
+   <LINK REL="Next"  HREF="001814.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Type mismatch in __cxa_atexit and __cxa_finalize</H1>
+    <B>Matt Austern</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Type%20mismatch%20in%20__cxa_atexit%20and%20__cxa_finalize&In-Reply-To=%3C1336AC4B-68B1-11D8-832A-000A95AA5E5E%40apple.com%3E"
+       TITLE="Type mismatch in __cxa_atexit and __cxa_finalize">austern at apple.com
+       </A><BR>
+    <I>Thu Feb 26 23:11:14 UTC 2004</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001808.html">Proposed clarification
+</A></li>
+        <LI>Next message: <A HREF="001814.html">[cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1809">[ date ]</a>
+              <a href="thread.html#1809">[ thread ]</a>
+              <a href="subject.html#1809">[ subject ]</a>
+              <a href="author.html#1809">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Maybe this is old news; I'm sure everyone who has implemented atexit in 
+terms of __cxa_atexit must have noticed it already.
+
+The ABI document says that atexit should be implemented so that 
+atexit(f) invokes __cxa_atexit(f, 0, 0).  That doesn't quite work, 
+though, because the two functions have different signatures: void 
+(*)(void) versus void (*)(void*).  We can get around that by casting, 
+but...
+
+The ABI document also says that __cxa_finalize should invoke each 
+function.  It doesn't explicitly say that it should invoke each 
+function with its matching parameter, but that's the obvious 
+interpretation.  Again, though: you can't very well write (*f)(p) if f 
+is a function that takes no arguments, as will be the case whenever 
+__cxa_atexit is invoked via atexit.
+
+The obvious fix would be to say that:
+  1. atexit(f) invokes __cxa_atexit((void(*)(void*)) f, 0, 0).
+  2. If you're passing __cxa_atexit a function that does take an 
+argument, the parameter may not be 0.
+  3. When __cxa_finalize invokes a function f on a parameter p, it 
+should do the equivalent of:
+      if (p)
+         (*f)(p);
+      else
+        (*((void (*)(void)) f))();
+
+At least that's the simplest fix I can think of that doesn't make major 
+changes to the interface.  But whatever fix we use, the ABI should 
+probably be explicit about this.
+
+			--Matt
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001808.html">Proposed clarification
+</A></li>
+	<LI>Next message: <A HREF="001814.html">[cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1809">[ date ]</a>
+              <a href="thread.html#1809">[ thread ]</a>
+              <a href="subject.html#1809">[ subject ]</a>
+              <a href="author.html#1809">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

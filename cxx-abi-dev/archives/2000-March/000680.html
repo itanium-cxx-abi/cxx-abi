@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Do we need to reopen B1?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38BD7616.2BCC8F8D%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000676.html">
+   <LINK REL="Next"  HREF="000677.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Do we need to reopen B1?</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38BD7616.2BCC8F8D%40cup.hp.com%3E"
+       TITLE="Do we need to reopen B1?">ddd at cup.hp.com
+       </A><BR>
+    <I>Wed Mar  1 19:57:10 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000676.html">Do we need to reopen B1?
+</A></li>
+        <LI>Next message: <A HREF="000677.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#680">[ date ]</a>
+              <a href="thread.html#680">[ thread ]</a>
+              <a href="subject.html#680">[ subject ]</a>
+              <a href="author.html#680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jim Dehnert wrote:
+&gt;<i> 
+</I>&gt;<i> There are a number of things about the analysis here that are bothering
+</I>&gt;<i> me.  Please bear with me while I describe them, and let me know where
+</I>&gt;<i> I'm mixed up :).
+</I>&gt;<i> 
+</I>
+&gt;<i> &gt;       for (i = 0; i &lt; max; i++)
+</I>&gt;<i> &gt;       {
+</I>&gt;<i> &gt;               Shape *shape = shapes[i];
+</I>&gt;<i> &gt;               shape-&gt;SetColor(red);
+</I>&gt;<i> &gt;               shape-&gt;Scale(3.0);
+</I>&gt;<i> &gt;               shape-&gt;Rotate(2.5);
+</I>&gt;<i> &gt;               shape-&gt;Draw();
+</I>&gt;<i> &gt;       }
+</I>&gt;<i> &gt;
+</I> 
+&gt;<i> First big problem.  In the case above (which I think of as the typical
+</I>&gt;<i> one -- certainly the one relevant to the cost of branch mispredicts),
+</I>&gt;<i> what is in common is the class containing the overridden function, i.e.
+</I>&gt;<i> the source class Shape for the this pointer.  What varies is the class
+</I>&gt;<i> where the final overrider resides, i.e. the target class of the this
+</I>&gt;<i> conversion.  If the target class is the same, there will only be I$
+</I>&gt;<i> misses the first time; if it varies, we'll get one at least the first
+</I>&gt;<i> time for each target class.  That will be true whichever implementation
+</I>&gt;<i> we use, since they all use different adjusting entries for different
+</I>&gt;<i> overriders.
+</I>&gt;<i> 
+</I>&gt;<i> Furthermore, there's a potential for a D$ miss each time the target
+</I>&gt;<i> class changes, since the vcall offset is coming from a different vtbl.
+</I>&gt;<i> That doesn't occur for the &quot;AddAddAdd&quot; implementation, though, which
+</I>&gt;<i> doesn't load anything from the vtbl.
+</I>
+AddAddAdd is always the best. No argument. If you can use AddAddAdd, use it.
+
+If everything is in the cache, which is also a common occurence (code is small
+enought, or number of targets is small enough), then you are in the 'Best'
+column, and this case is 5 for thunks, 3 for adjusting entry point, so the
+adjusting entry point still wins. Actually, if you are really really lucky and
+hammer on that code a lot, you may even get 3 for the thunk solution (the
+document I have strongly implies this is quite unlikely after an indirect
+branch)
+
+
+The interesting case is obviously when the final overriding class changes. Say
+that we have 2 possible final overriders, A and B, and say that for the
+particular pointer instance, we have A::SetColor, A::Scale and then B::Rotate,
+B::Draw.
+
+On the thunks approach we have:
+
+1/ Shape-&gt;A thunk for A::SetColor: One I-cache miss for the thunk (never seen
+before), one I-cache miss for A::SetColor (the thunk is not close enough)
+
+2/ Shape-&gt;A thunk for A::Scale: Same thing. There is no reason that any of the
+I-misses above gave us anything
+
+3/ Shape-&gt;B thunk for B::Rotate: Idem
+
+4/ Shape-&gt;B thunk for B::Draw: Item.
+
+So we have 2 I-cache misses each time. If on the next iteration the dynamic type
+are C and D, we will get the same misses again. In other words, we can expect 8
+I-cache misses per iteration in the worst case.
+
+
+On the adjustment approach, we have:
+
+1/ Shape-&gt;A vcall offset D-cache miss, read from the Shape vtable. One I-cache
+miss only, since we fall through.
+
+2/ Shape-&gt;A vcall offset again, read from the A::Scale adjusting entry point
+through the same Shape vtable. This one, I believe, is in the D-cache. We have
+one I-cache miss.
+
+3/ Shape-&gt;B vcall offset, relative to the Shape vtable, read before entering
+B::Rotate: This one has no strong guarantees. However, we can stuff something
+like 4 or 8 adjustments per cache line, so the chances that reading the Shape-&gt;A
+vcall offset would also have brought in the Shape-&gt;B vcall offset are non zero.
+We have one I-cache miss.
+
+4/ Shape-&gt;B vcall offset, relative to the Shape vtable, read before entering
+B::Draw. No D-cache miss, likely I-cache miss.
+
+Here, we would expect 4 I-cache misses and 2 D-cache misses. Please feel free to
+re-run this scenario with A, B, C, D (no benefit of one vs. the other), A, A, A,
+A (only one D-cache miss), etc.
+
+
+What I was trying to say is: I believe adjustment it is better than thunks in
+the 'best' case, and when it degrades, it would probably degrade better on
+typical code I can think of.
+
+
+
+&gt;<i> 
+</I>&gt;<i> I think the &quot;3 units of time&quot; is wrong.  An implementation using a
+</I>&gt;<i> vcall offset has only a this pointer to work with.  It must load the
+</I>&gt;<i> vptr (2 cycles at least on most modern implementations I know of, with
+</I>&gt;<i> a cache hit, which it will always get because the caller just used it),
+</I>&gt;<i> add a displacement to the vcall offset (1 cycle), load the vcall offset
+</I>&gt;<i> (2 cycles plus possible D$ miss), and add the vcall offset (1 cycle).
+</I>&gt;<i> So I think we get at least 6 cycles for such an implementation.  If I
+</I>&gt;<i> assume that the usual override chain is short and non-virtual (and
+</I>&gt;<i> ultimately I think I may be able to use profiling to make it usually
+</I>&gt;<i> short), at 1 cycle per chain element the &quot;AddAddAdd&quot; method will be
+</I>&gt;<i> hard to beat.
+</I>
+First, the sequence you are proposing is not what I described. Loading the vptr
+is unnecessary, because the correct vptr has just been loaded. As I indicated in
+the initial description, this assumes we define at the ABI level which register
+we load the vptr into (just as we do for the 'this' pointer.)
+
+Second: Most of the timing information is, I believe, not disclosed by Intel for
+Merced, and certainly not for McKinley. I stick to my relative values, but I
+never said they were cycles, and I did say that I had substracted some constant
+costs that were assumed identical in all hypothesis (even if these costs are
+cache miss costs which vary from execution to execution but would be identical
+between two models, such as an initial I-cache miss at the begining of the
+code).
+
+Hint: an indirect branch is more likely to have a cost impact on a subsequent
+branch than on a subsequent load. If you substract the cost that is common
+between the two, you may end up with 1 and 0, even though neither executes in 0
+cycles.
+
+
+&gt;<i> Next, let's think about &quot;no D$ miss.&quot;  In order to have a single
+</I>&gt;<i> adjusting entry point, it must be able to always find the vcall offsets
+</I>&gt;<i> for a given target class/overrider (NOT for a given source class) at
+</I>&gt;<i> the same position relative to the vptr for the source class.  That
+</I>&gt;<i> means that all of the base classes of a given class with overriders
+</I>&gt;<i> must have the same layout of vcall offsets.
+</I>
+That's correct.
+
+&gt;<i>  Aside from the
+</I>&gt;<i> implications of achieving this (which makes my head hurt),
+</I>
+You cannot achieve in general that without holes (unused entries). Holes appear
+in particular if you have:
+
+struct Left: B1, B2, B3, B4, ... B99 {}
+struct Right: C1 {}
+struct Derived: Primary, Left, Right {}
+
+In that case, with a dumb algorithm, there will be 98 unused vcall entries in
+the vtable for Right. In practice, I don't think this is a real problem
+(compared to the overall cost of the vtable in the above case, assuming we
+duplicate function descriptors, etc)
+
+
+&gt;<i> &gt;
+</I>&gt;<i> &gt; As a reminder, the numbers I gave were  the following (I added memory usage):
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;                         Best    Typical Worst I-mem   D-mem
+</I>&gt;<i> &gt;         Thunks          5       9       20    16*F*C  0
+</I>&gt;<i> &gt;         AddAddAdd       0+N/M   0+N/M   9+N/M 16*F*C  0
+</I>&gt;<i> &gt;         Adjust          3       3       18    48*F    8*C+Pad
+</I>&gt;<i> &gt;         Adjust/D-miss   8       8       21    48*F    8*C+Pad
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; C: number of secondary bases requiring adjustments. F: Number of virtual
+</I>&gt;<i> &gt; functions overriden in current class.
+</I>&gt;<i> 
+</I>&gt;<i> The I-mem case (16*F*C) isn't quite right.  Instead of F*C entries, you
+</I>&gt;<i> need what I'll call F', meaning that you count all of the overridden
+</I>&gt;<i> instances of f's, leaving out those with the same adjustment for the
+</I>&gt;<i> same f.  The point is that just because C requires an adjustment for
+</I>&gt;<i> one f, it might not require one for all the others (e.g. because some
+</I>&gt;<i> of them don't define all of the overridden functions).
+</I>
+That's a more precise count. It doesn't change the fact that 16 &gt; 8 and F' is in
+all likelyhood &gt; 1 (at least for the pathological case we are dealing with.)
+
+
+&gt;<i> I suspect that they
+</I>&gt;<i> don't matter much.  It looks to me like &quot;AddAddAdd&quot; is so much better
+</I>&gt;<i> that the alternative isn't worth the complications it introduces.
+</I>
+I don't plan to replace AddAddAdd. I plan to replace thunks as the &quot;backup&quot;
+solution when AddAddAdd become too costly.
+
+What I'm suggesting is:
+
+1/ if you have less than (say) 5 different displacements and no multiple
+inheritance, use &quot;AddAddAdd&quot; (not required by the ABI).
+
+2/ When you have more than 5 different displacements and no virtual base, add a
+vcall entry in each secondary vtable which requires a displacement (required by
+the ABI) and emit and adjusting entry point rather than emitting thunks (not
+required by the ABI). We could add a rule saying that we do that only if this
+does not involve unreasonable padding.
+
+3/ In all other cases (in particular in the presence of virtual bases), emit
+thunks
+
+
+Regards
+Christophe
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000676.html">Do we need to reopen B1?
+</A></li>
+	<LI>Next message: <A HREF="000677.html">ia64 vtable entries (was: C implementations of the C++ ABI)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#680">[ date ]</a>
+              <a href="thread.html#680">[ thread ]</a>
+              <a href="subject.html#680">[ subject ]</a>
+              <a href="author.html#680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

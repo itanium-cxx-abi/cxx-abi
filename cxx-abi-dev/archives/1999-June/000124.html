@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Placement of vtables, inlines and such
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3Cu9aetpkeyd.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000123.html">
+   <LINK REL="Next"  HREF="000125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Placement of vtables, inlines and such</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Placement%20of%20vtables%2C%20inlines%20and%20such&In-Reply-To=%3Cu9aetpkeyd.fsf%40yorick.cygnus.com%3E"
+       TITLE="Placement of vtables, inlines and such">jason at cygnus.com
+       </A><BR>
+    <I>Thu Jun 24 11:36:42 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000123.html">Covariant polymorphic returns and when sharing B-D V-pointers
+</A></li>
+        <LI>Next message: <A HREF="000125.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>In C++, there are various things with external linkage that can be defined
+in multiple translation units, while the ODR requires that the program
+behave as if there were only a single definition.  From the user's
+standpoint, this applies to inlines and templates.  From the
+implementation's perspective, it also applies to things like vtables and
+RTTI info.  There are several ways of dealing with such &quot;vague linkage&quot;
+items:
+
+1) Emit them everywhere and only use one.
+2) Use some heuristic to decide where to emit them.
+3) Use a database to decide where to emit them.
+4) Generate them at link time.
+
+#3 and #4 are feasible for templates, but I consider them too heavyweight
+to be used for other things.
+
+The typical heuristic for #2 is &quot;with the first non-inline, non-abstract
+virtual function in the class&quot;.  This works pretty well, but fails for
+classes that have no such virtual function, and for non-member inlines.
+Worse, the heuristic may produce different results in different translation
+units, as a method could be defined inline after being declared non-inline
+in the class body.  So we have to handle multiple copies in some cases
+anyway.
+
+The way to handle this in standard ELF is weak symbols.  If all definitions
+are marked weak, the linker will choose one and the others will just sit
+there taking up space.
+
+Christophe mentioned the other day that the HP compiler used the typical
+heuristic above, and handled the case of different results by encoding the
+key function in the vtable name.  But this seems unnecessary when we can
+just choose one of multiple defns.
+
+A better solution than weak symbols alone would be to set things up so that
+the linker will discard the extra copies.  Various existing implementations
+of this are:
+
+1) The Microsoft PE/COFF defn includes support for COMDAT sections, which
+   key off of the first symbol defined.  One copy is chosen, others are
+   discarded.  You can specify conditions to the linker (must have same
+   contents, must have same size)
+2) The IBM XCOFF platform includes a garbage-collecting linker; sections
+   that are not referenced in a sweep from main are discarded.  In xlC,
+   template instantiations are emitted in separate sections, with encoded
+   names; at link time, one copy is renamed to the real mangled name, and
+   the others are discarded by garbage collection.
+
+The GNU ELF toolchain does a variant of #1 here; any sections with names
+beginning with &quot;.gnu.linkonce.&quot; are treated as COMDAT sections.  It seems
+more sensible to me to key off of the section name than the first symbol
+name as in PE.
+
+The GNU linker recently added support for garbage collection, and I've been
+thinking about changing our handling of vague linkage to make use of it,
+but haven't.
+
+I propose that the ia64 base ABI be extended to provide for either COMDAT
+sections or garbage collection, and that we use that support for vague
+linkage.
+
+I further propose that we not use heuristics to cut down the number of
+copies ahead of time; they usually work fine, but can cause problems in
+some situations, such as when not all of the class's members are in the
+same symbol space.  Does the ia64 ABI provide for controlling which symbols
+are exported from a shared library?
+
+A side issue: What do we want to do with dynamically-initialized variables?
+The same thing, or use COMMON?  I propose COMMON.
+
+A side issue is how to handle local static variables in inlines.  G++
+currently avoids this issue by suppressing inlining of functions with
+local statics, if we don't want to do that, we'll need to specify a
+mangling for the statics, and handle multiple copies like we do above.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000123.html">Covariant polymorphic returns and when sharing B-D V-pointers
+</A></li>
+	<LI>Next message: <A HREF="000125.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

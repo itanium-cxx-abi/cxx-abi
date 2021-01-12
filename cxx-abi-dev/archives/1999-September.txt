@@ -1,0 +1,1314 @@
+From thomson at ca.ibm.com  Wed Sep  1 16:13:42 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Wed, 1 Sep 1999 12:13:42 -0400
+Subject: Thunks, vol. XXII
+Message-ID: <852567DF.005923CE.00@D51MTA06.pok.ibm.com>
+
+
+Christophe:
+
+>Also note Jim's idea of predicating the adjustment, using the low
+>bit of the function pointer. This would mean that the adjustment
+>would probably cost much less than 3 cycles, with an extra cost at
+>call site that we did not analyze yet.
+
+No, I hadn't seen this.  With all the discussion about branches
+I had been thinking about predication and thunks though, but wondered
+how to control it.  Bits from the function pointer is an
+interesting idea and set me going:
+
+Caller:
+     addi      Rthis=#preadjustment,Rxxx  ;;
+     ld8       Rvptr=[Rthis]          ;;
+     addi      Rfndesc=#slot_offset,Rvptr ;;
+     ld8       Rfnep=[Rfndesc],8            ;;
+     ld8       GP=[Rfndesc]
+     mov       BRn=Rfnep
+     shl       Rmask=Rfnep,6          ;;
+     mov       pr=Rmask,0x380
+     br.call   BR0=BRn                ;;
+
+
+Callee:
+__foo_2:  (p6) addi Rthis=adj_value_1,Rthis
+          (p7) addi Rthis=adj_value_2,Rthis
+          (p8) addi Rthis=adj_value_3,Rthis ;;
+__foo:    alloc ...
+
+It gets complicated, because you need different variants
+if there are more than 3 adjustments, or if any of them
+don't fit into 14 bits, but a moderately parallel
+implementation handle a lot of common nonvirtual
+cases with only one extra cycle, wouldn't it?
+
+
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Sep  1 16:49:29 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 1 Sep 1999 18:49:29 +0200
+Subject: Thunks, vol. XXII
+In-Reply-To: <852567DF.005923CE.00@D51MTA06.pok.ibm.com> (thomson@ca.ibm.com)
+References: <852567DF.005923CE.00@D51MTA06.pok.ibm.com>
+Message-ID: <199909011649.SAA21825@pandora>
+
+> It gets complicated, because you need different variants
+> if there are more than 3 adjustments, or if any of them
+> don't fit into 14 bits, but a moderately parallel
+> implementation handle a lot of common nonvirtual
+> cases with only one extra cycle, wouldn't it?
+
+For the non-virtual case, there is also another non-branching variant:
+
+struct A{virtual void f();};
+struct B:A{members};
+struct C:A{members};
+struct D:X,B,C{void f();};
+
+With thunks preceding D::f, we need three entries: D::f, D::B::f
+(adjust by, say, -16), and D::C::f (adjust by -28):
+
+D::C::f:  this -= 12 ; fall through
+D::B::f:  this -= 16 ; fall through
+D::f:     start code
+
+If branching is really that expensive, such accumulation of adjustment
+might be cheaper, no?
+
+Regards,
+Martin
+
+
+
+From thomson at ca.ibm.com  Wed Sep  1 17:41:04 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Wed, 1 Sep 1999 13:41:04 -0400
+Subject: Thunks, vol. XXII
+Message-ID: <852567DF.006183B2.00@D51MTA06.pok.ibm.com>
+
+
+
+Martin von Loewis <loewis at informatik.hu-berlin.de>:
+
+>If branching is really that expensive, such accumulation of adjustment
+>might be cheaper, no?
+
+Not compared to my example, if you only need two adjustments.
+Accumulation introduces RAW dependencies and so requires stops.
+Also, each entry point implies a new bundle for addressability.
+But, it is one way to get adjustments 4 through 6:
+
+__f_3: (p6) addi Rthis=adj4-adj1,Rthis
+      (p7) addi Rthis=adj5-adj2,Rthis
+      (p8) addi Rthis=adj6-adj3,Rthis ;;
+__f_2: (p6) addi Rthis=adj1,Rthis
+      (p7) addi Rthis=adj2,Rthis
+      (p8) addi Rthis=adj3,Rthis ;;
+__f:   alloc ...
+
+
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+
+
+From ddd at cup.hp.com  Wed Sep  1 20:47:08 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Wed, 1 Sep 1999 13:47:08 -0700
+Subject: Thunks, vol. XXII
+In-Reply-To: <852567DF.005923CE.00@D51MTA06.pok.ibm.com> (thomson@ca.ibm.com)
+Message-ID: <199909012047.NAA18103@cllmail.cup.hp.com>
+
+> If branching is really that expensive, such accumulation of adjustment 
+> might be cheaper, no?
+
+Mmmh, it looks like I was quite misleading.
+
+Branching in itself is not that expensive. It is supposed to be  
+quite cheap, in particular for unconditional branches. The major  
+problem with "branch islands" is that they put an unnecessary burden  
+on the I-cache, which is quite small, and a cache miss penalty is  
+really high.
+
+Regarding the branch cost itself, I'm confused. There seem to be a  
+slight contradiction between the documentation I have, which seems to  
+imply (albeit not that clearly) that a branch in a bundle following  
+a mispredicted branch is correctly predicted, and a simulation I made  
+a while ago for shared library performance testing, which showed  
+that an indirect branch to a bundle containing a direct branch cost,  
+overall, significantly more than an indirect branch to a pair of  
+bundles, the first one doing some operation and the second one  
+branching.
+
+
+Regards
+Christophe
+
+
+
+From dehnert at sgi.com  Wed Sep  1 23:46:06 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Wed, 01 Sep 1999 16:46:06 -0700
+Subject: C++ ABI Summary -- 2 Sept meeting
+Message-ID: <37CDBABE.FEC0727D@sgi.com>
+
+Attached are all the status pages.  Since nothing was resolved last
+week, little is changed, but I'm including everything for the benefit
+of Dave Plummer of Compaq, who will likely be joining us.
+
+I expect that we will discuss exception handling primarily in this
+week's meeting -- please take a good look at the Intel and HP
+descriptions.  Note that the Intel Software Conventions document is
+back on the web -- there's a link to it in the summary page now.
+If we run out of exception handling discussion, we'll revert to
+RTTI and Vtables.
+
+Being confused myself by the vtable discussion, I've constructed a new
+page containing (initially) an example of a class hierarchy supplied
+by Christophe, and attempted to identify possible function calls, the
+class data layout, and the class vtable layout based on Christophe's
+original proposal. Please provide corrections, and if you're
+proposing alternative vtable constructions, describing them for this
+example might help (me, at least). Also feel free to provide
+additional examples illustrating other points. 
+
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990901/81fafb16/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990901/81fafb16/attachment-0001.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990901/81fafb16/attachment-0002.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990901/81fafb16/attachment-0003.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990901/81fafb16/attachment-0004.html>
+-------------- next part --------------
+/* Create a style sheet for code.
+ * Make it bold, and, inside headers, blue.
+ */
+CODE.normal { font-weight: bold }
+CODE.var { font-weight: bold; font-style: italic }
+H2 CODE { font-weight: bold; color: blue }
+H3 CODE { font-weight: bold; color: blue }
+H4 CODE { font-weight: bold; color: blue }
+CODE { font-weight: bold }
+-------------- next part --------------
+/* Font size tags don't reach into tables. */
+/* This style sheet primarily creates a 10pt style for rows. */
+
+BODY { font-size: 10pt }
+H3 { font-size: 14pt }
+H4 { font-size: 12pt }
+TR.small { font-size: 10pt }
+TR.tiny { font-size: 8pt }
+
+From jason at cygnus.com  Fri Sep  3 01:21:53 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 02 Sep 1999 18:21:53 -0700
+Subject: C++ vtable example
+In-Reply-To: dehnert@sgi.com's message of "1 Sep 1999 16:53:13 -0700"
+References: <37CDBABE.FEC0727D.cygnus.g++.abi@sgi.com>
+Message-ID: <u9vh9sx00e.fsf@yorick.cygnus.com>
+
+First, I'd like to propose again that the RTTI info move to negative
+offsets, for COM compatibility.
+
+I believe your D vtable is wrong; for starters, there's only one A vtable
+in D.  Also, calls through defining class vtables don't require adjustment;
+you seem to have that backwards.  My interpretation of Christophe's
+proposal for this case:
+
+D::offset_to_A (32)
+D::offset_to_top (0)
+D::rtti
+-- D, B-in-D vtable address --
+B::f() [0]
+
+C::offset_to_A (16)
+C::offset_to_top (-16)
+C::rtti
+-- C-in-D vtable address --
+C::g() [0]
+
+A::offset_to_top (-32)
+A::rtti
+-- A-in-D vtable address --
+B::f() [offset at -80] -- change from A-in-B vtable, requires third-party thunk
+C::g() [offset at -48]
+
+-----------
+
+For comparison, Brian's and my proposal would look like this:
+
+D::offset_to_A (32)
+D::offset_to_top (0)
+D::rtti
+-- D, B-in-D vtable address --
+B::f() [0]
+
+C::offset_to_A (16)
+C::offset_to_top (-16)
+C::rtti
+-- C-in-D vtable address --
+C::g() [0]
+
+A::offset_for_g (-16)
+A::offset_for_f (-32)
+A::offset_to_top (-32)
+A::rtti
+-- A-in-D vtable address --
+B::f() [offset at -24]
+C::g() [offset at -32]
+
+
+
+
+From allen.chan at ca.ibm.com  Wed Sep  8 20:49:45 1999
+From: allen.chan at ca.ibm.com (allen.chan at ca.ibm.com)
+Date: Wed, 8 Sep 1999 16:49:45 -0400
+Subject: Incorrect description for IBM initialization priority scheme
+Message-ID: <872567E6.00729228.00@d53mta05h.boulder.ibm.com>
+
+
+
+There is a minor error in the description of the IBM static objects
+initialization priority scheme in the C++ ABI Open Issues documents:
+
+The line:
+"Priorities MIN_INT .. MIN_INT + 1000 are reserved to the implementation."
+should be:
+"Prioirties MIN_INT .. MIN_INT + 1023 are reserved to the implementation."
+
+thanks,
+Allen
+
+
+--
+Internet: allen.chan at ca.ibm.com
+Notes: Allen Chan/Toronto/IBM at IBMCA
+IBM TieLine 8-778-3908 / Tel 416-448-3908
+VisualAge C++ Kernel Development
+My opinions are my own.
+
+
+
+
+
+From allen.chan at ca.ibm.com  Wed Sep  8 20:51:02 1999
+From: allen.chan at ca.ibm.com (allen.chan at ca.ibm.com)
+Date: Wed, 8 Sep 1999 16:51:02 -0400
+Subject: problems with empty base layout algorithm
+Message-ID: <872567E6.0072924F.00@d53mta05h.boulder.ibm.com>
+
+
+
+Looking at the non-virtual-base allocation procedure as outlined in the Data
+Layout document, I noticed a couple of problems with the empty base layout
+algorithm.
+
+Consider the following scenario:
+
+struct A {};
+struct B : public A {};
+struct C : public A {};
+struct D : public A {};
+struct E { int e; }
+struct F : public B, public C, public D, public E { };
+
+For the most derived class F, base classes B, C and D are empty bases. To map
+class F, we firsts have to allocate all base classes of F in declaration order.
+If we were to follow the described procedure, this is what we will get:
+
+1. The empty base B will be allocated at offset zero.
+2. The empty base C (which has a type conflict with B, since they have the same
+non-virtual base A), will be allocated at dsize(F), which is zero.
+3. The empty base D (which has a type conflict with B and C), will be allocated
+at dsize(F), which is zero.
+4. The base E will be allocated at dsize(F), which is zero.
+5. sizeof(F) = 4.
+
+So, even though B, C and D conflict with each other, they are all allocated at
+offset zero.
+
+To solve the problems, I am proposing the following changes to the algorithm for
+lying out empty bases:
+
+1. Maintain an index, ebase(C), which denotes the current offset for allocation
+of empty bases. In the beginning, ebase(C) = 0.
+2. For each empty base class D in C,
+     2a. If D and all its non-virtual base classes have not been allocated
+before, place D at offset zero.
+     2b. If D or any of its non-virtual base classes have been allocated before,
+place D at ebase(C) + 1. Update ebase(C) = ebase(C) + 1.
+3. After all components (virtual and non-virtual components) of C have been laid
+out, update sizeof(C) to max(sizeof(C), ebase(C)).
+
+Using the above algorithm, we will get:
+
+1. The empty base B will be allocated at offset zero.
+2. The empty base C will be allocated at offset one. Update ebase(F) = 1.
+3. The empty base D will be allocated at offset two. Update ebase(F) = 2.
+4. The base E will be allocated at dsize(F), which is zero.
+5. sizeof(F) = max(sizeof(F), ebase(F)) = max(4, 2) = 4.
+
+All comments are welcome.
+
+regards,
+Allen
+
+
+--
+Internet: allen.chan at ca.ibm.com
+Notes: Allen Chan/Toronto/IBM at IBMCA
+IBM TieLine 8-778-3908 / Tel 416-448-3908
+VisualAge C++ Kernel Development
+My opinions are my own.
+
+
+
+
+
+From mendell at ca.ibm.com  Wed Sep  8 20:50:40 1999
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Wed, 8 Sep 1999 16:50:40 -0400
+Subject: longjmp question
+Message-ID: <872567E6.0072824D.00@d53mta02h.boulder.ibm.com>
+
+
+
+An additional item:
+
+Does longjmp run destructors?  I believe that the C ABI makes this optional.  I
+would like to propose that it does run destructors.
+
+
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep  8 21:12:38 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 8 Sep 1999 14:12:38 -0700 (PDT)
+Subject: longjmp question
+Message-ID: <199909082112.OAA06316@baalbek.engr.sgi.com>
+
+I'll add the issue.  But...
+
+Implementation is a significant issue.  The normal longjmp implementation
+is very simple -- setjmp stores the register/stack state, and longjmp
+copies it back and branches.  There is normally no traceback involved,
+so what you suggest is a dramatic change, and probably would make C
+people very unhappy.  Furthermore, C++ users have the option of using
+C++ exceptions, which have the effect you seek.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mendell at ca.ibm.com  Wed Sep  8 21:22:34 1999
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Wed, 8 Sep 1999 17:22:34 -0400
+Subject: longjmp question
+Message-ID: <872567E6.00756D27.00@d53mta02h.boulder.ibm.com>
+
+
+
+It is important in the case that C code calls C++ code, which calls C code which
+does a setjmp.  It is impossible for the C++ code to do proper cleanup in this
+case.
+
+
+
+
+
+From austern at isolde.engr.sgi.com  Wed Sep  8 21:25:50 1999
+From: austern at isolde.engr.sgi.com (Matt Austern)
+Date: Wed, 8 Sep 1999 14:25:50 -0700
+Subject: longjmp question
+In-Reply-To: mendell@ca.ibm.com
+        "Re: longjmp question" (Sep  8,  5:22pm)
+References: <872567E6.00756D27.00@d53mta02h.boulder.ibm.com>
+Message-ID: <9909081425.ZM9479@isolde.engr.sgi.com>
+
+Do you have implementation experience with a C++ implementation,
+or a mixed C/C++ implementation, in which longjmp through C++
+stack frames does invoke C++ destructors?
+
+Anecdotal evidence is that such implementations are rare, and
+that they break code that, while technically nonconforming,
+does work with the more common sort of setjmp.
+
+			--Matt
+
+
+
+From daveed at edg.com  Wed Sep  8 21:30:09 1999
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 08 Sep 1999 14:30:09 -0700
+Subject: problems with empty base layout algorithm
+References: <872567E6.0072924F.00@d53mta05h.boulder.ibm.com>
+Message-ID: <37D6D561.E928B9DA@edg.com>
+
+allen.chan at ca.ibm.com wrote:
+[...]
+> Using the above algorithm, we will get:
+> 
+> 1. The empty base B will be allocated at offset zero.
+> 2. The empty base C will be allocated at offset one. Update ebase(F) = 1.
+> 3. The empty base D will be allocated at offset two. Update ebase(F) = 2.
+> 4. The base E will be allocated at dsize(F), which is zero.
+> 5. sizeof(F) = max(sizeof(F), ebase(F)) = max(4, 2) = 4.
+> 
+> All comments are welcome.
+
+It seems strange to allow subobjects to be allocated in the middle of another
+subobject no?  It feels similar to the idea of interleaving field allocation.
+
+	Daveed
+
+
+
+From jfw at engr.sgi.com  Wed Sep  8 21:31:43 1999
+From: jfw at engr.sgi.com (John Wilkinson)
+Date: Wed, 08 Sep 1999 14:31:43 -0700
+Subject: longjmp question
+References: <199909082112.OAA06316@baalbek.engr.sgi.com>
+Message-ID: <37D6D5BF.631AC9D1@engr.sgi.com>
+
+Jim Dehnert wrote:
+> 
+> I'll add the issue.  But...
+> 
+> Implementation is a significant issue.  The normal longjmp implementation
+> is very simple -- setjmp stores the register/stack state, and longjmp
+> copies it back and branches.  There is normally no traceback involved,
+> so what you suggest is a dramatic change, and probably would make C
+> people very unhappy.  Furthermore, C++ users have the option of using
+> C++ exceptions, which have the effect you seek.
+> 
+> -           Jim Dehnert         dehnert at sgi.com
+>                                 (650)933-4272
+
+The C++ standard, 18.7 paragraph 4, says a call to longjmp has undefined
+behavior if any automatic objects would have been destroyed by a
+throw/catch with the same source and destination.   I don't see that
+this is something we need to fix.
+
+
+-- 
+John Wilkinson
+
+
+
+From mendell at ca.ibm.com  Wed Sep  8 21:32:25 1999
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Wed, 8 Sep 1999 17:32:25 -0400
+Subject: longjmp question
+Message-ID: <872567E6.00765438.00@d53mta02h.boulder.ibm.com>
+
+
+
+Yes.  VAC++ on OS/2 and Windows does do the unwinding.  This is probably because
+unwinding support is in the OS.  Our AIX implementation does not do the
+unwinding.
+
+
+
+
+
+From thomson at ca.ibm.com  Wed Sep  8 22:20:32 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Wed, 8 Sep 1999 18:20:32 -0400
+Subject: longjmp question
+Message-ID: <852567E6.007ACF2D.00@D51MTA06.pok.ibm.com>
+
+John Wilkinson writes:
+>The C++ standard, 18.7 paragraph 4, says ...
+
+Yes it does, but ANSI is not my customer.
+Meeting the bare minimum of function that ANSI requires
+doesn't necessarily mean that users can build robust
+applications.  How can they know to avoid longjmp in
+their C code, because some third party library they
+are using has C++ buried in it?
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Sep  8 22:44:34 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 8 Sep 1999 15:44:34 -0700 (PDT)
+Subject: Heads up
+Message-ID: <199909082244.PAA06556@baalbek.engr.sgi.com>
+
+Priti Srivastav from Intel can't make it to talk about exceptions
+until 11:00 tomorrow, so we'll look at other things for an hour.
+AND, I have our room and phone until 12:30, so we may try to continue
+the discussion until then if it seems productive...
+-		Jim Dehnert  x3-4272
+
+
+
+From thomson at ca.ibm.com  Thu Sep  9 00:49:04 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Wed, 8 Sep 1999 20:49:04 -0400
+Subject: longjmp question
+Message-ID: <852567E7.00049371.00@D51MTA06.pok.ibm.com>
+
+
+Mark Mendell:
+
+>Yes.  VAC++ on OS/2 and Windows does do the unwinding.  This is probably
+because
+>unwinding support is in the OS.
+
+Also OS/390 and I believe AS/400 too.
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Sep  9 05:46:08 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 8 Sep 1999 22:46:08 -0700 (PDT)
+Subject: problems with empty base layout algorithm
+Message-ID: <199909090546.WAA07629@baalbek.engr.sgi.com>
+
+> Date: Wed, 8 Sep 1999 16:51:02 -0400
+> Reply-To: allen.chan at ca.ibm.com
+> 
+> Looking at the non-virtual-base allocation procedure as outlined in the Data
+> Layout document, I noticed a couple of problems with the empty base layout
+> algorithm.
+> 
+> Consider the following scenario:
+> 
+> struct A {};
+> struct B : public A {};
+> struct C : public A {};
+> struct D : public A {};
+> struct E { int e; }
+> struct F : public B, public C, public D, public E { };
+> 
+> For the most derived class F, base classes B, C and D are empty bases. To map
+> class F, we firsts have to allocate all base classes of F in declaration order.
+> If we were to follow the described procedure, this is what we will get:
+> 
+> 1. The empty base B will be allocated at offset zero.
+> 2. The empty base C (which has a type conflict with B, since they have the same
+> non-virtual base A), will be allocated at dsize(F), which is zero.
+
+This isn't the intent (nor what's written, though perhaps not
+clearly).  We attempt offset zero, which doesn't work because of the
+type conflict with B.  Then we "proceed with attempts at dsize(C) as
+for non-empty bases."  Such attempts, "[if] a component type conflict
+occurs, increment the candidate offset by align(type(D)), and try again,
+repeating until success occurs..."
+
+So, when dsize(C) doesn't work (it's zero, and it still doesn't work),
+we try dsize(C)+1, dsize(C)+2, ..., until one of them does work.
+No subobject is placed without first verifying absence of type
+conflicts.
+
+> 3. The empty base D (which has a type conflict with B and C), will be allocated
+> at dsize(F), which is zero.
+> 4. The base E will be allocated at dsize(F), which is zero.
+> 5. sizeof(F) = 4.
+> 
+> So, even though B, C and D conflict with each other, they are all allocated at
+> offset zero.
+> 
+> To solve the problems, I am proposing the following changes to the
+> algorithm for lying out empty bases:
+> 
+> 1. Maintain an index, ebase(C), which denotes the current offset for
+> allocation of empty bases. In the beginning, ebase(C) = 0.
+> 2. For each empty base class D in C,
+>      2a. If D and all its non-virtual base classes have not been allocated
+> before, place D at offset zero.
+>      2b. If D or any of its non-virtual base classes have been allocated before,
+> place D at ebase(C) + 1. Update ebase(C) = ebase(C) + 1.
+
+There's no reason to update ebase(C) unless the _next_ empty base
+conflicts in type.  In addition, updating it doesn't guarantee that the
+next empty base class won't conflict, since it (or a subclass) may
+conflict with some part of an earlier-allocated base class.
+
+> 3. After all components (virtual and non-virtual components) of C have been laid
+> out, update sizeof(C) to max(sizeof(C), ebase(C)).
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From jls at sco.com  Thu Sep  9 09:59:00 1999
+From: jls at sco.com (Jonathan Schilling)
+Date: Thu, 9 Sep 1999 05:59 EDT
+Subject: longjmp question
+Message-ID: <199909091007.GAA09142@kauai.newjersey.sco.com>
+
+Does the ABI (either C or C++) really need to specify whether longjmp()
+destructs auto C++ objects or not?  In the IBM implementations that do
+this, is there any extra information passed from compiled code to
+setjmp() or longjmp() to support this?  Is there any extra information 
+stored in EH tables or data structures to support this?  Are there any
+extra interfaces into the EH runtime used by longjmp() to support this?
+
+If not, then the behavior can be implementation-dependent.  Code compiled
+by any vendor's compiler either would or would not destruct auto
+objects, depending upon which vendor's longjmp() is being used, and/or
+which vendor's OS is being used.
+
+Jonathan Schilling		SCO, Inc.		jls at sco.com
+
+
+
+From brender at gemgrp.zko.dec.com  Thu Sep  9 14:31:09 1999
+From: brender at gemgrp.zko.dec.com (Ron 603-884-2088)
+Date: Thu, 9 Sep 1999 10:31:09 -0400
+Subject: longjmp question
+Message-ID: <99090910310975@gemgrp.zko.dec.com>
+
+
+>Anecdotal evidence is that such implementations are rare, and
+>that they break code that, while technically nonconforming,
+>does work with the more common sort of setjmp.
+
+Not rare at all, I think. In addition to the systems already mentioned by
+others, these systems also do exception-handling compatible unwinding
+for C's setjmp/longjmp:
+
+    VMS/VAX and VMS/Alpha
+    Tru64 Unix/Alpha [not originally, but at least as of V4]
+
+    Microsoft Visual C on W95&WNT/IA64
+       [to support SEH (structured exception handling) extensions]
+    Microsoft Visual C on WNT/Alpha (RIP)
+       [to support SEH]
+
+If you believe in safe and compatible multi-language systems, there really
+is no choice but to do EH compatible unwinding for setjmp/longjmp -- at
+least by default.
+
+I suppose it would be OK for an implementation to offer an alternate
+setjmp/longjmp that could be linked in for those who either know that it is
+safe in particular cases or are happy to trade safety for speed...
+
+--Ron
+
+
+
+From brender at gemgrp.zko.dec.com  Thu Sep  9 14:45:55 1999
+From: brender at gemgrp.zko.dec.com (Ron 603-884-2088)
+Date: Thu, 9 Sep 1999 10:45:55 -0400
+Subject: longjmp question
+Message-ID: <99090910455574@gemgrp.zko.dec.com>
+
+>    Microsoft Visual C on W95&WNT/IA64
+>       [to support SEH (structured exception handling) extensions]
+
+I meant on W95&WNT/IA32, of course. But I have no doubt that it will also
+be true of W2000/IA64 for the obvious compatibility reasons...
+
+
+
+From thomson at ca.ibm.com  Thu Sep  9 15:08:39 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Thu, 9 Sep 1999 11:08:39 -0400
+Subject: longjmp question
+Message-ID: <852567E7.0054B41B.00@D51MTA06.pok.ibm.com>
+
+
+
+>Does the ABI (either C or C++) really need to specify whether longjmp()
+>destructs auto C++ objects or not?  In the IBM implementations that do
+>this, is there any extra information passed from compiled code to
+>setjmp() or longjmp() to support this?
+
+No,  you're right.   In each case longjmp invokes a common
+"Unwind" service, which generates a notification that is seen by
+C++ exception handlers, and Java finally blocks, and
+PL/I FINISH ON-units, and user-written handlers in languages
+like C that don't have exceptions built-in.
+The only ABI implication is to specify what unwind
+notification looks like, and the IA64 C ABI already does this.
+
+So, although reaching a consensus here would improve
+code portability,  it isn't essential that we agree.
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+
+From allen.chan at ca.ibm.com  Thu Sep  9 15:11:04 1999
+From: allen.chan at ca.ibm.com (allen.chan at ca.ibm.com)
+Date: Thu, 9 Sep 1999 11:11:04 -0400
+Subject: problems with empty base layout algorithm
+Message-ID: <852567E7.0054C445.00@D51MTA06.pok.ibm.com>
+
+
+I probably misread the procudure in the document. Now that you clarified the
+intent of the algorithm, it makes sense to me now. Please update the document by
+adding the clause on how to handle component conflict to the empty base layout
+procedure as well.
+
+thanks,
+Allen
+--
+Internet: allen.chan at ca.ibm.com
+Notes: Allen Chan/Toronto/IBM at IBMCA
+IBM TieLine 8-778-3908 / Tel 416-448-3908
+VisualAge C++ Kernel Development
+My opinions are my own.
+
+
+dehnert at baalbek.engr.sgi.com (Jim Dehnert) on 09/09/99 01:46:08 AM
+
+Please respond to dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+
+To:   cxx-abi at corp.sgi.com, Allen Chan/Toronto/IBM at IBMCA
+cc:
+Subject:  Re:  problems with empty base layout algorithm
+
+
+
+
+> Date: Wed, 8 Sep 1999 16:51:02 -0400
+> Reply-To: allen.chan at ca.ibm.com
+>
+> Looking at the non-virtual-base allocation procedure as outlined in the Data
+> Layout document, I noticed a couple of problems with the empty base layout
+> algorithm.
+>
+> Consider the following scenario:
+>
+> struct A {};
+> struct B : public A {};
+> struct C : public A {};
+> struct D : public A {};
+> struct E { int e; }
+> struct F : public B, public C, public D, public E { };
+>
+> For the most derived class F, base classes B, C and D are empty bases. To map
+> class F, we firsts have to allocate all base classes of F in declaration
+order.
+> If we were to follow the described procedure, this is what we will get:
+>
+> 1. The empty base B will be allocated at offset zero.
+> 2. The empty base C (which has a type conflict with B, since they have the
+same
+> non-virtual base A), will be allocated at dsize(F), which is zero.
+
+This isn't the intent (nor what's written, though perhaps not
+clearly).  We attempt offset zero, which doesn't work because of the
+type conflict with B.  Then we "proceed with attempts at dsize(C) as
+for non-empty bases."  Such attempts, "[if] a component type conflict
+occurs, increment the candidate offset by align(type(D)), and try again,
+repeating until success occurs..."
+
+So, when dsize(C) doesn't work (it's zero, and it still doesn't work),
+we try dsize(C)+1, dsize(C)+2, ..., until one of them does work.
+No subobject is placed without first verifying absence of type
+conflicts.
+
+> 3. The empty base D (which has a type conflict with B and C), will be
+allocated
+> at dsize(F), which is zero.
+> 4. The base E will be allocated at dsize(F), which is zero.
+> 5. sizeof(F) = 4.
+>
+> So, even though B, C and D conflict with each other, they are all allocated at
+> offset zero.
+>
+> To solve the problems, I am proposing the following changes to the
+> algorithm for lying out empty bases:
+>
+> 1. Maintain an index, ebase(C), which denotes the current offset for
+> allocation of empty bases. In the beginning, ebase(C) = 0.
+> 2. For each empty base class D in C,
+>      2a. If D and all its non-virtual base classes have not been allocated
+> before, place D at offset zero.
+>      2b. If D or any of its non-virtual base classes have been allocated
+before,
+> place D at ebase(C) + 1. Update ebase(C) = ebase(C) + 1.
+
+There's no reason to update ebase(C) unless the _next_ empty base
+conflicts in type.  In addition, updating it doesn't guarantee that the
+next empty base class won't conflict, since it (or a subclass) may
+conflict with some part of an earlier-allocated base class.
+
+> 3. After all components (virtual and non-virtual components) of C have been
+laid
+> out, update sizeof(C) to max(sizeof(C), ebase(C)).
+
+-        Jim Dehnert          dehnert at sgi.com
+                    (650)933-4272
+
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Sep  9 18:56:14 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Thu, 9 Sep 1999 20:56:14 +0200
+Subject: problems with empty base layout algorithm
+In-Reply-To: <37D6D561.E928B9DA@edg.com> (message from Daveed Vandevoorde on
+	Wed, 08 Sep 1999 14:30:09 -0700)
+References: <872567E6.0072924F.00@d53mta05h.boulder.ibm.com> <37D6D561.E928B9DA@edg.com>
+Message-ID: <199909091856.UAA28401@pandora>
+
+> It seems strange to allow subobjects to be allocated in the middle
+> of another subobject no?  It feels similar to the idea of
+> interleaving field allocation.
+
+Doing so is specifically allowed in the standard. 10/3 says
+
+>> The order in which the base class subobjects are allocated in the
+>> most derived object (1.8) is unspecified.
+
+Also, relational operators for subobject addresses are unspecified -
+unless they compare addresses of *member* subobjects, with no
+intermediate access specifier. So you can compare base subobject
+addresses only for equality.
+
+Regards,
+Martin
+
+
+
+From dehnert at sgi.com  Thu Sep  9 20:54:30 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 09 Sep 1999 13:54:30 -0700
+Subject: C++ ABI Documents for 9 Sept meeting (egg on face)
+Message-ID: <37D81E86.18EC69DD@sgi.com>
+
+Well, I screwed up.  The message last night WAS rejected due to size,
+and I didn't notice because it didn't come back from MAILER-DAEMON,
+and I was focused on making sure the attachments were there.
+Anyway, I apologize profusely, and the list should get reconfigured
+to allow big messages.  Meantime, here it is (without the big EH
+documents, which I've sent separately to Compaq, and with the
+vtable example fixed and a minor clarification in abi-layout.html
+added since last night):
+--------------------------------
+Attached are the summary, open issues, and vtable example documents.
+
+I've modified the vtable layout in the example based on feedback from
+Jason and Christophe, and have added another version for the alternate
+proposal from Jason.
+
+...
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990909/869229d0/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990909/869229d0/attachment-0001.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990909/869229d0/attachment-0002.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990909/869229d0/attachment-0003.html>
+
+From dehnert at baalbek.engr.sgi.com  Thu Sep  9 21:22:07 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 9 Sep 1999 14:22:07 -0700 (PDT)
+Subject: Messaging methodology
+Message-ID: <199909092122.OAA09313@baalbek.engr.sgi.com>
+
+We've just figured out that someone here has had trouble dealing with
+my mailings because Netscape tries to display the attached pages,
+doesn't find the linked stylesheet at its address on my system,
+and complains bitterly.  Is anyone else having trouble?  If so, would
+you prefer that I send PDF (or both), which is much bigger?  Or should
+I just learn to live without the stylesheets?  (Or, I suppose, does
+anyone know how to package up a set of files so Netscape copes
+properly?  I imagine image references would present the same issues,
+except that absent images are usually just ignored.)
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From thomson at ca.ibm.com  Fri Sep 10 23:54:39 1999
+From: thomson at ca.ibm.com (thomson at ca.ibm.com)
+Date: Fri, 10 Sep 1999 19:54:39 -0400
+Subject: C++ vtable example
+Message-ID: <852567E8.0083559C.00@D51MTA06.pok.ibm.com>
+
+
+Jason writes:
+>First, I'd like to propose again that the RTTI info move to negative
+>offsets, for COM compatibility.
+
+Yes, have there been objections to this?
+
+On the same topic, it has been proposed to pass two implicit parameters
+"this" and "this->__vptr" in virtual function calls instead of the
+usual one, in case an adjustment thunk needs the second.  If it is a
+C ABI compliant parameter then the same cross-platform COM consistency
+considerations argue that we shouldn't do it.
+If it is a "magic" parameter that can't be expressed in C then the
+situation is worse, and COM may not be implementable.
+
+
+Jim's examples:
+
+I have extended and I think corrected some errors in the previous
+version. Here's hoping that the right things happen to
+attachments:
+
+(See attached file: cxx-vtable-ex.html)
+
+
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990910/28fd364c/attachment.html>
+
+From dehnert at sgi.com  Wed Sep 15 06:27:09 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Tue, 14 Sep 1999 23:27:09 -0700
+Subject: C++ ABI status update
+Message-ID: <37DF3C3D.1BF2EFEA@sgi.com>
+
+Reminder (new information for those not at the last meeting):
+Due to numerous absences, we will NOT have a meeting this week.
+We will resume the following week, and focus again on the vtable
+and/or exception handling.
+
+Please take a look at the action item list in the summary --
+several of the items affect the planned discussions, and getting
+the information early will help progress tremendously!
+
+Attached are updated issue documents.  Based on last week's
+responses, I'm doing it differently.  This message contains
+a gzip'ed, tar'ed collection of all the html and css files --
+unpack it and point your browser at cxx-summary.html, and you'll
+have it all.  I'll send a separate message with PDF attachments.
+Let me know if one or the other doesn't work for you.  (I will
+be gone through next Tuesday, but if you need a different format,
+someone on the list will no doubt be able to provide it.)
+
+Note that I've added a new exception handling specification
+document, with the bare beginnings of the base ABI specification
+(i.e. APIs of the necessary components), and lists of things
+required at the next two levels (minimum C++ ABI, and full
+sharable C++ runtime).  It's not complete, and undoubtedly
+otherwise not adequate, but it should provide some indication
+of the sort of level I think we need to specify this at.  I
+believe that much of our discussion so far has been hampered
+by mismatched assumptions about the low level, so I'd like us
+to get them out into the open.  Please comment and discuss...
+
+See you on the 23rd.
+
+Regards,
+Jim
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-status.tar.gz
+Type: application/x-gzip
+Size: 66324 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/e2ff82d0/attachment.bin>
+
+From dehnert at sgi.com  Wed Sep 15 06:30:15 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Tue, 14 Sep 1999 23:30:15 -0700
+Subject: PDF versions of issue status
+Message-ID: <37DF3CF7.DD85B863@sgi.com>
+
+Here are the PDF versions.
+
+(Also note that I've replaced my version of the Vtable example
+page by Brian's correction/expansion.)
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi-eh.pdf
+Type: application/pdf
+Size: 13749 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment.pdf>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi-layout.pdf
+Type: application/pdf
+Size: 20025 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment-0001.pdf>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-closed.pdf
+Type: application/pdf
+Size: 44215 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment-0002.pdf>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-open.pdf
+Type: application/pdf
+Size: 128675 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment-0003.pdf>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-summary.pdf
+Type: application/pdf
+Size: 38727 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment-0004.pdf>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-vtable-ex.pdf
+Type: application/pdf
+Size: 26398 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990914/f8d9d907/attachment-0005.pdf>
+
+From bkoz at cygnus.com  Fri Sep 17 21:26:36 1999
+From: bkoz at cygnus.com (Benjamin Kosnik)
+Date: Fri, 17 Sep 1999 14:26:36 -0700
+Subject: http://www.dtheatre.com/
+Message-ID: <37E2B20C.CA6CD617@cygnus.com>
+
+ 
+
+
+
+From ddd at cup.hp.com  Wed Sep 22 21:54:20 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Wed, 22 Sep 1999 14:54:20 -0700
+Subject: Unwind Library interface - Inter-Runtime Conventions
+Message-ID: <199909222154.OAA26519@cllmail.cup.hp.com>
+
+A non-text attachment was scrubbed...
+Name: not available
+Type: text/enriched
+Size: 590 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990922/3aa0bd6f/attachment.bin>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990922/3aa0bd6f/attachment.html>
+
+From dehnert at baalbek.engr.sgi.com  Thu Sep 23 21:50:00 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 23 Sep 1999 14:50:00 -0700 (PDT)
+Subject: I will not be able to make it to the meeting today.
+Message-ID: <199909232150.OAA40116@baalbek.engr.sgi.com>
+
+> From priti.shrivastav at intel.com  Thu Sep 23 10:44:24 1999
+> 
+> Hello,
+  > Jim, we have some emergency issues which have come up today in the 1.7 SDK
+> release. I will not be able to
+> attend the meeting today. I have not had  time to review HP's document which
+> was sent yesterday. Can we postpone the EH
+> discussion to next week. If not you guys go ahead with the discussion
+> without me. I will follow up later.
+
+We did go ahead and discuss the HP document and related issues.  There
+were no major problems with it, but some minor changes and
+clarifications.  Christophe will be updating it for next week, but
+we're close to agreement at that level (which is essentially C ABI
+level).  Next week we'll try to close on the C ABI level and move to
+discussion of the C++-specific handling.
+
+See you then,
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at sgi.com  Thu Sep 30 01:22:40 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Wed, 29 Sep 1999 18:22:40 -0700
+Subject: Meeting reminder
+Message-ID: <37F2BB60.3597A21E@sgi.com>
+
+We will be meeting in the morning at 10:00 as usual.  The discussion
+will start with low-level exception ABI, then C++ exception ABI,
+then vtables.
+
+I'll send out updated pages later, but they won't be changed
+significantly from last time.
+-- 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at sgi.com  Thu Sep 30 07:47:13 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 30 Sep 1999 00:47:13 -0700
+Subject: Document update -- tar file
+Message-ID: <37F31580.1E119833@sgi.com>
+
+Attached is a gzipped tar file of the status documents.
+
+Jim
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: status.tar.gz
+Type: application/x-gzip
+Size: 81239 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/0f72ca79/attachment.bin>
+
+From dehnert at sgi.com  Thu Sep 30 07:54:53 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 30 Sep 1999 00:54:53 -0700
+Subject: Status summary -- PDF
+Message-ID: <37F3174D.9AEFC51D@sgi.com>
+
+ 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-summary.pdf
+Type: application/pdf
+Size: 127011 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/d72b1076/attachment.pdf>
+
+From dehnert at sgi.com  Thu Sep 30 07:59:58 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 30 Sep 1999 00:59:58 -0700
+Subject: Vtable example -- landscape PDF
+Message-ID: <37F3187E.728B50FB@sgi.com>
+
+I changed this one to landscape, so it doesn't get cut off.
+See you all tomorrow.
+
+Jim
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-vtable-ex.pdf
+Type: application/pdf
+Size: 113879 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/a9692bd9/attachment.pdf>
+
+From dehnert at sgi.com  Thu Sep 30 07:58:07 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Thu, 30 Sep 1999 00:58:07 -0700
+Subject: Status -- open issues PDF
+Message-ID: <37F3180F.7C1A9C36@sgi.com>
+
+ 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cxx-open.pdf
+Type: application/pdf
+Size: 299614 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/f799ea98/attachment.pdf>
+
+From jason at cygnus.com  Thu Sep 30 08:50:22 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 30 Sep 1999 01:50:22 -0700
+Subject: vtable writeup
+Message-ID: <199909300850.BAA27429@yorick.cygnus.com>
+
+Sorry this has taken so long.
+
+The proposed vtable layout model is as follows.
+
+At indices >= 0, a sequence of function pointers.
+At index -1, a pointer to the RTTI information for the complete class.
+At index -2, the adjustment from the object pointer we used to find 
+  this vtable to the complete object.
+At indices < -2, a sequence of offsets.  First, offsets from this object to
+  various virtual bases, allocated outward in the same order as the vbase
+  subobjects themselves.  Then, offsets used in virtual calls, allocated in
+  order of the functions which use them.
+
+Calling a virtual function involves adjusting 'this' to point to a vtable
+containing the function we're interested in, extracting the function
+pointer from the vtable, and calling it, just as in the traditional thunk
+model.
+
+If the object pointer used in the call refers to a non-virtual base of the
+class where the final overrider of the function is defined, the callee
+knows and performs the necessary adjustment, if any.  This is also
+identical to the traditional thunk model, though the callee need not be
+implemented using a thunk.
+
+If the object pointer refers to a virtual base of the final overrider, the
+callee finds the adjustment in the vtable for the most derived class of
+which the subobject is a non-virtual base.  When a class A is used as a
+virtual base, we add offset slots to the beginning of the A vtable for each
+virtual function in the vtables from A's non-virtual bases.  In the vtable
+example, A is used as a virtual base in B, so we allocate slots for each of
+A's virtual functions.
+
+I've also updated abi-layout.htm to reflect this proposal.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/1b2d37cb/attachment.htm>
+
+From cary at cup.hp.com  Thu Sep 30 18:09:46 1999
+From: cary at cup.hp.com (Cary Coutant)
+Date: Thu, 30 Sep 1999 11:09:46 -0700
+Subject: Exception Handling & Landing pads
+Message-ID: <199909301808.LAA25064@adlmail.cup.hp.com>
+
+Attached is a document that contains a high-level description of our 
+exception handling. I haven't updated the document to match the latest 
+proposals for the personality routine interface, but it does illustrate 
+how the process works, especially landing pads.
+
+-cary
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: supp11-eh-gen.pdf
+Type: application/pdf
+Size: 78139 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/19990930/df2488c3/attachment.pdf>
+

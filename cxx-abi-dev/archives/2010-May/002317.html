@@ -1,0 +1,106 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Parameter references in function types
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Parameter%20references%20in%20function%20types&In-Reply-To=%3CD7C64F55-F8D1-4728-9658-1D66D738544F%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Parameter references in function types</H1>
+    <B>David Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Parameter%20references%20in%20function%20types&In-Reply-To=%3CD7C64F55-F8D1-4728-9658-1D66D738544F%40edg.com%3E"
+       TITLE="Parameter references in function types">daveed at edg.com
+       </A><BR>
+    <I>Thu May  6 19:48:22 UTC 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002318.html">Magical type trait operators
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>When mangling the signature of a template like:
+
+	template&lt;class T&gt; auto f(T p)-&gt;decltype(*p);
+
+we need a mechanism to describe the reference to &quot;p&quot;.
+
+Currently, the ABI says:
+
+	&quot;Function parameters referenced in a late-specified return type are handled similarly:
+	
+	
+	  &lt;function-param&gt; ::= fp_	# first function parameter
+			   ::= fp &lt;parameter-2 non-negative number&gt; _
+	&quot;
+
+Unfortunately, this doesn't take into account that multiple levels of function declarators may be in flight.  E.g.:
+
+	template&lt;class T, class U&gt; void f(T p, decltype(p)(*)(U p));          // (1)
+and
+	template&lt;class T, class U&gt; void f(T p, auto (*)(U p)-&gt;decltype(p));   // (2)
+
+should produce different mangled names, but the &quot;parameter number&quot; is the same in both cases.
+
+
+I'd therefore like to propose the following change.
+
+Let L be the number of function prototype scopes from the innermost one (in which the parameter reference occurs) up to (and including) the one containing the declaration of the referenced parameter.  If the parameter declaration clause of the innermost function prototype scope has been completely seen, it is not counted (in that case -- which is perhaps the most common -- L can be zero).
+
+If L is zero, keep the encoding above (&quot;fp...&quot;).  If L is larger than zero, use the following production instead:
+
+	  &lt;function-param&gt; ::= fL &lt;L-1 non-negative number&gt; p_	# first function parameter
+			   ::= fL &lt;L-1 non-negative number&gt; p &lt;parameter-2 non-negative number&gt; _
+
+Example (2) above would remain unchanged (parameter code &quot;fp_&quot;), but (1) would have L == 1 and the parameter code would therefore be &quot;fL0p_&quot;.
+
+Other examples:
+	template&lt;class T&gt; void f(T p, decltype(p));                // L = 1
+	template&lt;class T&gt; void g(T p, decltype(p) (*)());          // L = 1
+	template&lt;class T&gt; void h(T p, auto (*)()-&gt;decltype(p));    // L = 1
+	template&lt;class T&gt; void i(T p, auto (*)(T q)-&gt;decltype(q)); // L = 0
+	template&lt;class T&gt; void j(T p, auto (*)(decltype(p))-&gt;T);   // L = 2
+	template&lt;class T&gt; void k(T p, int (*(*)(T p))[sizeof(p)]); // L = 1
+
+
+	Daveed
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002318.html">Magical type trait operators
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

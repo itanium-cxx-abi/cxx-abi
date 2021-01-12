@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Tail padding, more differences
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Tail%20padding%2C%20more%20differences&In-Reply-To=%3COFD5200D29.1A61B39D-ON85256C21.007BF280%40torolab.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001522.html">
+   <LINK REL="Next"  HREF="001524.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Tail padding, more differences</H1>
+    <B>michaelw at ca.ibm.com</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Tail%20padding%2C%20more%20differences&In-Reply-To=%3COFD5200D29.1A61B39D-ON85256C21.007BF280%40torolab.ibm.com%3E"
+       TITLE="Tail padding, more differences">michaelw at ca.ibm.com
+       </A><BR>
+    <I>Mon Aug 26 23:07:28 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001522.html">[cxx-abi] Re: [cxx-abi-dev] Tail padding, in sumary
+</A></li>
+        <LI>Next message: <A HREF="001524.html">Incorrect example in abi-examples
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1523">[ date ]</a>
+              <a href="thread.html#1523">[ thread ]</a>
+              <a href="subject.html#1523">[ subject ]</a>
+              <a href="author.html#1523">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We have observed a possible difference in tail padding for bitfields in
+father and grandfather cases when it does not overflow the byte boundary.
+For the following testcase, every other offset seems to start a new byte
+boundary.
+
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+//void operator delete(void *) throw() {}
+struct A { virtual ~A() {}; int a : 2; };
+struct B0 : A { int b0 :3; };
+struct B1 : B0 { int b1 :2; };
+struct B2 : B1 { int b2 :3; };
+struct B3 : B2 { int b3 :1; };
+void hexdumpbit(const char * comment, const void * a, int size, int
+delimit) {
+        printf(&quot;--%s--- dumping %d bytes-----\n&quot;, comment, size);
+        const char * p = (const char *) a;
+        for (int i=0; i&lt; size; ++i ) {
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x80))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x40))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x20))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x10))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x08))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x04))? &quot;1&quot;:&quot;0&quot;);
+                printf(&quot;%s&quot;, (0 != (p[i]&amp;0x02))? &quot;1&quot;:&quot;0&quot;);
+               printf(&quot;%s &quot;, (0 != (p[i]&amp;0x01))? &quot;1&quot;:&quot;0&quot;);
+                if (0 == (i+1)%delimit) printf(&quot;\n&quot;);
+        }
+        printf(&quot;\n&quot;);
+}
+int main() {
+  printf(&quot;sizeof(A) == %lu; sizeof(B0) == %lu, sizeof(B1) == %lu,
+sizeof(B2) == %lu, sizeof(b3) == %lu \n&quot;
+        , (unsigned long)sizeof(A)
+        , (unsigned long)sizeof(B0)
+        , (unsigned long)sizeof(B1)
+        , (unsigned long)sizeof(B2)
+        , (unsigned long)sizeof(B3)
+        );
+  B0 bb;
+  memset(&amp;bb,0, sizeof bb); bb.a=3; hexdumpbit(&quot;bb.a&quot;, &amp;bb, sizeof bb, 8);
+  memset(&amp;bb,0, sizeof bb); bb.b0=7; hexdumpbit(&quot;bb.b0&quot;, &amp;bb, sizeof bb,
+8);
+
+  B1 b1;
+  memset(&amp;b1,0, sizeof b1); b1.a=3; hexdumpbit(&quot;b1.a&quot;, &amp;b1, sizeof b1, 8);
+  memset(&amp;b1,0, sizeof b1); b1.b0=7; hexdumpbit(&quot;b1.b0&quot;, &amp;b1, sizeof b1,
+8);
+  memset(&amp;b1,0, sizeof b1); b1.b1=3; hexdumpbit(&quot;b1.b1&quot;, &amp;b1, sizeof b1,
+8);
+
+  B2 b2;
+  memset(&amp;b2,0, sizeof b2); b2.a=3; hexdumpbit(&quot;b2.a&quot;, &amp;b2, sizeof b2, 8);
+  memset(&amp;b2,0, sizeof b2); b2.b0=7; hexdumpbit(&quot;b2.b0&quot;, &amp;b2, sizeof b2,
+8);
+  memset(&amp;b2,0, sizeof b2); b2.b1=3; hexdumpbit(&quot;b2.b1&quot;, &amp;b2, sizeof b2,
+8);
+  memset(&amp;b2,0, sizeof b2); b2.b2=7; hexdumpbit(&quot;b2.b2&quot;, &amp;b2, sizeof b2,
+8);
+
+  B3 b3;
+  memset(&amp;b3,0, sizeof b3); b3.a=3; hexdumpbit(&quot;b3.a&quot;, &amp;b3, sizeof b3, 8);
+  memset(&amp;b3,0, sizeof b3); b3.b0=7; hexdumpbit(&quot;b3.b0&quot;, &amp;b3, sizeof b3,
+8);
+  memset(&amp;b3,0, sizeof b3); b3.b1=3; hexdumpbit(&quot;b3.b1&quot;, &amp;b3, sizeof b3,
+8);
+  memset(&amp;b3,0, sizeof b3); b3.b2=7; hexdumpbit(&quot;b3.b2&quot;, &amp;b3, sizeof b3,
+8);
+  memset(&amp;b3,0, sizeof b3); b3.b3=1; hexdumpbit(&quot;b3.b3&quot;, &amp;b3, sizeof b3,
+8);
+  return 0;
+}
+
+
+gcc 3.2 prints:
+
+sizeof(A) == 8; sizeof(B0) == 8, sizeof(B1) == 8, sizeof(B2) == 8,
+sizeof(b3) == 8
+--bb.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--bb.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b1.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b1.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b1.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b2.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b2.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b2.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b2.b2--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00111000 00000000 00000000
+
+--b3.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b3.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b3.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b3.b2--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00111000 00000000 00000000
+
+--b3.b3--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00000000 10000000 00000000
+
+(results from gcc 3.2 32 bit linux-ppc big-endian)
+
+It seems that b3.b1 and b3.b3 starts a new byte boundary because of b3.a
+and b3.b1 respectively. If b3.a overflows the byte boundary, then b3.b1
+would pack tightly afterwards.
+
+
+Our question is:
+We think this is inconsistent, is this a possible bug in gcc?
+
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001522.html">[cxx-abi] Re: [cxx-abi-dev] Tail padding, in sumary
+</A></li>
+	<LI>Next message: <A HREF="001524.html">Incorrect example in abi-examples
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1523">[ date ]</a>
+              <a href="thread.html#1523">[ thread ]</a>
+              <a href="subject.html#1523">[ subject ]</a>
+              <a href="author.html#1523">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

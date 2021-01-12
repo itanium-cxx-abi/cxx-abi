@@ -1,0 +1,97 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] N4198 and mangling for member pointer	template	arguments
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%0A%09template%09arguments&In-Reply-To=%3CD59AE6D4-FD62-4694-9505-A9340DD7D6DA%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002787.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] N4198 and mangling for member pointer	template	arguments</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%0A%09template%09arguments&In-Reply-To=%3CD59AE6D4-FD62-4694-9505-A9340DD7D6DA%40apple.com%3E"
+       TITLE="[cxx-abi-dev] N4198 and mangling for member pointer	template	arguments">rjmccall at apple.com
+       </A><BR>
+    <I>Mon Dec  1 20:02:06 UTC 2014</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002787.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2786">[ date ]</a>
+              <a href="thread.html#2786">[ thread ]</a>
+              <a href="subject.html#2786">[ subject ]</a>
+              <a href="author.html#2786">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Nov 25, 2014, at 6:13 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;<i> N4198 (accepted at Urbana) makes it possible for a template parameter of type T U::* to have a template argument of type T V::*, where V is a base class of U or vice versa. A naive attempt to apply the existing ABI rules leads to mangling collisions in cases like this:
+</I>&gt;<i> 
+</I>&gt;<i> struct A { int n; };
+</I>&gt;<i> struct B : A {};
+</I>&gt;<i> template&lt;int A::*&gt; void f() {}
+</I>&gt;<i> template&lt;int B::*&gt; void f() {}
+</I>&gt;<i> void g() {
+</I>&gt;<i>   constexpr int A::*p = &amp;A::n;
+</I>&gt;<i>   constexpr int B::*q = p;
+</I>&gt;<i>   f&lt;p&gt;();
+</I>&gt;<i>   f&lt;q&gt;();
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> (Here, a naive approach would use XadL_ZN1A1nEEE as the template argument value in both calls.)
+</I>&gt;<i> 
+</I>&gt;<i> In order to resolve this, I suggest we introduce a new mangling for the case of a member pointer template argument where the class containing the member is different from the class in the template parameter. The minimal information we'll need to include is the class in the template parameter and a designator if the base class is a repeated base class.
+</I>&gt;<i> 
+</I>&gt;<i> One approach would be to use
+</I>&gt;<i> 
+</I>&gt;<i>   sc &lt;type&gt; ad L&lt;member&gt;E
+</I>&gt;<i> 
+</I>&gt;<i> and to explicitly include the final type plus those intermediate types that introduce multiple inheritance from the base class (that is, just enough to uniquely identify the path).
+</I>&gt;<i> 
+</I>&gt;<i> Another would be to introduce a new mangling that incorporates the final type and an offset or discriminator.
+</I>
+Do we have the same problem for references and pointers to base subobjects?  Okay, I see that the answer is &#8220;no&#8221;, but only because you kept that restriction in N4198.  I think we can assume that that&#8217;s not permanent.
+
+I like the idea of using (possibly invented) static_casts; it&#8217;s not optimally compact, but it at least theoretically works with existing demanglers.  Have you checked to see if it actually works?
+
+I agree with only including those intermediate steps necessary to uniquely determine the path.
+
+We&#8217;d have to specify in what dependent situations we include the path.  &#8220;Never&#8221; is the easiest answer, so that in
+  template &lt;class T, int T::*member&gt; void foo(decltype(T() + temp&lt;&amp;A::baz&gt;());
+we&#8217;d mangle &amp;A::baz without a path clarification even if we could type-check &quot;temp&lt;&amp;A::baz&gt;()&#8221; at template definition time.
+
+John.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002787.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2786">[ date ]</a>
+              <a href="thread.html#2786">[ thread ]</a>
+              <a href="subject.html#2786">[ subject ]</a>
+              <a href="author.html#2786">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

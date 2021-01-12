@@ -1,0 +1,403 @@
+From jason at redhat.com  Tue Sep 29 18:09:58 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 29 Sep 2015 14:09:58 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+Message-ID: <560AD3F6.8000200@redhat.com>
+
+The Transactional Memory TS introduces "transaction-safe function" 
+types, which are distinct from non-transaction-safe function types, 
+though the former converts to the latter.  So we need to represent this 
+in mangling.
+
+I think no change to mangling of actual functions is necessary, since 
+functions that differ only in their tx-qualifier cannot be overloaded. 
+So we only need to worry about function types.
+
+One possibility for handling it would be to add a qualifier 'T' after 
+the <ref-qualifier> at the end of <function-type>, but that complicates 
+the ambiguity between these qualifiers and parameter types.
+
+I think my preference is to make it a normal type qualifier, perhaps 
+using "Dx", so void (*)() transaction_safe becomes "PDxFvvE".
+
+We also need to add a __transaction_safe_mask to 
+__pbase_type_info::__masks so that exception handlers can perform the 
+transaction safety conversion.
+
+Make sense?
+
+Jason
+
+From richardsmith at googlers.com  Wed Sep 30 00:34:44 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Tue, 29 Sep 2015 17:34:44 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560AD3F6.8000200@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+Message-ID: <CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+
+On 29 September 2015 at 11:09, Jason Merrill <jason at redhat.com> wrote:
+
+> The Transactional Memory TS introduces "transaction-safe function" types,
+> which are distinct from non-transaction-safe function types, though the
+> former converts to the latter.  So we need to represent this in mangling.
+>
+> I think no change to mangling of actual functions is necessary, since
+> functions that differ only in their tx-qualifier cannot be overloaded.
+
+
+I thought the intent was that we'd emit two function bodies for a
+transaction-safe function definition (one for the case where we are inside
+an atomic block, another for the case where we are not). Do we also need a
+new function mangling for the former case?
+
+
+> So we only need to worry about function types.
+>
+> One possibility for handling it would be to add a qualifier 'T' after the
+> <ref-qualifier> at the end of <function-type>, but that complicates the
+> ambiguity between these qualifiers and parameter types.
+>
+> I think my preference is to make it a normal type qualifier, perhaps using
+> "Dx", so void (*)() transaction_safe becomes "PDxFvvE".
+>
+> We also need to add a __transaction_safe_mask to
+> __pbase_type_info::__masks so that exception handlers can perform the
+> transaction safety conversion.
+>
+
+Would you also use the same __function_type_info for the pointee type in
+typeid(void (*)() transaction_safe) and typeid(void(*)())? That seems like
+an odd fit for the language semantics ("transaction_safe" is part of the
+function type, not a layer on top of it like cv-qualifiers are), but
+necessary if we want the exception handler to be able to efficiently check
+for a match.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150929/0944eb23/attachment.html>
+
+From rjmccall at apple.com  Wed Sep 30 01:44:04 2015
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 29 Sep 2015 18:44:04 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560AD3F6.8000200@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+Message-ID: <FD6AB2F2-FEE1-426F-A38A-ABEBA6879CAD@apple.com>
+
+> On Sep 29, 2015, at 11:09 AM, Jason Merrill <jason at redhat.com> wrote:
+> The Transactional Memory TS introduces "transaction-safe function" types, which are distinct from non-transaction-safe function types, though the former converts to the latter.  So we need to represent this in mangling.
+> 
+> I think no change to mangling of actual functions is necessary, since functions that differ only in their tx-qualifier cannot be overloaded.
+
+Is it an ODR violation to define functions in different translation units that differ only in their tx-qualifier?  There are definitely cases with templates where there?s no legal way to overload them but they?re nonetheless not the same function for the purposes of the ODR.
+
+Also, even if we?re not emitting two entrypoints now, is that a plausible implementation direction in the future, or is adding the ability to overload a plausible language direction?
+
+John.
+
+From richardsmith at googlers.com  Wed Sep 30 01:58:10 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Tue, 29 Sep 2015 18:58:10 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <FD6AB2F2-FEE1-426F-A38A-ABEBA6879CAD@apple.com>
+References: <560AD3F6.8000200@redhat.com>
+	<FD6AB2F2-FEE1-426F-A38A-ABEBA6879CAD@apple.com>
+Message-ID: <CAGL0aWfG9izkw1i6tJJnEURR2uVjKB-eWLRETDEVQn8FM+ph6w@mail.gmail.com>
+
+On 29 September 2015 at 18:44, John McCall <rjmccall at apple.com> wrote:
+
+> > On Sep 29, 2015, at 11:09 AM, Jason Merrill <jason at redhat.com> wrote:
+> > The Transactional Memory TS introduces "transaction-safe function"
+> types, which are distinct from non-transaction-safe function types, though
+> the former converts to the latter.  So we need to represent this in
+> mangling.
+> >
+> > I think no change to mangling of actual functions is necessary, since
+> functions that differ only in their tx-qualifier cannot be overloaded.
+>
+> Is it an ODR violation to define functions in different translation units
+> that differ only in their tx-qualifier?  There are definitely cases with
+> templates where there?s no legal way to overload them but they?re
+> nonetheless not the same function for the purposes of the ODR.
+>
+
+It would violate either [basic.link]p9 or [basic.link]p10, depending on how
+you resolve the ambiguity in the wording of p9.
+
+Also, even if we?re not emitting two entrypoints now, is that a plausible
+> implementation direction in the future, or is adding the ability to
+> overload a plausible language direction?
+>
+> John.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150929/8a81286d/attachment.html>
+
+From rjmccall at apple.com  Wed Sep 30 02:20:43 2015
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 29 Sep 2015 19:20:43 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <CAGL0aWfG9izkw1i6tJJnEURR2uVjKB-eWLRETDEVQn8FM+ph6w@mail.gmail.com>
+References: <560AD3F6.8000200@redhat.com>
+	<FD6AB2F2-FEE1-426F-A38A-ABEBA6879CAD@apple.com>
+	<CAGL0aWfG9izkw1i6tJJnEURR2uVjKB-eWLRETDEVQn8FM+ph6w@mail.gmail.com>
+Message-ID: <69E76CE3-F080-47B5-B195-39B87A74018D@apple.com>
+
+> On Sep 29, 2015, at 6:58 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 29 September 2015 at 18:44, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Sep 29, 2015, at 11:09 AM, Jason Merrill <jason at redhat.com <mailto:jason at redhat.com>> wrote:
+> > The Transactional Memory TS introduces "transaction-safe function" types, which are distinct from non-transaction-safe function types, though the former converts to the latter.  So we need to represent this in mangling.
+> >
+> > I think no change to mangling of actual functions is necessary, since functions that differ only in their tx-qualifier cannot be overloaded.
+> 
+> Is it an ODR violation to define functions in different translation units that differ only in their tx-qualifier?  There are definitely cases with templates where there?s no legal way to overload them but they?re nonetheless not the same function for the purposes of the ODR.
+> 
+> It would violate either [basic.link]p9 or [basic.link]p10, depending on how you resolve the ambiguity in the wording of p9.
+
+Assuming none of those definitions are modified by the TS, okay.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150929/3d611a91/attachment-0001.html>
+
+From jason at redhat.com  Wed Sep 30 03:27:27 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 29 Sep 2015 23:27:27 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+Message-ID: <560B569F.5040203@redhat.com>
+
+On 09/29/2015 08:34 PM, Richard Smith wrote:
+> On 29 September 2015 at 11:09, Jason Merrill <jason at redhat.com> wrote:
+>
+>> The Transactional Memory TS introduces "transaction-safe function" types,
+>> which are distinct from non-transaction-safe function types, though the
+>> former converts to the latter.  So we need to represent this in mangling.
+>>
+>> I think no change to mangling of actual functions is necessary, since
+>> functions that differ only in their tx-qualifier cannot be overloaded.
+>
+> I thought the intent was that we'd emit two function bodies for a
+> transaction-safe function definition (one for the case where we are inside
+> an atomic block, another for the case where we are not). Do we also need a
+> new function mangling for the former case?
+
+Yes, I thought I had mentioned that in a follow-up, but evidently not. 
+GCC currently mangles the transaction entry point as
+
+<special_name> ::= GTt <encoding>
+
+>> So we only need to worry about function types.
+>>
+>> One possibility for handling it would be to add a qualifier 'T' after the
+>> <ref-qualifier> at the end of <function-type>, but that complicates the
+>> ambiguity between these qualifiers and parameter types.
+>>
+>> I think my preference is to make it a normal type qualifier, perhaps using
+>> "Dx", so void (*)() transaction_safe becomes "PDxFvvE".
+>>
+>> We also need to add a __transaction_safe_mask to
+>> __pbase_type_info::__masks so that exception handlers can perform the
+>> transaction safety conversion.
+>
+> Would you also use the same __function_type_info for the pointee type in
+> typeid(void (*)() transaction_safe) and typeid(void(*)())? That seems like
+> an odd fit for the language semantics ("transaction_safe" is part of the
+> function type, not a layer on top of it like cv-qualifiers are), but
+> necessary if we want the exception handler to be able to efficiently check
+> for a match.
+
+Right.  This seemed simpler to me than adding a new 
+__tx_safe_function_type_info class.
+
+Jason
+
+
+From jason at redhat.com  Wed Sep 30 03:42:30 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 29 Sep 2015 23:42:30 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560B569F.5040203@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com>
+Message-ID: <560B5A26.9030508@redhat.com>
+
+On 09/29/2015 11:27 PM, Jason Merrill wrote:
+> On 09/29/2015 08:34 PM, Richard Smith wrote:
+>> On 29 September 2015 at 11:09, Jason Merrill <jason at redhat.com> wrote:
+>>
+>>> The Transactional Memory TS introduces "transaction-safe function"
+>>> types,
+>>> which are distinct from non-transaction-safe function types, though the
+>>> former converts to the latter.  So we need to represent this in
+>>> mangling.
+>>>
+>>> I think no change to mangling of actual functions is necessary, since
+>>> functions that differ only in their tx-qualifier cannot be overloaded.
+>>
+>> I thought the intent was that we'd emit two function bodies for a
+>> transaction-safe function definition (one for the case where we are
+>> inside
+>> an atomic block, another for the case where we are not). Do we also
+>> need a
+>> new function mangling for the former case?
+>
+> Yes, I thought I had mentioned that in a follow-up, but evidently not.
+> GCC currently mangles the transaction entry point as
+>
+> <special_name> ::= GTt <encoding>
+>
+>>> So we only need to worry about function types.
+>>>
+>>> One possibility for handling it would be to add a qualifier 'T' after
+>>> the
+>>> <ref-qualifier> at the end of <function-type>, but that complicates the
+>>> ambiguity between these qualifiers and parameter types.
+>>>
+>>> I think my preference is to make it a normal type qualifier, perhaps
+>>> using "Dx", so void (*)() transaction_safe becomes "PDxFvvE".
+
+There's also the question of whether the non-transaction-safe function 
+type is substitutable in this mangling.  I think we might as well allow 
+it, as we do for cv-qualified types.
+
+>>>
+>>> We also need to add a __transaction_safe_mask to
+>>> __pbase_type_info::__masks so that exception handlers can perform the
+>>> transaction safety conversion.
+>>
+>> Would you also use the same __function_type_info for the pointee type in
+>> typeid(void (*)() transaction_safe) and typeid(void(*)())? That seems
+>> like
+>> an odd fit for the language semantics ("transaction_safe" is part of the
+>> function type, not a layer on top of it like cv-qualifiers are), but
+>> necessary if we want the exception handler to be able to efficiently
+>> check
+>> for a match.
+>
+> Right.  This seemed simpler to me than adding a new
+> __tx_safe_function_type_info class.
+>
+> Jason
+>
+
+
+From rjmccall at apple.com  Wed Sep 30 17:31:26 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 30 Sep 2015 10:31:26 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560B5A26.9030508@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com> <560B5A26.9030508@redhat.com>
+Message-ID: <E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+
+> On Sep 29, 2015, at 8:42 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 09/29/2015 11:27 PM, Jason Merrill wrote:
+>> On 09/29/2015 08:34 PM, Richard Smith wrote:
+>>> On 29 September 2015 at 11:09, Jason Merrill <jason at redhat.com> wrote:
+>>> 
+>>>> The Transactional Memory TS introduces "transaction-safe function"
+>>>> types,
+>>>> which are distinct from non-transaction-safe function types, though the
+>>>> former converts to the latter.  So we need to represent this in
+>>>> mangling.
+>>>> 
+>>>> I think no change to mangling of actual functions is necessary, since
+>>>> functions that differ only in their tx-qualifier cannot be overloaded.
+>>> 
+>>> I thought the intent was that we'd emit two function bodies for a
+>>> transaction-safe function definition (one for the case where we are
+>>> inside
+>>> an atomic block, another for the case where we are not). Do we also
+>>> need a
+>>> new function mangling for the former case?
+>> 
+>> Yes, I thought I had mentioned that in a follow-up, but evidently not.
+>> GCC currently mangles the transaction entry point as
+>> 
+>> <special_name> ::= GTt <encoding>
+>> 
+>>>> So we only need to worry about function types.
+>>>> 
+>>>> One possibility for handling it would be to add a qualifier 'T' after
+>>>> the
+>>>> <ref-qualifier> at the end of <function-type>, but that complicates the
+>>>> ambiguity between these qualifiers and parameter types.
+>>>> 
+>>>> I think my preference is to make it a normal type qualifier, perhaps
+>>>> using "Dx", so void (*)() transaction_safe becomes "PDxFvvE".
+> 
+> There's also the question of whether the non-transaction-safe function type is substitutable in this mangling.  I think we might as well allow it, as we do for cv-qualified types.
+
+Hmm.  To me, this seems much more like a ref-qualifier or a cv method qualifier, which we do not make independently substitutable.
+
+John.
+
+From jason at redhat.com  Wed Sep 30 18:16:17 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 30 Sep 2015 14:16:17 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com> <560B5A26.9030508@redhat.com>
+	<E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+Message-ID: <560C26F1.1060400@redhat.com>
+
+On 09/30/2015 01:31 PM, John McCall wrote:
+>> On Sep 29, 2015, at 8:42 PM, Jason Merrill <jason at redhat.com> wrote:
+
+>> There's also the question of whether the non-transaction-safe function type is substitutable in this mangling.  I think we might as well allow it, as we do for cv-qualified types.
+>
+> Hmm.  To me, this seems much more like a ref-qualifier or a cv method qualifier, which we do not make independently substitutable.
+
+It's like them in that it comes at the end of the declarator, but it is 
+unlike them in that they modify the 'this' parameter.
+
+It's like cv-quals in that there is a standard conversion to change the 
+qualifier under a pointer.
+
+Jason
+
+
+From rjmccall at apple.com  Wed Sep 30 18:24:49 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 30 Sep 2015 11:24:49 -0700
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560C26F1.1060400@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com> <560B5A26.9030508@redhat.com>
+	<E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+	<560C26F1.1060400@redhat.com>
+Message-ID: <CDD696CE-805D-4788-A1DB-873A7AD0231F@apple.com>
+
+> On Sep 30, 2015, at 11:16 AM, Jason Merrill <jason at redhat.com> wrote:
+> On 09/30/2015 01:31 PM, John McCall wrote:
+>>> On Sep 29, 2015, at 8:42 PM, Jason Merrill <jason at redhat.com> wrote:
+> 
+>>> There's also the question of whether the non-transaction-safe function type is substitutable in this mangling.  I think we might as well allow it, as we do for cv-qualified types.
+>> 
+>> Hmm.  To me, this seems much more like a ref-qualifier or a cv method qualifier, which we do not make independently substitutable.
+> 
+> It's like them in that it comes at the end of the declarator, but it is unlike them in that they modify the 'this' parameter.
+
+Well, ref-qualifiers don?t.
+
+> It's like cv-quals in that there is a standard conversion to change the qualifier under a pointer.
+
+That?s true, it is separable from the value.  I guess I?m fine with making this a substitution candidate.
+
+John.
+

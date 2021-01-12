@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> __cxa_finalize and `on_exit'
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912170340.TAA50270%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000378.html">
+   <LINK REL="Next"  HREF="000382.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>__cxa_finalize and `on_exit'</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_finalize%20and%20%60on_exit%27&In-Reply-To=%3C199912170340.TAA50270%40baalbek.engr.sgi.com%3E"
+       TITLE="__cxa_finalize and `on_exit'">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Fri Dec 17 03:40:53 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000378.html">Why __cxa_end_catch does not take an argument...
+</A></li>
+        <LI>Next message: <A HREF="000382.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#381">[ date ]</a>
+              <a href="thread.html#381">[ thread ]</a>
+              <a href="subject.html#381">[ subject ]</a>
+              <a href="author.html#381">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> Date: Thu, 16 Dec 1999 15:51:16 -0800
+</I>&gt;<i> 
+</I>&gt;<i> Why does the ABI says that __cxa_finalize should be called with a NULL
+</I>&gt;<i> parameter from the main program in the .fini section?  Why not just
+</I>&gt;<i> let normal atexit processing take place when exit is called?
+</I>
+There's a circularity problem, due to the need to register &quot;normal&quot;
+atexit calls to get them in the proper sequence.  Rather than do a
+traditional atexit registration, in C++ atexit must register the calls
+in the same sequence used for destructors.  So you can't just register
+__cxa_finalize with atexit, because it would end up invoking itself.
+
+
+&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> Date: Thu, 16 Dec 1999 16:03:06 -0800
+</I>&gt;<i> 
+</I>&gt;<i> The GNU C library supports the BSD/SunOS-ish `on_exit' as well as
+</I>&gt;<i> `atexit'.  A function registered with on_exit is just like one
+</I>&gt;<i> registered with atexit, except that it (like functions registered with
+</I>&gt;<i> __cxa_atexit) takes a parameter, and that parameter is registered at
+</I>&gt;<i> on_exit time.
+</I>
+__cxa_atexit registers a parameter with the function to be called,
+so this aspect of on_exit could be supported already by the proposal,
+as you observe.
+
+&gt;<i> In addition, the function registered with on_exit is passed the
+</I>&gt;<i> exit-status when exit is called.
+</I>&gt;<i> 
+</I>&gt;<i> But, __cxa_finalize doesn't know the exit-status, even when called
+</I>&gt;<i> with NULL to indicate that the main program is exiting, so it can't
+</I>&gt;<i> call the on_exit functions correctly.
+</I>&gt;<i> 
+</I>&gt;<i> I suggest that we mandate that __cxa_finalize is always called with a
+</I>&gt;<i> non-NULL parameter, or that it immediately return if passed a NULL
+</I>&gt;<i> parameter.
+</I>&gt;<i> 
+</I>&gt;<i> Let's just let exit do it's normal thing (which will include calling
+</I>&gt;<i> __cxa_atexit-registered functions), and use __cxa_finalize only for
+</I>&gt;<i> DSOs.
+</I>
+It's not clear how exit &quot;doing its normal thing&quot; solves the circularity
+problem above.  The conclusion we came to was that the normal thing
+today means that noone is conforming to the standard, and that's one of
+our objectives (for normal exits, as opposed to dynamic DSO unloading).
+
+We can certainly deal with the exit status by passing that to
+__cxa_finalize when the current DSO handle is NULL, if that's desirable
+(e.g. to integrate Sun's on_exit into the scheme).  That would involve
+changing to:
+
+	void __cxa_finalize ( void *dso_handle, int exit_status );
+
+and calling the registered functions *f with
+
+	void (*f) ( void *registered_p, int exit_status );
+
+We would have to identify what exit_status to use on early DSO unload,
+i.e. when dso_handle is non-NULL -- it could be zero, or undefined, or
+some selected value.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000378.html">Why __cxa_end_catch does not take an argument...
+</A></li>
+	<LI>Next message: <A HREF="000382.html">__cxa_finalize and `on_exit'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#381">[ date ]</a>
+              <a href="thread.html#381">[ thread ]</a>
+              <a href="subject.html#381">[ subject ]</a>
+              <a href="author.html#381">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

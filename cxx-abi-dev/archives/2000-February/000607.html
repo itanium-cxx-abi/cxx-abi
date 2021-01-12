@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call stuff, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000219155118D.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000603.html">
+   <LINK REL="Next"  HREF="000608.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call stuff, again</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000219155118D.mitchell%40codesourcery.com%3E"
+       TITLE="Virtual function call stuff, again">mark at codesourcery.com
+       </A><BR>
+    <I>Sat Feb 19 23:51:18 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000603.html">Web page updates
+</A></li>
+        <LI>Next message: <A HREF="000608.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#607">[ date ]</a>
+              <a href="thread.html#607">[ thread ]</a>
+              <a href="subject.html#607">[ subject ]</a>
+              <a href="author.html#607">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Folks --
+
+  The virtual function call specification language is a disaster.  A
+random sample of one (me) show's that it's pretty much impossible for
+anyone not actually been in all the meetings to implement. :-)
+
+  The discussion in the `callee' section on &quot;Virtual Function Calling
+Convention&quot; is very unclear.  For example, it's not explained which
+classes are bases of which others.  Here's an attempted rewrite.
+Let's see if it's what y'all meant.
+
+  o Suppose a class `A' defines a virtual function `A::f'.  The 
+    primary vtable for `A' contains a pointer to an entry point
+    that performs no adjustment.
+
+  o Suppose that a class `A' declares a virtual function `A::f', 
+    and suppose that `A' is a base class in a hierarchy dominated 
+    by another class `B'.  Suppose that the unique final overrider for
+    `A::f' in `B' is `C::f'.  We must determine what entry point
+    is used for `f' in the `A-in-B' secondary vtable.  Here is the
+    algorithm:
+
+    - Find any path from `B' to `C' in the inheritance graph for `B'.
+
+    - If there is no virtual base along the path, then create
+      an entry point which adjusts the `this' pointer from `A' to `C'.
+      This value can be computed statically when the `A-in-B' vtable
+      is created.  Then transfer control to the non-adjusting entry
+      point for `C::f'.
+
+    - If there is a virtual base along this path, let `V' be the
+      virtual base nearest to `C' along the path.  (In fact, `V'
+      will be `C' itself if `C' is a virtual base.)
+
+      (Note that the choice of `V' is independent of the choice of path.
+      If there was more than one path, then there must have been a
+      virtual base along all of the paths, and there is a unique one
+      closest to `C'.)
+
+      Now, create an entry point which first performs the adjustment
+      from `A' to `V'.  (This value can be computed statically, when
+      the `A-in-B' vtable is created.)  Then, adjust the `this'
+      pointer by the vcall offset stored in the secondary vtable for
+      `V' (i.e., the `V-in-B' vtable).  (This adjustment will adjust
+      the `this' pointer from `V' to `C'.)  Finally, transfer control
+      to the non-adjusting entry point for `C::f'.
+
+  Is that correct?  
+
+  It seems like the scheme specified in the ABI is advantageous in a
+situation where `C' is the same as `A', and `A' is the same as `V'.
+(In other words, if `A' is a virtual base and `A::f' is not overriden
+in `B'.)  Then, by emitting the vcall-adjusting entry point right
+before the main entry point for `C::f', calling `f' requires only one
+branch (to the entry point specified in the vtable), rather than two
+(to a thunk, and then from the thunk to the main function).  Right?
+
+  I still can't see why it is a win to use vcall offsets in the case
+where `A' and `V' are not the same class.  You already have to do one
+static adjustment in the entry point -- why not just adjust all the
+way to `B' directly, without bothering to look up the vcall offset?
+  
+  Furthermore, the actual algorithm used to perform the adjustments
+does not seem necessarily to be part of the ABI.  The layout of the
+vtables is certainly part of the ABI.  But, if one compiler wants to
+completely ignore the vcall offset entries in the vtables, and compute
+the entire adjustment statically, shouldn't that be permitted by the
+ABI, even though it might require one extra branch?  Surely that's
+just a quality-of-implementation issue?
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000603.html">Web page updates
+</A></li>
+	<LI>Next message: <A HREF="000608.html">Virtual function call stuff, again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#607">[ date ]</a>
+              <a href="thread.html#607">[ thread ]</a>
+              <a href="subject.html#607">[ subject ]</a>
+              <a href="author.html#607">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

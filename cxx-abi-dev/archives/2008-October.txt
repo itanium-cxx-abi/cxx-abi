@@ -1,0 +1,234 @@
+From jason at redhat.com  Wed Oct  8 21:22:52 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 08 Oct 2008 17:22:52 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48DD5CB9.1010401@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com>
+Message-ID: <48ED24AC.9080702@redhat.com>
+
+Jason Merrill wrote:
+> Simplifications within sizeof/alignof/decltype:
+> 
+> lvalue forms:
+> 
+> var
+> exp.member (where type of exp is not dependent)
+> exp->member (ditto *exp and exp doesn't overload op->)
+> *exp (where type of exp is known to be pointer to something)
+> 
+> rvalue forms:
+> 
+> T(args)
+> literals
+> rvalue.member
+> 
+> Should decltype(non-type-dependent expr) just get resolved to its type? 
+
+I think so.  And decltype(one of these forms).
+
+> Do we want to handle anything else specially?  And/or leave member 
+> access out and mangle them using the normal rules?
+
+Now I'm leaning toward leaving out member access, and only handling 
+variables, derefs, conversions and literals specially.
+
+Jason
+
+
+
+From jason at redhat.com  Wed Oct  8 21:19:55 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 08 Oct 2008 17:19:55 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48DD5CB9.1010401@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com>
+Message-ID: <48ED23FB.9050102@redhat.com>
+
+Jason Merrill wrote:
+> Simplifications within sizeof/alignof/decltype:
+> 
+> lvalue forms:
+> 
+> var
+> exp.member (where type of exp is not dependent)
+> exp->member (ditto *exp and exp doesn't overload op->)
+> *exp (where type of exp is known to be pointer to something)
+> 
+> rvalue forms:
+> 
+> T(args)
+> literals
+> rvalue.member
+> 
+> Should decltype(non-type-dependent expr) just get resolved to its type? 
+
+I think so.  And decltype(one of these forms).
+
+> Do we want to handle anything else specially?  And/or leave member 
+> access out and mangle them using the normal rules?
+
+Now I'm leaning toward leaving out member access, and only handling 
+variables, derefs, conversions and literals specially.
+
+Jason
+
+
+
+From jason at redhat.com  Thu Oct 30 20:04:58 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 30 Oct 2008 16:04:58 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <48ED24AC.9080702@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com>
+Message-ID: <490A136A.7030600@redhat.com>
+
+I'd like to get more opinions on this subject.  Again, the issue is how 
+to deal with expressions with a dependent but still describable type in 
+the context of decltype (and sizeof/alignof).
+
+This is a category which doesn't appear in the standard, but seems 
+pretty well defined: an expression has indescribable type if it is 
+potentially a call to an overloaded function, including operators, other 
+than conversion operators or constructors, or it is a reference to a 
+member of an unknown specialization.
+
+These are the only expressions for which the simplest way we can express 
+their type involves decltype.  All other expressions have a type which 
+can be expressed without decltype, even if it is something like typename 
+A<T>::B, and so I would like to do that.
+
+If we are mangling decltype(expr with describable type), we just replace 
+that with the type.  Otherwise, within decltype/sizeof/alignof, if a 
+subexpression has describable type we replace it in the mangling with a 
+type stub: sT <type> if decltype((subexpression)) is a reference type, 
+or sR <type> if it is not.
+
+Does this make sense to people?  The alternative is to limit this to 
+certain forms.  We definitely need to do this for function parameters 
+and template non-type parameters because there's no other way to 
+represent them, the question then is whether this should be limited to 
+them or used more generally to reduce the size of the mangled names.
+
+Jason
+
+
+From mark at codesourcery.com  Thu Oct 30 20:40:09 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 30 Oct 2008 16:40:09 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <490A136A.7030600@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com>
+Message-ID: <490A1BA9.5000305@codesourcery.com>
+
+Jason Merrill wrote:
+
+> If we are mangling decltype(expr with describable type), we just replace
+> that with the type.  Otherwise, within decltype/sizeof/alignof, if a
+> subexpression has describable type we replace it in the mangling with a
+> type stub: sT <type> if decltype((subexpression)) is a reference type,
+> or sR <type> if it is not.
+
+Is the type of the expression sufficiently canonical?  For example, I
+worry that one compiler will decide the expression has type "typename
+A<T>::B" while another decides that the type is "int" because it
+resolves a dependent type, or "typename A<T>::C" (because there's a
+typedef equating "B" and "C"), or some such.  Or even things like
+determining that the type is "void ()(T[3])" vs. "void ()(T*)".
+
+In other words, the advantage to a syntactic mangling based on the form
+of the decltype expression is that it's more obvious what the right
+answer is, whereas the a semantic mangling based on your definition of
+describable type might not be as well-defined.
+
+I've not been keeping up sufficiently with the latest C++ standards
+development to know how fair such a worry might be, so I apologize in
+advance if this is obviously moot.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Fri Oct 31 18:27:37 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 31 Oct 2008 14:27:37 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <490A1BA9.5000305@codesourcery.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com>
+Message-ID: <490B4E19.209@redhat.com>
+
+Mark Mitchell wrote:
+> Is the type of the expression sufficiently canonical?  For example, I
+> worry that one compiler will decide the expression has type "typename
+> A<T>::B" while another decides that the type is "int" because it
+> resolves a dependent type, or "typename A<T>::C" (because there's a
+> typedef equating "B" and "C"), or some such.
+
+That doesn't seem likely to me; the compiler isn't allowed to resolve 
+dependent types to another type early, that's what it means to be dependent.
+
+> Or even things like
+> determining that the type is "void ()(T[3])" vs. "void ()(T*)".
+
+That seems like a more likely issue: does the compiler do type decay 
+while parsing the template or at instantiation time?.  But I would 
+expect this to be easily resolved.
+
+I was initially worried about this sort of thing too, and started to 
+enumerate which subset of expressions we want to optimize this way 
+(non-type-dependent expressions, declarations, conversions, literals, 
+new-expressions), but as I think about it I don't think it's actually 
+likely to be a problem.
+
+Jason
+
+
+From jason at redhat.com  Fri Oct 31 21:39:59 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 31 Oct 2008 17:39:59 -0400
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <490B4E19.209@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com> <490B4E19.209@redhat.com>
+Message-ID: <490B7B2F.2010802@redhat.com>
+
+Jason Merrill wrote:
+> Mark Mitchell wrote:
+>> Or even things like
+>> determining that the type is "void ()(T[3])" vs. "void ()(T*)".
+
+...or the somewhat similar issue of how hard we should work at 
+propagating describable types through complex expressions.  I want to 
+handle *(T*)..., but is it worth handling things like ((*T)...) + 5?  Or 
+"foo ? (T)bar : (T)baz"?  I'm not sure.
+
+Currently g++ doesn't bother propagating types in situations like this 
+where we *could* figure out what the describable type is, but don't bother.
+
+Perhaps a specified subset is the right way to go after all.  Which 
+would bring us back to my earlier list, which I'll update here:
+
+lvalue forms:
+
+variable, parameter, function name
+member of the current instantiation
+*exp (where type of exp is known to be pointer to something)
+
+rvalue forms:
+
+enumerator or template non-type parameter name
+T(args)
+*_cast<T>(expr)
+literals
+member of the current instantiation
+new?
+sizeof?
+alignof?
+&expr, where the subexpression has one of these types?
+
+Any other opinions?
+
+Jason
+
+

@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> rtti data structures (again)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C3896BC8A.67010927%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000535.html">
+   <LINK REL="Next"  HREF="000537.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>rtti data structures (again)</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C3896BC8A.67010927%40codesourcery.com%3E"
+       TITLE="rtti data structures (again)">sidwell at codesourcery.com
+       </A><BR>
+    <I>Tue Feb  1 10:59:22 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000535.html">Updated status -- new issues
+</A></li>
+        <LI>Next message: <A HREF="000537.html">Virtual function calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+
+&gt;<i>  &gt;&gt; We also decided that the flags should move from __class_type_info into
+</I>&gt;<i>  &gt;&gt; __vmi_class_type_info, and that the polymorphic flag should be removed.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; I think this moving of the flags is a mistake. If I understood correctly,
+</I>&gt;<i>  &gt; they indicated information about direct and indirect bases (whether there
+</I>&gt;<i>  &gt; was virtuality anywhere in the heirarchy for instance). Such information
+</I>&gt;<i>  &gt; can speed up dynamic cast. When walking the inheritance graph, we can
+</I>&gt;<i>  &gt; take some early outs, if we know there are no multiple sub object types
+</I>&gt;<i>  &gt; within the complete graph. With the flags in every class's type_info, it
+</I>&gt;<i>  &gt; becomes easier to get hold of that info. With it only for vmi classes,
+</I>&gt;<i>  &gt; we have to remember `unknown' when presented with a complete object of
+</I>&gt;<i>  &gt; si type, and fill the information in when/if we find a vmi base.
+</I>&gt;<i> 
+</I>&gt;<i> So what you're saying is if we try to dynamic_cast from A* to B*, where B
+</I>&gt;<i> has a unique A subobject and the A* does not actually point to part of a B,
+</I>&gt;<i> if we know that B has no multiple subobjects we can check the passed
+</I>&gt;<i> offset, see that it doesn't match, and return failure.  Without that
+</I>&gt;<i> information, we would have to recurse up the single-inheritance chain until
+</I>&gt;<i> we either reach the A or a class with multiple or virtual bases.
+</I>No, the base_offset hint covers this case already. If A is a unique public
+base of B base_offset will tell us where it is. If A is a non-unique public
+base of B base_offset will tell us (and we search B to find one). If A is
+not a public base, base_offset will tell us (and we don't search B).
+
+What I'm talking about is that in a cast from A* to B*, if we know the
+complete type has no multiple subobjects, then as soon as we find a B base
+we can stop looking. We have to remember the flags from the complete object.
+Should the flags only be in vmi type_info's then we also have to remember
+that we don't know the subobject status when the complete object is an si.
+We fill the flags in when/if we meet a vmi base. This is a minor problem
+though, and is bookkeeping.
+
+&gt;<i> I think I'd rather pay that small performance hit than add a word to the
+</I>&gt;<i> type_info for each class.  Matt, would this affect locales?
+</I>Yes, I suspect the performance hit is minor.
+
+&gt;<i>  &gt; Another case is in a potential cross-cast case, which I had in the
+</I>&gt;<i>  &gt; previous email.  Suppose we've found the target base, which we know is
+</I>&gt;<i>  &gt; unique, but not found the source base (because we early outed,
+</I>&gt;<i>  &gt; maybe). To be a valid cross-cast both the source and target base objects
+</I>&gt;<i>  &gt; must be public in the complete object. If we know the complete heirarchy
+</I>&gt;<i>  &gt; has no non-public bases, there's no need to search for the source base
+</I>&gt;<i>  &gt; in this case.
+</I>&gt;<i> 
+</I>&gt;<i> But cross-casts only come up in the context of classes with multiple bases,
+</I>&gt;<i> so it wouldn't make sense to look for this in single inheritance classes
+</I>&gt;<i> anyway.
+</I>Consider the following,
+
+struct A {};
+struct B {};
+struct C : public A, public B {};
+struct D : public C {};
+
+consider cross cast from an A subobject to a B subobject. suppose we locate
+the B subobject. We know C contains no multiple sub objects, 'cos of it's
+vmi flags, therefore as soon as we find the target object we can stop searching.
+This could mean we don't trip over the A subobject we started from. Hence
+at the end of the search, when we're holding the D complete object we know
+that B is an unambiguous public base of D, but we have no idea about A.
+For the dynamic cast to be valid, either the A subobject must be a base
+of the B target object (which it isn't), or the A subobject must be a public
+base of the complete D object. Notice, it is insufficient for it to be a public
+base of the common vmi object which contains both A and B. Thus, without the
+flags in a single inheritance object, we have to go up the base chain till
+we find a vmi object to discover whether any bases are private.
+
+Actually it occurs to me that even this case can be dealt with during the
+search for B. We find B and know we've not located the A we started from. So
+we continue searching (or early succeed as we know there are no private bases,
+at that point because of the vmi flags we've just seen). This is better.
+
+I withdraw my objections about the flags only being in vmi classes.
+
+nathan
+
+-- 
+Dr Nathan Sidwell :: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>  <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A>  <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at cs.bris.ac.uk</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000535.html">Updated status -- new issues
+</A></li>
+	<LI>Next message: <A HREF="000537.html">Virtual function calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

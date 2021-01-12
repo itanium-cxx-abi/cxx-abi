@@ -1,0 +1,68 @@
+<tt>
+&lt;div&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;On&nbsp;3&nbsp;Sep&nbsp;2016&nbsp;1:49&nbsp;am,&nbsp;&quot;Thiago&nbsp;Macieira&quot;&nbsp;&lt;&lt;a&nbsp;href=&quot;mailto:thiago@kde.org&quot;&gt;thiago@kde.org&lt;/a&gt;&gt;&nbsp;wrote:&lt;br&nbsp;type=&quot;attribution&quot;&gt;&lt;blockquote&nbsp;class=&quot;quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;Hello&lt;br&gt;<br>
+&lt;br&gt;<br>
+Summary:&nbsp;abi::__foced_unwind&nbsp;is&nbsp;available&nbsp;when&nbsp;#include&nbsp;&lt;cxxabi.h&gt;&nbsp;from&nbsp;GCC&lt;br&gt;<br>
+(libsupc++),&nbsp;but&nbsp;is&nbsp;not&nbsp;documented&nbsp;in&nbsp;&lt;a&nbsp;href=&quot;https://mentorembedded.github.io/cxx-abi/abi-eh.html&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;https://mentorembedded.github.&lt;wbr&gt;io/cxx-abi/abi-eh.html&lt;/a&gt;&nbsp;nor&nbsp;is&nbsp;it&nbsp;available&nbsp;in&nbsp;other&nbsp;implementations.&nbsp;Should&nbsp;it&nbsp;be&lt;br&gt;<br>
+adde&nbsp;to&nbsp;the&nbsp;spec&nbsp;so&nbsp;we&nbsp;can&nbsp;detect&nbsp;forced&nbsp;unwinds?&nbsp;Or&nbsp;is&nbsp;there&nbsp;another&nbsp;way&nbsp;to&lt;br&gt;<br>
+detect&nbsp;the&nbsp;forced&nbsp;unwinding&nbsp;not&nbsp;caused&nbsp;by&nbsp;an&nbsp;exception?&lt;br&gt;<br>
+&lt;br&gt;<br>
+Background:&lt;br&gt;<br>
+&lt;br&gt;<br>
+30.3.1.2&nbsp;[thread.thread.constr]&nbsp;p5&nbsp;says&lt;br&gt;<br>
+&lt;br&gt;<br>
+&quot;&nbsp;If&nbsp;the&nbsp;invocation&nbsp;of&nbsp;INVOKE&nbsp;(DECAY_COPY&nbsp;(&nbsp;std::forward&lt;F&gt;(f)),&nbsp;DECAY_COPY&lt;br&gt;<br>
+(std::forward&lt;Args&gt;(args))...)&nbsp;terminates&nbsp;with&nbsp;an&nbsp;uncaught&nbsp;exception,&lt;br&gt;<br>
+std::terminate&nbsp;shall&nbsp;be&nbsp;called.&quot;&lt;br&gt;<br>
+&lt;br&gt;<br>
+When&nbsp;trying&nbsp;to&nbsp;implement&nbsp;this&nbsp;requirement&nbsp;for&nbsp;QThread,&nbsp;we&#39;ve&nbsp;run&nbsp;into&nbsp;a&nbsp;snag:&lt;br&gt;<br>
+with&nbsp;glibc&#39;s&nbsp;pthread&nbsp;implementation&nbsp;on&nbsp;Linux,&nbsp;pthread_exit()&nbsp;as&nbsp;well&nbsp;as&nbsp;all&lt;br&gt;<br>
+POSIX&nbsp;asynchronous&nbsp;cancellations&nbsp;happen&nbsp;by&nbsp;way&nbsp;of&nbsp;a&nbsp;forced&nbsp;stack&nbsp;unwinding.&lt;br&gt;<br>
+This&nbsp;means&nbsp;the&nbsp;obvious&nbsp;solution&nbsp;to&nbsp;implement&nbsp;the&nbsp;requirement&nbsp;from&nbsp;the&nbsp;standard&lt;br&gt;<br>
+fails:&lt;br&gt;<br>
+&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp;try&nbsp;{&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;thr-&gt;run();&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp;}&nbsp;catch&nbsp;(...)&nbsp;{&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;std::terminate();&lt;br&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp;}&lt;br&gt;<br>
+&lt;br&gt;<br>
+That&nbsp;catch&nbsp;(...)&nbsp;block&nbsp;is&nbsp;run&nbsp;by&nbsp;the&nbsp;forced&nbsp;stack&nbsp;unwinding&nbsp;started&nbsp;with&lt;br&gt;<br>
+_Unwind_ForcedUnwind.&lt;/blockquote&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;What&nbsp;does&nbsp;std::current_exception()&nbsp;return&nbsp;here?&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;&lt;blockquote&nbsp;class=&quot;quote&quot;&nbsp;style=&quot;margin:0&nbsp;0&nbsp;0&nbsp;.8ex;border-left:1px&nbsp;#ccc&nbsp;solid;padding-left:1ex&quot;&gt;Since&nbsp;it&nbsp;then&nbsp;calls&nbsp;std::terminate(),&nbsp;the&nbsp;whole&lt;br&gt;<br>
+application&nbsp;terminates&nbsp;instead&nbsp;of&nbsp;just&nbsp;the&nbsp;thread.&lt;br&gt;<br>
+&lt;br&gt;<br>
+Now,&nbsp;the&nbsp;libstdc++&nbsp;implementation[1][2]&nbsp;handles&nbsp;this&nbsp;gracefully,&nbsp;but&nbsp;does&nbsp;so&lt;br&gt;<br>
+by&nbsp;catching&nbsp;abi::__forced_unwind.&lt;br&gt;<br>
+&lt;br&gt;<br>
+That&nbsp;brings&nbsp;me&nbsp;to&nbsp;my&nbsp;original&nbsp;question&nbsp;in&nbsp;the&nbsp;subject:&nbsp;how&nbsp;can&nbsp;code&nbsp;outside&nbsp;of&lt;br&gt;<br>
+the&nbsp;compiler&#39;s&nbsp;own&nbsp;implementations&nbsp;detect&nbsp;a&nbsp;forced&nbsp;stack&nbsp;unwinding&nbsp;not&nbsp;caused&lt;br&gt;<br>
+by&nbsp;a&nbsp;thrown&nbsp;exception&nbsp;in&nbsp;a&nbsp;portable&nbsp;fashion?&lt;br&gt;<br>
+&lt;br&gt;<br>
+Option&nbsp;1:&nbsp;make&nbsp;abi::__forced_unwind&nbsp;documented&nbsp;and&nbsp;have&nbsp;the&nbsp;other&lt;br&gt;<br>
+implementations&nbsp;(besides&nbsp;GCC)&nbsp;implement&nbsp;it&nbsp;too.&lt;br&gt;<br>
+&lt;br&gt;<br>
+Option&nbsp;2:&nbsp;add&nbsp;a&nbsp;getter&nbsp;to&nbsp;either&nbsp;the&nbsp;Base&nbsp;ABI&nbsp;for&nbsp;unwinding&nbsp;(_Unwind_*)&nbsp;or&nbsp;the&lt;br&gt;<br>
+C++&nbsp;ABI&nbsp;to&nbsp;get&nbsp;a&nbsp;flag&nbsp;indicating&nbsp;whether&nbsp;the&nbsp;unwind&nbsp;is&nbsp;forced.&nbsp;In&nbsp;fact,&nbsp;this&lt;br&gt;<br>
+information&nbsp;is&nbsp;already&nbsp;available&nbsp;in&nbsp;the&nbsp;actions&nbsp;parameter&nbsp;to&nbsp;the&nbsp;personality&lt;br&gt;<br>
+routine:&nbsp;&lt;a&nbsp;href=&quot;https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-personality&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;https://mentorembedded.github.&lt;wbr&gt;io/cxx-abi/abi-eh.html#base-&lt;wbr&gt;personality&lt;/a&gt;&lt;br&gt;<br>
+has:&lt;br&gt;<br>
+ &nbsp; &nbsp;static&nbsp;const&nbsp;_Unwind_Action&nbsp;_UA_FORCE_UNWIND&nbsp;=&nbsp;8;&lt;br&gt;<br>
+&lt;br&gt;<br>
+Option&nbsp;3:&nbsp;change&nbsp;the&nbsp;way&nbsp;that&nbsp;GCC&nbsp;and&nbsp;glibc&nbsp;force&nbsp;unwinding&nbsp;from&nbsp;non-C++&lt;br&gt;<br>
+contexts.&lt;br&gt;<br>
+&lt;br&gt;<br>
+[1]&nbsp;&lt;a&nbsp;href=&quot;https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B<br>
+%2B11/thread.cc#L77&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;https://github.com/gcc-mirror/&lt;wbr&gt;gcc/blob/master/libstdc%2B%2B-&lt;wbr&gt;v3/src/c%2B&lt;br&gt;<br>
+%2B11/thread.cc#L77&lt;/a&gt;&lt;br&gt;<br>
+[2]&nbsp;I&nbsp;don&#39;t&nbsp;see&nbsp;any&nbsp;code&nbsp;in&nbsp;libc++&nbsp;for&nbsp;handling&nbsp;exceptions&nbsp;at&nbsp;all.&lt;br&gt;<br>
+&lt;font&nbsp;color=&quot;#888888&quot;&gt;&lt;br&gt;<br>
+--&lt;br&gt;<br>
+Thiago&nbsp;Macieira&nbsp;-&nbsp;thiago&nbsp;(AT)&nbsp;&lt;a&nbsp;href=&quot;http://macieira.info&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;macieira.info&lt;/a&gt;&nbsp;-&nbsp;thiago&nbsp;(AT)&nbsp;&lt;a&nbsp;href=&quot;http://kde.org&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;kde.org&lt;/a&gt;&lt;br&gt;<br>
+ &nbsp; Software&nbsp;Architect&nbsp;-&nbsp;Intel&nbsp;Open&nbsp;Source&nbsp;Technology&nbsp;Center&lt;br&gt;<br>
+&lt;br&gt;<br>
+______________________________&lt;wbr&gt;_________________&lt;br&gt;<br>
+cxx-abi-dev&nbsp;mailing&nbsp;list&lt;br&gt;<br>
+&lt;a&nbsp;href=&quot;mailto:cxx-abi-dev@codesourcery.com&quot;&gt;cxx-abi-dev@codesourcery.com&lt;/a&gt;&lt;br&gt;<br>
+&lt;a&nbsp;href=&quot;http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev&quot;&nbsp;rel=&quot;noreferrer&quot;&nbsp;target=&quot;_blank&quot;&gt;http://sourcerytools.com/cgi-&lt;wbr&gt;bin/mailman/listinfo/cxx-abi-&lt;wbr&gt;dev&lt;/a&gt;&lt;br&gt;<br>
+&lt;/font&gt;&lt;/blockquote&gt;&lt;/div&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;<br>
+
+</tt>

@@ -1,0 +1,112 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Cxx-abi-dev] Overlong bit fields and 128-bit integers
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BCxx-abi-dev%5D%20Overlong%20bit%20fields%20and%20128-bit%20integers&In-Reply-To=%3C51935390-A24D-4552-89B2-0E06FE1FABC2%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000003.html">
+   <LINK REL="Next"  HREF="000033.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Cxx-abi-dev] Overlong bit fields and 128-bit integers</H1>
+    <B>David Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BCxx-abi-dev%5D%20Overlong%20bit%20fields%20and%20128-bit%20integers&In-Reply-To=%3C51935390-A24D-4552-89B2-0E06FE1FABC2%40edg.com%3E"
+       TITLE="[Cxx-abi-dev] Overlong bit fields and 128-bit integers">daveed at edg.com
+       </A><BR>
+    <I>Tue Sep 20 13:51:21 UTC 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000003.html">[Cxx-abi-dev] [cxx-abi-dev] Mangling 'this'	in	trailing-return-type
+</A></li>
+        <LI>Next message: <A HREF="000033.html">[Cxx-abi-dev] Overlong bit fields and 128-bit integers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2">[ date ]</a>
+              <a href="thread.html#2">[ thread ]</a>
+              <a href="subject.html#2">[ subject ]</a>
+              <a href="author.html#2">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>(Re-posting after a couple of weeks due to mailing list transition issues.)
+
+As you can tell from the subject line keywords we're well in &quot;odd corner case&quot; territory here, but we received an ABI compatibility problem report in this area.
+
+Consider:
+
+	struct S {
+	  int i;
+	  long long x: 130;
+	  int j;
+	};
+
+What's the offset of j?
+
+Here is what the IA-64 C++ ABI has to say wrt. bit field allocation (2.4.II/1):
+
+&gt;<i> If D is a (possibly unnamed) bitfield whose declared type is T and whose declared width is n bits:
+</I>&gt;<i> There are two cases depending on sizeof(T) and n:
+</I>&gt;<i> 
+</I>&gt;<i> 	&#8226; If sizeof(T)*8 &gt;= n, the bitfield is allocated as required by the underlying C psABI, subject to the constraint that a bitfield is never placed in the tail padding of a base class of C.
+</I>&gt;<i> If dsize(C) &gt; 0, and the byte at offset dsize(C) - 1 is partially filled by a bitfield, and that bitfield is also a data member declared in C (but not in one of C's proper base classes), the next available bits are the unfilled bits at offset dsize(C) - 1. Otherwise, the next available bits are at offset dsize(C).
+</I>&gt;<i> 
+</I>&gt;<i> Update align(C) to max (align(C), align(T)).
+</I>&gt;<i> 
+</I>&gt;<i> 	&#8226; If sizeof(T)*8 &lt; n, let T' be the largest integral POD type with sizeof(T')*8 &lt;= n. The bitfield is allocated starting at the next offset aligned appropriately for T', with length n bits. The first sizeof(T)*8 bits are used to hold the value of the bitfield, followed by n - sizeof(T)*8 bits of padding.
+</I>&gt;<i> Update align(C) to max (align(C), align(T')).
+</I>&gt;<i> 
+</I>&gt;<i> In either case, update dsize(C) to include the last byte containing (part of) the bitfield, and update sizeof(C) to max(sizeof(C),dsize(C)).
+</I>
+
+
+Here we're dealing with the second bullet because sizeof(long long)*8 &lt; 130 (long long is 8 bytes). We emulate GCC modes that permit 128-bit integral types, and in those modes, T' is __int128, a 16-byte aligned type.  That means that the addition of __int128 has changed the layout of a structure that doesn't involve __int128 at all!
+
+GCC keeps the alignment of the bit field at an 8-byte boundary in this case, and that makes sense to me, but for:
+
+	struct S2 {
+	  int i;
+	  __int128 x: 130;
+	  int j;
+	};
+
+it does the same, which does not make sense to me: If I used a __int128 type for the field, I presumably want the associated alignment used.
+
+I'd like to therefore propose changing this such that:
+
+	- for standard C++11 integral types use the existing rule
+	- for integral types not defined in C++11, limit T' to the standard C++11 types and the declared bit field container type
+
+What do you all think?
+
+	Daveed
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000003.html">[Cxx-abi-dev] [cxx-abi-dev] Mangling 'this'	in	trailing-return-type
+</A></li>
+	<LI>Next message: <A HREF="000033.html">[Cxx-abi-dev] Overlong bit fields and 128-bit integers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2">[ date ]</a>
+              <a href="thread.html#2">[ thread ]</a>
+              <a href="subject.html#2">[ subject ]</a>
+              <a href="author.html#2">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

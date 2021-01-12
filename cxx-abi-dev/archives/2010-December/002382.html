@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Mangling ambiguity with argument packs in template argument lists
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity%20with%20argument%20packs%20in%20template%20argument%20lists&In-Reply-To=%3CEC9B15D9-7580-47BF-93A8-68879CBC488A%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002381.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Mangling ambiguity with argument packs in template argument lists</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity%20with%20argument%20packs%20in%20template%20argument%20lists&In-Reply-To=%3CEC9B15D9-7580-47BF-93A8-68879CBC488A%40edg.com%3E"
+       TITLE="Mangling ambiguity with argument packs in template argument lists">mjh at edg.com
+       </A><BR>
+    <I>Mon Dec 20 17:41:17 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002381.html">Additional mangled encodings for variadic templates
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2382">[ date ]</a>
+              <a href="thread.html#2382">[ thread ]</a>
+              <a href="subject.html#2382">[ subject ]</a>
+              <a href="author.html#2382">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We ran into a mangling ambiguity with argument packs in template argument lists (where both use the letter &quot;I&quot;):
+
+  &lt;template-args&gt; ::= I &lt;template-arg&gt;+ E
+  &lt;template-arg&gt; ::= &lt;type&gt;                         # type or template
+                 ::= X &lt;expression&gt; E               # expression
+                 ::= &lt;expr-primary&gt;                 # simple expressions
+                 ::= I &lt;template-arg&gt;* E            # argument pack
+                 ::= sp &lt;expression&gt;                # pack expansion (C++0x)
+
+Here's an example where two different source constructs generate the same mangled name (_Z1fI1BI1AIiEEEDTcmfp_fp_ET_):
+
+$ cat foo.cpp
+  template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1, p1);
+  template &lt;class T&gt; struct A {};
+#if FOO
+  template &lt;class T&gt; struct B {};
+  B&lt;A&lt;int&gt;&gt; b;
+#else
+  template &lt;template &lt;class TT&gt; class T, class ... U&gt; struct B {};
+  B&lt;A,int&gt; b;
+#endif
+  int main() {
+    f(b);
+  }
+$ g++451 -DFOO -std=c++0x foo.cpp
+/tmp/ccOqFYBI.o(.text+0xc): In function `main':
+:<i> undefined reference to `decltype ({parm#1},{parm#1}) f&lt;B&lt;A&lt;int&gt; &gt; &gt;(B&lt;A&lt;int&gt; &gt;)'
+</I>collect2: ld returned 1 exit status
+$ g++451 -UFOO -std=c++0x foo.cpp
+/tmp/cc448n5U.o(.text+0xc): In function `main':
+:<i> undefined reference to `decltype ({parm#1},{parm#1}) f&lt;B&lt;A&lt;int&gt; &gt; &gt;(B&lt;A&lt;int&gt; &gt;)'
+</I>collect2: ld returned 1 exit status
+$ 
+
+When the demangler gets to the &quot;I&quot; after &quot;1A&quot;, it's ambiguous whether the &quot;I&quot; represents an argument pack or a template argument (as noted by g++ 4.5.1 issuing the same demangled name for both cases).
+
+To address this, we propose changing the mangling for argument packs to use &quot;J&quot; rather than &quot;I&quot;:
+
+  &lt;template-arg&gt; ::= J &lt;template-arg&gt;* E              # argument pack
+
+This change is not backward compatible.
+
+I'm attaching a patch that includes this change with the others that I've proposed.
+
+Thanks,
+
+Mike.
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi.html.patch
+Type: application/octet-stream
+Size: 3081 bytes
+Desc: not available
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20101220/bbab03cd/attachment.obj">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20101220/bbab03cd/attachment.obj</A>&gt;
+-------------- next part --------------
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002381.html">Additional mangled encodings for variadic templates
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2382">[ date ]</a>
+              <a href="thread.html#2382">[ thread ]</a>
+              <a href="subject.html#2382">[ subject ]</a>
+              <a href="author.html#2382">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

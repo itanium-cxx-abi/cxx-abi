@@ -1,0 +1,1689 @@
+From jsa at edg.com  Tue Dec  3 19:25:59 2002
+From: jsa at edg.com (J. Stephen Adamczyk)
+Date: Tue, 3 Dec 2002 14:25:59 -0500 (EST)
+Subject: A mangling ambiguity
+Message-ID: <200212031925.OAA02721@edg1.edg.com>
+
+Here's an interesting case that shows an ambiguity problem with name
+mangling:
+
+template <class T> struct A {
+  template <class U> operator U() { return 0; }
+};
+int main() {
+  A<float> a;
+  int i = a;
+}
+
+The mangled name for the conversion function is
+
+_ZN1AIfEcvT_IiEEv
+            ^problem here
+
+At the indicated point, the result type of the conversion function ("T_")
+should end, and the template argument list that follows ("IiE") should
+apply to the conversion function itself, not to its return type.
+There's no way for a demangler to know that, however, and it happily
+takes the template argument list as part of the type, presumably in
+this case as a template argument list for a template template parameter.
+This is illustrated by what the g++ demangler does with this name:
+
+A<float>::operator float<int>()
+
+This seems like a genuine ambiguity.  Or does someone see an out I'm
+missing?
+
+Steve Adamczyk
+Edison Design Group
+
+
+From mark at codesourcery.com  Tue Dec  3 23:35:41 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 3 Dec 2002 15:35:41 -0800
+Subject: __base_class_type_info offset_flags
+Message-ID: <200212032335.gB3NZf027210@localhost.localdomain>
+
+
+For the most part, the ABI specification doesn't offer particular
+guidance for 32-bit platforms.  However, 2.9.5 (RTTI Layout) has this
+note about the offset_flags field of __base_class_type_info:
+
+    The upper 56 bits of __offset_flags are a signed offset. For a
+    non-virtual base, this is the offset in the object of the base
+    subobject. For a virtual base, this is the offset in the virtual table
+    of the virtual base offset for the virtual base referenced (negative).
+
+    The low-order byte of __offset_flags contains flags, as given by the
+    masks from the enumeration __offset_flags_masks:
+
+      o 0x1: Base class is virtual
+      o 0x2: Base class is public
+
+    Note:
+
+    In an ABI for a machine with 32-bit addresses, the offset becomes a
+    32-bit field, and the flags are in the low-order byte of a second
+    32-bit field.
+
+I think we should remove the note.
+
+First, G++ does not honor the note; it just uses "long" on all
+platforms.  That's a particular hard thing to change going forward;
+the runtime support routines would have to somehow detect which
+version of the type_info structures they were dealing with.  So, I
+don't fancy trying to make this change in GCC.
+
+Second, what's the point?  If you just deleted the note, you'd be
+limited to objects whose sizes are representable in 24-bits on a
+32-bit machine.  Well, more properly, if you made bigger objects,
+you'd not be able to dynamic_cast between subobjects.
+
+Any objections to simply removing the note and treating 32-bit
+machines just like other machines, using a single "long" for
+"__offset_flags"?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From daveed at edg.com  Wed Dec  4 13:49:20 2002
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 4 Dec 2002 08:49:20 -0500
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+In-Reply-To: <200212032335.gB3NZf027210@localhost.localdomain>
+Message-ID: <305916B0-078F-11D7-8B8B-000393A34FA6@edg.com>
+
+
+On Tuesday, December 3, 2002, at 06:35  PM, Mark Mitchell wrote:
+[...]
+>     Note:
+>
+>     In an ABI for a machine with 32-bit addresses, the offset becomes a
+>     32-bit field, and the flags are in the low-order byte of a second
+>     32-bit field.
+>
+> I think we should remove the note.
+
+I'm not sure I agree.
+
+> First, G++ does not honor the note; it just uses "long" on all
+> platforms.
+
+What do the other compilers do (HP? Intel?)?
+
+
+>   That's a particular hard thing to change going forward;
+> the runtime support routines would have to somehow detect which
+> version of the type_info structures they were dealing with.  So, I
+> don't fancy trying to make this change in GCC.
+>
+> Second, what's the point?  If you just deleted the note, you'd be
+> limited to objects whose sizes are representable in 24-bits on a
+> 32-bit machine.  Well, more properly, if you made bigger objects,
+> you'd not be able to dynamic_cast between subobjects.
+
+I would find this a weird limitation.  If you do remove the note,
+at least add a requirement that implementations must issue errors
+on non-POD types whose size is 2^24 or larger.
+
+       Daveed
+
+
+
+From mark at codesourcery.com  Wed Dec  4 05:31:37 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 03 Dec 2002 21:31:37 -0800
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: <200212031925.OAA02721@edg1.edg.com>
+Message-ID: <2720000.1038979897@localhost>
+
+
+
+--On Tuesday, December 03, 2002 02:25:59 PM -0500 "J. Stephen Adamczyk" 
+<jsa at edg.com> wrote:
+
+> Here's an interesting case that shows an ambiguity problem with name
+> mangling:
+>
+> template <class T> struct A {
+>   template <class U> operator U() { return 0; }
+> };
+> int main() {
+>   A<float> a;
+>   int i = a;
+> }
+>
+> The mangled name for the conversion function is
+>
+> _ZN1AIfEcvT_IiEEv
+>             ^problem here
+
+The key question is:
+
+  Is this just an ambiguity when demangling, or are there actually two
+  distinct entities that could end up with the same name?
+
+If the latter, we have to do something; if the former, we can probably
+live with it. I can't quite figure out the answer; conversion functions
+are a special case, and they are always members, so it may be that
+everything after "cv" and before the next non-nested "E" must always
+be a type, and then (optionally) some template arguments.
+
+For example, in this case, it can't be a template template parameter
+because then you hit the non-nested "E" without having gotten to the
+argument that correspond to the template template parameter.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Wed Dec  4 16:01:41 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 04 Dec 2002 08:01:41 -0800
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+In-Reply-To: <305916B0-078F-11D7-8B8B-000393A34FA6@edg.com>
+Message-ID: <13060000.1039017701@warlock.codesourcery.com>
+
+>> First, G++ does not honor the note; it just uses "long" on all
+>> platforms.
+>
+> What do the other compilers do (HP? Intel?)?
+
+I'm not sure, and that's certainly interesting.
+
+But this is a unique problem in that a changing G++ to match the
+spec will mean that upgrading the runtime library in an incompatible
+way.  That's different than all of the other problems we've faced, where
+the changes are only to the user code.
+
+That has much more substantial impact on the possibility of making the
+change.
+
+>> Second, what's the point?  If you just deleted the note, you'd be
+>> limited to objects whose sizes are representable in 24-bits on a
+>> 32-bit machine.  Well, more properly, if you made bigger objects,
+>> you'd not be able to dynamic_cast between subobjects.
+>
+> I would find this a weird limitation.  If you do remove the note,
+> at least add a requirement that implementations must issue errors
+> on non-POD types whose size is 2^24 or larger.
+
+On 64-bit systems, we're limited to 2^56 bits, by the ABI.  It's
+analagous, even though you can argue that 2^24 bit objects are more
+likely than 2^56 bit objects.
+
+(Actually, the offset is a signed quantity, so I suppose its really
+2^23 and 2^55 bits.)
+
+I'm not even sure I'd mandate errors; this problem will only affect you
+if you're using dynamic_cast, or perhaps exception-handling involving
+these objects.  A warning would be nice.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From Gabriel.Dos-Reis at cmla.ens-cachan.fr  Wed Dec  4 16:06:02 2002
+From: Gabriel.Dos-Reis at cmla.ens-cachan.fr (Gabriel Dos Reis)
+Date: 04 Dec 2002 17:06:02 +0100
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: Mark Mitchell's message of "Tue, 03 Dec 2002 21:31:37 -0800"
+References: <2720000.1038979897@localhost>
+Message-ID: <flu1htg45x.fsf@jambon.cmla.ens-cachan.fr>
+
+Mark Mitchell <mark at codesourcery.com> writes:
+
+| --On Tuesday, December 03, 2002 02:25:59 PM -0500 "J. Stephen Adamczyk" 
+| <jsa at edg.com> wrote:
+| 
+| > Here's an interesting case that shows an ambiguity problem with name
+| > mangling:
+| >
+| > template <class T> struct A {
+| >   template <class U> operator U() { return 0; }
+| > };
+| > int main() {
+| >   A<float> a;
+| >   int i = a;
+| > }
+| >
+| > The mangled name for the conversion function is
+| >
+| > _ZN1AIfEcvT_IiEEv
+| >             ^problem here
+| 
+| The key question is:
+| 
+|   Is this just an ambiguity when demangling, or are there actually two
+|   distinct entities that could end up with the same name?
+| 
+| If the latter, we have to do something; if the former, we can probably
+| live with it.
+
+Hmm, maybe I'm being dense but how is the latter really different from
+the former?  If the names ot two entities end up being being mangled
+the same, then there will be an ambiguity in demangling them.  No?
+
+Conversely, if demangling a mangled named shows an ambiguity then that
+means we can't determine the original entity name.  No?
+
+| I can't quite figure out the answer; conversion functions
+| are a special case, and they are always members, so it may be that
+| everything after "cv" and before the next non-nested "E" must always
+| be a type, and then (optionally) some template arguments.
+| 
+| For example, in this case, it can't be a template template parameter
+| because then you hit the non-nested "E" without having gotten to the
+| argument that correspond to the template template parameter.
+
+-- Gaby
+
+
+From nathan at codesourcery.com  Wed Dec  4 16:16:02 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 04 Dec 2002 16:16:02 +0000
+Subject: [cxx-abi-dev] A mangling ambiguity
+References: <2720000.1038979897@localhost> <flu1htg45x.fsf@jambon.cmla.ens-cachan.fr>
+Message-ID: <3DEE2A42.5000009@codesourcery.com>
+
+Gaby
+> Hmm, maybe I'm being dense but how is the latter really different from
+> the former?  If the names ot two entities end up being being mangled
+> the same, then there will be an ambiguity in demangling them.  No?
+> 
+> Conversely, if demangling a mangled named shows an ambiguity then that
+> means we can't determine the original entity name.  No?
+
+The mangling must be a perfect hash function. Ideally it should be invertable
+too. This might be a case of non-invertability, which we could live with.
+If it is also a case of imperfectness, then we must fix it. Hope that helps.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+          'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+
+From mark at codesourcery.com  Wed Dec  4 16:17:36 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 04 Dec 2002 08:17:36 -0800
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: <flu1htg45x.fsf@jambon.cmla.ens-cachan.fr>
+Message-ID: <38290000.1039018656@warlock.codesourcery.com>
+
+> Conversely, if demangling a mangled named shows an ambiguity then that
+> means we can't determine the original entity name.  No?
+
+Perhaps in a theoretical sense, but not in a practical sense.  Demanglers
+tend to be pretty dumb; they just kind of process the input text as text.
+It might be that disambiguating would be a lot more work than goes on in
+your typical demangler.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Wed Dec  4 17:37:24 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Wed, 4 Dec 2002 09:37:24 -0800 
+Subject: [Cxx-abi] Re: [cxx-abi-dev] __base_class_type_info offset_fla
+	gs
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D1BA@orsmsx117.jf.intel.com>
+
+> >     Note:
+> >
+> >     In an ABI for a machine with 32-bit addresses, the 
+> offset becomes a
+> >     32-bit field, and the flags are in the low-order byte 
+> of a second
+> >     32-bit field.
+> >
+> > I think we should remove the note.
+> 
+> I'm not sure I agree.
+> 
+> > First, G++ does not honor the note; it just uses "long" on all
+> > platforms.
+> 
+> What do the other compilers do (HP? Intel?)?
+
+Intel's implementation initially honored the note. When we discovered that
+G++ didn't, we swore for a bit, then relaxed to what we guessed would be the
+inevitable -- thereby making it more probably inevitable, I suppose.
+
+-- 
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+
+
+From Gabriel.Dos-Reis at cmla.ens-cachan.fr  Wed Dec  4 18:12:14 2002
+From: Gabriel.Dos-Reis at cmla.ens-cachan.fr (Gabriel Dos Reis)
+Date: 04 Dec 2002 19:12:14 +0100
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: Mark Mitchell's message of "Wed, 04 Dec 2002 08:17:36 -0800"
+References: <38290000.1039018656@warlock.codesourcery.com>
+Message-ID: <flptshfybl.fsf@jambon.cmla.ens-cachan.fr>
+
+Mark Mitchell <mark at codesourcery.com> writes:
+
+| > Conversely, if demangling a mangled named shows an ambiguity then that
+| > means we can't determine the original entity name.  No?
+| 
+| Perhaps in a theoretical sense, but not in a practical sense.  Demanglers
+| tend to be pretty dumb; they just kind of process the input text as text.
+| It might be that disambiguating would be a lot more work than goes on in
+| your typical demangler.
+
+I was planning to use a demengler as a utility to implement plug-ins;
+now, if mangling would be many-to-one...
+
+Anyway, thanks.
+
+-- Gaby
+
+
+From kerch at cup.hp.com  Wed Dec  4 18:04:46 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 04 Dec 2002 10:04:46 -0800
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+References: <305916B0-078F-11D7-8B8B-000393A34FA6@edg.com>
+Message-ID: <3DEE43BE.3070607@cup.hp.com>
+
+Daveed Vandevoorde wrote:
+> 
+> On Tuesday, December 3, 2002, at 06:35  PM, Mark Mitchell wrote:
+> [...]
+> 
+>>     Note:
+>>
+>>     In an ABI for a machine with 32-bit addresses, the offset becomes a
+>>     32-bit field, and the flags are in the low-order byte of a second
+>>     32-bit field.
+>>
+>> I think we should remove the note.
+> 
+> 
+> I'm not sure I agree.
+> 
+>> First, G++ does not honor the note; it just uses "long" on all
+>> platforms.
+> 
+> 
+> What do the other compilers do (HP? Intel?)?
+> 
+
+HP also uses "long" for the __offset_flags field.
+
+
+
+
+
+
+From daveed at edg.com  Wed Dec  4 18:55:45 2002
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 4 Dec 2002 13:55:45 -0500
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+In-Reply-To: <3DEE43BE.3070607@cup.hp.com>
+Message-ID: <FE8233BE-07B9-11D7-8B8B-000393A34FA6@edg.com>
+
+
+Kerch Holt wrote:
+> Daveed Vandevoorde wrote:
+>> On Tuesday, December 3, 2002, at 06:35  PM, Mark Mitchell wrote:
+>> [...]
+>>>     Note:
+>>>
+>>>     In an ABI for a machine with 32-bit addresses, the offset 
+>>> becomes a
+>>>     32-bit field, and the flags are in the low-order byte of a second
+>>>     32-bit field.
+>>>
+>>> I think we should remove the note.
+>> I'm not sure I agree.
+>>> First, G++ does not honor the note; it just uses "long" on all
+>>> platforms.
+>> What do the other compilers do (HP? Intel?)?
+>
+> HP also uses "long" for the __offset_flags field.
+
+Clark Nelson wrote:
+> Intel's implementation initially honored the note. When we discovered 
+> that
+> G++ didn't, we swore for a bit, then relaxed to what we guessed would 
+> be the
+> inevitable -- thereby making it more probably inevitable, I suppose.
+
+
+Oh well.  I guess the decision is made then.
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Wed Dec  4 18:57:34 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 04 Dec 2002 10:57:34 -0800
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+In-Reply-To: <FE8233BE-07B9-11D7-8B8B-000393A34FA6@edg.com>
+Message-ID: <58240000.1039028254@warlock.codesourcery.com>
+
+> Oh well.  I guess the decision is made then.
+
+I'll remove the note, then.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Wed Dec  4 18:59:55 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 04 Dec 2002 10:59:55 -0800
+Subject: [cxx-abi-dev] __base_class_type_info offset_flags
+In-Reply-To: <FE8233BE-07B9-11D7-8B8B-000393A34FA6@edg.com>
+Message-ID: <59070000.1039028395@warlock.codesourcery.com>
+
+> Oh well.  I guess the decision is made then.
+
+Here is the patch I'm about to check in.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.54
+diff -c -5 -p -r1.54 abi.html
+*** abi.html	3 Dec 2002 17:48:27 -0000	1.54
+--- abi.html	4 Dec 2002 19:02:09 -0000
+*************** It is derived from <code>abi::__class_ty
+*** 2310,2344 ****
+        <p>
+        The <code>__base_type</code>
+        member points to the RTTI for the base type.
+
+        <p>
+!       The upper 56 bits of <code>__offset_flags</code> are a signed 
+offset.
+!       For a non-virtual base,
+!       this is the offset in the object of the base subobject.
+!       For a virtual base,
+!       this is the offset in the virtual table of the
+!       virtual base offset for the virtual base referenced
+!       (negative).
+
+        <p>
+        The low-order byte of <code>__offset_flags</code> contains flags,
+        as given by the masks from the enumeration
+        <code>__offset_flags_masks</code>:
+  	<ul>
+  	<li> 0x1: Base class is virtual
+  	<li> 0x2: Base class is public
+  	</ul>
+
+-       <p>
+-       <img src=warning.gif alt="<b>NOTE</b>:">
+-       <i>
+-       In an ABI for a machine with 32-bit addresses,
+-       the offset becomes a 32-bit field,
+-       and the flags are in the low-order byte of a second 32-bit field.
+-       </i>
+-
+    </ul>
+
+  <p>
+  Note that the resulting structure is variable-length,
+  with the actual size depending on the number of trailing base class
+--- 2310,2334 ----
+        <p>
+        The <code>__base_type</code>
+        member points to the RTTI for the base type.
+
+        <p>
+!       All but the lower 8 bits of <code>__offset_flags</code> are a
+!       signed offset.  For a non-virtual base, this is the offset in
+!       the object of the base subobject.  For a virtual base, this is
+!       the offset in the virtual table of the virtual base offset for
+!       the virtual base referenced (negative).
+
+        <p>
+        The low-order byte of <code>__offset_flags</code> contains flags,
+        as given by the masks from the enumeration
+        <code>__offset_flags_masks</code>:
+  	<ul>
+  	<li> 0x1: Base class is virtual
+  	<li> 0x2: Base class is public
+  	</ul>
+
+    </ul>
+
+  <p>
+  Note that the resulting structure is variable-length,
+  with the actual size depending on the number of trailing base class
+*************** unwind table location.
+*** 4928,4937 ****
+--- 4918,4931 ----
+
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++
++ <p>
++ <font color=blue>[021204]</font>
++ Remove note about 32-bit RTTI variation.
+
+  <p>
+  <font color=blue>[021125]</font>
+  Clarify guard functions.
+
+
+
+
+From mark at codesourcery.com  Thu Dec  5 19:51:14 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 5 Dec 2002 11:51:14 -0800
+Subject: Question about guard variable types
+Message-ID: <200212051951.gB5JpE908217@localhost.localdomain>
+
+
+The ABI document describes guard variables (2.8) and gaurd variable
+routines (3.3.2).
+
+The variables are required to have a 64-bit type (which type is not
+specified), while the routines take an "__int64_t *" as a paramter.
+
+On IPF systems, __int64_t is "long long"; that is why the mangling
+indicates that those two types should have the same mangled name.  (The
+"__int64_t" type is an IPF-specific type; the C99 standard describes
+"int64_t".)
+
+It's a bit odd to require 64-bit types on all platforms; some may not
+have them.  
+
+In trying to make the ABI platform-independent, I think we should just
+use "long long" on all platforms.  This is not a change on IPF
+platforms, but is sensible on all platforms.  G++ already uses "long
+long" on all platforms.
+
+It's true that a C++ compiler is not required to support long long,
+but using any other type would be a change on IPF platforms.
+
+Thoughts, objections?
+
+Comments from people with non-64 bit implementations?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From martin at v.loewis.de  Fri Dec  6 09:36:01 2002
+From: martin at v.loewis.de (=?iso-8859-1?Q?Martin_v._L=F6wis?=)
+Date: Fri, 6 Dec 2002 10:36:01 +0100
+Subject: [cxx-abi-dev] Question about guard variable types
+References: <200212051951.gB5JpE908217@localhost.localdomain>
+Message-ID: <008d01c29d0a$e43c3520$7c2de8d9@mira>
+
+> It's a bit odd to require 64-bit types on all platforms; some may not
+> have them.
+
+I think this is not really relevant: All the ABI says is that the
+compiler must reserve 8 bytes for the guard variable, initialize one of
+these 8 bytes, and pass a pointer to the guard variable to the
+supporting API - the full value of the guard is never passed around.
+
+The intention is that this is "enough" space to put a mutex state into
+it.
+
+> In trying to make the ABI platform-independent, I think we should just
+> use "long long" on all platforms.  This is not a change on IPF
+> platforms, but is sensible on all platforms.  G++ already uses "long
+> long" on all platforms.
+
+Why does this matter? It might matter only for mangling the supporting
+API, but these are extern "C" functions, so the parameter type is not
+mangled.
+
+I think the spec is precise and portable as it stands: it requires 8
+bytes, not sizeof(long long) bytes.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Fri Dec  6 16:51:11 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 06 Dec 2002 08:51:11 -0800
+Subject: [cxx-abi-dev] Question about guard variable types
+In-Reply-To: <008d01c29d0a$e43c3520$7c2de8d9@mira>
+Message-ID: <21680000.1039193471@warlock.codesourcery.com>
+
+
+> I think the spec is precise and portable as it stands: it requires 8
+> bytes, not sizeof(long long) bytes.
+
+The spec is certainly not portable as written; it talks about an
+"__in64_t" type that doesn't exist on lots of platforms.
+
+I guess your point is that if there's no 64-bit integral type you could
+make an array of characters and pass that around?
+
+So, instead of using "__int64_t" I guess we could just say "some
+unspecified 64-bit type".  It would be nice if you at least created
+a typedef for it.
+
+(Note that even though the __cxa_guard functions are extern "C" you
+can still observe their types; take their addresses.)
+
+If we do what you suggest, G++ will have to change.  I'd prefer just to
+match G++; there's nothing particularly wrong with "long long" and
+there aren't -- yet -- very many non-IPF implementations to worry about.
+
+Intel, HP?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From martin at v.loewis.de  Fri Dec  6 17:16:11 2002
+From: martin at v.loewis.de (=?iso-8859-1?Q?Martin_v._L=F6wis?=)
+Date: Fri, 6 Dec 2002 18:16:11 +0100
+Subject: [cxx-abi-dev] Question about guard variable types
+References: <21680000.1039193471@warlock.codesourcery.com>
+Message-ID: <00a401c29d4b$2d29b010$3216e8d9@mira>
+
+> I guess your point is that if there's no 64-bit integral type you
+could
+> make an array of characters and pass that around?
+
+Nearly correct. You can make an array of characters, but you don't have
+to pass that around. You only pass around its address, which has the
+same value whether the data are a long long or a char[8].
+
+> So, instead of using "__int64_t" I guess we could just say "some
+> unspecified 64-bit type".  It would be nice if you at least created
+> a typedef for it.
+
+Sure.
+
+> (Note that even though the __cxa_guard functions are extern "C" you
+> can still observe their types; take their addresses.)
+
+But that is not relevant for the ABI, is it?
+
+> If we do what you suggest, G++ will have to change.  I'd prefer just
+to
+> match G++; there's nothing particularly wrong with "long long" and
+> there aren't -- yet -- very many non-IPF implementations to worry
+about.
+
+In what way would you have to change g++? I.e. on what system does it
+support a type long long which has not exactly 8 bytes?
+
+I claim that g++ conforms to the ABI, as both the ABI and g++ are, in
+this very moment.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Fri Dec  6 17:22:58 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 06 Dec 2002 09:22:58 -0800
+Subject: [cxx-abi-dev] Question about guard variable types
+In-Reply-To: <00a401c29d4b$2d29b010$3216e8d9@mira>
+Message-ID: <36560000.1039195378@warlock.codesourcery.com>
+
+>> (Note that even though the __cxa_guard functions are extern "C" you
+>> can still observe their types; take their addresses.)
+>
+> But that is not relevant for the ABI, is it?
+
+Well, the ABI has this little API part. :-)  The <cxxabi.h> header
+is documented and required.  You can use it in low-level
+applications -- one good example would be if you're writing a C++
+interpreter that wants to interact correctly with compiled C++
+object files.  (This was CenterLine's ObjectCenter product.)
+
+All of the other functions have portable types; why not this one?
+
+> In what way would you have to change g++? I.e. on what system does it
+> support a type long long which has not exactly 8 bytes?
+
+Well, the runtime is broken, as Richard Henderson pointed out; we use
+"mode((DI))" which needn't be 64 bits.  There's certainly nothing to
+keep someone from making a GCC port where "long long" isn't 64 bits;
+I don't know whether there already is such a thing in the FSF tree or
+not.
+
+> I claim that g++ conforms to the ABI, as both the ABI and g++ are, in
+> this very moment.
+
+But if that's true, then it's harmless to make the ABI say "long long"
+to match.
+
+The point is that the G++ front end explicitly uses "long long" -- not
+"64-bit type" -- when constructing a guard variable.
+
+There are two cases:
+
+1) Those things are always the same, in which case we may as well say
+   "long long" in the ABI so that things match up and we have a
+   well-defined type for the function, and so that a new GCC port
+   doesn't accidentally stray from the ABI, or;
+
+2) Those things are not always the same, in which case something needs
+   to change, and G++'s widespread deployment would argue for the ABI
+   changing.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Fri Dec  6 17:11:18 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Fri, 6 Dec 2002 09:11:18 -0800 
+Subject: [Cxx-abi] Re: [cxx-abi-dev] Question about guard variable typ
+	es
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D1D4@orsmsx117.jf.intel.com>
+
+> If we do what you suggest, G++ will have to change.  I'd 
+> prefer just to
+> match G++; there's nothing particularly wrong with "long long" and
+> there aren't -- yet -- very many non-IPF implementations to 
+> worry about.
+
+In what way do you think G++ would have to change?
+
+> Intel, HP?
+
+I can tell that a question is being directed to Intel, but I don't know what
+the question actually is. Could you spell it out please?
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From mark at codesourcery.com  Fri Dec  6 17:29:44 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 06 Dec 2002 09:29:44 -0800
+Subject: [Cxx-abi] Re: [cxx-abi-dev] Question about guard variable
+ typ	es
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585D1D4@orsmsx117.jf.intel.com>
+Message-ID: <44810000.1039195784@warlock.codesourcery.com>
+
+
+
+--On Friday, December 06, 2002 09:11:18 AM -0800 "Nelson, Clark" 
+<clark.nelson at intel.com> wrote:
+
+>> If we do what you suggest, G++ will have to change.  I'd
+>> prefer just to
+>> match G++; there's nothing particularly wrong with "long long" and
+>> there aren't -- yet -- very many non-IPF implementations to
+>> worry about.
+>
+> In what way do you think G++ would have to change?
+
+It won't -- if we change the ABI to say "long long".  Otherwise, it needs
+to be changed to explicitly construct a 64-bit type.
+
+>> Intel, HP?
+>
+> I can tell that a question is being directed to Intel, but I don't know
+> what the question actually is. Could you spell it out please?
+
+What type do you use for guard variables in 32-bit mode?  In 64-bit mode?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Fri Dec  6 17:52:08 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Fri, 6 Dec 2002 09:52:08 -0800 
+Subject: [Cxx-abi] Re: [cxx-abi-dev] Question about guard variable typ
+	es
+Message-ID: <0DCC27458EB5D51181840002A507069E0585D1D6@orsmsx117.jf.intel.com>
+
+> What type do you use for guard variables in 32-bit mode?  In 
+> 64-bit mode?
+
+long long, regardless.
+
+But I'm still not sure I understand your concern. When you started the
+thread, you said:
+
+> It's a bit odd to require 64-bit types on all platforms; some may not
+> have them.  
+
+But of course C99 requires that long long have at least 64 bits. Are you
+concerned about the possibility that in some implementation long long might
+actually have, say, 128 bits? Or that some implementation that supports a
+type called long long may define it as having only 32 bits?
+
+Personally, I think the change you suggest is editorial, for all practical
+purposes. I'm just trying to understand how it might be substantive (and
+therefore require any change to G++ if it isn't made).
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From jason at redhat.com  Fri Dec  6 19:23:09 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 06 Dec 2002 14:23:09 -0500
+Subject: [cxx-abi-dev] RE: [Cxx-abi] Re: [cxx-abi-dev] Question about
+ guard variable typ es
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585D1D6@orsmsx117.jf.intel.com> ("Nelson,
+ Clark"'s message of "Fri, 6 Dec 2002 09:52:08 -0800")
+References: <0DCC27458EB5D51181840002A507069E0585D1D6@orsmsx117.jf.intel.com>
+Message-ID: <wvlsmxb0x5u.fsf@prospero.boston.redhat.com>
+
+On Fri, 6 Dec 2002 09:52:08 -0800 , "Nelson, Clark" <clark.nelson at intel.com> wrote:
+
+>> It's a bit odd to require 64-bit types on all platforms; some may not
+>> have them.  
+>
+> But of course C99 requires that long long have at least 64 bits. Are you
+> concerned about the possibility that in some implementation long long might
+> actually have, say, 128 bits? Or that some implementation that supports a
+> type called long long may define it as having only 32 bits?
+>
+> Personally, I think the change you suggest is editorial, for all practical
+> purposes. I'm just trying to understand how it might be substantive (and
+> therefore require any change to G++ if it isn't made).
+
+I think that the interesting question is forward-looking: on such a
+hypothetical implementation with a 128-bit long long, do we want the guard
+variable to be 64 or 128 bits?  Do we think we will need more space for
+locking information on a larger architecture?
+
+Jason
+
+
+From dehnert at transmeta.com  Fri Dec  6 20:44:01 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Fri, 06 Dec 2002 12:44:01 -0800
+Subject: [cxx-abi-dev] Question about guard variable types
+References: <200212051951.gB5JpE908217@localhost.localdomain> <008d01c29d0a$e43c3520$7c2de8d9@mira>
+Message-ID: <3DF10C11.8070701@transmeta.com>
+
+Martin v. L?wis wrote:
+>>It's a bit odd to require 64-bit types on all platforms; some may not
+>>have them.
+> 
+> 
+> I think this is not really relevant: All the ABI says is that the
+> compiler must reserve 8 bytes for the guard variable, initialize one of
+> these 8 bytes, and pass a pointer to the guard variable to the
+> supporting API - the full value of the guard is never passed around.
+> 
+> The intention is that this is "enough" space to put a mutex state into
+> it.
+
+This was certainly the original intent of the specification, and
+I think a revision to allow less than 8 bytes would be a mistake.
+We specifically wanted to allow a simple mutex implementation
+without further indirection.
+
+Jim
+
+
+
+
+From dehnert at transmeta.com  Sat Dec  7 03:02:37 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Fri, 06 Dec 2002 19:02:37 -0800
+Subject: [cxx-abi-dev] Question about guard variable types
+References: <36560000.1039195378@warlock.codesourcery.com>
+Message-ID: <3DF164CD.30006@transmeta.com>
+
+Mark Mitchell wrote:
+>>> (Note that even though the __cxa_guard functions are extern "C" you
+>>> can still observe their types; take their addresses.)
+>>
+>> But that is not relevant for the ABI, is it?
+> 
+> Well, the ABI has this little API part. :-)  The <cxxabi.h> header
+> is documented and required.  You can use it in low-level
+> applications -- one good example would be if you're writing a C++
+> interpreter that wants to interact correctly with compiled C++
+> object files.  (This was CenterLine's ObjectCenter product.)
+> 
+> All of the other functions have portable types; why not this one?
+
+That is the right answer, of course.  But it needs to be at least
+64 bits.  Your original message seemed to be suggesting that less
+might be OK, and the consensus in the original discussion was that
+a simple, efficient mutex implementation probably needs 64.
+
+> There are two cases:
+> 
+> 1) Those things are always the same, in which case we may as well say
+>   "long long" in the ABI so that things match up and we have a
+>   well-defined type for the function, and so that a new GCC port
+>   doesn't accidentally stray from the ABI, or;
+> 
+> 2) Those things are not always the same, in which case something needs
+>   to change, and G++'s widespread deployment would argue for the ABI
+>   changing.
+
+As Jason points out, what we really should worry about is a future
+situation where something larger is required.  It seems to me that
+defining it as an opaque type with size at least 64 bits in the ABI
+is the right thing to do.  If g++ implements that with long long, it
+should be OK if the standard requires 64-bit long long.
+
+Jim
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Sat Dec  7 11:23:29 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 07 Dec 2002 12:23:29 +0100
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: <200212031925.OAA02721@edg1.edg.com>
+References: <200212031925.OAA02721@edg1.edg.com>
+Message-ID: <j4d6oedqdq.fsf@informatik.hu-berlin.de>
+
+"J. Stephen Adamczyk" <jsa at edg.com> writes:
+
+> template <class T> struct A {
+>   template <class U> operator U() { return 0; }
+> };
+> int main() {
+>   A<float> a;
+>   int i = a;
+> }
+> 
+> At the indicated point, the result type of the conversion function ("T_")
+> should end, and the template argument list that follows ("IiE") should
+> apply to the conversion function itself, not to its return type.
+> There's no way for a demangler to know that
+
+Why not? If this were a template argument to the conversion-type-id,
+there would have to be another template argument list, which specifies
+the conversion operator's template arguments, e.g. something like
+
+template <class T> struct A {
+    template <class U> operator U() { return sizeof(U); }
+};
+
+
+template <class T> struct B {
+    template <template<class U>class X> operator X<double>() { return X<double>(); }
+};
+
+int main() {
+  A<double> a;
+  B<long> b;
+  a = b;
+}
+
+Unfortunately, I can't try this out, since g++ rejects it. But I
+believe the mangled name should be something like
+
+_ZN1BIlEcvT_IdEI1AEEv
+
+
+> This is illustrated by what the g++ demangler does with this name:
+> 
+> A<float>::operator float<int>()
+> 
+> This seems like a genuine ambiguity.  Or does someone see an out I'm
+> missing?
+
+The demangler is just confused: It doesn't recognise that it hasn't
+even seen the template argument list, yet, when demangling the
+T_. Instead, it should delay outputting the conversion-function-id
+until it has the complete identifier (including its final template
+argument list).
+
+For that matter, it appears g++ is also confused. It compiles the
+program
+
+#include <stdio.h>
+
+template <class T> struct A {
+    template <class U> operator U() { return sizeof(U); }
+};
+
+
+int main() {
+  A<double> a;
+  int x = a.A<double>::operator int();
+  double y = a.A<double>::operator double();
+  int z = a.A<double>::operator double<int>();
+  printf("%d %f %d\n", x, y, z);
+}
+
+Somebody please correct me if I'm wrong: A<double>::operator
+double<int> is not a valid conversion-function-id in this case, is it?
+
+Regards,
+Martin
+
+
+From jsa at edg.com  Sat Dec  7 11:52:02 2002
+From: jsa at edg.com (J. Stephen Adamczyk)
+Date: Sat, 7 Dec 2002 06:52:02 -0500 (EST)
+Subject: [cxx-abi-dev] A mangling ambiguity
+Message-ID: <200212071152.GAA27059@edg1.edg.com>
+
+Martin von Loewis writes:
+> > At the indicated point, the result type of the conversion function ("T_")
+> > should end, and the template argument list that follows ("IiE") should
+> > apply to the conversion function itself, not to its return type.
+> > There's no way for a demangler to know that
+> 
+> Why not? If this were a template argument to the conversion-type-id,
+> there would have to be another template argument list, which specifies
+> the conversion operator's template arguments,
+
+The return type of the conversion function might or might not
+take a template argument list, and the conversion function itself
+might or might not take an template argument list (it takes a
+template argument list if it's a member template).
+
+I haven't been able to come up with an example where two different
+functions produce the same mangled name, but the demangling ambiguity
+is there for sure.
+
+Here are two examples:
+
+template <class T> struct Z {};
+template <class T, template <class U> class TT> struct A {
+  operator TT<T>();
+};
+int main() {
+  A<int, Z> a;
+  Z<int> x = a;
+}
+
+
+template <class T> struct Z {};
+template <class T, template <class U> class TT> struct A {
+  template <class T> operator T();
+};
+int main() {
+  A<int, Z> a;
+  int x = a;
+}
+
+First  mangled name is _ZN1AIi1ZEcvS0_IiEEv
+Second mangled name is _ZN1AIi1ZEcvT_IiEEv
+
+These are syntactically identical, but the template argument in one
+case is related to the return type, and in the other case it's related
+to the conversion function template.
+
+Steve Adamczyk
+Edison Design Group
+
+
+From loewis at informatik.hu-berlin.de  Sat Dec  7 12:26:38 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 07 Dec 2002 13:26:38 +0100
+Subject: [cxx-abi-dev] A mangling ambiguity
+In-Reply-To: <200212071152.GAA27059@edg1.edg.com>
+References: <200212071152.GAA27059@edg1.edg.com>
+Message-ID: <j4znric8w1.fsf@informatik.hu-berlin.de>
+
+"J. Stephen Adamczyk" <jsa at edg.com> writes:
+
+> The return type of the conversion function might or might not
+> take a template argument list, and the conversion function itself
+> might or might not take an template argument list (it takes a
+> template argument list if it's a member template).
+
+It is important to observe that a conversion operator that is a member
+template can only use this argument as its return type. As you can't
+specify template arguments to such an operator explicitly, they must
+have been obtained by template argument deduction, so the template
+argument must occur in the return type.
+
+> I haven't been able to come up with an example where two different
+> functions produce the same mangled name, but the demangling ambiguity
+> is there for sure.
+
+I don't think there is an ambiguity. If there is a T.*_ in the
+operator's name, it is a member template, if there is no T_, the
+return type is an independently-instantiated (class) template.
+In the former case, you can have one or two template argument lists;
+in the latter case, you can have zero or one argument lists.
+
+A demangler should probably operate as follows:
+1. Check if there are two template argument lists. If so, the operator
+   is a template, and the return type is a template; demangle the first
+   list, replacing T_ with the single argument of the second list.
+2. If there is only a single argument list, check whether the template
+   name is T_. If so, it is a member template; the return type is the template
+   argument.
+3. Otherwise, the return type is a template instantiation.
+
+Regards,
+Martin
+
+
+From jason at redhat.com  Wed Dec 18 20:54:30 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Dec 2002 15:54:30 -0500
+Subject: Mangling of anonymous unions?
+Message-ID: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com>
+
+I just noticed that the ABI doesn't define a mangling for anonymous
+unions.  This is only really relevant for static local anonymous unions in
+inline functions; all others are private to a translation unit.
+
+The choices would seem to be:
+
+1) Use the name of the first member.
+2) Use the name of the largest member.
+3) Treat them like string literals, perhaps using 'u' instead of 's'.
+
+g++ currently does #2.  But it also fails to allocate space for such a
+union (q.v. g++.brendan/union1.C), so there's no binary compatibility issue
+in choosing a different answer.
+
+My order of preference is 3, 1, 2.  And yes, I'm volunteering to fix g++.
+
+Jason
+
+
+From jason at redhat.com  Wed Dec 18 22:58:02 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Dec 2002 17:58:02 -0500
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com> (Jason Merrill's
+ message of "Wed, 18 Dec 2002 15:54:30 -0500")
+References: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com>
+Message-ID: <wvlvg1rkk91.fsf@prospero.boston.redhat.com>
+
+On Wed, 18 Dec 2002 15:54:30 -0500, Jason Merrill <jason at redhat.com> wrote:
+
+> I just noticed that the ABI doesn't define a mangling for anonymous
+> unions.  This is only really relevant for static local anonymous unions in
+> inline functions; all others are private to a translation unit.
+>
+> The choices would seem to be:
+>
+> 1) Use the name of the first member.
+> 2) Use the name of the largest member.
+> 3) Treat them like string literals, perhaps using 'u' instead of 's'.
+>
+> g++ currently does #2.  But it also fails to allocate space for such a
+> union (q.v. g++.brendan/union1.C), so there's no binary compatibility issue
+> in choosing a different answer.
+>
+> My order of preference is 3, 1, 2.  And yes, I'm volunteering to fix g++.
+
+After working on this for a bit, I like #3 much less; it doesn't work very
+well for namespace-scope unions, which we might as well mangle the same
+way.
+
+Jason
+
+
+From kerch at cup.hp.com  Wed Dec 18 23:32:04 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 18 Dec 2002 15:32:04 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+References: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com> <wvlvg1rkk91.fsf@prospero.boston.redhat.com>
+Message-ID: <3E010574.4090400@cup.hp.com>
+
+Jason Merrill wrote:
+> On Wed, 18 Dec 2002 15:54:30 -0500, Jason Merrill <jason at redhat.com> wrote:
+> 
+> 
+>>I just noticed that the ABI doesn't define a mangling for anonymous
+>>unions.  This is only really relevant for static local anonymous unions in
+>>inline functions; all others are private to a translation unit.
+>>
+>>The choices would seem to be:
+>>
+>>1) Use the name of the first member.
+>>2) Use the name of the largest member.
+>>3) Treat them like string literals, perhaps using 'u' instead of 's'.
+>>
+>>g++ currently does #2.  But it also fails to allocate space for such a
+>>union (q.v. g++.brendan/union1.C), so there's no binary compatibility issue
+>>in choosing a different answer.
+>>
+>>My order of preference is 3, 1, 2.  And yes, I'm volunteering to fix g++.
+> 
+> 
+> After working on this for a bit, I like #3 much less; it doesn't work very
+> well for namespace-scope unions, which we might as well mangle the same
+> way.
+> 
+Wouldn't you need some type of factoring of all the members of the union
+(instead of first/last) to avoid collisions (of similar unions in the
+same inline)?
+
+BTW HP C++ is slightly broken WRT this feature -- so changing to meet
+some other spec wouldn't cause too much pain.
+
+-- 
+Kerch Holt
+HP Cupertino Language & Tools Lab
+
+
+
+From jason at redhat.com  Wed Dec 18 23:48:02 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 18 Dec 2002 18:48:02 -0500
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <3E010574.4090400@cup.hp.com> (Kerch Holt's message of "Wed, 18
+ Dec 2002 15:32:04 -0800")
+References: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com>
+	<wvlvg1rkk91.fsf@prospero.boston.redhat.com>
+	<3E010574.4090400@cup.hp.com>
+Message-ID: <wvlptrylwi5.fsf@prospero.boston.redhat.com>
+
+On Wed, 18 Dec 2002 15:32:04 -0800, Kerch Holt <kerch at cup.hp.com> wrote:
+
+> Wouldn't you need some type of factoring of all the members of the union
+> (instead of first/last) to avoid collisions (of similar unions in the
+> same inline)?
+
+I'm not sure what you mean.  You would mangle it like any other local
+variable; if there are more than one with the same name, you need to use a
+discriminator to distinguish between them.  The only question is which name
+to use.
+
+Jason
+
+
+From kerch at cup.hp.com  Thu Dec 19 00:24:45 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 18 Dec 2002 16:24:45 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+References: <wvl7ke7m4jd.fsf@prospero.boston.redhat.com>	<wvlvg1rkk91.fsf@prospero.boston.redhat.com>	<3E010574.4090400@cup.hp.com> <wvlptrylwi5.fsf@prospero.boston.redhat.com>
+Message-ID: <3E0111CD.7070807@cup.hp.com>
+
+Jason Merrill wrote:
+> On Wed, 18 Dec 2002 15:32:04 -0800, Kerch Holt <kerch at cup.hp.com> wrote:
+> 
+> 
+>>Wouldn't you need some type of factoring of all the members of the union
+>>(instead of first/last) to avoid collisions (of similar unions in the
+>>same inline)?
+> 
+> 
+> I'm not sure what you mean.  You would mangle it like any other local
+> variable; if there are more than one with the same name, you need to use a
+> discriminator to distinguish between them.  The only question is which name
+> to use.
+> 
+Never mind. I was concerned that two different anonymous union types would have
+the same mangling, but, as you point out if the variable is always
+factored in the mangling will differ.
+Perhaps depending on the ordering (first, last) is problematical... are these
+the same type:
+union { int a; char b; }
+union ( char b; int a; }
+?
+-- 
+Kerch Holt
+HP Cupertino Language & Tools Lab
+
+
+
+From mark at codesourcery.com  Thu Dec 19 00:38:24 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Dec 2002 16:38:24 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <3E0111CD.7070807@cup.hp.com>
+Message-ID: <106750000.1040258304@warlock.codesourcery.com>
+
+
+
+--On Wednesday, December 18, 2002 04:24:45 PM -0800 Kerch Holt 
+<kerch at cup.hp.com> wrote:
+
+> Jason Merrill wrote:
+>> On Wed, 18 Dec 2002 15:32:04 -0800, Kerch Holt <kerch at cup.hp.com> wrote:
+>>
+>>
+>>> Wouldn't you need some type of factoring of all the members of the union
+>>> (instead of first/last) to avoid collisions (of similar unions in the
+>>> same inline)?
+>>
+>>
+>> I'm not sure what you mean.  You would mangle it like any other local
+>> variable; if there are more than one with the same name, you need to use
+>> a discriminator to distinguish between them.  The only question is which
+>> name to use.
+>>
+> Never mind. I was concerned that two different anonymous union types
+> would have the same mangling, but, as you point out if the variable is
+> always factored in the mangling will differ.
+> Perhaps depending on the ordering (first, last) is problematical... are
+> these the same type:
+> union { int a; char b; }
+> union ( char b; int a; }
+
+They're not the same type, but they can't both be declared in the same
+scope, so we're OK.
+
+I can never remember if a union has to have any named members.  Is:
+
+ union { int : 7; };
+
+legal?  I think so -- but there's no way to talk about such a thing,
+so I suppose its mangled name doesn't matter, but it would be nice
+if we had one.
+
+This case:
+
+  union { union { int i; }; };
+
+is legal, so the name-based approach needs a recursive formulation.
+
+I think that the first name found in a pre-order, depth-first,
+declaration-order walk is a reasonable choice.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jason at redhat.com  Thu Dec 19 07:09:55 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 19 Dec 2002 02:09:55 -0500
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <106750000.1040258304@warlock.codesourcery.com> (Mark
+ Mitchell's message of "Wed, 18 Dec 2002 16:38:24 -0800")
+References: <106750000.1040258304@warlock.codesourcery.com>
+Message-ID: <wvl8yymlc1o.fsf@prospero.boston.redhat.com>
+
+On Wed, 18 Dec 2002 16:38:24 -0800, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> I can never remember if a union has to have any named members.  Is:
+>
+>  union { int : 7; };
+>
+> legal?  I think so -- but there's no way to talk about such a thing,
+> so I suppose its mangled name doesn't matter, but it would be nice
+> if we had one.
+
+We currently warn about it and then throw it away; it doesn't get a symbol
+at all.
+
+> This case:
+>
+>   union { union { int i; }; };
+>
+> is legal, so the name-based approach needs a recursive formulation.
+>
+> I think that the first name found in a pre-order, depth-first,
+> declaration-order walk is a reasonable choice.
+
+Works for me.
+
+Jason
+
+
+From loewis at informatik.hu-berlin.de  Thu Dec 19 07:14:00 2002
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Thu, 19 Dec 2002 08:14:00 +0100 (CET)
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <wvlvg1rkk91.fsf@prospero.boston.redhat.com> from Jason Merrill at "Dec 18, 2002 05:58:02 pm"
+Message-ID: <200212190714.gBJ7E02a009041@paros.informatik.hu-berlin.de>
+
+> After working on this for a bit, I like #3 much less; it doesn't work very
+> well for namespace-scope unions, which we might as well mangle the same
+> way.
+
+But this is irrelevant for the ABI, right? If the ABI issue is just about
+such unions in inline functions, I think treating them like string literals
+is appropriate.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Thu Dec 19 07:23:06 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Dec 2002 23:23:06 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <200212190714.gBJ7E02a009041@paros.informatik.hu-berlin.de>
+Message-ID: <8550000.1040282586@warlock.codesourcery.com>
+
+
+
+--On Thursday, December 19, 2002 08:14:00 AM +0100 Martin von Loewis 
+<loewis at informatik.hu-berlin.de> wrote:
+
+>> After working on this for a bit, I like #3 much less; it doesn't work
+>> very well for namespace-scope unions, which we might as well mangle the
+>> same way.
+>
+> But this is irrelevant for the ABI, right? If the ABI issue is just about
+> such unions in inline functions, I think treating them like string
+> literals is appropriate.
+
+That would certainly work, too.  Jason's right, however; if we can do
+the same things for namespaces that's nice.  Some day we'll have to
+merge translation units (for export) and the more things have predictable
+names the better off we'll be, I have a feeling.
+
+I have no strong feeling, though.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jsa at edg.com  Thu Dec 19 13:43:27 2002
+From: jsa at edg.com (J. Stephen Adamczyk)
+Date: Thu, 19 Dec 2002 08:43:27 -0500 (EST)
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+Message-ID: <200212191343.IAA14499@edg1.edg.com>
+
+Mark Mitchell writes:
+> I think that the first name found in a pre-order, depth-first,
+> declaration-order walk is a reasonable choice.
+
+I agree.  We already do exactly that in our other (non-IA-64)
+name mangling scheme.  One reason we did so is repeatability:
+when we did exported templates, we discovered that "unique"
+names generated no longer had to be merely unique -- they
+now also had to be repeatable.  Things like static functions
+and unnamed namespaces have to be externalized in some cases
+so that instantiations of the same template in different
+compilations can reference the same externalized copy.
+And likewise members of anonymous unions.
+
+We used to use a sort of discriminator-like scheme, but it
+failed for entities declared in namespaces, because they're
+not required to be in the same order in each compilation,
+and therefore the discriminator values (assigned in order
+of source declaration) were not appropriately consistent.
+Using the name of the first member avoids that problem.
+
+Steve Adamczyk
+Edison Design Group
+
+
+From nasgaard at ca.ibm.com  Thu Dec 19 21:24:27 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Thu, 19 Dec 2002 16:24:27 -0500
+Subject: Problem mangling template template parameters
+Message-ID: <OFF08AB586.B0E8BF0A-ON05256C94.0073AECC@torolab.ibm.com>
+
+We have noticed a problem in with the way g++ mangles template functions
+that have template template parameters.  Here's an example:
+
+struct bus{};
+template < class T,int I > struct A
+{
+  typedef bus X;
+};
+
+template<class T> struct A<T,3>
+{
+  typedef char X;
+};
+
+template <template <class B,int I> class XX> void foo(typename XX<int,3>::X a){}
+template <template <class B,int I> class XX> void foo(typename XX<int,4>::X a){}
+
+int main()
+{
+  struct bus test;
+  foo<A>('x');
+  foo<A>(test);
+}
+
+g++ mangles both function template names the same, _Z3fooI1AEvN2XX1XE.  It appears that the template parameters are not mangled as part of the name.
+I would like to verify what we believe the correct mangling should be.  If we take the first instantiation of foo I think the correct name should be
+_Z3fooI1AEvN2XXIiLi3EE1XE.
+
+The productions followed to get this would be (starting with the parameter type):
+<type> ::= <class-enum-type>
+  <class-enum-type> ::= <name>
+    <name> ::= <nested-name>
+      <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E
+        <prefix> ::= <template-prefix> <template-args>
+          <template-prefix> ::= <prefix> <template unqualified-name>
+            <prefix> ::= <prefix> <unqualified-name>
+              <prefix> ::= empty
+            <unqualified-name> ::= <source-name>
+              <source-name> ::= XX
+          <template-args> ::= I <template-arg>+ E
+            <template-arg> ::= <type>
+              <type> ::= <cv-qualifiers> <type>
+                <type> ::= i
+            <template-arg> ::= L <type> <value number> E
+              <type> ::= i
+              <value number> ::= 3
+        <unqualified-name> ::= <source-name>
+         <source-name> ::= X
+Can you verify that this is correct.  Is this what will be implemented in g++ v3.3?
+
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+From mark at codesourcery.com  Mon Dec 23 05:02:37 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 22 Dec 2002 21:02:37 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions?
+In-Reply-To: <200212191343.IAA14499@edg1.edg.com>
+Message-ID: <103780000.1040619757@warlock.codesourcery.com>
+
+
+
+--On Thursday, December 19, 2002 08:43:27 AM -0500 "J. Stephen Adamczyk" 
+<jsa at edg.com> wrote:
+
+> Mark Mitchell writes:
+>> I think that the first name found in a pre-order, depth-first,
+>> declaration-order walk is a reasonable choice.
+>
+> I agree.  We already do exactly that in our other (non-IA-64)
+> name mangling scheme.
+
+I think we've got consensus.  I checked in this patch.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.55
+diff -c -5 -p -r1.55 abi.html
+*** abi.html	12 Dec 2002 19:13:30 -0000	1.55
+--- abi.html	23 Dec 2002 05:04:07 -0000
+*************** and in the case of functions its type (t
+*** 3858,3867 ****
+--- 3858,3888 ----
+  At this top level,
+  function types do not have the special delimiter characters required
+  when nested (see below).
+  The type is omitted for variables and static data members.
+
++ <p>
++ For the purposes of mangling, the name of an anonymous union is
++ considered to be the name of the first named data member found by a
++ pre-order, depth-first, declaration-order walk of the data members of
++ the anonymous union.  If there is no such data member (i.e., if all of
++ the data members in the union are unnamed), then there is no way for a
++ program to refer to the anonymous union, and there is therefore no
++ need to mangle its name.
++ </p>
++
++ <p>
++ All of these examples:
++ <blockquote><code><pre>
++ union { int i; int j; };
++ union { union { int : 7 }; union { int i; }; };
++ union { union { int j; } i; };
++ </pre></code></blockquote>
++ are considered to have the name <code>i</code> for the purposes of
++ mangling.
++ </p>
++
+  <pre><font color=blue><code>
+      &lt;name> ::= &lt;nested-name>
+  	   ::= &lt;unscoped-name>
+  	   ::= &lt;unscoped-template-name> &lt;template-args>
+  	   ::= &lt;local-name>	# See <a href=#mangling-scope>Scope Encoding</a> 
+below
+*************** unwind table location.
+*** 4918,4927 ****
+--- 4939,4952 ----
+
+  <p> <hr> <p>
+  <a name=revisions>
+  <h2> Appendix R: Revision History </h2>
+  <p> <hr> <p>
++
++ <p>
++ <font color=blue>[021222]</font>
++ Document mangling for anonymous unions.
+
+  <p>
+  <font color=blue>[021204]</font>
+  Remove note about 32-bit RTTI variation.
+
+
+
+

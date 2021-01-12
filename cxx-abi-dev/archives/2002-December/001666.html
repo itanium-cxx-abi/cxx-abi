@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] A mangling ambiguity
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20mangling%20ambiguity&In-Reply-To=%3Cj4d6oedqdq.fsf%40informatik.hu-berlin.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001650.html">
+   <LINK REL="Next"  HREF="001642.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] A mangling ambiguity</H1>
+    <B>Martin v. L&#246;wis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20mangling%20ambiguity&In-Reply-To=%3Cj4d6oedqdq.fsf%40informatik.hu-berlin.de%3E"
+       TITLE="[cxx-abi-dev] A mangling ambiguity">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Sat Dec  7 11:23:29 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001650.html">[cxx-abi-dev] A mangling ambiguity
+</A></li>
+        <LI>Next message: <A HREF="001642.html">__base_class_type_info offset_flags
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1666">[ date ]</a>
+              <a href="thread.html#1666">[ thread ]</a>
+              <a href="subject.html#1666">[ subject ]</a>
+              <a href="author.html#1666">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&quot;J. Stephen Adamczyk&quot; &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jsa at edg.com</A>&gt; writes:
+
+&gt;<i> template &lt;class T&gt; struct A {
+</I>&gt;<i>   template &lt;class U&gt; operator U() { return 0; }
+</I>&gt;<i> };
+</I>&gt;<i> int main() {
+</I>&gt;<i>   A&lt;float&gt; a;
+</I>&gt;<i>   int i = a;
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> At the indicated point, the result type of the conversion function (&quot;T_&quot;)
+</I>&gt;<i> should end, and the template argument list that follows (&quot;IiE&quot;) should
+</I>&gt;<i> apply to the conversion function itself, not to its return type.
+</I>&gt;<i> There's no way for a demangler to know that
+</I>
+Why not? If this were a template argument to the conversion-type-id,
+there would have to be another template argument list, which specifies
+the conversion operator's template arguments, e.g. something like
+
+template &lt;class T&gt; struct A {
+    template &lt;class U&gt; operator U() { return sizeof(U); }
+};
+
+
+template &lt;class T&gt; struct B {
+    template &lt;template&lt;class U&gt;class X&gt; operator X&lt;double&gt;() { return X&lt;double&gt;(); }
+};
+
+int main() {
+  A&lt;double&gt; a;
+  B&lt;long&gt; b;
+  a = b;
+}
+
+Unfortunately, I can't try this out, since g++ rejects it. But I
+believe the mangled name should be something like
+
+_ZN1BIlEcvT_IdEI1AEEv
+
+
+&gt;<i> This is illustrated by what the g++ demangler does with this name:
+</I>&gt;<i> 
+</I>&gt;<i> A&lt;float&gt;::operator float&lt;int&gt;()
+</I>&gt;<i> 
+</I>&gt;<i> This seems like a genuine ambiguity.  Or does someone see an out I'm
+</I>&gt;<i> missing?
+</I>
+The demangler is just confused: It doesn't recognise that it hasn't
+even seen the template argument list, yet, when demangling the
+T_. Instead, it should delay outputting the conversion-function-id
+until it has the complete identifier (including its final template
+argument list).
+
+For that matter, it appears g++ is also confused. It compiles the
+program
+
+#include &lt;stdio.h&gt;
+
+template &lt;class T&gt; struct A {
+    template &lt;class U&gt; operator U() { return sizeof(U); }
+};
+
+
+int main() {
+  A&lt;double&gt; a;
+  int x = a.A&lt;double&gt;::operator int();
+  double y = a.A&lt;double&gt;::operator double();
+  int z = a.A&lt;double&gt;::operator double&lt;int&gt;();
+  printf(&quot;%d %f %d\n&quot;, x, y, z);
+}
+
+Somebody please correct me if I'm wrong: A&lt;double&gt;::operator
+double&lt;int&gt; is not a valid conversion-function-id in this case, is it?
+
+Regards,
+Martin
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001650.html">[cxx-abi-dev] A mangling ambiguity
+</A></li>
+	<LI>Next message: <A HREF="001642.html">__base_class_type_info offset_flags
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1666">[ date ]</a>
+              <a href="thread.html#1666">[ thread ]</a>
+              <a href="subject.html#1666">[ subject ]</a>
+              <a href="author.html#1666">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> mangling of function names
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20mangling%20of%20function%20names&In-Reply-To=%3C14620.29854.805480.838332%40coriander.indetermi.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000991.html">
+   <LINK REL="Next"  HREF="000987.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>mangling of function names</H1>
+    <B>Alex Samuel</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20mangling%20of%20function%20names&In-Reply-To=%3C14620.29854.805480.838332%40coriander.indetermi.net%3E"
+       TITLE="mangling of function names">samuel at codesourcery.com
+       </A><BR>
+    <I>Fri May 12 21:16:14 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000991.html">mangling of function names
+</A></li>
+        <LI>Next message: <A HREF="000987.html">Template parameter numbering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#993">[ date ]</a>
+              <a href="thread.html#993">[ thread ]</a>
+              <a href="subject.html#993">[ subject ]</a>
+              <a href="author.html#993">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt; writes:
+
+  Martin&gt; There are actually cases where it then would get
+  Martin&gt; substituted:
+
+    struct klasse{
+      struct methode{};
+      void methode(struct methode);
+    };
+
+    void klasse::methode(struct methode){}
+
+  Martin&gt; Now, if it is considered too difficult for implementations
+  Martin&gt; to detect that substitution is needed here, or if it is
+  Martin&gt; unclear from the spec whether substitution should happen -
+  Martin&gt; then that would make a point for complicating the
+  Martin&gt; spec. 
+
+I hadn't even considered this possibility.  I think it argues for
+changing the name grammar again.
+
+Here's an attempt to accomplish this.  This grammar replaces
+&lt;mangled-name&gt; through &lt;unqualified-name&gt;  I've tried to accomplish
+these things:
+
+  - Separate the logic for encoding names in the global scope from
+    &lt;unqualfied-name&gt;, which is a name without scope qualification.
+
+  - Add substitution candidates for template names before template-ids
+    by forking &lt;unscoped-name&gt; into &lt;unscoped-template-name&gt; and
+    &lt;prefix&gt; into &lt;template-prefix&gt;.
+
+  - Add the special compression rule that avoids a &lt;nested-name&gt; for
+    names in ::std.
+
+  - Split &lt;special-name&gt; into &lt;special-data-name&gt; and
+    &lt;special-function-name&gt;.  
+
+    &lt;special-data-name&gt; for vtables, VTTs, typeinfo, typeinfo names, 
+                        guard variables, and thunks [these are mangled as 
+			data, right?]
+
+    &lt;special-function-name&gt; for ctors and dtors
+
+I think this is a simplification to the existing grammar that
+addresses the function name issue discussed yesterday, and also
+corrects some omissions (for instance, in the existing grammar, 
+untemplated operator names inside a namespace other than ::std were
+not produced).
+
+Regards
+Alex
+
+
+------------------------------------------------------------------------
+
+    &lt;mangled-name&gt;      ::= _Z &lt;name&gt;
+
+    &lt;name&gt;              ::= &lt;unscoped-name&gt;
+                        ::= &lt;unscoped-template-name&gt; &lt;template-args&gt;
+			::= &lt;nested-name&gt;
+                        ::= &lt;local-name&gt;
+			::= &lt;substitution&gt;
+
+#
+# A non-template or template-id name in :: or ::std scope.
+#
+
+    &lt;unscoped-name&gt;     ::= &lt;unqualified-name&gt;
+			::= St &lt;unqualified-name&gt;   # ::std::
+
+#
+# A template name in :: or ::std scope.  
+#
+
+    &lt;unscoped-template-name&gt;    
+                        ::= &lt;unqualified-name&gt;
+			::= St &lt;unqualified-name&gt;   # ::std::
+                        ::= &lt;substitution&gt;
+
+#
+# A name not in :: or ::std scope.
+#
+
+    &lt;nested-name&gt;       ::= N [&lt;CV-qualifiers&gt;] &lt;prefix&gt; E
+
+#
+# A prefix of a scoped name. 
+#
+
+    &lt;prefix&gt;            ::= &lt;prefix&gt; &lt;component&gt;
+                        ::= &lt;template-prefix&gt; &lt;template-args&gt;
+			::= # empty
+			::= &lt;substitution&gt;
+
+#
+# A scoped template name that occurs in a prefix.  
+#
+
+    &lt;template-prefix&gt;   ::= &lt;prefix&gt;
+                        ::= &lt;substitution&gt;
+
+#
+# A component of a scoped name.  
+#
+
+    &lt;component&gt;         ::= &lt;unqualified-name&gt;
+                        ::= &lt;builtin-type&gt;
+                        ::= &lt;function-type&gt;
+			::= &lt;array-type&gt;
+			::= &lt;pointer-to-member-type&gt;
+
+#
+# A name without scope or template qualifications.
+#
+
+    &lt;unqualified-name&gt;  ::= &lt;function-name&gt; &lt;bare-function-type&gt;
+			::= &lt;special-data-name&gt;  # vtable, VTT, typeinfo, ...
+			::= &lt;source-name&gt;        # namespace, class, data, ...
+
+#
+# A name of a function without scope or template qualifications or
+# function signature.
+#
+
+    &lt;function-name&gt;     ::= &lt;special-function-name&gt;  # ctor, dtor
+                        ::= &lt;operator-name&gt;
+                        ::= &lt;source-name&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000991.html">mangling of function names
+</A></li>
+	<LI>Next message: <A HREF="000987.html">Template parameter numbering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#993">[ date ]</a>
+              <a href="thread.html#993">[ thread ]</a>
+              <a href="subject.html#993">[ subject ]</a>
+              <a href="author.html#993">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

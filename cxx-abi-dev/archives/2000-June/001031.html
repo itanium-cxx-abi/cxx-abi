@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Vcall offsets and mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Vcall%20offsets%20and%20mangling&In-Reply-To=%3C3951489F.C8A25FC0%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001029.html">
+   <LINK REL="Next"  HREF="001030.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Vcall offsets and mangling</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Vcall%20offsets%20and%20mangling&In-Reply-To=%3C3951489F.C8A25FC0%40cup.hp.com%3E"
+       TITLE="Vcall offsets and mangling">ddd at cup.hp.com
+       </A><BR>
+    <I>Wed Jun 21 22:58:39 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001029.html">Vcall offsets and mangling
+</A></li>
+        <LI>Next message: <A HREF="001030.html">mangling type_info for local related types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1031">[ date ]</a>
+              <a href="thread.html#1031">[ thread ]</a>
+              <a href="subject.html#1031">[ subject ]</a>
+              <a href="author.html#1031">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mark,
+
+
+If memory serves me right, the problem with virtual base thunks had been
+identified (by Jason?), and the intent was indeed to use COMDAT thunks for this.
+I did not check my mail nor the web page to find a reference, though. Someone
+else may confirm if they have the same recollection.
+
+
+Christophe
+
+Mark Mitchell wrote:
+&gt;<i> 
+</I>&gt;<i> Folks --
+</I>&gt;<i> 
+</I>&gt;<i> We learned some interesting things about what worked and what didn't
+</I>&gt;<i> when we implemented the ABI mangling in G++.  Alex has a rewritten
+</I>&gt;<i> specification that is very complete.  He'll post it shortly.  There
+</I>&gt;<i> were a lot of things unspecified, and some things specified in ways
+</I>&gt;<i> that were notably inconvenient for the implementation.
+</I>&gt;<i> 
+</I>&gt;<i> Also, I noticed this today, trying to finish up the vcall offset
+</I>&gt;<i> implementation in g++:
+</I>&gt;<i> 
+</I>&gt;<i>   struct A {
+</I>&gt;<i>     virtual void f {};
+</I>&gt;<i>   };
+</I>&gt;<i> 
+</I>&gt;<i>   struct B : virtual public A {
+</I>&gt;<i>     int i;
+</I>&gt;<i>   };
+</I>&gt;<i> 
+</I>&gt;<i>   struct C : virtual public A {
+</I>&gt;<i>     int j;
+</I>&gt;<i>   };
+</I>&gt;<i> 
+</I>&gt;<i>   struct D: public B, public C {};
+</I>&gt;<i> 
+</I>&gt;<i> The basic idea of the thunk thing is that all thunks are knowable
+</I>&gt;<i> statically, allowing the fall-through implementation of thunks.  So,
+</I>&gt;<i> the ABI actually mandates where you emit thunks, and says that you
+</I>&gt;<i> emit them with the overriding virtual function.
+</I>&gt;<i> 
+</I>&gt;<i> Consider the graph above.  Here, we need a thunk for the C-in-D
+</I>&gt;<i> vtable.  (Why?  A is a primary base of C.  So, C's vtable contains an
+</I>&gt;<i> entry for f.  But, in D, A is also a primary base of B, and therefore
+</I>&gt;<i> located at a non-zero offset from C.  So, C's vtable must contain a
+</I>&gt;<i> thunk adjusting from C* to A* before calling f.)
+</I>&gt;<i> 
+</I>&gt;<i> We have a vcall offset for A::f in the C-in-D vtable.  We don't have a
+</I>&gt;<i> thunk for A::f, though.  When A was emitted (without knowledge of C,
+</I>&gt;<i> let alone D), there was no reason to expect any thunks to A::f.  We
+</I>&gt;<i> could have emitted an A-as-a-virtual-base thunk with A::f, just in
+</I>&gt;<i> case, but that's wasteful if A never is a virtual base.  Doing so
+</I>&gt;<i> would violate the you-don't-pay-for-what-you-don't-use principle.
+</I>&gt;<i> 
+</I>&gt;<i> (This can only happen because A is a primary base.  If A were not
+</I>&gt;<i> primary, then C's vtable wouldn't contain a reference to A::f.)
+</I>&gt;<i> 
+</I>&gt;<i> I think the right solution is, in this situation, to fall back on
+</I>&gt;<i> generating thunks, in COMDAT groups, where you need them to define
+</I>&gt;<i> vtables, just like the good old days.  These thunks will pay the
+</I>&gt;<i> double-jump penalty.
+</I>&gt;<i> 
+</I>&gt;<i> On thinking about this further, I actually think a better solution
+</I>&gt;<i> would have been to handle thunk emission in the linker.  The linker
+</I>&gt;<i> could insert the thunks that are needed at link-time.  You could have
+</I>&gt;<i> COMDAT thunks defined in case the linker didn't want to do that; an
+</I>&gt;<i> optimizing linker would ignore the COMDAT thunks and put in the right
+</I>&gt;<i> instructions in front of the virtual functions so that the
+</I>&gt;<i> fall-through thing worked right.
+</I>&gt;<i> 
+</I>&gt;<i> Can we fall back to making thunks weak, and generating them when you
+</I>&gt;<i> need them for the vtable?  This doesn't stop an implementation from
+</I>&gt;<i> emitting strong definitions right in front of the virtual functions,
+</I>&gt;<i> as we'd planned, as an optimization.  And it doesn't stop the linker
+</I>&gt;<i> from playing the games mentioned above.  All it means is that
+</I>&gt;<i> implementation is easier -- and that object files (not executables)
+</I>&gt;<i> will be a little bigger since they will contain extra copies of the
+</I>&gt;<i> thunks.
+</I>&gt;<i> 
+</I>&gt;<i> Unfortunately, neither I nor Alex can be at the meeting tomorrow.
+</I>&gt;<i> But, I will call in at 10:00 AM.  I have to be off by 10:55 AM, or so,
+</I>&gt;<i> for an 11:00 conference call; Alex is unavailable at 11:00 as well.
+</I>&gt;<i> He may or may not be able to join me on the phone some of the time.
+</I>&gt;<i> 
+</I>&gt;<i> --
+</I>&gt;<i> Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+</I>&gt;<i> CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001029.html">Vcall offsets and mangling
+</A></li>
+	<LI>Next message: <A HREF="001030.html">mangling type_info for local related types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1031">[ date ]</a>
+              <a href="thread.html#1031">[ thread ]</a>
+              <a href="subject.html#1031">[ subject ]</a>
+              <a href="author.html#1031">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Mangling literals
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20literals&In-Reply-To=%3CFCEDA0C9-23A1-4579-995F-8978C65C38E6%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002325.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Mangling literals</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20literals&In-Reply-To=%3CFCEDA0C9-23A1-4579-995F-8978C65C38E6%40edg.com%3E"
+       TITLE="Mangling literals">mjh at edg.com
+       </A><BR>
+    <I>Thu May 20 14:13:32 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002325.html">Decltype mangling and type dependency
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2326">[ date ]</a>
+              <a href="thread.html#2326">[ thread ]</a>
+              <a href="subject.html#2326">[ subject ]</a>
+              <a href="author.html#2326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The ABI specification currently specifies how to mangle integer-literal (including boolean-literal and character-literal) as well as floating-literal but doesn't specify manglings for string-literal (outside of a function), pointer-literal, or user-defined-literal.
+
+The need to mangle such literals comes from cases like:
+
+ void *f(void *);
+ template &lt;class T&gt; auto f1(T p1) -&gt; decltype(p1(&quot;xyz&quot;));
+ template &lt;class T&gt; auto f2(T p1) -&gt; decltype(p1(nullptr));
+ int main() {
+   f1(f);
+   f2(f);
+ }
+
+pointer-literal (which includes only nullptr) could be mangled using the integer case of &lt;expr-primary&gt; to produce a mangled encoding of &quot;L Dn 0 E&quot; (uses &quot;Dn&quot; as the &lt;builtin-type&gt; for std::nullptr_t from Daveed's latest proposal -- <A HREF="https://www.codesourcery.com/archives/cxx-abi-dev/msg02250.html">https://www.codesourcery.com/archives/cxx-abi-dev/msg02250.html</A>).  Alternatively, a new &lt;expr-primary&gt; production could be added specifically for nullptr which would eliminate the superfluous &quot;0 E&quot; in this case, but we feel that having the zero makes this look more like a value as opposed to a type.  So we're proposing to use the existing integer mangling for this case.
+
+string-literals are currently given mangled names when they appear in inline or template functions (so that the address of the string will be the same across all instances).  Because string-literals aren't allowed as nontype template arguments, there's no mangled encoding specified for them.
+
+The first thought is to extend the unique numbering scheme currently used to identify string literals, but we're wondering if even that is necessary.  We're not sure that you can write a test case that can distinguish two functions in overload resolution if they differ only in the contents of two string literals.  For example, we need a mangling that differentiates between these:
+
+ template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1 == &quot;xyz&quot;) { return true; }
+ template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1 == 0.0)  { return false; }
+ int main() {
+   return !f(&quot;xyz&quot;);
+ }
+
+but do we need to differentiate between these ambiguous cases:
+
+ template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1 == &quot;xyz&quot;) { return true; }
+ template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1 == &quot;abc&quot;) { return false; }
+ template &lt;class T&gt; auto f(T p1) -&gt; decltype(p1 == &quot;x&quot;)   { return false; }
+ int main() {
+   return !f(&quot;xyz&quot;);
+ }
+
+If not, then perhaps simply encoding the fact that a string literal was seen (and perhaps the character type) is sufficient.  For example, adding this to &lt;expr-primary&gt;:
+
+             ::= L &lt;character type&gt; E 	            # string literal
+
+which could be demangled as &quot;...&quot;, L&quot;...&quot;, u8&quot;...&quot;, etc.
+
+user-defined-literals are left for another day (unless someone would like to make a proposal).
+
+Thoughts?
+
+Mike Herrick
+Edison Design Group
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002325.html">Decltype mangling and type dependency
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2326">[ date ]</a>
+              <a href="thread.html#2326">[ thread ]</a>
+              <a href="subject.html#2326">[ subject ]</a>
+              <a href="author.html#2326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

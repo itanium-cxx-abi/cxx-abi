@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Long compile times due mangling of return types in function templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Long%20compile%20times%20due%20mangling%20of%20return%20types%0A%20in%20function%20templates&In-Reply-To=%3C6E65A2DE-64F4-4E26-9CC4-CEEBACB003D2%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002903.html">
+   <LINK REL="Next"  HREF="002905.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Long compile times due mangling of return types in function templates</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Long%20compile%20times%20due%20mangling%20of%20return%20types%0A%20in%20function%20templates&In-Reply-To=%3C6E65A2DE-64F4-4E26-9CC4-CEEBACB003D2%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Long compile times due mangling of return types in function templates">rjmccall at apple.com
+       </A><BR>
+    <I>Mon Feb 29 18:06:06 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002903.html">[cxx-abi-dev] Passing an empty class by value
+</A></li>
+        <LI>Next message: <A HREF="002905.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2904">[ date ]</a>
+              <a href="thread.html#2904">[ thread ]</a>
+              <a href="subject.html#2904">[ subject ]</a>
+              <a href="author.html#2904">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Apr 29, 2015, at 7:45 AM, Avi Kivity &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">avi at cloudius-systems.com</A>&gt; wrote:
+</I>&gt;<i> As per the Itanium ABI gcc mangles the return types of function templates, so that we can see mangled names like
+</I>&gt;<i> 
+</I>&gt;<i>   _Z1hIiEDTplcl1fIT_EEcl1gIS0_EEEv
+</I>&gt;<i> 
+</I>&gt;<i> which demangle to
+</I>&gt;<i> 
+</I>&gt;<i>   decltype (((f&lt;int&gt;)())+((g&lt;int&gt;)())) h&lt;int&gt;()
+</I>&gt;<i> 
+</I>&gt;<i> In seastar [1] this causes serious compile-time performance problems.  Replacing complicated template argument dependent return types improves compile time and object size by around 10%.
+</I>&gt;<i> 
+</I>&gt;<i> What is the reason that the ABI mandates mangling the return type into the function name?
+</I>
+The ABI only calls for this for function templates, where it is required because function templates with different dependent signatures are distinct templates; q.v. [temp.over.link].
+
+John.
+
+
+
+
+&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> The patch below (replacing return types with auto) gave me about 10% compile time improvement:
+</I>&gt;<i> 
+</I>&gt;<i> --- a/core/future.hh
+</I>&gt;<i> +++ b/core/future.hh
+</I>&gt;<i> @@ -460,7 +460,8 @@ private:
+</I>&gt;<i>      }
+</I>&gt;<i>       template &lt;typename Ret, typename Func, typename Param&gt;
+</I>&gt;<i> -    futurize_t&lt;Ret&gt; then(Func&amp;&amp; func, Param&amp;&amp; param) noexcept {
+</I>&gt;<i> +    auto // futurize_t&lt;Ret&gt;
+</I>&gt;<i> +    then(Func&amp;&amp; func, Param&amp;&amp; param) noexcept {
+</I>&gt;<i>          using futurator = futurize&lt;Ret&gt;;
+</I>&gt;<i>          using P = typename futurator::promise_type;
+</I>&gt;<i>          if (state()-&gt;available() &amp;&amp; (++future_avail_count % 256)) {
+</I>&gt;<i> @@ -526,12 +527,14 @@ public:
+</I>&gt;<i>      }
+</I>&gt;<i>       template &lt;typename Func&gt;
+</I>&gt;<i> -    futurize_t&lt;std::result_of_t&lt;Func(T&amp;&amp;...)&gt;&gt; then(Func&amp;&amp; func) noexcept {
+</I>&gt;<i> +    auto // futurize_t&lt;std::result_of_t&lt;Func(T&amp;&amp;...)&gt;&gt;
+</I>&gt;<i> +    then(Func&amp;&amp; func) noexcept {
+</I>&gt;<i>          return then&lt;std::result_of_t&lt;Func(T&amp;&amp;...)&gt;&gt;(std::forward&lt;Func&gt;(func), [] (future_state&lt;T...&gt;&amp;&amp; state) { return state.get(); });
+</I>&gt;<i>      }
+</I>&gt;<i>       template &lt;typename Func&gt;
+</I>&gt;<i> -    futurize_t&lt;std::result_of_t&lt;Func(future&lt;T...&gt;)&gt;&gt;
+</I>&gt;<i> +    auto
+</I>&gt;<i> +    //futurize_t&lt;std::result_of_t&lt;Func(future&lt;T...&gt;)&gt;&gt;
+</I>&gt;<i>      then_wrapped(Func&amp;&amp; func) noexcept {
+</I>&gt;<i>          return then&lt;std::result_of_t&lt;Func(future&lt;T...&gt;)&gt;&gt;(std::forward&lt;Func&gt;(func), [] (future_state&lt;T...&gt;&amp;&amp; state) { return future(std::move(state)); });
+</I>&gt;<i>      }
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> [1] <A HREF="https://github.com/cloudius-systems/seastar,">https://github.com/cloudius-systems/seastar,</A> specifically future::then() in core/future.hh
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002903.html">[cxx-abi-dev] Passing an empty class by value
+</A></li>
+	<LI>Next message: <A HREF="002905.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2904">[ date ]</a>
+              <a href="thread.html#2904">[ thread ]</a>
+              <a href="subject.html#2904">[ subject ]</a>
+              <a href="author.html#2904">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

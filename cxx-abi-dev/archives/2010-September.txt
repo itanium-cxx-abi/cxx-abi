@@ -1,0 +1,163 @@
+From jason at redhat.com  Wed Sep 15 17:20:40 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 15 Sep 2010 13:20:40 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+Message-ID: <4C910068.80900@redhat.com>
+
+On 06/30/2010 11:33 AM, David Vandevoorde wrote:
+> - We're introducing a new definition: "instantiation-dependent".  When encoding a signature that contains a non-dependent expression like "sizeof(int)", existing practice it to just replace that by the resulting value, or in some cases, by the encoding for a literal representing that value.  For example:
+>
+> 	template<class T, int N>  struct S {};
+> 	template<class T>  void f(S<T, sizeof(int)>);
+> 	  // "sizeof(int)" is encoded as "Li4E" on typical platforms;
+> 	  // i.e., as if we'd written "4" instead.
+>
+> Similarly, something like "decltype(int)" is just encoded as the known underlying type.
+>
+> However, there are non-dependent expressions and types that can still fail instantiation.  With the new SFINAE rules, several template declarations differing only in such expressions can be written such that their encodings don't collide.  So reducing a sizeof/decltype that is applied to such an expression to a literal isn't workable.  Here is an example of the idea:
+>
+> 	template<class T>  auto f(T *p)->decltype(sizeof(sizeof(T)));
+>
+> "sizeof(sizeof(T))" is neither type-dependent nor value-dependent, but if T is e.g. a function type, that declaration will be "SFINAEed out".
+>
+> So an "instantiation-dependent" expression or type is one that is either type-dependent or value-dependent, or one that contains a type-dependent or value-dependent sub-expression.  decltype, sizeof, and alignof must be fully encoded if (and only if) their operand is "instantiation-dependent"; otherwise, the resulting type/value is encoded instead.
+
+As I was saying in Rapperswil, I believe this is the same as the 
+14.5.6.1 notion of "expression involving template parameters".  Do you 
+agree?
+
+The question is, do we need to adjust the definitions of dependent 
+types/expressions in 14.6.2?  I suppose not; the primary purpose of the 
+notion of dependent names/types/expressions is name lookup, and this 
+doesn't need to affect that.  I guess that means the compiler needs to 
+track both the full expression and its constant value, and so on through 
+array types and template-ids that use them.
+
+Jason
+
+
+From daveed at edg.com  Thu Sep 16 13:55:47 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 16 Sep 2010 09:55:47 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C910068.80900@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C910068.80900@redhat.com>
+Message-ID: <8795DAFC-8F5A-4026-95C0-3C280715CC32@edg.com>
+
+
+On Sep 15, 2010, at 1:20 PM, Jason Merrill wrote:
+
+> On 06/30/2010 11:33 AM, David Vandevoorde wrote:
+>> - We're introducing a new definition: "instantiation-dependent".  When encoding a signature that contains a non-dependent expression like "sizeof(int)", existing practice it to just replace that by the resulting value, or in some cases, by the encoding for a literal representing that value.  For example:
+>> 
+>> 	template<class T, int N>  struct S {};
+>> 	template<class T>  void f(S<T, sizeof(int)>);
+>> 	  // "sizeof(int)" is encoded as "Li4E" on typical platforms;
+>> 	  // i.e., as if we'd written "4" instead.
+>> 
+>> Similarly, something like "decltype(int)" is just encoded as the known underlying type.
+>> 
+>> However, there are non-dependent expressions and types that can still fail instantiation.  With the new SFINAE rules, several template declarations differing only in such expressions can be written such that their encodings don't collide.  So reducing a sizeof/decltype that is applied to such an expression to a literal isn't workable.  Here is an example of the idea:
+>> 
+>> 	template<class T>  auto f(T *p)->decltype(sizeof(sizeof(T)));
+>> 
+>> "sizeof(sizeof(T))" is neither type-dependent nor value-dependent, but if T is e.g. a function type, that declaration will be "SFINAEed out".
+>> 
+>> So an "instantiation-dependent" expression or type is one that is either type-dependent or value-dependent, or one that contains a type-dependent or value-dependent sub-expression.  decltype, sizeof, and alignof must be fully encoded if (and only if) their operand is "instantiation-dependent"; otherwise, the resulting type/value is encoded instead.
+> 
+> As I was saying in Rapperswil, I believe this is the same as the 14.5.6.1 notion of "expression involving template parameters".  Do you agree?
+
+
+Yes, I think so (for expressions).
+
+
+> The question is, do we need to adjust the definitions of dependent types/expressions in 14.6.2?  I suppose not; the primary purpose of the notion of dependent names/types/expressions is name lookup, and this doesn't need to affect that.
+
+That's also my conclusion.
+
+
+>  I guess that means the compiler needs to track both the full expression and its constant value, and so on through array types and template-ids that use them.
+
+I'm not sure I understand this point.  Mostly (for this purpose), the compiler has to track the "instantiation-dependent" property for the expression.
+
+	Daveed
+
+
+
+From jason at redhat.com  Thu Sep 16 17:10:56 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 16 Sep 2010 13:10:56 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <8795DAFC-8F5A-4026-95C0-3C280715CC32@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C910068.80900@redhat.com> <8795DAFC-8F5A-4026-95C0-3C280715CC32@edg.com>
+Message-ID: <4C924FA0.3060204@redhat.com>
+
+On 09/16/2010 09:55 AM, David Vandevoorde wrote:
+>>   I guess that means the compiler needs to track both the full expression and its constant value, and so on through array types and template-ids that use them.
+>
+> I'm not sure I understand this point.  Mostly (for this purpose), the compiler has to track the "instantiation-dependent" property for the expression.
+
+Say you have
+
+template <int I>
+struct A;
+
+template <> struct A<sizeof(size_t)>
+{
+   typedef size_t type;
+};
+
+template <class T>
+void f (A<sizeof(sizeof(T))>::type);
+
+--------------
+
+The compiler needs to recognize that A<sizeof(sizeof(T))> is not a 
+dependent type, so we need to treat it as A<8> and not require typename 
+to name the nested type.  But for substitution we need to treat it as 
+A<sizeof(sizeof(T))>.
+
+Jason
+
+
+From daveed at edg.com  Thu Sep 16 18:43:03 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 16 Sep 2010 14:43:03 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C924FA0.3060204@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C910068.80900@redhat.com> <8795DAFC-8F5A-4026-95C0-3C280715CC32@edg.com> <4C924FA0.3060204@redhat.com>
+Message-ID: <357D0929-9303-43A5-954A-3AA2BE9CC307@edg.com>
+
+
+On Sep 16, 2010, at 1:10 PM, Jason Merrill wrote:
+
+> On 09/16/2010 09:55 AM, David Vandevoorde wrote:
+>>>  I guess that means the compiler needs to track both the full expression and its constant value, and so on through array types and template-ids that use them.
+>> 
+>> I'm not sure I understand this point.  Mostly (for this purpose), the compiler has to track the "instantiation-dependent" property for the expression.
+> 
+> Say you have
+> 
+> template <int I>
+> struct A;
+> 
+> template <> struct A<sizeof(size_t)>
+> {
+>  typedef size_t type;
+> };
+> 
+> template <class T>
+> void f (A<sizeof(sizeof(T))>::type);
+> 
+> --------------
+> 
+> The compiler needs to recognize that A<sizeof(sizeof(T))> is not a dependent type, so we need to treat it as A<8> and not require typename to name the nested type.  But for substitution we need to treat it as A<sizeof(sizeof(T))>.
+
+Ah yes, that's correct.
+
+	Daveed
+
+
+

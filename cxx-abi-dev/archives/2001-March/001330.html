@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [C++ PATCH] ctor vtable vcall offsets
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3Cu9lmqo88fx.fsf%40casey.cambridge.redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001329.html">
+   <LINK REL="Next"  HREF="001331.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[C++ PATCH] ctor vtable vcall offsets</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3Cu9lmqo88fx.fsf%40casey.cambridge.redhat.com%3E"
+       TITLE="[C++ PATCH] ctor vtable vcall offsets">jason at redhat.com
+       </A><BR>
+    <I>Fri Mar  2 16:03:14 UTC 2001</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001329.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+        <LI>Next message: <A HREF="001331.html">getting the adjusted object pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1330">[ date ]</a>
+              <a href="thread.html#1330">[ thread ]</a>
+              <a href="subject.html#1330">[ subject ]</a>
+              <a href="author.html#1330">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Nathan&quot; == Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt; writes:
+</I>
+&gt;<i> Jason Merrill wrote:
+</I>&gt;&gt;<i> But with Java interfaces we can assume no adjustment is necessary, since no
+</I>&gt;&gt;<i> adjustment is ever necessary.  With C++ virtual bases, we can't.
+</I>
+&gt;<i> You'll need to adjust to the (virtual) base that is the interface class, 
+</I>&gt;<i> in order to lookup the function in that vtable. However, you know that the
+</I>&gt;<i> function will have been overridden by the class providing the implementation
+</I>&gt;<i> and that'll adjust the self pointer back again. Interesting.
+</I>
+Actually, you never have to adjust at all, as Java only has single
+inheritance.  The vtable for the interface may not be at offset 0, but that
+only affects looking up the function pointer, not what you pass to it as
+'this'.
+
+&gt;&gt;<i> And I believe the time savings you mention are not significant enough to
+</I>&gt;&gt;<i> justify complicating the implementation to deal with this special case,
+</I>&gt;&gt;<i> especially given the problems with third-party thunks.
+</I>
+&gt;<i> ok. I think we've got the position that there is insufficient data to be
+</I>&gt;<i> convinced either way.
+</I>
+I think that there is a tradeoff to be made, but that we need to decide one
+way or another, just as with so many other areas of an ABI.  No one
+solution will be completely optimal for all situations, and we can't have
+special cases for every possible case.
+
+&gt;<i> However, if we do emit a third party thunk and have the base part of the
+</I>&gt;<i> vtable set up correctly, we can leave it to the calling code to make the
+</I>&gt;<i> choice. It can either convert to the last base which overrode, thereby
+</I>&gt;<i> guaranteeing no use of a third party thunk, or it can just use the base
+</I>&gt;<i> part of the vtable and risk it. Different architectures will have
+</I>&gt;<i> different costs for either choice - we shouldn't constrain
+</I>&gt;<i> implementations unnecessarily. A compiler could add profiling feedback to
+</I>&gt;<i> determine if a third party thunk caused a performance penalty for each
+</I>&gt;<i> call site.
+</I>
+I disagree.  Apart from the performance aspect:
+
+1) A standard should not try to be all things to all people.  We should not
+   burden implementations that make one choice by making them emit code to
+   support implementations that make another choice.
+2) Emitting third-party thunks with the vtable adds unnecessary complexity
+   to the implementation.  g++ would be simpler without all the
+   GENERATE_THUNK_WITH_VTABLE logic.
+3) This situation is likely to be quite rare--in practice, usually either C
+   will override the function, or we won't call the function through a C*.
+   It just doesn't make sense to me to add this sort of special case,
+   possibly slowing things down, to deal with an unlikely situation.
+
+The virtual calling convention was one of the first items to be resolved in
+the ABI process; we discussed the tradeoffs, and decided to go with thunks
+immediately before the function.  I'd really rather not reopen that
+decision now.
+
+I'm sorry I didn't catch this when Mark first suggested that we would need
+third-party thunks in some cases.  But we don't actually need them after
+all, and I would really like to do away with them.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001329.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+	<LI>Next message: <A HREF="001331.html">getting the adjusted object pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1330">[ date ]</a>
+              <a href="thread.html#1330">[ thread ]</a>
+              <a href="subject.html#1330">[ subject ]</a>
+              <a href="author.html#1330">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

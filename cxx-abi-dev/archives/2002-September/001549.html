@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> deleting destructors
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20deleting%20destructors&In-Reply-To=%3C5.1.0.14.1.20020920142956.03e74610%40cam-pop.cambridge.arm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001548.html">
+   <LINK REL="Next"  HREF="001550.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>deleting destructors</H1>
+    <B>scott douglass</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20deleting%20destructors&In-Reply-To=%3C5.1.0.14.1.20020920142956.03e74610%40cam-pop.cambridge.arm.com%3E"
+       TITLE="deleting destructors">sdouglass at arm.com
+       </A><BR>
+    <I>Fri Sep 20 14:51:05 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001548.html">[cxx-abi-dev] mangling of UCNs
+</A></li>
+        <LI>Next message: <A HREF="001550.html">[cxx-abi-dev] deleting destructors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1549">[ date ]</a>
+              <a href="thread.html#1549">[ thread ]</a>
+              <a href="subject.html#1549">[ subject ]</a>
+              <a href="author.html#1549">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I have a question about delete destructors (D0).  Must they handle being passed a null this pointer?  The ABI document doesn't seem to address this.  I would guess the answer is: &quot;D0 destructors that represent non-virtual destructors must handle this == 0.  D0 destructors that represent virtual destructors may assume this != 0.&quot;
+
+In general the ABI document seems to assume the reader understands the basics of the responsibilites of C1/C2/C3 and D0/D1/D2.  It does go into sufficient gory detail about VTTs in 3.3.1 but having some more basic information would be nice.  For example, I know that in-charge constructors must construct all virtual bases and not-in-charge constructors must not -- but I don't think the ABI says so (but I could have missed it).
+
+I also believe that for a class with no virtual bases the C1 and C2 constructors have identical effect (and similarly for the D1 and D2 destructors).  So when constructing (destructing) a base or member subobject that has no virtual bases either constructor (destructor) may be used.
+
+Here's some psuedo-code that reflects my understand.  Have I got it right?
+
+void T::T{C1}(void* this, ...user args...) { // in-charge (aka complete object)
+  ... construct virtual bases, if any ...
+  T::T{C2}(this[, T::VTT], ...user args...);
+}
+
+void T::T{C2}(void* this[, VTT* vtt], ...user args...) { // in-charge (aka subobject)
+  ... construct non-virtual base subobjects, if any ...
+  ... construct member subobjects, if any ...
+  ... user code ...
+}
+
+T* T::T{C3}(...user args...) { // allocating
+  T* this = operator new(sizeof(T));
+  T::T{C1}(this, ...user args...);
+  return this;
+}
+
+void T::~T{D0}(T* this) { // deleting
+  if (this != 0) { // not needed if T::~T is virtual
+    T::~T{D1}(this);
+    operator delete(this); // or operator delete(this, sizeof(T));
+  }
+}
+
+void T::~T{D1}(T* this) { // in-charge (aka complete object)
+   T::~T{D2}(this[, T::VTT]);
+   ... destruct virtual base subobjects, if any ...
+}
+
+void T::~T{D2}(T* this[, VTT* vtt]) { // in-charge (aka subobject)
+   ... user code ... // user returns must be specially handled
+   ... destruct member subobjects, if any ...
+   ... destruct non-virtual base subobjects, if any ...
+}
+
+
+Very minor nit:  The ABI document uses both &quot;sub-object&quot; and &quot;subobject&quot; which make searching it a bit harder.  The C++ Standard use &quot;subobject&quot;.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001548.html">[cxx-abi-dev] mangling of UCNs
+</A></li>
+	<LI>Next message: <A HREF="001550.html">[cxx-abi-dev] deleting destructors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1549">[ date ]</a>
+              <a href="thread.html#1549">[ thread ]</a>
+              <a href="subject.html#1549">[ subject ]</a>
+              <a href="author.html#1549">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

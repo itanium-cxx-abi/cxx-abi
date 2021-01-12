@@ -1,0 +1,350 @@
+From sabre at nondot.org  Mon Aug 25 05:24:27 2003
+From: sabre at nondot.org (Chris Lattner)
+Date: Mon, 25 Aug 2003 00:24:27 -0500 (CDT)
+Subject: G++ ABI mismatches
+Message-ID: <Pine.LNX.4.44.0308250021480.16770-100000@nondot.org>
+
+
+In addition to this discrepency:
+http://gcc.gnu.org/ml/gcc/2003-08/msg01422.html
+
+... I also noticed that G++ is building __cxa_begin_catch with type
+void*(*)(void*), instead of void(*)(void*) as it is defined in section
+2.5.3 of the ABI spec.
+
+Which one is wrong?
+
+-Chris
+
+-- 
+http://llvm.cs.uiuc.edu/
+http://www.nondot.org/~sabre/Projects/
+
+
+
+From nathan at codesourcery.com  Mon Aug 25 07:47:51 2003
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 25 Aug 2003 08:47:51 +0100
+Subject: G++ ABI mismatches
+In-Reply-To: <Pine.LNX.4.44.0308250021480.16770-100000@nondot.org>
+References: <Pine.LNX.4.44.0308250021480.16770-100000@nondot.org>
+Message-ID: <3F49BF27.4080501@codesourcery.com>
+
+Chris Lattner wrote:
+> In addition to this discrepency:
+> http://gcc.gnu.org/ml/gcc/2003-08/msg01422.html
+> 
+> ... I also noticed that G++ is building __cxa_begin_catch with type
+> void*(*)(void*), instead of void(*)(void*) as it is defined in section
+> 2.5.3 of the ABI spec.
+> 
+> Which one is wrong?
+gcc's implementation is incorrect. its return value is never used (in gcc's
+runtime), and its implementation has the following
+       // ??? No sensible value to return; we don't know what the
+       // object is, much less where it is in relation to the header.
+       return 0;
+for one of its returns :)
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+          The voices in my head said this was stupid too
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From sabre at nondot.org  Mon Aug 25 22:37:42 2003
+From: sabre at nondot.org (Chris Lattner)
+Date: Mon, 25 Aug 2003 17:37:42 -0500 (CDT)
+Subject: G++ ABI mismatches
+In-Reply-To: <20030825221907.GD19623@redhat.com>
+Message-ID: <Pine.LNX.4.44.0308251733240.29874-100000@nondot.org>
+
+> The return value is the adjusted pointer to the exception object.
+> Consider the following test case, which shows that pointer adjustment
+> must happen on a per-handler basis.
+
+Ok, that makes sense.  But how does cxa_begin catch know what the
+requested type is for the object?  I thought that was the job of the
+personality routine?  Regardless, if G++ does not meet the ABI spec,
+either G++ or the ABI should be fixed.  Which one? :)
+
+-Chris
+
+-- 
+http://llvm.cs.uiuc.edu/
+http://www.nondot.org/~sabre/Projects/
+
+
+
+From rth at redhat.com  Mon Aug 25 22:19:07 2003
+From: rth at redhat.com (Richard Henderson)
+Date: Mon, 25 Aug 2003 15:19:07 -0700
+Subject: G++ ABI mismatches
+In-Reply-To: <3F49BF27.4080501@codesourcery.com>
+References: <Pine.LNX.4.44.0308250021480.16770-100000@nondot.org> <3F49BF27.4080501@codesourcery.com>
+Message-ID: <20030825221907.GD19623@redhat.com>
+
+On Mon, Aug 25, 2003 at 08:47:51AM +0100, Nathan Sidwell wrote:
+> >... I also noticed that G++ is building __cxa_begin_catch with type
+> >void*(*)(void*), instead of void(*)(void*) as it is defined in section
+> >2.5.3 of the ABI spec.
+> >
+> >Which one is wrong?
+>
+> gcc's implementation is incorrect. its return value is never used
+
+This is false.
+
+The return value is the adjusted pointer to the exception object.
+Consider the following test case, which shows that pointer adjustment
+must happen on a per-handler basis.
+
+	extern "C" void abort();
+
+	struct A { int x; };
+	struct B { int y; };
+	struct C { int z; };
+	struct D : public A, B, C { };
+
+	static D *d;
+	static int match;
+
+	static void do_throw()
+	{
+	  match = 0;
+	  d = new D;
+	  throw d;
+	}
+
+	static void testA()
+	{
+	  try {
+	    do_throw();
+	  } catch (A *a) {
+	    match |= (d == a) << 0;
+	    throw;
+	  }
+	}
+
+	static void testB()
+	{
+	  try {
+	    testA();
+	  } catch (B *b) {
+	    match |= (d == b) << 1;
+	    throw;
+	  }
+	}
+
+	static void testC()
+	{
+	  try {
+	    testB();
+	  } catch (C *c) {
+	    match |= (d == c) << 2;
+	  }
+	}
+
+	int main()
+	{
+	  testC();
+	  if (match != 7)
+	    abort ();
+	}
+
+> and its implementation has the following
+>       // ??? No sensible value to return; we don't know what the
+>       // object is, much less where it is in relation to the header.
+>       return 0;
+> for one of its returns :)
+
+Note that this is for the case of non-C++ types being caught.  This
+case can only appear in a catch(...) clause, at which point the 
+return value indeed is not used.
+
+
+
+r~
+
+
+From sabre at nondot.org  Mon Aug 25 23:04:12 2003
+From: sabre at nondot.org (Chris Lattner)
+Date: Mon, 25 Aug 2003 18:04:12 -0500 (CDT)
+Subject: G++ ABI mismatches
+In-Reply-To: <20030825224131.GE19623@redhat.com>
+Message-ID: <Pine.LNX.4.44.0308251803320.30112-100000@nondot.org>
+
+On Mon, 25 Aug 2003, Richard Henderson wrote:
+> On Mon, Aug 25, 2003 at 05:37:42PM -0500, Chris Lattner wrote:
+> > But how does cxa_begin catch know what the requested type is for
+> > the object?  I thought that was the job of the personality routine?
+>
+> It is.  The personality routine computes the transformed pointer
+> as part of the type matching phase.  It stores this pointer in a
+> c++ language private superclass of _Unwind_Exception.  Which is
+> then returned by __cxa_begin_catch.
+
+Ah, that's the magic 'catchTemp' variable I suppose.  Gotcha.
+
+> > Regardless, if G++ does not meet the ABI spec,
+> > either G++ or the ABI should be fixed.  Which one? :)
+>
+> The ABI.  IIRC when I implemented this, I talked to one of the
+> HP guys and they do the same thing.
+
+Okay, thanks, this is starting to make a lot more sense.  :)
+
+-Chris
+
+-- 
+http://llvm.cs.uiuc.edu/
+http://www.nondot.org/~sabre/Projects/
+
+
+
+From rth at redhat.com  Mon Aug 25 22:41:31 2003
+From: rth at redhat.com (Richard Henderson)
+Date: Mon, 25 Aug 2003 15:41:31 -0700
+Subject: G++ ABI mismatches
+In-Reply-To: <Pine.LNX.4.44.0308251733240.29874-100000@nondot.org>
+References: <20030825221907.GD19623@redhat.com> <Pine.LNX.4.44.0308251733240.29874-100000@nondot.org>
+Message-ID: <20030825224131.GE19623@redhat.com>
+
+On Mon, Aug 25, 2003 at 05:37:42PM -0500, Chris Lattner wrote:
+> But how does cxa_begin catch know what the requested type is for
+> the object?  I thought that was the job of the personality routine?
+
+It is.  The personality routine computes the transformed pointer
+as part of the type matching phase.  It stores this pointer in a
+c++ language private superclass of _Unwind_Exception.  Which is
+then returned by __cxa_begin_catch.
+
+> Regardless, if G++ does not meet the ABI spec,
+> either G++ or the ABI should be fixed.  Which one? :)
+
+The ABI.  IIRC when I implemented this, I talked to one of the 
+HP guys and they do the same thing.
+
+
+r~
+
+
+From mark at codesourcery.com  Tue Aug 26 00:33:43 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 25 Aug 2003 17:33:43 -0700
+Subject: [cxx-abi-dev] Re: G++ ABI mismatches
+In-Reply-To: <20030825224131.GE19623@redhat.com>
+References: <20030825221907.GD19623@redhat.com>
+	<Pine.LNX.4.44.0308251733240.29874-100000@nondot.org> 
+	<20030825224131.GE19623@redhat.com>
+Message-ID: <1061858024.29338.100.camel@doubledemon.codesourcery.com>
+
+> > Regardless, if G++ does not meet the ABI spec,
+> > either G++ or the ABI should be fixed.  Which one? :)
+> 
+> The ABI.  IIRC when I implemented this, I talked to one of the 
+> HP guys and they do the same thing.
+
+Do you have time to prepare a patch to the ABI document?
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From mark at codesourcery.com  Tue Aug 26 05:16:03 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 25 Aug 2003 22:16:03 -0700
+Subject: [cxx-abi-dev] Re: G++ ABI mismatches
+References: <20030825221907.GD19623@redhat.com> <Pine.LNX.4.44.0308251733240.29874-100000@nondot.org> <20030825224131.GE19623@redhat.com> <1061858024.29338.100.camel@doubledemon.codesourcery.com> <20030826042238.GC3376@redhat.com>
+Message-ID: <001b01c36b91$25a0a1e0$6900a8c0@minax>
+
+All we have is:
+
+  http://www.codesourcery.com/cxx-abi/abi-eh.html
+
+You get to edit the raw HTML. :-)
+
+----- Original Message ----- 
+From: "Richard Henderson" <rth at redhat.com>
+To: "Mark Mitchell" <mark at codesourcery.com>
+Cc: "Chris Lattner" <sabre at nondot.org>; "Nathan Sidwell"
+<nathan at codesourcery.com>; <cxx-abi-dev at codesourcery.com>; <gcc at gcc.gnu.org>
+Sent: Monday, August 25, 2003 9:22 PM
+Subject: Re: [cxx-abi-dev] Re: G++ ABI mismatches
+
+
+> On Mon, Aug 25, 2003 at 05:33:43PM -0700, Mark Mitchell wrote:
+> > Do you have time to prepare a patch to the ABI document?
+>
+> What's the preferred source?
+>
+>
+> r~
+>
+
+
+
+From rth at redhat.com  Tue Aug 26 04:22:38 2003
+From: rth at redhat.com (Richard Henderson)
+Date: Mon, 25 Aug 2003 21:22:38 -0700
+Subject: [cxx-abi-dev] Re: G++ ABI mismatches
+In-Reply-To: <1061858024.29338.100.camel@doubledemon.codesourcery.com>
+References: <20030825221907.GD19623@redhat.com> <Pine.LNX.4.44.0308251733240.29874-100000@nondot.org> <20030825224131.GE19623@redhat.com> <1061858024.29338.100.camel@doubledemon.codesourcery.com>
+Message-ID: <20030826042238.GC3376@redhat.com>
+
+On Mon, Aug 25, 2003 at 05:33:43PM -0700, Mark Mitchell wrote:
+> Do you have time to prepare a patch to the ABI document?
+
+What's the preferred source?
+
+
+r~
+
+
+From nathan at codesourcery.com  Tue Aug 26 08:14:10 2003
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 26 Aug 2003 09:14:10 +0100
+Subject: G++ ABI mismatches
+In-Reply-To: <20030825221907.GD19623@redhat.com>
+References: <Pine.LNX.4.44.0308250021480.16770-100000@nondot.org> <3F49BF27.4080501@codesourcery.com> <20030825221907.GD19623@redhat.com>
+Message-ID: <3F4B16D2.4010708@codesourcery.com>
+
+Richard Henderson wrote:
+> On Mon, Aug 25, 2003 at 08:47:51AM +0100, Nathan Sidwell wrote:
+> 
+>>>... I also noticed that G++ is building __cxa_begin_catch with type
+>>>void*(*)(void*), instead of void(*)(void*) as it is defined in section
+>>>2.5.3 of the ABI spec.
+>>>
+>>>Which one is wrong?
+>>
+>>gcc's implementation is incorrect. its return value is never used
+> 
+> 
+> This is false.
+> 
+> The return value is the adjusted pointer to the exception object.
+> Consider the following test case, which shows that pointer adjustment
+> must happen on a per-handler basis.
+
+doh! In grepping for cxa_being_catch I forgot that the compiler
+generates those calls. <slaps forehead>
+
+nathan
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+          The voices in my head said this was stupid too
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+

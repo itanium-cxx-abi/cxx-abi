@@ -1,0 +1,2306 @@
+From jessica at cup.hp.com  Thu Aug  1 20:06:32 2002
+From: jessica at cup.hp.com (Jessica Han)
+Date: Thu, 1 Aug 2002 13:06:32 -0700
+Subject: virtual destructors
+In-Reply-To: <49170000.1027874667@gandalf.codesourcery.com>
+Message-ID: <02e101c23996$ef4613a0$8b63f40f@JH761542>
+
+
+I have a simple testcase test.C
+class base_class
+{
+ public:
+ virtual void showmanyc () { };
+ virtual ~base_class(){};
+ virtual void underflow(){};
+};
+
+int main(){
+ base_class A;
+}
+
+If I compile it with aCC on IPF HPUX, I get the vtable for base_class looks
+like:
+vtable for base_class:: data1   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00
+        data4.ua typeinfo for base_class
+        data1   0x00, 0x00, 0x00, 0x00
+        data16.ua @iplt(base_class::showmanyc())
+        data16.ua @iplt(base_class::underflow())
+        data16.ua @iplt(base_class::~base_class [in-charge]())
+        data16.ua @iplt(base_class::~base_class [in-charge deleting]())
+
+If I compile it with gcc on the same machine, I get the following vtable:
+vtable for base_class:
+        data4   0
+        data4   0
+        data4   typeinfo for base_class#
+        data4   0
+        data8.ua @iplt(base_class::showmanyc()#)
+        data8.ua 0
+        data8.ua @iplt(base_class::~base_class [in-charge]()#)
+        data8.ua 0
+        data8.ua @iplt(base_class::~base_class [in-charge deleting]()#)
+        data8.ua 0
+        data8.ua @iplt(base_class::underflow()#)
+        data8.ua 0
+
+aCC always puts virtual destructors at the bottom of the vtable, but g++
+puts them in the order of its definition. What is the right order of
+function descriptors? Since I already declared base_class::~base_class, it
+is not implicitly-defined virtual destructor, right?
+Thanks.
+
+----
+Jessica Han
+Open Source Tools
+Hewlett-Packard
+(408) 447-6154
+
+
+
+
+From mark at codesourcery.com  Thu Aug  1 20:10:20 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 01 Aug 2002 13:10:20 -0700
+Subject: [cxx-abi-dev] virtual destructors
+In-Reply-To: <02e101c23996$ef4613a0$8b63f40f@JH761542>
+Message-ID: <25060000.1028232620@warlock.codesourcery.com>
+
+> aCC always puts virtual destructors at the bottom of the vtable, but g++
+> puts them in the order of its definition. What is the right order of
+> function descriptors? Since I already declared base_class::~base_class, it
+> is not implicitly-defined virtual destructor, right?
+
+Right, and therefore G++ is correct.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jessica at cup.hp.com  Fri Aug  2 00:14:03 2002
+From: jessica at cup.hp.com (Jessica Han)
+Date: Thu, 1 Aug 2002 17:14:03 -0700
+Subject: implicitly-defined virtual destructors
+In-Reply-To: <25060000.1028232620@warlock.codesourcery.com>
+Message-ID: <02ee01c239b9$8332c230$8b63f40f@JH761542>
+
+
+For test case test.C
+class base_class
+{
+ public:
+ virtual ~base_class(){};
+};
+
+class derived_class :public base_class{
+public:
+ virtual void foo(){};
+};
+
+int main(){
+ derived_class B;
+ base_class A;
+}
+ABI says "If a class has an implicitly-defined virtual destructor, its
+entries come after the declared virtual function pointers. " Thus in vtable
+of derived_class, function descriptor of the implicitly-defined virtual
+destructors derived_class::~derived_class should come after
+derived_class::foo().
+But gcc generates the following vtable for derived_class:
+vtable for derived_class:
+        data4   0
+        data4   0
+        data4   typeinfo for derived_class#
+        data4   0
+        data8.ua @iplt(derived_class::~derived_class [in-charge]()#)
+        data8.ua 0
+        data8.ua @iplt(derived_class::~derived_class [in-charge
+deleting]()#)
+        data8.ua 0
+        data8.ua @iplt(derived_class::foo()#)
+        data8.ua 0
+
+Does this violate the ABI? If this is not a test case for implicitly-defined
+virtual destructors, could you please tell me how should I modify my test
+case? Thanks.
+
+----
+Jessica Han
+Open Source Tools
+Hewlett-Packard
+(408) 447-6154
+
+
+
+From mark at codesourcery.com  Fri Aug  2 00:20:59 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 01 Aug 2002 17:20:59 -0700
+Subject: implicitly-defined virtual destructors
+In-Reply-To: <02ee01c239b9$8332c230$8b63f40f@JH761542>
+Message-ID: <59900000.1028247659@warlock.codesourcery.com>
+
+
+
+--On Thursday, August 01, 2002 05:14:03 PM -0700 Jessica Han 
+<jessica at cup.hp.com> wrote:
+
+>
+> For test case test.C
+> class base_class
+> {
+>  public:
+>  virtual ~base_class(){};
+> };
+>
+> class derived_class :public base_class{
+> public:
+>  virtual void foo(){};
+> };
+>
+> int main(){
+>  derived_class B;
+>  base_class A;
+> }
+> ABI says "If a class has an implicitly-defined virtual destructor, its
+> entries come after the declared virtual function pointers. " Thus in
+> vtable of derived_class, function descriptor of the implicitly-defined
+> virtual destructors derived_class::~derived_class should come after
+> derived_class::foo().
+> But gcc generates the following vtable for derived_class:
+> vtable for derived_class:
+>         data4   0
+>         data4   0
+>         data4   typeinfo for derived_class#
+>         data4   0
+>         data8.ua @iplt(derived_class::~derived_class [in-charge]()#)
+>         data8.ua 0
+>         data8.ua @iplt(derived_class::~derived_class [in-charge
+> deleting]()#)
+>         data8.ua 0
+>         data8.ua @iplt(derived_class::foo()#)
+>         data8.ua 0
+>
+> Does this violate the ABI? If this is not a test case for
+> implicitly-defined virtual destructors, could you please tell me how
+> should I modify my test case? Thanks.
+
+GCC puts the destructor first because base_class is the primary base
+for derived_class; see the section on vtable layout for an explanation
+of how that works.  If you do this:
+
+  struct A { virtual void f(); };
+  struct B { virtual ~B(); };
+  struct C : public A, public B { B b; };
+
+you should see that C's vtable has "A::f" followed by "C::~C".
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Wed Aug 14 20:56:08 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 14 Aug 2002 13:56:08 -0700
+Subject: C++ ABI: Tail padding 
+Message-ID: <153670000.1029358568@warlock.codesourcery.com>
+
+[Resent with correct address for ABI mailing list in headers.]
+
+It looks like the ABI document meant to require the reuse of tail-padding
+in non PODs, but it doesn't actually say that.
+
+Consider this case, as the canonical example:
+
+  struct S1 {
+    virtual void f();
+    int i;
+    char c1;
+  };
+
+  struct S2 : public S1 {
+    char c2;
+  };
+
+I think the ABI meant to say that you put "c2" in the tail padding for
+S1.  (That is what G++ implements, FWIW.)
+
+However, the ABI doesn't actually say that.  Walking through section 2.4
+of the ABI, we first layout S1.  Let's assume 32-bit pointers and "the
+usual" alignment rules.  Since nvalign(S1) is 4, we set nvsize(S1) to 12:
+
+  After all such components have been allocated, set nvalign(C) = align(C),
+  and set nvsize(C) to the least multiple of nvalign(C) that is greater
+  than or equal to dsize(C).
+
+Having done that, we're not going to make use of the tail padding.  If
+we want to make use of tail padding, we have to not round up nvsize(S1).
+
+Section 2.1 says that nvsize is "dsize(O) minus the size of virtual
+bases", and the claim is made that nvsize(C) == dsize(C) for classes
+without virtual bases.  The latter claim is in conflict with the layout
+algorithm as quoted above.  Furthermore, "dsize(0) minus the size of
+virtual bases" isn't really very clear; that sounds like
+"dsize(O) - sizeof (V1) - sizeof(V2)..." which is not necessarily
+the same as the part of O that does not contain virtual bases or tail
+padding.
+
+We have a problem here.
+
+Intel's compiler does not pack things into the tail padding.
+
+Neither, I expect, does HP's.
+
+G++ is supposedly within hours of a supposedly ABI-stable release.
+
+Technically, the G++ version is superior.  (It reduces space used by
+objects.)  On the other hand, it was basically impossible for
+implementors to figure out what was intended from the spec.
+
+I think I would prefer to change G++, and drop this idea from the spec,
+even though it is an optimization.
+
+Thoughts?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From nathan at codesourcery.com  Wed Aug 14 21:15:07 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 14 Aug 2002 22:15:07 +0100
+Subject: C++ ABI: Reuse of tail padding
+References: <151750000.1029358418@warlock.codesourcery.com>
+Message-ID: <3D5AC85B.8E510A5A@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> We have a problem here.
+
+> Intel's compiler does not pack things into the tail padding.
+> Neither, I expect, does HP's.
+I would like to get hard data from more than the two compilers
+you've verified.
+
+> Technically, the G++ version is superior.  (It reduces space used by
+> objects.)  On the other hand, it was basically impossible for
+> implementors to figure out what was intended from the spec.
+> 
+> I think I would prefer to change G++, and drop this idea from the spec,
+> even though it is an optimization.
+Although using tail padding is neat, how many bytes would it
+save in real programs? You only get it with structs of the form
+	int i;
+	char c;
+or (on some non-i86 machines)
+	double d;
+	int i;
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From mark at codesourcery.com  Wed Aug 14 22:20:08 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 14 Aug 2002 15:20:08 -0700
+Subject: C++ ABI: Reuse of tail padding
+In-Reply-To: <3D5AC85B.8E510A5A@codesourcery.com>
+Message-ID: <157800000.1029363608@warlock.codesourcery.com>
+
+
+
+--On Wednesday, August 14, 2002 10:15:07 PM +0100 Nathan Sidwell 
+<nathan at codesourcery.com> wrote:
+
+> Mark Mitchell wrote:
+>
+>> We have a problem here.
+>
+>> Intel's compiler does not pack things into the tail padding.
+>> Neither, I expect, does HP's.
+> I would like to get hard data from more than the two compilers
+> you've verified.
+
+There aren't many more to find.  HP, Intel, and GCC are the compilers
+that have implemented the ABI to date.
+
+Others are in the process, which is part of why this is important.
+
+>> I think I would prefer to change G++, and drop this idea from the spec,
+>> even though it is an optimization.
+>
+> Although using tail padding is neat, how many bytes would it
+> save in real programs? You only get it with structs of the form
+> 	int i;
+> 	char c;
+> or (on some non-i86 machines)
+> 	double d;
+> 	int i;
+
+Exactly.
+
+Well, that sounds like two votes for changing G++ (and clarifying the
+spec to drop any hint of using tail padding).
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From Gabriel.Dos-Reis at cmla.ens-cachan.fr  Wed Aug 14 23:03:49 2002
+From: Gabriel.Dos-Reis at cmla.ens-cachan.fr (Gabriel Dos Reis)
+Date: 15 Aug 2002 01:03:49 +0200
+Subject: [cxx-abi-dev] Re: C++ ABI: Reuse of tail padding
+In-Reply-To: Nathan Sidwell's message of "Wed, 14 Aug 2002 22:15:07 +0100"
+References: <151750000.1029358418@warlock.codesourcery.com> <3D5AC85B.8E510A5A@codesourcery.com>
+Message-ID: <fly9b93uwa.fsf@jambon.cmla.ens-cachan.fr>
+
+Nathan Sidwell <nathan at codesourcery.com> writes:
+
+[...]
+
+| > I think I would prefer to change G++, and drop this idea from the spec,
+| > even though it is an optimization.
+| Although using tail padding is neat, how many bytes would it
+| save in real programs? You only get it with structs of the form
+| 	int i;
+| 	char c;
+| or (on some non-i86 machines)
+| 	double d;
+| 	int i;
+
+Right. However, I'm not sure if is about neat features (seriously). 
+People seeking for efficient space use are advised to declare
+their data-members in (preferably decreasing) monotonic order of
+alignment requirements.  For those people, I think the principle of
+least surprise should be honored if possible. 
+
+-- Gaby
+
+
+From jason at redhat.com  Wed Aug 14 23:24:32 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 15 Aug 2002 00:24:32 +0100
+Subject: C++ ABI: Tail padding
+In-Reply-To: <153670000.1029358568@warlock.codesourcery.com> (Mark
+ Mitchell's message of "Wed, 14 Aug 2002 13:56:08 -0700")
+References: <153670000.1029358568@warlock.codesourcery.com>
+Message-ID: <wvld6slrplb.fsf@prospero.cambridge.redhat.com>
+
+On Wed, 14 Aug 2002 13:56:08 -0700, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> I think the ABI meant to say that you put "c2" in the tail padding for
+> S1.  (That is what G++ implements, FWIW.)
+
+Yes, that's my recollection from the meetings.
+
+> Section 2.1 says that nvsize is "dsize(O) minus the size of virtual
+> bases", and the claim is made that nvsize(C) == dsize(C) for classes
+> without virtual bases.
+
+So the algorithm is in conflict with the clearly stated intent.
+
+> We have a problem here.
+
+Yep.
+
+> Intel's compiler does not pack things into the tail padding.
+>
+> Neither, I expect, does HP's.
+
+I'm not so sure.  HP were present at the ABI meetings, so they were at
+least exposed to the intent, though I don't think Christophe was
+implementing the class layout.
+
+Can someone please check the behavior of the HP compiler?
+
+> G++ is supposedly within hours of a supposedly ABI-stable release.
+
+> Technically, the G++ version is superior.  (It reduces space used by
+> objects.)  On the other hand, it was basically impossible for
+> implementors to figure out what was intended from the spec.
+
+I think that the stated intent in 2.1 is quite clear, as is the
+contradictory algorithm.
+
+> I think I would prefer to change G++, and drop this idea from the spec,
+> even though it is an optimization.
+>
+> Thoughts?
+
+OK, here are some:
+
+Dropping this optimization would not make a compliant compiler
+significantly less complex.  In G++, handling this is a generalization of
+empty base support.  If we were going to drop an optimization, I'd vote for
+the notion of primary virtual bases...:)
+
+Nathan asks how often the optimization would occur in real programs.
+Judging from the OpenOffice workarounds for our until-recently-buggy
+handling of tail padding, it does occur.  We could also conclude that users
+find it somewhat surprising.
+
+I'm not irrevocably attached to the optimization, but the ABI document
+seems to have one vote for and one against, likewise the compilers surveyed
+so far.
+
+G++ can (and already does) change its ABI in the 3.2 release; after that it
+will be much harder.  From recent list traffic, HP's compiler is known to
+have vtable layout bugs, so presumably they can also change their ABI if
+necessary.  I don't know whether the Intel compiler has any known ABI bugs.
+
+I don't feel strongly about this question.  I'm willing to let the HP
+compiler break the tie.
+
+Jason
+
+
+From mark at codesourcery.com  Wed Aug 14 23:28:34 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 14 Aug 2002 23:28:34 -0000
+Subject: C++ ABI: Reuse of tail padding
+In-Reply-To: <3D5AD917.ECF649B9@codesourcery.com>
+Message-ID: <2870530533.1029367714@VAIO1>
+
+
+
+--On Wednesday, August 14, 2002 11:26 PM +0100 Nathan Sidwell 
+<nathan at codesourcery.com> wrote:
+
+> Mark Mitchell wrote:
+>> There aren't many more to find.  HP, Intel, and GCC are the compilers
+>> that have implemented the ABI to date.
+> you've not verified how the HP compiler behaves :) That was my point.
+
+It's a good one too.
+
+It appears that HP's aCC on IA-64 does pack things into tail padding.
+
+That means somebody has to lose.  I guess we may as well go with the more
+efficient technique then, and do the tail padding.  I will try to rework
+the spec to be clearer and post patches for that.
+
+And I'll go ahead and hit the "go" button on the GCC release tonight, too.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From mark at codesourcery.com  Wed Aug 14 23:30:57 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 14 Aug 2002 23:30:57 -0000
+Subject: C++ ABI: Tail padding
+In-Reply-To: <wvld6slrplb.fsf@prospero.cambridge.redhat.com>
+Message-ID: <2870673578.1029367857@[192.168.0.103]>
+
+> Can someone please check the behavior of the HP compiler?
+
+Yes -- I just did.  It looks like aCC does pack into tail padding.
+
+> I don't feel strongly about this question.  I'm willing to let the HP
+> compiler break the tie.
+
+Yes, I think that's fair.  OK, I'll try to put together patches to the spec
+to clarify which of these things it is that we mean.
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From kerch at cup.hp.com  Wed Aug 14 23:52:30 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 14 Aug 2002 16:52:30 -0700
+Subject: [cxx-abi-dev] Re: C++ ABI: Reuse of tail padding
+References: <157800000.1029363608@warlock.codesourcery.com>
+Message-ID: <3D5AED3E.7030305@cup.hp.com>
+
+Mark Mitchell wrote:
+> 
+> 
+> --On Wednesday, August 14, 2002 10:15:07 PM +0100 Nathan Sidwell 
+> <nathan at codesourcery.com> wrote:
+> 
+>> Mark Mitchell wrote:
+>>
+>>> We have a problem here.
+>>
+>>
+>>> Intel's compiler does not pack things into the tail padding.
+>>> Neither, I expect, does HP's.
+>>
+>> I would like to get hard data from more than the two compilers
+>> you've verified.
+
+Looks like the HP compiler does make use of the tail padding.
+For example it reports "sizeof(S2)" to be 12. I think c2
+is placed in the "tail padding".
+
+So this would favor g++'s implementation.
+
+Kerch
+
+> 
+> 
+> There aren't many more to find.  HP, Intel, and GCC are the compilers
+> that have implemented the ABI to date.
+> 
+> Others are in the process, which is part of why this is important.
+> 
+>>> I think I would prefer to change G++, and drop this idea from the spec,
+>>> even though it is an optimization.
+>>
+>>
+>> Although using tail padding is neat, how many bytes would it
+>> save in real programs? You only get it with structs of the form
+>>     int i;
+>>     char c;
+>> or (on some non-i86 machines)
+>>     double d;
+>>     int i;
+> 
+> 
+> Exactly.
+> 
+> Well, that sounds like two votes for changing G++ (and clarifying the
+> spec to drop any hint of using tail padding).
+> 
+
+
+
+
+
+From mendell at ca.ibm.com  Thu Aug 15 16:32:03 2002
+From: mendell at ca.ibm.com (mendell at ca.ibm.com)
+Date: Thu, 15 Aug 2002 12:32:03 -0400
+Subject: Question about tail padding
+Message-ID: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+
+With allocation of derived classes in tail padding, what happens in the
+following case
+
+  struct S1 {
+    virtual void f();
+    int i;
+    char c1;
+  };                    // sizeof (S1) == 16 in 64 bit mode
+
+  struct S2 : public S1 {
+    char c2;            // allocated next to c1
+  };                    // sizeof (S2) == 16 in 64 bit mode
+
+S2 s2;
+S1& rs1 = &s2;
+S1 s1;
+
+rs1 = s1;  // this will clobber the char member of s2.
+
+Is this a reasonable interpretation?  Doesn't the assignment of S1s copy
+the tail padding?
+
+Mark Mendell
+IBM Canada
+
+
+
+From nathan at codesourcery.com  Thu Aug 15 16:39:12 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Thu, 15 Aug 2002 17:39:12 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+Message-ID: <3D5BD930.AE8C3EC@codesourcery.com>
+
+mendell at ca.ibm.com wrote:
+> 
+> With allocation of derived classes in tail padding, what happens in the
+> following case
+> 
+>   struct S1 {
+>     virtual void f();
+>     int i;
+>     char c1;
+>   };                    // sizeof (S1) == 16 in 64 bit mode
+> 
+>   struct S2 : public S1 {
+>     char c2;            // allocated next to c1
+>   };                    // sizeof (S2) == 16 in 64 bit mode
+> 
+> S2 s2;
+> S1& rs1 = &s2;
+> S1 s1;
+> 
+> rs1 = s1;  // this will clobber the char member of s2.
+> 
+> Is this a reasonable interpretation?  Doesn't the assignment of S1s copy
+> the tail padding?
+No. You must arrange that S1::operator= does not copy tail padding.
+(S1 is non-pod, pods are different).
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From jason at redhat.com  Fri Aug 16 00:25:56 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 16 Aug 2002 01:25:56 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <3D5BD930.AE8C3EC@codesourcery.com> (Nathan Sidwell's message
+ of "Thu, 15 Aug 2002 17:39:12 +0100")
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+	<3D5BD930.AE8C3EC@codesourcery.com>
+Message-ID: <wvln0rnhcob.fsf@prospero.cambridge.redhat.com>
+
+On Thu, 15 Aug 2002 17:39:12 +0100, Nathan Sidwell <nathan at codesourcery.com> wrote:
+
+> mendell at ca.ibm.com wrote:
+>> 
+>> With allocation of derived classes in tail padding, what happens in the
+>> following case
+>> 
+>>   struct S1 {
+>>     virtual void f();
+>>     int i;
+>>     char c1;
+>>   };                    // sizeof (S1) == 16 in 64 bit mode
+>> 
+>>   struct S2 : public S1 {
+>>     char c2;            // allocated next to c1
+>>   };                    // sizeof (S2) == 16 in 64 bit mode
+>> 
+>> S2 s2;
+>> S1& rs1 = &s2;
+>> S1 s1;
+>> 
+>> rs1 = s1;  // this will clobber the char member of s2.
+>> 
+>> Is this a reasonable interpretation?  Doesn't the assignment of S1s copy
+>> the tail padding?
+
+> No. You must arrange that S1::operator= does not copy tail padding.
+> (S1 is non-pod, pods are different).
+
+Actually, S1 is a POD.  Therefore, we don't allocate into its tail padding
+for exactly this reason.
+
+Jason
+
+
+From dehnert at transmeta.com  Fri Aug 16 04:06:43 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Thu, 15 Aug 2002 21:06:43 -0700
+Subject: [cxx-abi-dev] Re: C++ ABI: Reuse of tail padding
+References: <151750000.1029358418@warlock.codesourcery.com> <3D5AC85B.8E510A5A@codesourcery.com>
+Message-ID: <3D5C7A53.D9EEEFF8@transmeta.com>
+
+Nathan Sidwell wrote:
+> 
+> Mark Mitchell wrote:
+> 
+> > We have a problem here.
+> 
+> > Intel's compiler does not pack things into the tail padding.
+> > Neither, I expect, does HP's.
+> I would like to get hard data from more than the two compilers
+> you've verified.
+> 
+> > Technically, the G++ version is superior.  (It reduces space used by
+> > objects.)  On the other hand, it was basically impossible for
+> > implementors to figure out what was intended from the spec.
+> >
+> > I think I would prefer to change G++, and drop this idea from the spec,
+> > even though it is an optimization.
+>
+> Although using tail padding is neat, how many bytes would it
+> save in real programs? You only get it with structs of the form
+>         int i;
+>         char c;
+> or (on some non-i86 machines)
+>         double d;
+>         int i;
+
+That's true.  We did, however, have people during the meetings (I
+don't recall who) who felt strongly about reusing the tail padding as
+suggested.  It was intended to be done that way -- I apologize for not
+making it clearer in the writeup.
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+From nathan at acm.org  Fri Aug 16 09:09:57 2002
+From: nathan at acm.org (Nathan Sidwell)
+Date: Fri, 16 Aug 2002 10:09:57 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com> <3D5BD930.AE8C3EC@codesourcery.com> <wvln0rnhcob.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3D5CC165.7E6D1038@acm.org>
+
+Jason Merrill wrote:
+
+> Actually, S1 is a POD.  Therefore, we don't allocate into its tail padding
+> for exactly this reason.
+you are mistaken,
+
+9/4 pod is aggregate class with no ...
+8.5.1/1 aggregate is a class with no ... virtual functions
+
+nathan
+-- 
+Dr Nathan Sidwell :: Computer Science Department :: Bristol University
+           The voices in my head told me to say this
+nathan at acm.org  http://www.cs.bris.ac.uk/~nathan/  nathan at cs.bris.ac.uk
+
+
+From jason at redhat.com  Fri Aug 16 09:12:29 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 16 Aug 2002 10:12:29 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <3D5CC165.7E6D1038@acm.org> (Nathan Sidwell's message of "Fri,
+ 16 Aug 2002 10:09:57 +0100")
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+	<3D5BD930.AE8C3EC@codesourcery.com>
+	<wvln0rnhcob.fsf@prospero.cambridge.redhat.com>
+	<3D5CC165.7E6D1038@acm.org>
+Message-ID: <wvl65ybgoaq.fsf@prospero.cambridge.redhat.com>
+
+On Fri, 16 Aug 2002 10:09:57 +0100, Nathan Sidwell <nathan at acm.org> wrote:
+
+> Jason Merrill wrote:
+>
+>> Actually, S1 is a POD.  Therefore, we don't allocate into its tail padding
+>> for exactly this reason.
+> you are mistaken,
+>
+> 9/4 pod is aggregate class with no ...
+> 8.5.1/1 aggregate is a class with no ... virtual functions
+
+Yep, I failed to notice that the function was virtual.
+
+Jason
+
+
+From sdouglass at arm.com  Fri Aug 16 11:00:54 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 16 Aug 2002 12:00:54 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <3D5BD930.AE8C3EC@codesourcery.com>
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+Message-ID: <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+
+At 05:39 PM 15-08-02 +0100, you wrote:
+>mendell at ca.ibm.com wrote:
+>> 
+>> With allocation of derived classes in tail padding, what happens in the
+>> following case
+>> 
+>>   struct S1 {
+>>     virtual void f();
+>>     int i;
+>>     char c1;
+>>   };                    // sizeof (S1) == 16 in 64 bit mode
+>> 
+>>   struct S2 : public S1 {
+>>     char c2;            // allocated next to c1
+>>   };                    // sizeof (S2) == 16 in 64 bit mode
+>> 
+>> S2 s2;
+>> S1& rs1 = &s2;
+>> S1 s1;
+>> 
+>> rs1 = s1;  // this will clobber the char member of s2.
+>> 
+>> Is this a reasonable interpretation?  Doesn't the assignment of S1s copy
+>> the tail padding?
+>No. You must arrange that S1::operator= does not copy tail padding.
+>(S1 is non-pod, pods are different).
+
+If the tail padding must not be changed this will be quite inefficient when there is a trailing bit-field -- it makes you wish there were separate whole-object op= and a sub-object op=.
+
+
+
+From jason at redhat.com  Fri Aug 16 12:57:30 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 16 Aug 2002 13:57:30 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com> (scott
+ douglass's message of "Fri, 16 Aug 2002 12:00:54 +0100")
+References: <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+	<5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+Message-ID: <wvlvg6byn9h.fsf@prospero.cambridge.redhat.com>
+
+On Fri, 16 Aug 2002 12:00:54 +0100, scott douglass <sdouglass at arm.com> wrote:
+
+> If the tail padding must not be changed this will be quite inefficient
+> when there is a trailing bit-field -- it makes you wish there were
+> separate whole-object op= and a sub-object op=.
+
+dsize for a class is measured in bytes, so bit-fields shouldn't make a
+difference.
+
+Jason
+
+
+From sdouglass at arm.com  Fri Aug 16 13:17:05 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 16 Aug 2002 14:17:05 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <wvlvg6byn9h.fsf@prospero.cambridge.redhat.com>
+References: <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+ <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+ <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com>
+
+At 01:57 PM 16-08-02 +0100, you wrote:
+>On Fri, 16 Aug 2002 12:00:54 +0100, scott douglass <sdouglass at arm.com> wrote:
+>
+>> If the tail padding must not be changed this will be quite inefficient
+>> when there is a trailing bit-field -- it makes you wish there were
+>> separate whole-object op= and a sub-object op=.
+>
+>dsize for a class is measured in bytes, so bit-fields shouldn't make a
+>difference.
+
+I don't think the implicit copy assignment for B can copy all dsize bytes in this case:
+
+struct B {
+    virtual void f(); // B is non-POD
+    int bf1:3;
+};
+
+struct D : B {
+    D();
+    int bf2:3;
+};
+
+Won't bf1 & bf2 be in the same byte?  And doing this:
+
+    B b;
+    D d;
+    (B&)d = b; // must not clobber 'd.bf2'
+
+A related thought:  I think constructors, including copy constructors, don't have to worrry about preseving tail padding because after they finish none of the derived fields are valid anyway.
+
+
+
+From nathan at acm.org  Fri Aug 16 13:38:50 2002
+From: nathan at acm.org (Nathan Sidwell)
+Date: Fri, 16 Aug 2002 14:38:50 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+References: <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com> <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com> <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com> <5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com>
+Message-ID: <3D5D006A.74663EDC@acm.org>
+
+scott douglass wrote:
+
+> >dsize for a class is measured in bytes, so bit-fields shouldn't make a
+> >difference.
+> 
+> I don't think the implicit copy assignment for B can copy all dsize bytes in this case:
+> 
+> struct B {
+>     virtual void f(); // B is non-POD
+>     int bf1:3;
+> };
+> 
+> struct D : B {
+>     D();
+>     int bf2:3;
+> };
+> 
+> Won't bf1 & bf2 be in the same byte?  And doing this:
+no, they will be in different bytes. dsize (B) is 5, D::bf2 can be inserted
+into the int allocation unit that starts at offset 4, and it will be at bit
+8 of that unit (i.e. byte offset 5 from the base).
+
+
+> A related thought:  I think constructors, including copy constructors, don't have to worrry about preseving tail padding because after they finish none of the derived fields are valid anyway.
+
+Ah, I had thought the answer was no, they must not touch the tail padding, because
+an (already constructed) virtual base might be in that padding. However the ABI
+doc is unclear on this too. One part implies that virtual bases may be in
+tail padding, but the algorithm does not place them there.
+	struct A { char c;
+		   A () :c(5) {}};
+	struct B { virtual void f ();
+		   int i;
+		   char c; };
+	struct D  : B, virtual A {
+		};
+GCC makes it 16, with the A base allocated at offset 12. (When A is non-virtual,
+the size is 12).
+
+from the ABI doc, 2.1
+	nvsize(O): the non-virtual size of an object, which intuitively is dsize(O)
+	minus the size of virtual bases. It is always equal to dsize(O) for types
+	without virtual bases.
+this implies that nvsize (B) should be 9. and A allocated there.
+but, 2.4 II says
+	After all such components have been allocated, set nvalign(C) = align(C), and
+	set nvsize(C) to the least multiple of nvalign(C) that is greater than or
+	equal to dsize(C). The values of nvalign(C) and nvsize(C) will not change
+	during virtual base allocation. 
+which would make nvsize 12.
+
+This is a different problem to the one Mark brought up.
+The spec is inconsistent, GCC does one thing, what do HP & intel do?
+
+nathan
+-- 
+Dr Nathan Sidwell :: Computer Science Department :: Bristol University
+           The voices in my head told me to say this
+nathan at acm.org  http://www.cs.bris.ac.uk/~nathan/  nathan at cs.bris.ac.uk
+
+
+From jason at redhat.com  Fri Aug 16 13:59:26 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 16 Aug 2002 14:59:26 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com> (scott
+ douglass's message of "Fri, 16 Aug 2002 14:17:05 +0100")
+References: <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+	<OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+	<5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+	<5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com>
+Message-ID: <wvlptwizyyp.fsf@prospero.cambridge.redhat.com>
+
+On Fri, 16 Aug 2002 14:17:05 +0100, scott douglass <sdouglass at arm.com> wrote:
+
+> At 01:57 PM 16-08-02 +0100, you wrote:
+>>On Fri, 16 Aug 2002 12:00:54 +0100, scott douglass <sdouglass at arm.com> wrote:
+>>
+>>> If the tail padding must not be changed this will be quite inefficient
+>>> when there is a trailing bit-field -- it makes you wish there were
+>>> separate whole-object op= and a sub-object op=.
+>>
+>>dsize for a class is measured in bytes, so bit-fields shouldn't make a
+>>difference.
+>
+> I don't think the implicit copy assignment for B can copy all dsize bytes in this case:
+>
+> struct B {
+>     virtual void f(); // B is non-POD
+>     int bf1:3;
+> };
+>
+> struct D : B {
+>     D();
+>     int bf2:3;
+> };
+>
+> Won't bf1 & bf2 be in the same byte?
+
+Nope, the base gets nvsize(B) bytes of space.
+
+> A related thought: I think constructors, including copy constructors,
+> don't have to worrry about preseving tail padding because after they
+> finish none of the derived fields are valid anyway.
+
+Makes sense to me.
+
+Jason
+
+
+From sdouglass at arm.com  Fri Aug 16 14:33:21 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 16 Aug 2002 15:33:21 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <wvlptwizyyp.fsf@prospero.cambridge.redhat.com>
+References: <5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com>
+ <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+ <OF1FB95816.C9A7BA8B-ON85256C16.005A35EA-85256C16.005AD34F@torolab.ibm.com>
+ <5.1.0.14.1.20020816110155.0270ad68@cam-pop.cambridge.arm.com>
+ <5.1.0.14.1.20020816140956.00ad2cd8@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20020816151934.00ae6150@cam-pop.cambridge.arm.com>
+
+At 02:59 PM 16-08-02 +0100, Jason Merrill wrote:
+>On Fri, 16 Aug 2002 14:17:05 +0100, scott douglass <sdouglass at arm.com> wrote:
+>> I don't think the implicit copy assignment for B can copy all dsize bytes in this case:
+>>
+>> struct B {
+>>     virtual void f(); // B is non-POD
+>>     int bf1:3;
+>> };
+>>
+>> struct D : B {
+>>     D();
+>>     int bf2:3;
+>> };
+>>
+>> Won't bf1 & bf2 be in the same byte?
+>
+>Nope, the base gets nvsize(B) bytes of space.
+
+I agree that as we are laying out D and just about to layout bf2 dsize(D) == 5.  What happens next depends on how you interpret this sentence in section 2.4/II/1/a:
+>The next available n bits are at offset dsize(C) [i.e. dsize(D) for my example], unless the preceding byte is only partially filled by a bitfield, in which case the bitfield allocation can begin in that byte.
+
+Does this mean to say "only partially filled by a bit-field member of C" or does being partially filled by a (trailing) bitfield of a base class count?
+
+g++ 3.1 seems to think bf1 & bf2 can be in the same byte.  Here's my test program:
+
+#include <stdio.h>
+
+struct B {
+  virtual void f() { } // B is not POD
+  int b:4;
+};
+
+struct D : B {
+  int c:4;
+  char x,y,z;
+};
+
+int main() {
+  printf("sizeof(B) == %lu; sizeof(D) == %lu\n", (unsigned long)sizeof(B), (unsigned long)sizeof(D));
+  int buffer[] = { 0xabbaabba, 0x067452301, 0xefcdab89 };
+// With byte-oriented little endianness this looks like
+// either A:  (g++ 3.1 chooses this)
+//   baabbaab 01234567 89abcdef
+//   vvvvvvvv cbxxyyzz
+// or B:
+//   baabbaab 01234567 89abcdef
+//   vvvvvvvv _b_cxxyy zz
+  const D* d = reinterpret_cast<const D *>(buffer);
+  printf("buffer->b == 0x%x\n", (unsigned)(d->b));
+  printf("buffer->c == 0x%x\n", (unsigned)(d->c));
+  printf("buffer->x == 0x%02x\n", (unsigned)(d->x));
+  printf("buffer->y == 0x%02x\n", (unsigned)(d->y));
+  printf("buffer->z == 0x%02x\n", (unsigned)(d->z));
+  return 0;
+}
+
+My output (linux-x86):
+sizeof(B) == 8; sizeof(D) == 8
+buffer->b == 0x1
+buffer->c == 0x0
+buffer->x == 0x23
+buffer->y == 0x45
+buffer->z == 0x67
+
+
+
+From mark at codesourcery.com  Thu Aug 22 15:41:00 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 22 Aug 2002 08:41:00 -0700
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <3D5D006A.74663EDC@acm.org>
+Message-ID: <90490000.1030030860@warlock.codesourcery.com>
+
+> from the ABI doc, 2.1
+> 	nvsize(O): the non-virtual size of an object, which intuitively is
+> dsize(O) 	minus the size of virtual bases. It is always equal to dsize(O)
+> for types 	without virtual bases.
+> this implies that nvsize (B) should be 9. and A allocated there.
+> but, 2.4 II says
+> 	After all such components have been allocated, set nvalign(C) =
+> align(C), and 	set nvsize(C) to the least multiple of nvalign(C) that is
+> greater than or 	equal to dsize(C). The values of nvalign(C) and
+> nvsize(C) will not change 	during virtual base allocation.
+> which would make nvsize 12.
+>
+> This is a different problem to the one Mark brought up.
+
+It is?
+
+I thought we had decided last week to eliminate the 2.4 II reference to
+updating nvsize(C), which would seem to eliminate this particular
+inconsistency.  (That would also imply that G++ is incorrect.  From
+looking at the G++ source code I can see why it behaves the way it does.)
+
+As you say, what do Intel and HP do?  It would be very nice if they
+happen to get this wrong in the same way that G++ does...
+
+I've got patches to the ABI document to try to clarify the issue I
+raised last week, but I will wait until we resolve this one too before
+checking them in; we may as well try to clarify this all at once.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From nathan at codesourcery.com  Thu Aug 22 17:16:27 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Thu, 22 Aug 2002 18:16:27 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+References: <90490000.1030030860@warlock.codesourcery.com>
+Message-ID: <3D651C6B.C85A4A4E@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> > This is a different problem to the one Mark brought up.
+> 
+> It is?
+I've lost context, and I think what I wrote was badly worded.
+IIRC it is the same nvsize issue you brought up, but a different case.
+Your case g++ & hp got right, intel got wrong. this case g++ gets
+wrong (hp & intel are untested).
+
+There's also an issue with bitfields that popped up. I think the ABI
+doc is 'vague' and g++ does inconsistent things
+
+something like
+	struct A { virtual ~A();
+		  int a : 2;};
+	struct B : A { int b  :2;};
+	struct C { A a; int c : 2;};
+where should B::b and C::c be allocated? in a new allocation unit
+or in the next 2 bits of the same unit that A::a is in? The abi
+says 'if the preceeding byte is partially filled by a bitfield'
+
+g++ 3.2 reports (i686)
+A 8 bytes
+B 8 bytes
+C 12 bytes
+
+B & C should have the same layout AFAICT from the ABI.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From mark at codesourcery.com  Thu Aug 22 17:23:20 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 22 Aug 2002 10:23:20 -0700
+Subject: [cxx-abi-dev] Question about tail padding
+In-Reply-To: <3D651C6B.C85A4A4E@codesourcery.com>
+Message-ID: <399370000.1030037000@warlock.codesourcery.com>
+
+
+
+--On Thursday, August 22, 2002 06:16:27 PM +0100 Nathan Sidwell 
+<nathan at codesourcery.com> wrote:
+
+> Mark Mitchell wrote:
+>
+>> > This is a different problem to the one Mark brought up.
+>>
+>> It is?
+> I've lost context, and I think what I wrote was badly worded.
+> IIRC it is the same nvsize issue you brought up, but a different case.
+> Your case g++ & hp got right, intel got wrong. this case g++ gets
+> wrong (hp & intel are untested).
+>
+> There's also an issue with bitfields that popped up. I think the ABI
+> doc is 'vague' and g++ does inconsistent things
+>
+> something like
+> 	struct A { virtual ~A();
+> 		  int a : 2;};
+> 	struct B : A { int b  :2;};
+> 	struct C { A a; int c : 2;};
+> where should B::b and C::c be allocated? in a new allocation unit
+> or in the next 2 bits of the same unit that A::a is in? The abi
+> says 'if the preceeding byte is partially filled by a bitfield'
+>
+> g++ 3.2 reports (i686)
+> A 8 bytes
+> B 8 bytes
+> C 12 bytes
+>
+> B & C should have the same layout AFAICT from the ABI.
+
+Yes.  The intent was certainly that B have 12 bytes, like C; otherwise,
+as Scott pointed out it is impossible to create efficient copy
+constructors and such.
+
+Again, what to HP and Intel do?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From kerch at cup.hp.com  Thu Aug 22 17:53:59 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Thu, 22 Aug 2002 10:53:59 -0700
+Subject: [cxx-abi-dev] Question about tail padding
+References: <399370000.1030037000@warlock.codesourcery.com>
+Message-ID: <3D652537.8080301@cup.hp.com>
+
+Mark Mitchell wrote:
+> 
+> 
+>...
+>> g++ 3.2 reports (i686)
+>> A 8 bytes
+>> B 8 bytes
+>> C 12 bytes
+>>
+
+> Again, what to HP and Intel do?
+> 
+HP aCC gives the same result as g++.
+
+
+
+
+
+
+From clark.nelson at intel.com  Thu Aug 22 18:07:45 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Thu, 22 Aug 2002 11:07:45 -0700
+Subject: [cxx-abi] Re: [cxx-abi-dev] Question about tail padding
+Message-ID: <0DCC27458EB5D51181840002A507069E0585CEDA@orsmsx117.jf.intel.com>
+
+> > g++ 3.2 reports (i686)
+> > A 8 bytes
+> > B 8 bytes
+> > C 12 bytes
+> >
+> > B & C should have the same layout AFAICT from the ABI.
+> 
+> Yes.  The intent was certainly that B have 12 bytes, like C; 
+> otherwise,
+> as Scott pointed out it is impossible to create efficient copy
+> constructors and such.
+> 
+> Again, what to HP and Intel do?
+
+Intel (7.0 beta) reports the same sizes as g++ 3.2.
+
+The problem Scott pointed out was about packing bit-fields from derived and
+base classes into the same byte. Intel's compiler doesn't do that. We
+instead wind up with the bit-field in the derived class in a poorly-aligned
+container, which is a smaller performance problem.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From nathan at codesourcery.com  Thu Aug 22 20:02:08 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Thu, 22 Aug 2002 21:02:08 +0100
+Subject: [cxx-abi-dev] Question about tail padding
+References: <0DCC27458EB5D51181840002A507069E0585CEDA@orsmsx117.jf.intel.com>
+Message-ID: <3D654340.6181D377@codesourcery.com>
+
+"Nelson, Clark" wrote:
+
+> The problem Scott pointed out was about packing bit-fields from derived and
+> base classes into the same byte. Intel's compiler doesn't do that. We
+> instead wind up with the bit-field in the derived class in a poorly-aligned
+> container, which is a smaller performance problem.
+ah, what you're saying is that A::a is bits 0& 1 of byte 4,
+and B::b is bits 0 & 1 of byte 5.
+
+So, the intel compiler doesn't consider that an int bitfield
+reserves 4 bytes of an allocation unit, but takes the unused
+bytes of that as tail padding?
+
+I've just checked g++ with the attached, it shows that B::b is
+allocated in bits 2 & 3 of byte 4.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+-------------- next part --------------
+#include <stdio.h>
+#include <string.h>
+
+struct A 
+{
+  virtual ~A (){}
+
+  int a : 2;
+};
+
+struct B : A
+{
+  int b : 2;
+};
+struct C
+{
+  A a;
+  
+  int c : 2;
+};
+
+
+int main ()
+{
+  B b;
+  char *ptr = (char *)(void *)&b;
+  
+  printf ("A %u, B %u C %u\n", sizeof (A), sizeof (B), sizeof (C));
+  memset (ptr, 0, sizeof (B));
+  b.b = 3;
+  
+  printf ("byte 4 %x, byte 5 %x\n", ptr[4], ptr[5]);
+  
+}
+
+From dehnert at transmeta.com  Thu Aug 22 21:59:17 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Thu, 22 Aug 2002 14:59:17 -0700
+Subject: [cxx-abi-dev] Question about tail padding
+References: <0DCC27458EB5D51181840002A507069E0585CEDA@orsmsx117.jf.intel.com> <3D654340.6181D377@codesourcery.com>
+Message-ID: <3D655EB5.652E4118@transmeta.com>
+
+I won't take a position on the right answer to this problem, but I
+can provide some of the motivation from the original discussion.
+
+The original concern was with the packing of very small objects,
+e.g. segmented addresses and the like for system programming.  The
+primary concerns were, not surprisingly:
+
+- Ability to represent packing:  If you don't reuse the tail padding,
+  sharing storage units may be impossible across classes, possibly
+  forcing undesired redefinition; whereas if you do it is easily
+  disabled by adding explicit padding members.
+
+- Performance of things like copy constructors, or more precisely,
+  the surprise factor that performance may be unexpectedly bad, given
+  that explicit padding can again avoid the problem.
+
+The capability argument won at the time, though I don't recall for
+sure whether the intent was to go to bit level or just to the byte
+level.
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+From mark at codesourcery.com  Fri Aug 23 00:14:57 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 22 Aug 2002 17:14:57 -0700
+Subject: Tail padding, in sumary
+Message-ID: <237420000.1030061697@warlock.codesourcery.com>
+
+There are several separate tail-padding issues that have been discussed
+over the last few days and I want to make sure that we are all on the
+same page about all of them as I am trying to revise the specification
+accordingly.
+
+HP, Intel folks please confirm statements below.
+
+1) Should we reuse tail padding at all?
+
+   This was my original question; the specification was inconsistent.
+
+   The answer was decided as yes.
+
+2) Should padding be at the bit-field level, or only at the byte level?
+
+   For example, given:
+
+     struct A { virtual void f(); int i : 3; };
+     struct B : public A { int j: 2; };
+
+   Is it OK to pack B::j into the same byte as A::i?
+
+   GCC does this (even though I think it a horrid idea due to the fact
+   that you can no longer create efficient copy constructors).
+
+   Neither Intel nor HP do this.
+
+   Therefore, I believe the spec should be changed to clarify that --
+   while the bytes following A::i are OK for use as padding -- the byte
+   containing A::i is not.  (And, of course, GCC should be fixed.)
+
+3) Should virtual bases be handled differently than non-virtual bases?
+
+   For example, given:
+
+     struct A { virtual void f(); char c1; };
+     struct B { B(); char c2; };
+     struct C : public A, public virtual B {};
+
+   Is B supposed to be packed into the tail-padding of A?  In the case
+   that it is non-virtual, it is.  However, in the virtual case GCC does
+   not reuse the tail-padding.
+
+   Probably, this is also a GCC bug, but I would like to know what HP
+   and Intel do.
+
+   HP, Intel?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From clark.nelson at intel.com  Fri Aug 23 00:24:53 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Thu, 22 Aug 2002 17:24:53 -0700
+Subject: [cxx-abi] [cxx-abi-dev] Tail padding, in sumary
+Message-ID: <0DCC27458EB5D51181840002A507069E0585CEDE@orsmsx117.jf.intel.com>
+
+> 3) Should virtual bases be handled differently than non-virtual bases?
+> 
+>    For example, given:
+> 
+>      struct A { virtual void f(); char c1; };
+>      struct B { B(); char c2; };
+>      struct C : public A, public virtual B {};
+> 
+>    Is B supposed to be packed into the tail-padding of A?  In the case
+>    that it is non-virtual, it is.  However, in the virtual 
+> case GCC does
+>    not reuse the tail-padding.
+> 
+>    Probably, this is also a GCC bug, but I would like to know what HP
+>    and Intel do.
+> 
+>    HP, Intel?
+
+Our compiler considers the sizes of A and C both to be 8, so we reuse the
+tail-padding for virtual bases.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From nathan at codesourcery.com  Fri Aug 23 08:38:52 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 23 Aug 2002 09:38:52 +0100
+Subject: [cxx-abi-dev] Tail padding, in sumary
+References: <237420000.1030061697@warlock.codesourcery.com>
+Message-ID: <3D65F49C.8C75995A@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> 2) Should padding be at the bit-field level, or only at the byte level?
+> 
+>    For example, given:
+> 
+>      struct A { virtual void f(); int i : 3; };
+>      struct B : public A { int j: 2; };
+
+>    Therefore, I believe the spec should be changed to clarify that --
+>    while the bytes following A::i are OK for use as padding -- the byte
+>    containing A::i is not.  (And, of course, GCC should be fixed.)
+You haven't mentioned
+	struct A { virtual void f(); int i : 3; };
+	struct C { A a; int j: 2; };
+which should have the same layout as B. g++, intel & hp get this wrong.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From mark at codesourcery.com  Fri Aug 23 17:09:36 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 23 Aug 2002 17:09:36 -0000
+Subject: [cxx-abi-dev] Tail padding, in sumary
+In-Reply-To: <3D65F49C.8C75995A@codesourcery.com>
+Message-ID: <3625393137.1030122576@[192.168.0.103]>
+
+> You haven't mentioned
+> 	struct A { virtual void f(); int i : 3; };
+> 	struct C { A a; int j: 2; };
+> which should have the same layout as B. g++, intel & hp get this wrong.
+
+I'm sorry; I didn't understand that to be the case.
+
+Intel, HP -- would you please confirm that your compilers pack C::j into 
+the
+same byte as A::i in this case?
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From kerch at cup.hp.com  Fri Aug 23 17:32:55 2002
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Fri, 23 Aug 2002 10:32:55 -0700
+Subject: [cxx-abi-dev] Tail padding, in sumary
+References: <3625393137.1030122576@[192.168.0.103]>
+Message-ID: <3D6671C7.1000507@cup.hp.com>
+
+Mark Mitchell wrote:
+>> You haven't mentioned
+>>     struct A { virtual void f(); int i : 3; };
+>>     struct C { A a; int j: 2; };
+>> which should have the same layout as B. g++, intel & hp get this wrong.
+> 
+> 
+> I'm sorry; I didn't understand that to be the case.
+> 
+> Intel, HP -- would you please confirm that your compilers pack C::j into 
+> the
+> same byte as A::i in this case?
+
+Not for HP. The compiler doesn't share the byte in this case
+( C::j has byte offset 8, bit offset 0).
+
+
+
+
+
+
+
+
+From nathan at acm.org  Fri Aug 23 18:28:16 2002
+From: nathan at acm.org (Nathan Sidwell)
+Date: Fri, 23 Aug 2002 19:28:16 +0100
+Subject: [cxx-abi-dev] Tail padding, in sumary
+References: <3625393137.1030122576@[192.168.0.103]>
+Message-ID: <3D667EC0.3A085100@acm.org>
+
+Mark Mitchell wrote:
+> 
+> > You haven't mentioned
+> >       struct A { virtual void f(); int i : 3; };
+> >       struct C { A a; int j: 2; };
+> > which should have the same layout as B. g++, intel & hp get this wrong.
+> 
+> I'm sorry; I didn't understand that to be the case.
+> 
+> Intel, HP -- would you please confirm that your compilers pack C::j into
+> the same byte as A::i in this case?
+No they're not doing that. All compilers report sizeof C as 12 bytes,
+leading me to believe they are packing j into bits 0,1 of byte 8.
+(Rather than bits 0,1 of byte 5.)
+
+nathan
+-- 
+Dr Nathan Sidwell :: Computer Science Department :: Bristol University
+           The voices in my head told me to say this
+nathan at acm.org  http://www.cs.bris.ac.uk/~nathan/  nathan at cs.bris.ac.uk
+
+
+From mark at codesourcery.com  Fri Aug 23 18:35:48 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 23 Aug 2002 18:35:48 -0000
+Subject: [cxx-abi-dev] Tail padding, in sumary
+In-Reply-To: <3D667EC0.3A085100@acm.org>
+Message-ID: <3630565254.1030127748@[192.168.0.103]>
+
+
+
+--On Friday, August 23, 2002 7:28 PM +0100 Nathan Sidwell <nathan at acm.org> 
+wrote:
+
+> Mark Mitchell wrote:
+>>
+>> > You haven't mentioned
+>> >       struct A { virtual void f(); int i : 3; };
+>> >       struct C { A a; int j: 2; };
+>> > which should have the same layout as B. g++, intel & hp get this wrong.
+>>
+>> I'm sorry; I didn't understand that to be the case.
+>>
+>> Intel, HP -- would you please confirm that your compilers pack C::j into
+>> the same byte as A::i in this case?
+> No they're not doing that. All compilers report sizeof C as 12 bytes,
+> leading me to believe they are packing j into bits 0,1 of byte 8.
+> (Rather than bits 0,1 of byte 5.)
+
+Ah; I see what you're saying.  If everyone is doing it that way, we should
+just change the spec to reflect the way everyone is doing it, so I'll add
+that to the list...
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From nathan at codesourcery.com  Mon Aug 26 08:37:26 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 26 Aug 2002 09:37:26 +0100
+Subject: [cxx-abi-dev] Tail padding, in sumary
+References: <3630565254.1030127748@[192.168.0.103]>
+Message-ID: <3D69E8C6.462E5DA3@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> > Mark Mitchell wrote:
+> >>
+> >> > You haven't mentioned
+> >> >       struct A { virtual void f(); int i : 3; };
+> >> >       struct C { A a; int j: 2; };
+> >> > which should have the same layout as B. g++, intel & hp get this wrong.
+
+> Ah; I see what you're saying.  If everyone is doing it that way, we should
+> just change the spec to reflect the way everyone is doing it, so I'll add
+Although that would be an excellent solution, there'd be some awkwardness
+explaining that C has a different layout to B
+	struct B : A { int j : 2;};
+At the momement, they should have the same layout.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From clark.nelson at intel.com  Mon Aug 26 15:08:42 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Mon, 26 Aug 2002 08:08:42 -0700
+Subject: [cxx-abi] Re: [cxx-abi-dev] Tail padding, in sumary
+Message-ID: <0DCC27458EB5D51181840002A507069E0585CEE4@orsmsx117.jf.intel.com>
+
+it, so I'll add
+> Although that would be an excellent solution, there'd be some 
+> awkwardness
+> explaining that C has a different layout to B
+> 	struct B : A { int j : 2;};
+> At the momement, they should have the same layout.
+
+So in a case like this:
+
+struct X { int x: 1; };
+struct Y { struct X x; int y: 1; };
+
+I think it would be far more awkward to explain that you can't copy the x
+member using memcpy without running the risk of modifying y. Note that this
+case is expressible in C. Surely the base (C) ABI doesn't have x and y
+overlapping at the byte level.
+
+For what it's worth, I never read the ABI as saying that this should be the
+case. Could someone please point out the words I'm missing?
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From mark at codesourcery.com  Mon Aug 26 16:30:05 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 26 Aug 2002 09:30:05 -0700
+Subject: [cxx-abi] Re: [cxx-abi-dev] Tail padding, in sumary
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585CEE4@orsmsx117.jf.intel.com>
+Message-ID: <81000000.1030379405@warlock.codesourcery.com>
+
+
+
+--On Monday, August 26, 2002 08:08:42 AM -0700 "Nelson, Clark" 
+<clark.nelson at intel.com> wrote:
+
+> it, so I'll add
+>> Although that would be an excellent solution, there'd be some
+>> awkwardness
+>> explaining that C has a different layout to B
+>> 	struct B : A { int j : 2;};
+>> At the momement, they should have the same layout.
+>
+> So in a case like this:
+>
+> struct X { int x: 1; };
+> struct Y { struct X x; int y: 1; };
+>
+> I think it would be far more awkward to explain that you can't copy the x
+> member using memcpy without running the risk of modifying y. Note that
+> this case is expressible in C. Surely the base (C) ABI doesn't have x and
+> y overlapping at the byte level.
+
+In the case you give, X is a POD.  So, we cannot reuse the padding.
+
+If X is a non-POD, then the C++ standard no longer guarantees that you
+can use memcpy under any circumstances, including these.
+
+> For what it's worth, I never read the ABI as saying that this should be
+> the case. Could someone please point out the words I'm missing?
+
+Nathan, I agree with Clark; the last portion of 2.4.II.2 disallows this;
+
+  If D is a data member, update dsize(C) to offset(D)+sizeof(D)
+
+The fact that dsize is incremented by the full size of D means that there
+is no padding available.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From nathan at codesourcery.com  Mon Aug 26 18:07:45 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 26 Aug 2002 19:07:45 +0100
+Subject: [cxx-abi] Re: [cxx-abi-dev] Tail padding, in sumary
+References: <0DCC27458EB5D51181840002A507069E0585CEE4@orsmsx117.jf.intel.com>
+Message-ID: <3D6A6E71.49C2CF02@codesourcery.com>
+
+"Nelson, Clark" wrote:
+> struct X { int x: 1; };
+> struct Y { struct X x; int y: 1; };
+> 
+> I think it would be far more awkward to explain that you can't copy the x
+> member using memcpy without running the risk of modifying y. Note that this
+> case is expressible in C. Surely the base (C) ABI doesn't have x and y
+> overlapping at the byte level.
+No this is different, in your example, X is PoD, and so its tail
+padding is not useable. The cases we're talking about concern a non-PoD
+A, and so by definition is not expressible in C.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From michaelw at ca.ibm.com  Mon Aug 26 23:07:28 2002
+From: michaelw at ca.ibm.com (michaelw at ca.ibm.com)
+Date: Mon, 26 Aug 2002 19:07:28 -0400
+Subject: Tail padding, more differences
+Message-ID: <OFD5200D29.1A61B39D-ON85256C21.007BF280@torolab.ibm.com>
+
+We have observed a possible difference in tail padding for bitfields in
+father and grandfather cases when it does not overflow the byte boundary.
+For the following testcase, every other offset seems to start a new byte
+boundary.
+
+#include <stdio.h>
+#include <string.h>
+//void operator delete(void *) throw() {}
+struct A { virtual ~A() {}; int a : 2; };
+struct B0 : A { int b0 :3; };
+struct B1 : B0 { int b1 :2; };
+struct B2 : B1 { int b2 :3; };
+struct B3 : B2 { int b3 :1; };
+void hexdumpbit(const char * comment, const void * a, int size, int
+delimit) {
+        printf("--%s--- dumping %d bytes-----\n", comment, size);
+        const char * p = (const char *) a;
+        for (int i=0; i< size; ++i ) {
+                printf("%s", (0 != (p[i]&0x80))? "1":"0");
+                printf("%s", (0 != (p[i]&0x40))? "1":"0");
+                printf("%s", (0 != (p[i]&0x20))? "1":"0");
+                printf("%s", (0 != (p[i]&0x10))? "1":"0");
+                printf("%s", (0 != (p[i]&0x08))? "1":"0");
+                printf("%s", (0 != (p[i]&0x04))? "1":"0");
+                printf("%s", (0 != (p[i]&0x02))? "1":"0");
+               printf("%s ", (0 != (p[i]&0x01))? "1":"0");
+                if (0 == (i+1)%delimit) printf("\n");
+        }
+        printf("\n");
+}
+int main() {
+  printf("sizeof(A) == %lu; sizeof(B0) == %lu, sizeof(B1) == %lu,
+sizeof(B2) == %lu, sizeof(b3) == %lu \n"
+        , (unsigned long)sizeof(A)
+        , (unsigned long)sizeof(B0)
+        , (unsigned long)sizeof(B1)
+        , (unsigned long)sizeof(B2)
+        , (unsigned long)sizeof(B3)
+        );
+  B0 bb;
+  memset(&bb,0, sizeof bb); bb.a=3; hexdumpbit("bb.a", &bb, sizeof bb, 8);
+  memset(&bb,0, sizeof bb); bb.b0=7; hexdumpbit("bb.b0", &bb, sizeof bb,
+8);
+
+  B1 b1;
+  memset(&b1,0, sizeof b1); b1.a=3; hexdumpbit("b1.a", &b1, sizeof b1, 8);
+  memset(&b1,0, sizeof b1); b1.b0=7; hexdumpbit("b1.b0", &b1, sizeof b1,
+8);
+  memset(&b1,0, sizeof b1); b1.b1=3; hexdumpbit("b1.b1", &b1, sizeof b1,
+8);
+
+  B2 b2;
+  memset(&b2,0, sizeof b2); b2.a=3; hexdumpbit("b2.a", &b2, sizeof b2, 8);
+  memset(&b2,0, sizeof b2); b2.b0=7; hexdumpbit("b2.b0", &b2, sizeof b2,
+8);
+  memset(&b2,0, sizeof b2); b2.b1=3; hexdumpbit("b2.b1", &b2, sizeof b2,
+8);
+  memset(&b2,0, sizeof b2); b2.b2=7; hexdumpbit("b2.b2", &b2, sizeof b2,
+8);
+
+  B3 b3;
+  memset(&b3,0, sizeof b3); b3.a=3; hexdumpbit("b3.a", &b3, sizeof b3, 8);
+  memset(&b3,0, sizeof b3); b3.b0=7; hexdumpbit("b3.b0", &b3, sizeof b3,
+8);
+  memset(&b3,0, sizeof b3); b3.b1=3; hexdumpbit("b3.b1", &b3, sizeof b3,
+8);
+  memset(&b3,0, sizeof b3); b3.b2=7; hexdumpbit("b3.b2", &b3, sizeof b3,
+8);
+  memset(&b3,0, sizeof b3); b3.b3=1; hexdumpbit("b3.b3", &b3, sizeof b3,
+8);
+  return 0;
+}
+
+
+gcc 3.2 prints:
+
+sizeof(A) == 8; sizeof(B0) == 8, sizeof(B1) == 8, sizeof(B2) == 8,
+sizeof(b3) == 8
+--bb.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--bb.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b1.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b1.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b1.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b2.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b2.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b2.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b2.b2--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00111000 00000000 00000000
+
+--b3.a--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 11000000 00000000 00000000 00000000
+
+--b3.b0--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00111000 00000000 00000000 00000000
+
+--b3.b1--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 11000000 00000000 00000000
+
+--b3.b2--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00111000 00000000 00000000
+
+--b3.b3--- dumping 8 bytes-----
+00000000 00000000 00000000 00000000 00000000 00000000 10000000 00000000
+
+(results from gcc 3.2 32 bit linux-ppc big-endian)
+
+It seems that b3.b1 and b3.b3 starts a new byte boundary because of b3.a
+and b3.b1 respectively. If b3.a overflows the byte boundary, then b3.b1
+would pack tightly afterwards.
+
+
+Our question is:
+We think this is inconsistent, is this a possible bug in gcc?
+
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+
+From michaelw at ca.ibm.com  Tue Aug 27 04:26:14 2002
+From: michaelw at ca.ibm.com (michaelw at ca.ibm.com)
+Date: Tue, 27 Aug 2002 00:26:14 -0400
+Subject: Incorrect example in abi-examples
+Message-ID: <OF97C7A48C.CE48473B-ON85256C22.0015D5FB@torolab.ibm.com>
+
+The CXXABI example section
+http://www.codesourcery.com/cxx-abi/abi-examples.html
+contain an incorrect sample. On page 3:
+/*
+Test case for sharing virtual bases.
+In Most_Derived, share the vptr with
+Interface2 but not Interface3, since
+Interface3 is indirectly inherited.
+
+Should get:
+(long)(Interface1 *)dd - (long)dd = 0
+(long)(Interface2 *)dd - (long)dd = 0
+(long)(Interface3 *)dd - (long)dd = 8
+(long)(Concrete1 *)dd - (long)dd = 8
+*/
+
+struct Interface1 {
+    virtual void foo();
+};
+struct Interface2 : virtual Interface1 {
+        virtual void bar();
+};
+struct Interface3 : virtual Interface2 {
+        virtual void baz();
+};
+
+struct Concrete1 : virtual Interface3 {
+        virtual void foo();
+        int i; // important.
+};
+
+struct Most_Derived : virtual Interface1,
+                      virtual Interface2,
+                      virtual Concrete1 {
+        virtual void bar();
+};
+
+void Interface1::foo() { }
+void Interface2::bar() { }
+void Interface3::baz() { }
+void Concrete1::foo() { }
+void Most_Derived::bar() { }
+
+
+extern "C" int printf(const char *,...);
+#define EVAL(EXPR) printf( #EXPR " = %d\n", (EXPR) );
+main()
+{
+  Most_Derived *dd = new Most_Derived;
+  EVAL((long)(Interface1 *)dd - (long)dd);
+  EVAL((long)(Interface2 *)dd - (long)dd);
+  EVAL((long)(Interface3 *)dd - (long)dd);
+  EVAL((long)(Concrete1 *)dd - (long)dd);
+}
+
+G++ 3.0.3 reveals the order is as follows:
+Class Most_Derived
+   size=12 align=4
+Most_Derived (0x300a0200) 0 nearly-empty
+    vptridx=0 vptr=((&Most_Derived::_ZTV12Most_Derived) + 28)
+  Interface1 (0x300a0240) 0 nearly-empty virtual canonical
+      primary-for Most_Derived (0x300a0200)
+      vptridx=4 vbaseoffset=-16
+  Interface2 (0x300a0280) 4 nearly-empty virtual non-canonical
+      lost-primary
+    Interface1 (0x300a02c0) 0 nearly-empty virtual non-canonical
+  Concrete1 (0x300a0300) 4 virtual canonical
+      subvttidx=28 vptridx=12 vbaseoffset=-24 vptr=((&Most_Derived::
+_ZTV12Most_D
+erived) + 68)
+    Interface3 (0x300a0340) 4 nearly-empty virtual canonical
+        primary-for Concrete1 (0x300a0300)
+        subvttidx=44 vptridx=16 vbaseoffset=-28
+      Interface2 (0x300a0380) 4 nearly-empty virtual canonical
+          primary-for Interface3 (0x300a0340) lost-primary
+          subvttidx=20 vptridx=8 vbaseoffset=-20
+        Interface1 (0x300a03c0) 0 nearly-empty virtual non-canonical
+
+G++ seems correct based on the following rule.
+
+For a stand-alone class:
+Primary(Interface2)=Interface1 by virtual nearly empty
+Primary(Interface 3)=Interface2 by virtual nearly empty
+Primary (Concrete1)=Interface3 by virtual nearly empty
+
+Primary(Most_Derived)=Interface1 since it is the first virtual nearly empty
+primary. Most_Derived cannot take Concrete1 since it is virtually inherited
+and is not nearly empty.
+So Interface2 loses its primary
+
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+
+From michaelw at ca.ibm.com  Tue Aug 27 04:30:08 2002
+From: michaelw at ca.ibm.com (michaelw at ca.ibm.com)
+Date: Tue, 27 Aug 2002 00:30:08 -0400
+Subject: Incorrect statement in C++ ABI
+Message-ID: <OF42322564.A08CF108-ON85256C22.0018752F@torolab.ibm.com>
+
+In the C++ ABI document Section 1.1 Definitions, the nearly empty class has
+at most one nearly empty non-virtual proper base. This does  not seem to be
+true.
+
+By that definition class C is not nearly empty in the hierarchy
+
+   class A { virtual void a(); };
+
+   class B: public A  { virtual void b(); };
+
+   class C: public B  { virtual void c(); };
+
+since it has two non-virtual nearly empty proper bases B and A.
+
+By the basic idea that nearly empty class should only have pointer to the
+Virtual table, class C should be nearly empty, since class B is primary to
+C and A is primary to B, so they all share the same pointer to the VT. G++
+compiles C as nearly empty.
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+
+From nathan at codesourcery.com  Tue Aug 27 08:28:52 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 27 Aug 2002 09:28:52 +0100
+Subject: [cxx-abi-dev] Incorrect statement in C++ ABI
+References: <OF42322564.A08CF108-ON85256C22.0018752F@torolab.ibm.com>
+Message-ID: <3D6B3844.8E4F8A93@codesourcery.com>
+
+michaelw at ca.ibm.com wrote:
+> 
+> In the C++ ABI document Section 1.1 Definitions, the nearly empty class has
+> at most one nearly empty non-virtual proper base. This does  not seem to be
+> true.
+> 
+> By that definition class C is not nearly empty in the hierarchy
+> 
+>    class A { virtual void a(); };
+> 
+>    class B: public A  { virtual void b(); };
+> 
+>    class C: public B  { virtual void c(); };
+> 
+> since it has two non-virtual nearly empty proper bases B and A.
+You are correct, it should say 'direct base', that was the intent.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From nathan at codesourcery.com  Tue Aug 27 10:32:55 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 27 Aug 2002 11:32:55 +0100
+Subject: [cxx-abi-dev] Incorrect example in abi-examples
+References: <OF97C7A48C.CE48473B-ON85256C22.0015D5FB@torolab.ibm.com>
+Message-ID: <3D6B5557.215F2B23@codesourcery.com>
+
+michaelw at ca.ibm.com wrote:
+> Primary(Most_Derived)=Interface1 since it is the first virtual nearly empty
+> primary. Most_Derived cannot take Concrete1 since it is virtually inherited
+> and is not nearly empty.
+> So Interface2 loses its primary
+I agree.
+
+	b.If C has a dynamic base class, attempt to choose a primary base
+	class B. It is the first (in direct base class order) non-virtual
+	dynamic base class, if one exists. Otherwise, it is a nearly empty
+	virtual base class, the first one in (preorder) inheritance graph
+	order which is not an indirect primary base class if any exist, or
+	just the first one if they are all indirect primaries.
+
+here, they are all indirect primaries, so we pick the first.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From mark at codesourcery.com  Tue Aug 27 16:52:26 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 Aug 2002 09:52:26 -0700
+Subject: [cxx-abi-dev] Incorrect example in abi-examples
+In-Reply-To: <3D6B5557.215F2B23@codesourcery.com>
+Message-ID: <40040000.1030467146@warlock.codesourcery.com>
+
+
+
+--On Tuesday, August 27, 2002 11:32:55 AM +0100 Nathan Sidwell 
+<nathan at codesourcery.com> wrote:
+
+> michaelw at ca.ibm.com wrote:
+>> Primary(Most_Derived)=Interface1 since it is the first virtual nearly
+>> empty primary. Most_Derived cannot take Concrete1 since it is virtually
+>> inherited and is not nearly empty.
+>> So Interface2 loses its primary
+> I agree.
+
+As do I.
+
+Nobody has really worked at keeping the examples up to date; I wouldn't
+be surprised if there are other mistakes.
+
+I've checked in the attached patch to the examples document.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: application/octet-stream
+Size: 1384 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020827/74530fea/attachment.obj>
+
+From mark at codesourcery.com  Tue Aug 27 18:19:02 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 Aug 2002 11:19:02 -0700
+Subject: [cxx-abi] [cxx-abi-dev] Tail padding, in sumary
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585CEDE@orsmsx117.jf.intel.com>
+Message-ID: <13940000.1030472342@warlock.codesourcery.com>
+
+Here are patches to the ABI document that, I believe, clarify the
+issues recently raised on the ABI list.  Most of these are clarifications,
+but point (5) below is substantive and you should look at it carefully.
+
+I will check these in after 48 hours, unless I receive comments to the
+contrary.
+
+I have attached both diffs and the patched HTML file for your convenience.
+
+Here is a summary of the changes:
+
+0. Move "morally virtual" into the definitions section.
+
+1. Clarify definition of nearly empty class.
+
+   Use "direct" base classes rather than "proper" base classes, more
+   carefully delineate the set of empty base classes whose offsets
+   matter.
+
+2. Simplify the descriptions of dsize, nvsize, nvalign to avoid confusion.
+
+3. Remove allocation rules for primary base, instead using the ordinary
+   rules for allocating base classes.
+
+   This is not meant to imply that the layout of any class is changing;
+   only the way things are expressed in the document.  We had separate
+   language saying how you place the primary base, and it was incorrect;
+   in particular it said that you set sizeof(C) to sizeof(B) [where C
+   is the derived class and B the primary base] after placing the primary
+   base.  You should instead set sizeof(C) to nvsize(B).  By using the
+   same rules as for other bases, we avoid this problem and any other
+   similar problems that might arise in the future.
+
+4. Clarify when bit-field tail-padding can and cannot be used.
+
+5. Change the algorithm for setting nvsize(C).
+
+   The old version set nvsize(C) to the least multiple of nvalign(C)
+   that was greater than or equal to dsize(C).  This rounding prevented
+   the use of tail-padding, which was not the intent of the ABI, nor
+   was it the practice of the compilers attempting to implement the ABI.
+
+   The new version sets nvsize(C) to sizeof(C).  Note that dsize(C) would
+   be another option, but that adds additional complexity.  In particular,
+   if dsize(C) were used, we would lose track of empty bases allocated
+   beyond dsize(C).
+
+   Instead, we could introduce ndsize, so that we could use this
+   algorithm for placing a base to this:
+
+     Set dsize(C) to offset(D) + ndsize(D).
+     Set sizeof(C) to max(sizeof(C), offset(D) + nvsize(D)).
+
+   This is logical enough, but I think we have enough complexity as it
+   is.
+
+   Here is a test program that will verify whether or not the approach
+   I took corresponds to your compiler:
+
+     extern "C" void printf (const char*, ...);
+
+     struct S1 {};
+     struct S2 : public S1 {};
+     struct S3 : public S1, public S2 { char c1; };
+     struct S4 : public S3 {
+      char c2;
+     };
+
+     int main () {
+       printf ("sizeof (S4) == %d\n", sizeof (S4));
+     }
+
+   The point is that in S3, S1 will be placed at offset 0, S2 at offset
+   1, and c1 at offset 0.  Thus dsize(S3) will be 1, sizeof(S3) will be
+   2.  If your compiler is using the formulation I propose, then nvsize(S3)
+   will be 2.  Therefore, S4::c2 will be placed at offset 2, and sizeof(S4)
+   will be 3.  If, instead, your compiler has the notion of ndsize, it
+   will place S4::c2 at offset 1, and sizeof(S4) will be 2.
+
+   The bottom line is that if your compiler outputs 3, you should be happy
+   with what I wrote.  For reference, GCC 3.2 outputs 3.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: application/octet-stream
+Size: 9337 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020827/9e0a65c1/attachment.obj>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020827/9e0a65c1/attachment.html>
+
+From mark at codesourcery.com  Thu Aug 29 17:56:38 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 29 Aug 2002 10:56:38 -0700
+Subject: [cxx-abi-dev] RE: [cxx-abi] [cxx-abi-dev] Tail padding, in
+ sumary
+In-Reply-To: <13940000.1030472342@warlock.codesourcery.com>
+Message-ID: <16850000.1030643798@warlock.codesourcery.com>
+
+
+
+--On Tuesday, August 27, 2002 11:19:02 AM -0700 Mark Mitchell 
+<mark at codesourcery.com> wrote:
+
+> Here are patches to the ABI document that, I believe, clarify the
+> issues recently raised on the ABI list.  Most of these are clarifications,
+> but point (5) below is substantive and you should look at it carefully.
+>
+> I will check these in after 48 hours, unless I receive comments to the
+> contrary.
+
+I am now going to check in the patches.
+
+It turns out that (regarding point 5), neither HP nor Intel behave in
+the same was as G++.  Normally, that would argue for using the HP/Intel
+behavior in the spec, but both HP and Intel's compilers are getting
+the answers they get only because of bugs, and those bugs result in
+language conformance (not just ABI conformance) bugs.
+
+Since the compilers are going to need to change to fix the language
+conformance bugs, we may as well (a) avoid having to change GCC, and
+(b) avoid having to introduce "ndsize".
+
+Yours,
+
+--
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+

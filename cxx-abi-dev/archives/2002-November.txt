@@ -1,0 +1,1592 @@
+From sdouglass at arm.com  Fri Nov  1 11:47:59 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 01 Nov 2002 11:47:59 +0000
+Subject: Scope encoding of string literals in default arguments questions
+Message-ID: <3DC269EF.5020901@arm.com>
+
+Hi,
+
+I have some questions about the scope encoding of string literals in inline functions.  Consider,
+
+  bool g(const char*);
+
+  inline const char* f1(const char* p = "world");  // _ZZ2f1Es ?
+
+  inline const char* f1(const char* p) {
+    g(p);
+    g("hello");  // _ZZ2f1Es_0 ?
+    g("world");  // _ZZ2f1Es ?
+  }
+
+
+Do I have the encodings correct?  What happens if another translation unit sees just this:
+
+  bool g(const char*);
+
+  inline const char* f1(const char* p) {
+    g(p);
+    g("hello");  // _ZZ2f1Es ?
+    g("world");  // _ZZ2f1Es_0 ?
+  }
+
+Another case to consider, when implementing this, is tgat default arguments can be added after the definition:
+
+  inline const char* f2(const char* p) {
+    g(p);
+    g("hello");  // _ZZ2f2Es
+    g("world");  // _ZZ2f2Es_0
+  }
+
+  const char* f2(const char* p = "world");  // _ZZ2f2Es ?
+
+On the other hand perhaps string literals in default arguments should not be considered local to the function being declared at all.  Consider this:
+
+  inline const char* f3(const char* p) {
+    g(p);
+    g("hello");  // _ZZ2f3Es
+    g("world");  // _ZZ2f3Es_0
+  }
+
+  inline const char* f4() {
+    const char* f3(const char* p = "world");  // _ZZ2f4Es ?
+    f3();
+    g("world");  // _ZZ2f4Es
+  }
+
+  inline const char* f5() {
+    const char* f3(const char* p = "hi");  // _ZZ2f5Es ?
+    f3();
+    g("hi");  // _ZZ2f5Es
+  }
+
+It seems that the encodings need to be named after the function the declaration is in not the function being declared.  But then what is the appropriate encoding of string literals in default arguments that aren't function-local?
+
+I'll also suggest some minor clarifications to the wording in 5.1.6:
+  "Note that this assumes that the same string literal occurring twice in a given function in fact represents a single entity, i.e. has a unique address."
+
+would be better as
+  "Note that this means that the same string literal occurring twice in a given inline function in fact represents a single entity, i.e. has a unique address.  It also means that string literals in inline functions do not "tail-share", i.e. the string literals "abc" and "bc" are completely distinct in inline functions."
+
+And
+  "even if subsequent optimization makes some of them unnecessary."
+
+would be better as
+  "even if subsequent optimization makes some of them unnecessary or base or member initializer expressions are re-ordered."
+
+By the way, the ABI document's HTML has two occuranes "#scope-encoding" that should be "#mangling-scope".
+
+Thanks.
+
+
+
+From sdouglass at arm.com  Fri Nov  1 13:37:32 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 01 Nov 2002 13:37:32 +0000
+Subject: Scope encoding of string literals in default arguments questions
+ (another case)
+Message-ID: <3DC2839C.3040102@arm.com>
+
+Hi,
+
+I thought of one more interesting case:
+
+  bool g(const char*);
+
+  inline const char* f6(const char* p) {
+    struct T {
+      const char* h(const char* p = "world") {  // _ZZ2f6Es ?
+        g(p);
+        g("hello");  // _ZZN2f61T1hEEs
+        g("world");  // _ZZN2f61T1hEEs_0
+      }
+    };
+    g(p);
+    g("hello");  // _ZZ2f6Es_0 ?
+    g("world");  // _ZZ2f6Es ?
+  }
+
+
+Do I have the encodings correct?
+
+
+
+
+From sdouglass at arm.com  Tue Nov  5 10:42:33 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Tue, 05 Nov 2002 10:42:33 +0000
+Subject: function pointer linkage for __cxa_vec_new, etc.
+Message-ID: <3DC7A099.6040007@arm.com>
+
+Hi,
+
+The declarations of __cxa_vec_new, etc. given in section 3.3.3 (inadvertantly) make the function pointer parameters (i.e. constructor, destructor, alloc and dealloc) pointers to "C" functions.  Is suspect that these function pointer parameters want to be pointers to "C++" functions not pointer to "C" functions.
+
+Also there's a missing ';' at the end of the __cxa_vec_cctor declaration.
+
+
+
+From loewis at informatik.hu-berlin.de  Tue Nov  5 11:50:40 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 05 Nov 2002 12:50:40 +0100
+Subject: [cxx-abi-dev] function pointer linkage for __cxa_vec_new, etc.
+In-Reply-To: <3DC7A099.6040007@arm.com>
+References: <3DC7A099.6040007@arm.com>
+Message-ID: <j4adko1bhr.fsf@informatik.hu-berlin.de>
+
+scott douglass <sdouglass at arm.com> writes:
+
+> The declarations of __cxa_vec_new, etc. given in section 3.3.3
+> (inadvertantly) make the function pointer parameters
+> (i.e. constructor, destructor, alloc and dealloc) pointers to "C"
+> functions.  Is suspect that these function pointer parameters want
+> to be pointers to "C++" functions not pointer to "C" functions.
+
+While this seems to be the case, this does not have any effect on the
+ABI, does it?
+
+Also, "pointer-to-constructor" does not exist in C++, so making it a
+C++ function pointer expecting this still won't make type-compatible
+with the constructor entry point.
+
+Regards,
+Martin
+
+
+From mark at codesourcery.com  Wed Nov  6 18:27:27 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 06 Nov 2002 10:27:27 -0800
+Subject: [cxx-abi-dev] function pointer linkage for __cxa_vec_new, etc.
+In-Reply-To: <j4adko1bhr.fsf@informatik.hu-berlin.de>
+Message-ID: <203470000.1036607247@warlock.codesourcery.com>
+
+
+
+--On Tuesday, November 05, 2002 12:50:40 PM +0100 "Martin v. L?wis" <loewis at informatik.hu-berlin.de> wrote:
+
+> scott douglass <sdouglass at arm.com> writes:
+>
+>> The declarations of __cxa_vec_new, etc. given in section 3.3.3
+>> (inadvertantly) make the function pointer parameters
+>> (i.e. constructor, destructor, alloc and dealloc) pointers to "C"
+>> functions.  Is suspect that these function pointer parameters want
+>> to be pointers to "C++" functions not pointer to "C" functions.
+>
+> While this seems to be the case, this does not have any effect on the
+> ABI, does it?
+>
+> Also, "pointer-to-constructor" does not exist in C++, so making it a
+> C++ function pointer expecting this still won't make type-compatible
+> with the constructor entry point.
+
+I agree.
+
+There is an assumption in the ABI (one that should probably be stated
+explicitly somewhere) that C and C++ functions have the same calling
+conventions and so forth.
+
+-- Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Wed Nov  6 21:26:20 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Wed, 06 Nov 2002 13:26:20 -0800
+Subject: [cxx-abi-dev] function pointer linkage for __cxa_vec_new, etc.
+References: <203470000.1036607247@warlock.codesourcery.com>
+Message-ID: <3DC988FC.2010605@transmeta.com>
+
+Mark Mitchell wrote:
+> 
+>> scott douglass <sdouglass at arm.com> writes:
+>>
+>>> The declarations of __cxa_vec_new, etc. given in section 3.3.3
+>>> (inadvertantly) make the function pointer parameters
+>>> (i.e. constructor, destructor, alloc and dealloc) pointers to "C"
+>>> functions.  Is suspect that these function pointer parameters want
+>>> to be pointers to "C++" functions not pointer to "C" functions.
+> 
+> There is an assumption in the ABI (one that should probably be stated
+> explicitly somewhere) that C and C++ functions have the same calling
+> conventions and so forth.
+
+There was also a conscious effort to make sure that all
+specified library routines that might be useful to both
+C and C++ would have C linkage.
+
+Jim
+
+
+
+
+
+From mark at codesourcery.com  Mon Nov 11 06:13:46 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 10 Nov 2002 22:13:46 -0800
+Subject: Long-term maintenance of the ABI
+Message-ID: <10130000.1036995226@warlock.codesourcery.com>
+
+Presently, the ABI is being maintained in a somewhat haphazard manner.  In
+particular, when someone finds something that doesn't look right, there's
+a reasonable probability that I might fix it. :-)
+
+This doesn't seem right, from two angles:
+
+(1) There's no reason I should have arbitrary power.
+
+(2) There's no reason I should have arbitrary responsibility.
+
+:-)
+
+I'd like to see some sort of neutral, multi-company forum to maintain
+the ABI.  It would be nice if the rules for how changes get made were
+clarified a bit, and if the various interested parties were willing to
+commit to have a representative who would vote on changes.
+
+I've talked to Intel about this situation, and they're interested in
+helping, in several ways, including providing a technical writer to
+help clean up the specification.  (It would be nice to formalize the
+specification somewhat; however, it will be hard to do this without
+accidentally changing it.)
+
+Are people at other companies represented by people on this list
+interested in moving in this direction?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Mon Nov 11 06:43:43 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 10 Nov 2002 22:43:43 -0800
+Subject: [cxx-abi-dev] Thunk error in specification
+In-Reply-To: <89960000.1036093654@warlock.codesourcery.com>
+Message-ID: <12760000.1036997023@warlock.codesourcery.com>
+
+> While constructing our ABI testsuite, we have noticed a problem
+> with this language:
+>
+>   For each direct or indirect virtual base V of C such that either V
+>   declares f, or is derived from a class that declares f, the compiler
+>   must emit, in the same object file as the code for C::f, a
+>   V-adjusting entry point for C::f.
+>
+> This sentence should be revised to remove the "or is derived from a class
+> that declares f" clause.  An example of where this matters is:
+
+> As a result of removing the clause mentioned above, this language in the
+> next paragraph should also be removed:
+>
+>   (Note that one implementation of the M-adjusting entry point is to
+>   convert from M* to V* and then transfer control to the V-adjusting
+>   entry point.)
+>
+> There is no longer any guarantee that the V-adjusting entry point exists.
+>
+> I will make this change in a couple of days, unless anyone objects.
+
+Nobody objected to I made the changes mentioned above.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Mon Nov 11 06:52:42 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 10 Nov 2002 22:52:42 -0800
+Subject: [cxx-abi-dev] Scope encoding of string literals in default
+ arguments questions
+In-Reply-To: <3DC269EF.5020901@arm.com>
+Message-ID: <15190000.1036997562@warlock.codesourcery.com>
+
+
+
+--On Friday, November 01, 2002 11:47:59 AM +0000 scott douglass 
+<sdouglass at arm.com> wrote:
+
+> Hi,
+>
+> I have some questions about the scope encoding of string literals in
+> inline functions.  Consider,
+>
+>   bool g(const char*);
+>
+>   inline const char* f1(const char* p = "world");  // _ZZ2f1Es ?
+>
+>   inline const char* f1(const char* p) {
+>     g(p);
+>     g("hello");  // _ZZ2f1Es_0 ?
+>     g("world");  // _ZZ2f1Es ?
+>   }
+
+I think that the only consistent thing to do is to move the default
+argument into the callers; that is where it will be emitted.
+
+> I'll also suggest some minor clarifications to the wording in 5.1.6:
+>   "Note that this assumes that the same string literal occurring twice in
+> a given function in fact represents a single entity, i.e. has a unique
+> address."
+>
+> would be better as
+>   "Note that this means that the same string literal occurring twice in a
+> given inline function in fact represents a single entity, i.e. has a
+> unique address.  It also means that string literals in inline functions
+> do not "tail-share", i.e. the string literals "abc" and "bc" are
+> completely distinct in inline functions."
+
+Why?
+
+> And
+>   "even if subsequent optimization makes some of them unnecessary."
+>
+> would be better as
+>   "even if subsequent optimization makes some of them unnecessary or base
+> or member initializer expressions are re-ordered."
+
+Agreed; I made that change.
+
+> By the way, the ABI document's HTML has two occuranes "#scope-encoding"
+> that should be "#mangling-scope".
+
+Thanks; those are now fixed.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Mon Nov 11 06:56:53 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 10 Nov 2002 22:56:53 -0800
+Subject: [cxx-abi-dev] Nearly empty classes
+In-Reply-To: <17840000.1035443305@warlock.codesourcery.com>
+Message-ID: <19170000.1036997813@warlock.codesourcery.com>
+
+
+
+--On Thursday, October 24, 2002 12:08:25 AM -0700 Mark Mitchell 
+<mark at codesourcery.com> wrote:
+
+>
+>
+> --On Wednesday, October 23, 2002 11:51:27 PM -0700 Jim Dehnert
+> <dehnert at transmeta.com> wrote:
+>
+>> Mark Mitchell wrote:
+>>>
+>>> I believe the correct fix is to to rephrase the first line of the
+>>> definition of nearly empty class as:
+>>>
+>>>   A dynamic class that contains no data except its virtual pointer or
+>>>   virtual bases.  In particular, it:
+>>>
+>>> Any objections?
+
+Based on Jim's comments, I modified this to be more explicit yet about
+the fact that there must be a virtual pointer and checked it in.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Mon Nov 11 10:18:50 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Mon, 11 Nov 2002 10:18:50 +0000
+Subject: [cxx-abi-dev] Scope encoding of string literals in default arguments
+ questions
+References: <15190000.1036997562@warlock.codesourcery.com>
+Message-ID: <3DCF840A.8000103@arm.com>
+
+Mark Mitchell wrote:
+> 
+> 
+> --On Friday, November 01, 2002 11:47:59 AM +0000 scott douglass 
+> <sdouglass at arm.com> wrote:
+> 
+>> Hi,
+>>
+>> I have some questions about the scope encoding of string literals in
+>> inline functions.  Consider,
+>>
+>>   bool g(const char*);
+>>
+>>   inline const char* f1(const char* p = "world");  // _ZZ2f1Es ?
+>>
+>>   inline const char* f1(const char* p) {
+>>     g(p);
+>>     g("hello");  // _ZZ2f1Es_0 ?
+>>     g("world");  // _ZZ2f1Es ?
+>>   }
+> 
+> 
+> I think that the only consistent thing to do is to move the default
+> argument into the callers; that is where it will be emitted.
+
+But, doesn't the expression 'f1()' have to supply the same pointer for 'p' even in different translation units?  As far as I can tell the standard doesn't address this directly.
+
+>> I'll also suggest some minor clarifications to the wording in 5.1.6:
+>>   "Note that this assumes that the same string literal occurring twice in
+>> a given function in fact represents a single entity, i.e. has a unique
+>> address."
+>>
+>> would be better as
+>>   "Note that this means that the same string literal occurring twice in a
+>> given inline function in fact represents a single entity, i.e. has a
+>> unique address.  It also means that string literals in inline functions
+>> do not "tail-share", i.e. the string literals "abc" and "bc" are
+>> completely distinct in inline functions."
+> 
+> 
+> Why?
+
+I think I see what you mean.  As long as the compiler counts the orignial string literals:
+
+  void h(const char *);
+
+  inline void k() {
+    h("bc"); // _ZZ1kEs
+    h("abc"); // _ZZ1kEs_0
+  }
+
+A compiler could make the references to '_ZZ1kEs_0 + 1' and '_ZZ1kEs_0'.  It doesn't even need to emit '_ZZ1kEs' because anyone referring to '_ZZ1kEs' will also emit it.
+
+
+
+
+From hommel at metrowerks.com  Tue Nov 12 11:36:17 2002
+From: hommel at metrowerks.com (Andreas Hommel)
+Date: Tue, 12 Nov 2002 12:36:17 +0100
+Subject: VTT Order question
+Message-ID: <B9F6A641.2379%hommel@metrowerks.com>
+
+The example in "2.6.2 VTT Order" has a typo:
+
+  class C1 : public virtual V1 { int i; };
+    // C1 has no primary base, V2 is secondary base
+
+should be changed to:
+
+  class C1 : public virtual V1 { int i; };
+    // C1 has no primary base, V1 is secondary base
+
+Also, shouldn't the secondary VTT for C1 also get a secondary V1-in-C1 in D
+vtable pointer? I.e. shouldn't
+
+  // 1. Primary virtual pointer:
+  [0] D has virtual bases (complete object vptr)
+
+  // 2. Secondary VTTs:
+  [1]  C1 * (has virtual base)
+
+  [2]  C2 * (has virtual bases)
+  [3]    V3-in-C2 in D (primary vptr)
+  ...
+
+be changed to:
+
+  // 1. Primary virtual pointer:
+  [0] D has virtual bases (complete object vptr)
+
+  // 2. Secondary VTTs:
+  [1]  C1 * (has virtual base)
+  [2]    V1-in-C1 in D (secondary vptr)
+
+
+  [3]  C2 * (has virtual bases)
+  [4]    V3-in-C2 in D (primary vptr)
+  ...
+
+Thanks,
+______________________________________________________________________
+Andreas Hommel                        internet:  hommel at metrowerks.com
+Senior C/C++ Compiler Architect         Metrowerks, A Motorola Company
+
+
+
+From oldham at codesourcery.com  Tue Nov 12 16:09:35 2002
+From: oldham at codesourcery.com (Jeffrey Oldham)
+Date: Tue, 12 Nov 2002 08:09:35 -0800
+Subject: [cxx-abi-dev] VTT Order question
+References: <B9F6A641.2379%hommel@metrowerks.com>
+Message-ID: <3DD127BF.1000000@codesourcery.com>
+
+Andreas Hommel wrote:
+> The example in "2.6.2 VTT Order" has a typo:
+> 
+>   class C1 : public virtual V1 { int i; };
+>     // C1 has no primary base, V2 is secondary base
+> 
+> should be changed to:
+> 
+>   class C1 : public virtual V1 { int i; };
+>     // C1 has no primary base, V1 is secondary base
+
+Yes.
+
+> Also, shouldn't the secondary VTT for C1 also get a secondary V1-in-C1 in D
+> vtable pointer? I.e. shouldn't
+> 
+>   // 1. Primary virtual pointer:
+>   [0] D has virtual bases (complete object vptr)
+> 
+>   // 2. Secondary VTTs:
+>   [1]  C1 * (has virtual base)
+> 
+>   [2]  C2 * (has virtual bases)
+>   [3]    V3-in-C2 in D (primary vptr)
+>   ...
+> 
+> be changed to:
+> 
+>   // 1. Primary virtual pointer:
+>   [0] D has virtual bases (complete object vptr)
+> 
+>   // 2. Secondary VTTs:
+>   [1]  C1 * (has virtual base)
+>   [2]    V1-in-C1 in D (secondary vptr)
+> 
+> 
+>   [3]  C2 * (has virtual bases)
+>   [4]    V3-in-C2 in D (primary vptr)
+
+Yes.
+
+I will send a correction to Mark Mitchell to incorporate into the WWW page.
+
+Thanks,
+Jeffrey D. Oldham
+oldham at codesourcery.com
+
+
+
+From oldham at codesourcery.com  Tue Nov 19 18:45:06 2002
+From: oldham at codesourcery.com (Jeffrey Oldham)
+Date: Tue, 19 Nov 2002 10:45:06 -0800
+Subject: Non-POD Class Type Layout Change
+Message-ID: <200211191845.gAJIj6C17672@oz.codesourcery.com>
+
+
+The class layout specification accidentally inverted two references.
+When laying out virtual bases, refer to the proper previous section.
+
+Presumably, all implementations already correctly implement the
+specification as revised.  g++ apparently does.
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.48
+diff -c -p -r1.48 abi.html
+*** abi.html	18 Nov 2002 16:44:15 -0000	1.48
+--- abi.html	19 Nov 2002 18:10:09 -0000
+*************** follows:
+*** 851,857 ****
+  Finally allocate any direct or indirect virtual base classes
+  (except the primary base class or any indirect primary base classes)
+  as we did non-virtual base classes
+! in step II-2 (if empty) or II-3 (if non-empty),
+  in inheritance graph order.
+  Update sizeof(C) to max (sizeof(C), offset(D)+nvsize(D)).
+  If non-empty, also update align(C) and dsize(C) as in II-2.
+--- 851,857 ----
+  Finally allocate any direct or indirect virtual base classes
+  (except the primary base class or any indirect primary base classes)
+  as we did non-virtual base classes
+! in step II-2 (if not empty) or II-3 (if empty),
+  in inheritance graph order.
+  Update sizeof(C) to max (sizeof(C), offset(D)+nvsize(D)).
+  If non-empty, also update align(C) and dsize(C) as in II-2.
+
+Thanks,
+Jeffrey D. Oldham
+oldham at codesourcery.com
+
+
+From caroline at theportal.net  Wed Nov 20 12:30:18 2002
+From: caroline at theportal.net (=?ISO-8859-1?Q?The Portal?=)
+Date: Wed, 20 Nov 2002 12:30:18 -0000
+Subject: =?ISO-8859-1?Q?ABICORP.COM?=
+Message-ID: <mailman.0.1331165058.19706.cxx-abi-dev@codesourcery.com>
+
+Dear Sir/Madam, 
+ 
+ABICORP.COM - US$675 
+ 
+Please note that after years, the registration on the domain name 
+ABICORP.COM was not renewed and this domain had become available to register. 
+ 
+Consequently, we have been approached to market this domain name that has been tracked and registered by a client. As a result, ABICORP.COM is now available from us for IMMEDIATE transfer. 
+ 
+This is a VALUABLE and HIGH PROFILE domain and we believe that this 
+development could be of genuine interest and benefit to your operation. Please note that the domain name market is extremely solid at the moment and similar domains are currently selling on afternic.com, greatdomains.com (domain auction sites) and by domain 
+name brokers, in some cases, for many thousands of US dollars. 
+ 
+Please note that transfers take just 15 minutes and are extremely 
+straightforward - absolutely NO technical knowledge required! 
+ 
+For our client's peace of mind, we use an escrow service for all 
+transactions and domains are ALWAYS secured by the buyer prior to us 
+receiving any funds. We pay all fees connected with the escrow process.  
+ 
+If you would like to use WWW.ABICORP.COM for your online business, please contact us at your earliest convenience. We will be on hand should you require any further assistance or information. 
+ 
+We thank you for your attention and sincerely apologise if this e-mail 
+has not been of interest to you. 
+ 
+Yours sincerely, 
+ 
+Caroline 
+Marketing 
+The Portal 
+
+
+From mark at codesourcery.com  Mon Nov 25 21:23:41 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 25 Nov 2002 13:23:41 -0800
+Subject: Guard variable API clarification
+Message-ID: <141780000.1038259421@warlock.codesourcery.com>
+
+I "improved" section 3.3.2 (which specifies the behavior of 
+__cxa_guard_acquire and friends); a random sample of four people showed
+that none of them had any idea what that section meant.
+
+Hopefully the new version will be somewhat clearer.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mikew at firstpacificfunding.biz  Tue Nov 26 14:03:01 2002
+From: mikew at firstpacificfunding.biz (Michael Wald)
+Date: Tue, 26 Nov 2002 06:03:01 -0800
+Subject: Equipment/Software Leasing
+Message-ID: <mailman.1.1331165058.19706.cxx-abi-dev@codesourcery.com>
+
+First Pacific Funding 
+
+Michael Wald
+National Account Manager
+805 Kirkland Avenue Suite 200
+Kirkland, WA 98033
+Telephone 877-953-2733 ext. 224
+Fax 800-419-5604
+mikew at firstpacificfunding.biz
+
+As an established leader in the Lease Finance industry, First Pacific
+Funding
+looks forward to being your partner in equipment sales. Our many years of
+successful experience will assure high approval ratios, low rates and great
+service. The following services and tools, when used effectively, will help
+you increase your sales. They include:
+
+- 90 day deferred payments
+- $25.00 down (no 1st and last payment)
+- $100.00 a month for the first seven months
+- Step payment (reduced payment for one full year)
+- Start-up businesses  
+
+* Daily status reports faxed or called in to you
+* Fast and flexible credit decisions (2 to 24 hours)
+* High approval rates
+* Leasing for both new and used equipment
+* Applications by telephone
+* Pre-funding available
+* No financials required under $75,000
+* Start-Up Businesses
+* 100% Software Financing
+* Soft costs (install charges) can be included
+* First Pacific Funding handles all the paperwork
+* Funding within 24 hours
+* Partnership and National Account Programs
+
+We look forward to working with you in the near future. If you have any
+questions, please call me anytime.
+
+Sincerely,
+Michael Wald
+
+National Account Manager
+First Pacific Funding 
+877-953-2733 Ext. 224
+Fax 800-419-5604
+mikew at firstpacificfunding.biz
+
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 11:53:53 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 06:53:53 -0500
+Subject: Name mangling question
+Message-ID: <OFF15FFD42.F43AD0B8-ON85256C7E.003EC218@torolab.ibm.com>
+
+I am having a problem understanding the mangling of function parameters for
+functions in a nested class.  Given the following test case:
+
+struct locale {
+   struct _Impl
+   {
+      void foo(_Impl&);
+   };
+};
+
+int main() {
+   locale::_Impl i;
+   i.foo(i);
+}
+
+g+ mangles this name as _ZN6locale5_Impl3fooERS0_
+
+It would seem that 6locale would have S_ as a substitution, and
+6locale5_Impl would have S0_.  Given that the parameter is a nested name
+and so should be within N/E delimiters,  I don't see how g++ arives at that
+mangling.
+
+I believe the following should be the productions followed to mangle the
+name:
+
+Mangling declaration for: locale::_Impl::foo
+ <mangled-name> ::= _Z <encoding>
+  <encoding> ::= <function name> <bare-function-type>
+   <name> ::= <nested-name>
+    <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E
+     <prefix> ::= <prefix> <unqualified-name>
+      <prefix> ::= <prefix> <unqualified-name>
+       <prefix> ::= empty
+       <unqualified-name> ::= <source-name>
+        <source-name> ::= locale
+        Looking for 6locale
+        Adding: 6locale as S_
+      <unqualified-name> ::= <source-name>
+       <source-name> ::= _Impl
+       Looking for 6locale5_Impl
+       Adding: 6locale5_Impl as S0_
+     <unqualified-name> ::= <source-name>
+      <source-name> ::= foo
+   <bare-function-type> ::= <signature type>+
+    <type> ::= R <type>
+     <type> ::= <cv-qualifiers> <type>
+      <type> ::= <class-enum-type>
+       <class-enum-type> ::= <name>
+        <name> ::= <nested-name>
+         <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name>
+E
+          <prefix> ::= <prefix> <unqualified-name>
+           <prefix> ::= empty
+           <unqualified-name> ::= <source-name>
+            <source-name> ::= locale
+          Looking for 6locale
+          Found: S_
+          <unqualified-name> ::= <source-name>
+           <source-name> ::= _Impl
+      Looking for N6locale5_ImplE
+      Adding: N6locale5_ImplE as S1_
+    Looking for RN6locale5_ImplE
+    Adding: RN6locale5_ImplE as S2_
+Mangled name for: locale::_Impl::foo is: _ZN6locale5_Impl3fooERNS_5_ImplE
+
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 12:53:19 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 13:53:19 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFF15FFD42.F43AD0B8-ON85256C7E.003EC218@torolab.ibm.com>
+References: <OFF15FFD42.F43AD0B8-ON85256C7E.003EC218@torolab.ibm.com>
+Message-ID: <j465ujb2dc.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> struct locale {
+>    struct _Impl
+>    {
+>       void foo(_Impl&);
+>    };
+> };
+> It would seem that 6locale would have S_ as a substitution, and
+> 6locale5_Impl would have S0_.  Given that the parameter is a nested name
+> and so should be within N/E delimiters,  I don't see how g++ arives at that
+> mangling.
+
+The parameter is not a nested name, the signature of foo really is
+
+void ::locale::_Impl::foo(::locale::_Impl&);
+
+That you can denote the parameter type as _Impl in C++ is irrelevant
+for the mangling, since the mangling uses always the fully-qualified
+names. The symbol
+
+_ZN6locale5_Impl3fooER5_Impl
+
+would denote the function
+
+::locale::_Impl::foo(::_Impl&)
+
+HTH,
+Martin
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 13:34:33 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 08:34:33 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OFA9B7ED63.346DC3ED-ON85256C7E.004A4F3C@torolab.ibm.com>
+
+The mangled name you specified would be correct if there was a struct _Impl
+at namespace scope.  For the function in question we need to mangle the
+type of the parameter which, in my example, is locale::_Impl, a nested
+class.
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                    
+                      loewis at informatik.h                                                                                                           
+                      u-berlin.de (Martin        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      v. L?wis)                  cc:       cxx-abi-dev at codesourcery.com                                                             
+                                                 Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 07:53 AM                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+
+
+
+nasgaard at ca.ibm.com writes:
+
+> struct locale {
+>    struct _Impl
+>    {
+>       void foo(_Impl&);
+>    };
+> };
+> It would seem that 6locale would have S_ as a substitution, and
+> 6locale5_Impl would have S0_.  Given that the parameter is a nested name
+> and so should be within N/E delimiters,  I don't see how g++ arives at
+that
+> mangling.
+
+The parameter is not a nested name, the signature of foo really is
+
+void ::locale::_Impl::foo(::locale::_Impl&);
+
+That you can denote the parameter type as _Impl in C++ is irrelevant
+for the mangling, since the mangling uses always the fully-qualified
+names. The symbol
+
+_ZN6locale5_Impl3fooER5_Impl
+
+would denote the function
+
+::locale::_Impl::foo(::_Impl&)
+
+HTH,
+Martin
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 14:12:13 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 15:12:13 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFA9B7ED63.346DC3ED-ON85256C7E.004A4F3C@torolab.ibm.com>
+References: <OFA9B7ED63.346DC3ED-ON85256C7E.004A4F3C@torolab.ibm.com>
+Message-ID: <j4of8b9k5e.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> The mangled name you specified would be correct if there was a struct _Impl
+> at namespace scope.  For the function in question we need to mangle the
+> type of the parameter which, in my example, is locale::_Impl, a nested
+> class.
+
+So you agree that the mangling that g++ generates is correct? If not,
+what other mangling would you expect?
+
+Regards,
+Martin
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 14:42:37 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 09:42:37 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OFCDAB2334.F5AEA2A0-ON85256C7E.00506D2A@torolab.ibm.com>
+
+I agree that the mangling you gave is correct for your example, but that is
+not the example I gave and it is not the mangling g++ gives for my example.
+In my example _Impl is nested inside locale.  The mangling g++ gives is
+_ZN6locale5_Impl3fooERS0_.
+
+Demangled this is locale::_Impl::foo(locale::_Impl&)
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                    
+                      loewis at informatik.h                                                                                                           
+                      u-berlin.de (Martin        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      v. L?wis)                  cc:       cxx-abi-dev at codesourcery.com                                                             
+                                                 Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 09:12 AM                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+
+
+
+nasgaard at ca.ibm.com writes:
+
+> The mangled name you specified would be correct if there was a struct
+_Impl
+> at namespace scope.  For the function in question we need to mangle the
+> type of the parameter which, in my example, is locale::_Impl, a nested
+> class.
+
+So you agree that the mangling that g++ generates is correct? If not,
+what other mangling would you expect?
+
+Regards,
+Martin
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 15:05:06 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 16:05:06 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFCDAB2334.F5AEA2A0-ON85256C7E.00506D2A@torolab.ibm.com>
+References: <OFCDAB2334.F5AEA2A0-ON85256C7E.00506D2A@torolab.ibm.com>
+Message-ID: <j4znrvvysd.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> I agree that the mangling you gave is correct for your example, but that is
+> not the example I gave and it is not the mangling g++ gives for my example.
+> In my example _Impl is nested inside locale.  The mangling g++ gives is
+> _ZN6locale5_Impl3fooERS0_.
+> 
+> Demangled this is locale::_Impl::foo(locale::_Impl&)
+
+Yes, and this is indeed correct. What else would you have expected?
+
+In the demangled signature, _Impl is nested inside locale, just as you
+say it should be.
+
+Regards,
+Martin
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 15:17:59 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 10:17:59 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OF94B960D7.A499FA9B-ON85256C7E.0053A7D9@torolab.ibm.com>
+
+I expect _ZN6locale5_Impl3fooERNS_5_ImplE, based on the set of productions
+as stated in my original note.  I think g++ is missing the fact that it is
+nested.  There is no N...E in the name.  If I run that mangled name through
+c++filt I get locale::_Impl::foo(locale::_Impl&), as I would expect.  Which
+one is right and why?  They can't both be right.
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                    
+                      loewis at informatik.h                                                                                                           
+                      u-berlin.de (Martin        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      v. L?wis)                  cc:       cxx-abi-dev at codesourcery.com                                                             
+                                                 Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 10:05 AM                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+
+
+
+nasgaard at ca.ibm.com writes:
+
+> I agree that the mangling you gave is correct for your example, but that
+is
+> not the example I gave and it is not the mangling g++ gives for my
+example.
+> In my example _Impl is nested inside locale.  The mangling g++ gives is
+> _ZN6locale5_Impl3fooERS0_.
+>
+> Demangled this is locale::_Impl::foo(locale::_Impl&)
+
+Yes, and this is indeed correct. What else would you have expected?
+
+In the demangled signature, _Impl is nested inside locale, just as you
+say it should be.
+
+Regards,
+Martin
+
+
+
+
+
+From mark at codesourcery.com  Wed Nov 27 15:43:13 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 27 Nov 2002 07:43:13 -0800
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFF15FFD42.F43AD0B8-ON85256C7E.003EC218@torolab.ibm.com>
+Message-ID: <15860000.1038411793@warlock.codesourcery.com>
+
+
+
+--On Wednesday, November 27, 2002 06:53:53 AM -0500 "nasgaard at ca.ibm.com" 
+<nasgaard at ca.ibm.com> wrote:
+
+> I am having a problem understanding the mangling of function parameters
+> for functions in a nested class.  Given the following test case:
+>
+> struct locale {
+>    struct _Impl
+>    {
+>       void foo(_Impl&);
+>    };
+> };
+>
+> int main() {
+>    locale::_Impl i;
+>    i.foo(i);
+> }
+>
+> g+ mangles this name as _ZN6locale5_Impl3fooERS0_
+>
+> It would seem that 6locale would have S_ as a substitution, and
+> 6locale5_Impl would have S0_.  Given that the parameter is a nested name
+> and so should be within N/E delimiters,  I don't see how g++ arives at
+> that mangling.
+
+One of the alternatives for the <type> production is <substitution>.
+
+Therefore, you should never get to <nested-name> for the parameter.
+
+Here is the mistake:
+
+    <type> ::= R <type>
+     <type> ::= <cv-qualifiers> <type>
+
+That last line should be:
+
+     <type> ::= <substitution>
+
+There are definitely cases where two distinct strings will demangle to
+the same name.  That's because the demangler doesn't try to check that
+the input string uses substitutions.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com>
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 15:55:45 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 10:55:45 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OFAEE00552.64571857-ON85256C7E.00571450@torolab.ibm.com>
+
+Mark,  What happened to the N...E around the nested name.  The type should
+be N6locale5_ImplE should it not?  S0_ is not the substitute for that.  Is
+there a caveat here that drops them?
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                  
+                      Mark Mitchell                                                                                                               
+                      <mark at codesourcer        To:       Howard Nasgaard/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com"                        
+                      y.com>                    <cxx-abi-dev at codesourcery.com>                                                                    
+                                               cc:                                                                                                
+                      11/27/2002 10:43         Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      AM                                                                                                                          
+                                                                                                                                                  
+                                                                                                                                                  
+
+
+
+
+
+--On Wednesday, November 27, 2002 06:53:53 AM -0500 "nasgaard at ca.ibm.com"
+<nasgaard at ca.ibm.com> wrote:
+
+> I am having a problem understanding the mangling of function parameters
+> for functions in a nested class.  Given the following test case:
+>
+> struct locale {
+>    struct _Impl
+>    {
+>       void foo(_Impl&);
+>    };
+> };
+>
+> int main() {
+>    locale::_Impl i;
+>    i.foo(i);
+> }
+>
+> g+ mangles this name as _ZN6locale5_Impl3fooERS0_
+>
+> It would seem that 6locale would have S_ as a substitution, and
+> 6locale5_Impl would have S0_.  Given that the parameter is a nested name
+> and so should be within N/E delimiters,  I don't see how g++ arives at
+> that mangling.
+
+One of the alternatives for the <type> production is <substitution>.
+
+Therefore, you should never get to <nested-name> for the parameter.
+
+Here is the mistake:
+
+    <type> ::= R <type>
+     <type> ::= <cv-qualifiers> <type>
+
+That last line should be:
+
+     <type> ::= <substitution>
+
+There are definitely cases where two distinct strings will demangle to
+the same name.  That's because the demangler doesn't try to check that
+the input string uses substitutions.
+
+--
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com>
+
+
+
+
+
+From mark at codesourcery.com  Wed Nov 27 15:55:54 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 27 Nov 2002 07:55:54 -0800
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFAEE00552.64571857-ON85256C7E.00571450@torolab.ibm.com>
+Message-ID: <20160000.1038412554@warlock.codesourcery.com>
+
+
+
+--On Wednesday, November 27, 2002 10:55:45 AM -0500 "nasgaard at ca.ibm.com" 
+<nasgaard at ca.ibm.com> wrote:
+
+> Mark,  What happened to the N...E around the nested name.  The type should
+> be N6locale5_ImplE should it not?  S0_ is not the substitute for that.  Is
+> there a caveat here that drops them?
+
+SO_ is the substitution for a type, not a name.  So, when you reach
+::locale::_Impl in the function type, you replace it with SO_.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 15:59:40 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 16:59:40 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OF94B960D7.A499FA9B-ON85256C7E.0053A7D9@torolab.ibm.com>
+References: <OF94B960D7.A499FA9B-ON85256C7E.0053A7D9@torolab.ibm.com>
+Message-ID: <j4n0nvt34j.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> I expect _ZN6locale5_Impl3fooERNS_5_ImplE, based on the set of productions
+> as stated in my original note.  I think g++ is missing the fact that it is
+> nested.  There is no N...E in the name.  If I run that mangled name through
+> c++filt I get locale::_Impl::foo(locale::_Impl&), as I would expect.  Which
+> one is right and why?  They can't both be right.
+
+The first question is whether both these manglings follow the
+grammar. This is indeed the case, in <type>, we have
+
+  R <type>
+
+so R is followed by a type. One alternative for <type> is
+<substitute>, so 
+
+  R S0_
+
+is clearly a valid mangling for a type. I assume you agree that your
+proposed mangling is also possible for that grammar.
+
+Now, the question is which of these manglings is the correct one.
+
+As you indicate,
+
+S_  is ::locale
+S0_ is ::locale::_Impl
+
+In 5.1.7, the ABI spec says
+
+# Logically, the substitutable components of a mangled name are
+# considered left-to-right, components before the composite structure
+# of which they are a part. If a component has been encountered
+# before, it is substituted as described below. This decision is
+# independent of whether its components have been substituted, ...
+
+For locale::_Impl, we first check for ::locale, and subsitute this as
+S_::_Impl. Then we consider the composite structure,
+i.e. ::locale::_Impl, which also has been encountered before. So we
+clearly must replace ::locale::_Impl with S0_ (even though the
+::locale component has already been substituted). The intention here
+is to always substitute as large structures as possible.
+
+Now the question might be whether to mangle this as NS0_E or just as
+S0_. Of those, only S0_ is allowed, since, in a <nested-name>, you
+must have an <unqualified-name> or <template-args> after a
+<substitution>.
+
+So the g++ mangling is correct, and your proposed mangling is
+incorrect.
+
+Regards,
+Martin
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 16:25:36 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 11:25:36 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OFA9FB2582.0C47DCD8-ON85256C7E.0058F506@torolab.ibm.com>
+
+Mark,  I don't see the difference between that and this example (except we
+don't have a substitution).
+
+struct locale {
+   struct Bar
+   {
+   };
+   struct _Impl
+   {
+      void foo(Bar&);
+   };
+};
+
+int main() {
+   locale::Bar b;
+   locale::_Impl i;
+   i.foo(b);
+}
+
+Here the mangled name is _ZN6locale5_Impl3fooERNS_3BarE.  Note the N...E.
+Unless I have a gross misunderstanding (which is possible) we build up the
+type by following productions through type and nested name.  Then, after
+building a name we look for a substitution.  If we forget substitution for
+a moment this name would be _ZN6locale5_Impl3fooERN6locale3BarE.  And my
+other example would be _ZN6locale5_Impl3fooERN6locale5_ImplE which seems
+right while the g++ one would be _ZN6locale5_Impl3fooER6locale5_Impl.
+
+I just got a note fromMartin which may hold a key.  I'll respond to that
+one.  Please wait for that before you respond to this.
+
+Thanks for your patience.
+
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                  
+                      Mark Mitchell                                                                                                               
+                      <mark at codesourcer        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      y.com>                   cc:       "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>                            
+                                               Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 10:55                                                                                                            
+                      AM                                                                                                                          
+                                                                                                                                                  
+                                                                                                                                                  
+
+
+
+
+
+--On Wednesday, November 27, 2002 10:55:45 AM -0500 "nasgaard at ca.ibm.com"
+<nasgaard at ca.ibm.com> wrote:
+
+> Mark,  What happened to the N...E around the nested name.  The type
+should
+> be N6locale5_ImplE should it not?  S0_ is not the substitute for that.
+Is
+> there a caveat here that drops them?
+
+SO_ is the substitution for a type, not a name.  So, when you reach
+::locale::_Impl in the function type, you replace it with SO_.
+
+--
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 16:35:10 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 11:35:10 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OF221194E0.EDD9B549-ON85256C7E.005A4AA6@torolab.ibm.com>
+
+Martin,  Your observation may be the key here.  we are mangling ::locale::
+_Impl.  Is the following sequence of productions correct?
+
+<nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E    <<
+there is no substitution here.  _Impl is the unqualified name
+   <prefix> ::= <prefix> <unqualified-name>
+<< here we would subst S_ for locale which we've seen
+      <prefix> ::= empty
+
+This would yield NS_5ImplE.
+
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                    
+                      loewis at informatik.h                                                                                                           
+                      u-berlin.de (Martin        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      v. L?wis)                  cc:       cxx-abi-dev at codesourcery.com                                                             
+                                                 Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 10:59 AM                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+
+
+
+nasgaard at ca.ibm.com writes:
+
+> I expect _ZN6locale5_Impl3fooERNS_5_ImplE, based on the set of
+productions
+> as stated in my original note.  I think g++ is missing the fact that it
+is
+> nested.  There is no N...E in the name.  If I run that mangled name
+through
+> c++filt I get locale::_Impl::foo(locale::_Impl&), as I would expect.
+Which
+> one is right and why?  They can't both be right.
+
+The first question is whether both these manglings follow the
+grammar. This is indeed the case, in <type>, we have
+
+  R <type>
+
+so R is followed by a type. One alternative for <type> is
+<substitute>, so
+
+  R S0_
+
+is clearly a valid mangling for a type. I assume you agree that your
+proposed mangling is also possible for that grammar.
+
+Now, the question is which of these manglings is the correct one.
+
+As you indicate,
+
+S_  is ::locale
+S0_ is ::locale::_Impl
+
+In 5.1.7, the ABI spec says
+
+# Logically, the substitutable components of a mangled name are
+# considered left-to-right, components before the composite structure
+# of which they are a part. If a component has been encountered
+# before, it is substituted as described below. This decision is
+# independent of whether its components have been substituted, ...
+
+For locale::_Impl, we first check for ::locale, and subsitute this as
+S_::_Impl. Then we consider the composite structure,
+i.e. ::locale::_Impl, which also has been encountered before. So we
+clearly must replace ::locale::_Impl with S0_ (even though the
+::locale component has already been substituted). The intention here
+is to always substitute as large structures as possible.
+
+Now the question might be whether to mangle this as NS0_E or just as
+S0_. Of those, only S0_ is allowed, since, in a <nested-name>, you
+must have an <unqualified-name> or <template-args> after a
+<substitution>.
+
+So the g++ mangling is correct, and your proposed mangling is
+incorrect.
+
+Regards,
+Martin
+
+
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 16:55:52 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 17:55:52 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OF221194E0.EDD9B549-ON85256C7E.005A4AA6@torolab.ibm.com>
+References: <OF221194E0.EDD9B549-ON85256C7E.005A4AA6@torolab.ibm.com>
+Message-ID: <j43cpn0x5z.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> Martin,  Your observation may be the key here.  we are mangling ::locale::
+> _Impl.  Is the following sequence of productions correct?
+
+It is a valid production sequence, but it is irrelevant for the case
+under question, and it is incomplete:
+
+1. You have to start with <type>, not with <nested-name>.
+2. You have to take compression into account *before* applying
+   any production rules.
+3. _Impl is not an unqualified name. In C++, in this context,
+   _Impl is the same as locale::_Impl.
+
+> <nested-name> ::= N [<CV-qualifiers>] <prefix> <unqualified-name> E    <<
+> there is no substitution here.  _Impl is the unqualified name
+
+No, it is not. The parameter type is locale::_Impl, not _Impl. There is
+no unqualified type _Impl in your example, as you noted yourself.
+
+You need to understand that the names of the non-terminals are irrelevant,
+it appears that you have been mislead to interpret things into the names
+of production rules that they are not intended to mean:
+1. <nested-name> and <unqualified-name> does *not* refer to the way
+   that the names happen to appear in source code.
+2. It also does *not* necessarily refer to the question whether the
+   fully-qualified names are in the global namespace or not.
+Instead, this is a syntactical property of the mangled name: Does
+the mangled name contain qualifiers or not.
+
+Regards,
+Martin
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov 27 16:59:09 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 27 Nov 2002 17:59:09 +0100
+Subject: [cxx-abi-dev] Name mangling question
+In-Reply-To: <OFA9FB2582.0C47DCD8-ON85256C7E.0058F506@torolab.ibm.com>
+References: <OFA9FB2582.0C47DCD8-ON85256C7E.0058F506@torolab.ibm.com>
+Message-ID: <j4y97fymn6.fsf@informatik.hu-berlin.de>
+
+nasgaard at ca.ibm.com writes:
+
+> Here the mangled name is _ZN6locale5_Impl3fooERNS_3BarE.  Note the N...E.
+> Unless I have a gross misunderstanding (which is possible) we build up the
+> type by following productions through type and nested name.  Then, after
+> building a name we look for a substitution.  
+
+No. You do that vice versa. You first look for substitutions, then you start
+mangling. This is necessary because, after substitution, you may find that
+your identifier which was originally nested is not nested anymore. You emit
+a nested-name only if it is still nested after substitutions.
+
+So while you go through <type>, you don't go through <nested-name>; instead,
+you go through <substition>.
+
+Regards,
+Martin
+
+
+From nasgaard at ca.ibm.com  Wed Nov 27 17:12:18 2002
+From: nasgaard at ca.ibm.com (nasgaard at ca.ibm.com)
+Date: Wed, 27 Nov 2002 12:12:18 -0500
+Subject: [cxx-abi-dev] Name mangling question
+Message-ID: <OFE677AAD8.2232C29E-ON85256C7E.005DE394@torolab.ibm.com>
+
+Ok...This is making more sense now.  Based on what you are saying we have
+not interpreted the document correctly.
+We interpreted it as having to walk the other productions first, then look
+for a substitution for what was generated by the production.  That's how we
+got to <nested name> before <substitution>.
+
+Howard W. Nasgaard
+C++ Compiler Development
+e-mail: nasgaard at ca.ibm.com
+C2/KD2/8200/MKM
+905-413-3683
+Tie: 969-3683
+
+
+
+                                                                                                                                                    
+                      loewis at informatik.h                                                                                                           
+                      u-berlin.de (Martin        To:       Howard Nasgaard/Toronto/IBM at IBMCA                                                        
+                      v. L?wis)                  cc:       Mark Mitchell <mark at codesourcery.com>, cxx-abi-dev at codesourcery.com                      
+                                                 Subject:  Re: [cxx-abi-dev] Name mangling question                                                 
+                      11/27/2002 11:59 AM                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+
+
+
+nasgaard at ca.ibm.com writes:
+
+> Here the mangled name is _ZN6locale5_Impl3fooERNS_3BarE.  Note the N...E.
+> Unless I have a gross misunderstanding (which is possible) we build up
+the
+> type by following productions through type and nested name.  Then, after
+> building a name we look for a substitution.
+
+No. You do that vice versa. You first look for substitutions, then you
+start
+mangling. This is necessary because, after substitution, you may find that
+your identifier which was originally nested is not nested anymore. You emit
+a nested-name only if it is still nested after substitutions.
+
+So while you go through <type>, you don't go through <nested-name>;
+instead,
+you go through <substition>.
+
+Regards,
+Martin
+
+
+
+
+

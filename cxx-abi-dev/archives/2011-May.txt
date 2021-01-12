@@ -1,0 +1,95 @@
+From rjmccall at apple.com  Wed May  4 00:03:47 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 03 May 2011 17:03:47 -0700
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <19E0FBCA-4690-4E61-9899-A001D558A04F@edg.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+ <19E0FBCA-4690-4E61-9899-A001D558A04F@edg.com>
+Message-ID: <88749CE0-F2BD-469F-AF9B-84156CFD0A11@apple.com>
+
+On Apr 29, 2011, at 2:41 PM, David Vandevoorde wrote:
+> On Apr 24, 2011, at 2:22 AM, John McCall wrote:
+>> Consider the following:
+>> 
+>> namespace ns {
+>>   int foo(int);
+>>   short foo(short);
+>> }
+>> 
+>> template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t)) {
+>>   return ns::foo(t);
+>> }
+>> 
+>> short test(short x) { return forward_foo(x); }
+>> 
+>> gcc-4.6 mangles forward_foo<short> as:
+>> _Z11forward_fooIsEDTcl3foofp_EET_
+>> 
+>> This seems obviously wrong:  the qualifier has completely disappeared,
+>> and this now looks like an unqualified call.  I believe the correct
+>> mangling falls under the fourth production for <unresolved-name>:
+>> <unresolved-name> ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+>> In that case, the mangling should be:
+>> _Z11forward_fooIsEDTclsr2nsE3foofp_EET_
+>> 
+>> Right?
+> 
+> Yes.  (That's what we produce.)
+
+Okay.  It seems to me that this should be made more explicit in the document.
+If we're all in agreement, then I suggest the following wording:
+
+Strike the sentence reading:
+  Similarly, an <unresolved-qualifier-level> may encode a known class type.
+After the next sentence (beginning "That production is also used..."), insert:
+  The mangling of an <unresolved-name> always follows the structure
+  of the source, even when it can be resolved wholly or in part to a known
+  entity.  All names in an <unresolved-name>, except names of template
+  parameters, names appearing in a <decltype>, and names appearing in
+  the <template-args> of a <simple-id>, are mangled as if completely
+  unresolved;  this includes names of namespaces, namespace aliases,
+  types, typedefs, type aliases, templates, template aliases, and so on.
+
+We may also want to put some of these examples in the following
+examples section.
+
+Incidentally, while I was drafting this, I realized I had no idea how we're
+supposed to mangle unresolved names starting with template-ids
+where the template name is a template template parameter, e.g.
+  template <template <class> temp> void foo(decltype(temp<int>::bar()) x);
+
+I would suggest tweaking <unresolved-type> like so:
+  <unresolved-type> ::= <template-param> [ <template-args>]
+This should be unambiguous because I believe nothing
+following an <unresolved-type> can start with an I, although I am
+a bit worried about <destructor-name>.  But note that it's important
+to express this in <destructor-name>, too!
+
+John.
+
+
+From rjmccall at apple.com  Wed May  4 01:52:11 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 03 May 2011 18:52:11 -0700
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <88749CE0-F2BD-469F-AF9B-84156CFD0A11@apple.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+ <19E0FBCA-4690-4E61-9899-A001D558A04F@edg.com>
+ <88749CE0-F2BD-469F-AF9B-84156CFD0A11@apple.com>
+Message-ID: <B2F57132-D615-42FB-81C5-98FE3B22F75C@apple.com>
+
+On May 3, 2011, at 5:03 PM, John McCall wrote:
+> Incidentally, while I was drafting this, I realized I had no idea how we're
+> supposed to mangle unresolved names starting with template-ids
+> where the template name is a template template parameter, e.g.
+>  template <template <class> temp> void foo(decltype(temp<int>::bar()) x);
+> 
+> I would suggest tweaking <unresolved-type> like so:
+>  <unresolved-type> ::= <template-param> [ <template-args>]
+
+Sorry, of course this should be:
+  <unresolved-type> ::= <template-template-param> <template-args>
+
+John.
+
+

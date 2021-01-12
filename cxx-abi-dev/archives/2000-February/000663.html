@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call writeup
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20writeup&In-Reply-To=%3C20000225013722T.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000660.html">
+   <LINK REL="Next"  HREF="000665.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call writeup</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20writeup&In-Reply-To=%3C20000225013722T.mitchell%40codesourcery.com%3E"
+       TITLE="Virtual function call writeup">mark at codesourcery.com
+       </A><BR>
+    <I>Fri Feb 25 09:37:22 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000660.html">Conference phone
+</A></li>
+        <LI>Next message: <A HREF="000665.html">Virtual function call writeup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#663">[ date ]</a>
+              <a href="thread.html#663">[ thread ]</a>
+              <a href="subject.html#663">[ subject ]</a>
+              <a href="author.html#663">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+It seems that I finally understand Jason's proposal, i.e., the
+currently accepted resolution.  I managed to write up the following
+description, which, when run by Jason, came back with only minor
+tweaks -- no major corrections.  That indicates I've probably got it,
+now.
+
+I hope that having a (relatively) clear writeup will help.
+
+Thanks to all of you for helping.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+Purpose
+=======
+
+The purpose of this document is to explain, at a high level, what
+information must be present in the vtable for a class A which declares
+a virtual function f in order that, given an pointer of type A*, the
+caller can call the virtual function f.  This document does not
+specify exactly where that information is located, nor does it specify
+how to convert a pointer to a class derived from A to an A*, if that
+is required.  In addition, this document provides the rationale behind
+these design decisions, together with suggestions for implementing the
+ABI in order to achieve maximum efficiency.
+
+When this document uses the term &quot;function pointer&quot; it is understood
+that this term may refer either to a traditional function pointer
+(i.e., a pointer to a GP/address pair) or a GP/address pair itself.
+Which of these alternatives will actually be used must be specified by
+the ABI, but is not specified in this document.
+
+Throughout, we assume that A is the class for which we are creating a
+vtable, B is the most derived class in the hierarchy, and C is the
+class that contains C::f, the unique final overrider for A.  This
+document specifies the contents of the f entry in the A-in-B vtable.
+(If A is primary base in the hierarchy, then the A-in-B vtable will be
+shared with the derived class vtable -- but the contents of the A
+portion of that vtable will still be as specified here.)
+
+In all cases, the &quot;non-adjusting entry point&quot; for a virtual function
+expects the `this' pointer to point to an instance of the class in
+which the virtual function is defined.  In other words, the
+non-adjusting entry point for C::f will expect that its `this'
+pointer points to a C object.
+
+We say that a subobject X is a &quot;morally virtual&quot; base of Y if X is an
+indirect or direct base class of Y, and if X is either a virtual base
+of Y, or the direct or indirect base of a virtual base of Y.
+
+A's Vtable
+==========
+
+Case 1: A = C
+
+  (In this case, we are creating either the primary vtable for A, or
+  the A-in-B secondary vtable.)
+
+  The vtable contains a function pointer pointing to the non-adjusting
+  entry point for A::f.
+
+Case 2: A != C
+
+  In this case, we are creating the A-in-B secondary vtable.
+
+  The vtable contains a pointer to an entry point that performs the
+  adjustment from an A* to a C*, and then transfers control to the
+  non-adjusting entry point for C::f.
+
+Callee
+======
+
+For each direct or indirect base A of C that is not a morally virtual
+base of C, the compiler must emit, in the same object file as the code
+for C::f, an &quot;A adjusting entry point&quot; for C::f.  This entry point
+will expect that its `this' pointer points to an A*, and will
+convert it to a C* before transferring control to the non-adjusting
+entry point for C::f.
+
+For each direct or indirect virtual base V of C such that either V
+declares f, or is derived from a class that declares f, the compiler
+must emit, in the same object file as the code for C::f, an &quot;V
+adjusting entry point&quot; for C::f.  This entry point will expect that
+its `this' pointer points to the unique virtual V subobject of C.
+(Note that there may in general be multiple V subobjects of C, but
+that only one of them will be virtual.)  This entry point must examine
+the V vtable given by its this point, extract the vcall offset
+corresponding to f located in that vtable, and add this offset to the
+this pointer.  (Note that, as specified in the data layout document,
+when V is used as a virtual base, its vtable contains vcall offsets
+for every virtual function declared in V or any of its bases.)  Then,
+this entry point must transfer control to the non-adjusting entry
+point.
+
+For each morally virtual base M of C such that M is *not* a virtual
+base, and such that M declares f, the compiler must emit, in the same
+object file as the code for C::f, an &quot;M adjusting entry point&quot; for
+C::f.  This entry point will expect that its `this' pointer points to
+an A*, and will convert it to a V*, where V is the nearest virtual
+base to M along the path from C to M.  Then, it will convert the V* to
+a C* by using the vcall offset stored in the V's vtable.  (Note that
+one implementation of the &quot;M adjusting entry point&quot; is to convert from
+M* to V* and then transfer control to the &quot;V adjusting entry point.&quot;)
+
+Caller
+======
+
+When calling a virtual function f, through a pointer of static type
+B*, the caller
+
+  - Selects a (possibly improper) subobject A of B such that A
+    declares f.  (In general, A may be the same as B.)  (Note that A
+    need not define f; it may contain either a definition of f, or a
+    declaration of f as a pure virtual function.)
+
+  - Converts the B* to point to this subobject.  (Call the resulting
+    pointer `a'.)
+
+  - Uses the vtable pointer contained in the A subobject to locate
+    the function pointer through which to perform the call.
+
+  - Calls through this function pointer, passing `a' as the `this' 
+    pointer.
+
+(Note that in general it will be optimal to select the class which
+contained the final overrider (i.e., C) as the class to which the B*
+should be converted.  This class is always a satisfactory choice,
+since it is known to contain a definition of f.  In addition, if the
+dynamic type of the object is B, then C::f will be the function
+ultimately selected by the call, which means that C's vtable will
+contain a pointer to the non-adjusting entry point, meaning that no
+additional adjustments to the `this' pointer will be required.
+
+However, there may be cases in which choosing a different base
+subobject could be superior.  For example, if there is an alternate
+base D which also declares f, and a pointer to the D subobject is
+already available, then it may be better to use the D subobject rather
+than converting the B* to a C*, in order to avoid the cost of the
+conversion.)
+
+Implementation Notes
+====================
+
+The design specified here provides several benefits:
+
+- In the case of single, non-virtual inheritance, calling a virtual
+  function requires no adjustment to the `this' pointer, and no vcall
+  offsets.  This is in keeping with the guiding principle that &quot;you
+  shouldn't pay for features you don't use.&quot;
+
+- If the static type of an object is the same as its dynamic type,
+  then no adjustment to the `this' pointer is required.
+
+- All thunks can be emitted in the same translation unit as the
+  overriding function.
+
+- Thunks from classes that are not morally virtual bases do not
+  require a branch to the non-adjusting entry point.
+
+  We suggest the following implementation:
+
+    m2: /* Thunk for morally virtual base M2.  */
+        this += offsetof (V, M1) - offsetof (V, M2)
+    m1: /* Thunk for morally virtual base M1.  */
+        this -= offsetof (V, M1)
+    v:  /* Thunk for virtual base V.  */
+        this += vcall offset stored in V vtable
+	goto f;
+    a2: /* Thunk for non-virtual base A2.  */
+        this += offsetof (B, A1) - offsetof (B, A2)
+        /* Fall through.  */
+    a1: /* Thunk for non-virtual base A1.  */
+        this += offsetof (B, C) - offsetof (B, A1)
+        /* Fall through.  */
+    f:  /* Non-adjusting entry point.  */
+
+  (Here `offsetof' is a compile-time computable function that gives
+  the offset of its second parameter in its first parameter.)
+
+  (Alternatively the `v' entry point above could be of the form:
+
+    v: /* Thunk for virtual base V.  */
+       this += vcall offset stored in V vtable 
+               - offsetof (B, C) + offsetof (B, A2)
+       /* Fall through.  */
+   
+   which alternative is better depends on how many adds follow at this
+   point.  In general, if many adds remain before the non-adjusting
+   entry point, it may be better to suffer the consequences of the
+   indirect branch.)
+
+  In this way, a virtual call through a base A1, A2, etc., that is not
+  a virtual base of C (or a direct or indirect base of a virtual base
+  of C), does not require an additional branch, and is therefore more
+  likely to avoid icache misses.  Even the thunk for V may avoid
+  severe icache penalties since it is located near the non-adjusting
+  entry point for f.  Furthermore, if there are no non-virtual bases,
+  then the sequence can become just:
+
+    v: /* Thunk for virtual base V.  */
+       this += vcall offset stored in V vtable
+    f: /* Non-adjusting entry point.  */
+
+Open Issues
+===========
+
+We should specify manglings for each of the thunks so that other
+translation units can use them.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000660.html">Conference phone
+</A></li>
+	<LI>Next message: <A HREF="000665.html">Virtual function call writeup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#663">[ date ]</a>
+              <a href="thread.html#663">[ thread ]</a>
+              <a href="subject.html#663">[ subject ]</a>
+              <a href="author.html#663">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

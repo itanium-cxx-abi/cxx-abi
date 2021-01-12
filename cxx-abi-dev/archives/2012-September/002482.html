@@ -1,0 +1,112 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] thread_local CONstructors
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20thread_local%20CONstructors&In-Reply-To=%3C506129E0.3030904%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002480.html">
+   <LINK REL="Next"  HREF="002485.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] thread_local CONstructors</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20thread_local%20CONstructors&In-Reply-To=%3C506129E0.3030904%40redhat.com%3E"
+       TITLE="[cxx-abi-dev] thread_local CONstructors">jason at redhat.com
+       </A><BR>
+    <I>Tue Sep 25 03:49:52 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002480.html">[cxx-abi-dev] thread_local CONstructors
+</A></li>
+        <LI>Next message: <A HREF="002485.html">[cxx-abi-dev] thread_local CONstructors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2482">[ date ]</a>
+              <a href="thread.html#2482">[ thread ]</a>
+              <a href="subject.html#2482">[ subject ]</a>
+              <a href="author.html#2482">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 09/24/2012 11:57 AM, Jason Merrill wrote:
+&gt;<i> And I guess this means that we can't treat thread_local and __thread as
+</I>&gt;<i> equivalent; __thread will still need to require static initialization
+</I>&gt;<i> for C compatibility.
+</I>
+Jakub and I discussed this more on IRC today.  It occurred to me that if 
+we use a weak reference to the initialization function we can avoid 
+breaking compatibility with C code that uses __thread, at least for 
+variables that are statically initialized.  So a declaration
+
+extern thread_local int i;
+
+implies
+
+extern void i_init() __attribute__ ((weak));
+inline int&amp; i_wrapper()
+{
+   if (i_init) i_init();
+   return i;
+}
+
+so uses of i are replaced with calls to i_wrapper, and when i is defined 
+we emit i_init iff i has a dynamic initializer.  For a statically 
+initialized variable, the runtime penalty is small (just comparing the 
+address of a symbol to zero).
+
+Jakub suggested that it would be more efficient for variables that do 
+need dynamic initialization to have the wrapper check a guard variable 
+before calling the init function rather than from within the init 
+function.  We could do that, too:
+
+extern void i_init() __attribute ((weak));
+extern thread_local bool i_done __attribute ((weak));
+inline int&amp; i_wrapper()
+{
+   if (i_init &amp;&amp; !i_done) i_init();
+   return i;
+}
+
+Note that we can't test the address of i_done to see if it's defined 
+because undefined weak TLS variables resolve to a non-null pointer 
+value.  So we test the address of i_init instead.
+
+Either of these maintains link-compatibility with __thread for 
+statically initialized variables (and even dynamically-initialized ones 
+as long as they are initialized before the C code tries to use them).
+
+Jason
+
+</PRE>
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002480.html">[cxx-abi-dev] thread_local CONstructors
+</A></li>
+	<LI>Next message: <A HREF="002485.html">[cxx-abi-dev] thread_local CONstructors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2482">[ date ]</a>
+              <a href="thread.html#2482">[ thread ]</a>
+              <a href="subject.html#2482">[ subject ]</a>
+              <a href="author.html#2482">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of function-to-pointer conversion
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3C4C1A7A61.9060708%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002327.html">
+   <LINK REL="Next"  HREF="002328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of function-to-pointer conversion</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3C4C1A7A61.9060708%40redhat.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of function-to-pointer conversion">jason at redhat.com
+       </A><BR>
+    <I>Thu Jun 17 19:41:21 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002327.html">Mangling of function-to-pointer conversion
+</A></li>
+        <LI>Next message: <A HREF="002328.html">[cxx-abi-dev] Parameter references in function types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2332">[ date ]</a>
+              <a href="thread.html#2332">[ thread ]</a>
+              <a href="subject.html#2332">[ subject ]</a>
+              <a href="author.html#2332">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 06/09/2010 12:55 PM, Mike Herrick wrote:
+&gt;<i> While working on SFINAE mangling, I ran across this issue with an implicit function-to-pointer conversion.  Given:
+</I>&gt;<i>
+</I>&gt;<i> $ cat test.cpp
+</I>&gt;<i> template&lt;class T&gt;  struct A {
+</I>&gt;<i>    template&lt;void (*PF)()&gt;  struct B {};
+</I>&gt;<i> };
+</I>&gt;<i> template&lt;void (*PF)()&gt;  struct B {};
+</I>&gt;<i> void ff();
+</I>&gt;<i> template&lt;class T&gt;  B&lt;&amp;ff&gt;  f1(T);
+</I>&gt;<i> template&lt;class T&gt;  B&lt;ff&gt;   f2(T);
+</I>&gt;<i> template&lt;class T&gt;  typename A&lt;T&gt;::template B&lt;&amp;ff&gt;  f3(T);
+</I>&gt;<i> template&lt;class T&gt;  typename A&lt;T&gt;::template B&lt;ff&gt;   f4(T);
+</I>&gt;<i> int main() {
+</I>&gt;<i>    f1(1);
+</I>&gt;<i>    f2(1);
+</I>&gt;<i>    f3(1);
+</I>&gt;<i>    f4(1);
+</I>&gt;<i> }
+</I>&gt;<i> $ g++450 -fabi-version=0 -c test.cpp&amp;&amp;  nm -u test.o
+</I>&gt;<i>                 U _Z2f1IiE1BIXadL_Z2ffvEEET_
+</I>&gt;<i>                 U _Z2f2IiE1BIXadL_Z2ffvEEET_
+</I>&gt;<i>                 U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+</I>&gt;<i>                 U _Z2f4IiEN1AIT_E1BIL_Z2ffvEEES1_
+</I>&gt;<i> $ eccp -c test.cpp&amp;&amp;  nm -u test.o
+</I>&gt;<i>                 U _Z2f1IiE1BIXadL_Z2ffvEEET_
+</I>&gt;<i>                 U _Z2f2IiE1BIXadL_Z2ffvEEET_
+</I>&gt;<i>                 U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+</I>&gt;<i>                 U _Z2f4IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+</I>&gt;<i> $ clang++ -c test.cpp&amp;&amp;  nm -u test.o
+</I>&gt;<i> __Z2f1IiE1BILZ2ffvEET_
+</I>&gt;<i> __Z2f2IiE1BILZ2ffvEET_
+</I>&gt;<i> __Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+</I>&gt;<i> __Z2f4IiEN1AIT_E1BIXL_Z2ffvEEEES1_
+</I>&gt;<i>
+</I>&gt;<i> When ff is used as a nontype template parameter in f2, both g++ and EDG add an &quot;ad&quot; to represent the implied function-to-pointer conversion.  However, that's not the case in f4 where g++ doesn't add the &quot;ad&quot;.
+</I>&gt;<i>
+</I>&gt;<i> The ABI spec says (5.1.5): &quot;Except for the parentheses, therefore, it [the mangled expression encoding] represents the source token stream&quot;.  That would seem to indicate that the mangling for f2 is wrong (as is EDG's mangling for f4).
+</I>&gt;<i>
+</I>&gt;<i> Does anyone know the logic behind adding the &quot;ad&quot; in the mangled name for f2 (and whether or not that same logic applies to f4)?
+</I>
+Presumably it's there because of the conversion of the template argument 
+to match the template parameter; this doesn't apply to f4 because in f4 
+we don't know what the template parameters of A&lt;T&gt;::B are.
+
+I don't have a particular opinion about whether or not adding the &quot;ad&quot; 
+is a good thing, but given that G++ has put it there since 3.4 (3.0-3.3 
+crashed on this testcase) I'd rather not change it.
+
+&gt;<i> Curiously, g++ doesn't add the &quot;ad&quot; in dependent cases:
+</I>&gt;<i>
+</I>&gt;<i> template&lt;class T&gt;  auto f5(T p1) -&gt;  decltype(p1(f));
+</I>
+Again, there is no conversion to match a target type in this case.
+
+Jason
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002327.html">Mangling of function-to-pointer conversion
+</A></li>
+	<LI>Next message: <A HREF="002328.html">[cxx-abi-dev] Parameter references in function types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2332">[ date ]</a>
+              <a href="thread.html#2332">[ thread ]</a>
+              <a href="subject.html#2332">[ subject ]</a>
+              <a href="author.html#2332">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

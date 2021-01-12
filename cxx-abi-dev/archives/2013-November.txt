@@ -1,0 +1,1189 @@
+From richardsmith at google.com  Wed Nov 20 01:57:50 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 19 Nov 2013 17:57:50 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+Message-ID: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+
+Hi,
+
+There are a few things in the current ABI which are known to be suboptimal,
+but we cannot change because doing so would introduce an ABI break.
+However, vendors sometimes get an opportunity to break their ABI (or are
+defining a new ABI), and for some vendors, this is a very common
+occurrence. To this end, I think it would be valuable for the ABI document
+to describe what we might want to put in a 'Version 2' of the ABI; that is,
+a set of changes that we recommend be made whenever a vendor has a chance
+to introduce an ABI break.
+
+(Or perhaps this should be viewed from the opposite perspective: we could
+make improvements to the ABI, with an annex listing changes that old
+platforms must make for compatibility.)
+
+Would there be support for this idea?
+
+
+In off-line discussion with John McCall, we came up with the following list
+of potential changes that might be made (sorry if I forgot any):
+
+ * Make constructors and destructors return 'this' instead of returning
+'void', in order to allow callers to avoid a reload in common cases and to
+allow more tail calls.
+ * Simplify case 2b in non-POD class layout.
+ * Make virtual functions that are defined as 'inline' not be key functions
+ * Fix the bug that -1 is both the null pointer-to-data-member value and
+also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+ * Relax the definition of POD used in the ABI, in order to allow more
+class types to be passed in registers
+
+Are there any other things that it would make sense to change in a version
+2 of the ABI?
+
+
+Also, would there be any support for documenting common deviations from the
+ABI that platform vendors might want to consider when specifying their own
+ABIs? In addition to some of the above, this would also include:
+
+ * Representation of pointers-to-member-functions (in particular, the
+current representation assumes that the lowest bit of a function pointer is
+unused, which isn't true in general)
+ * Representation of guard variables (some platforms use the native word
+size rather than forcing this to be 64 bits wide)
+
+Are there any others?
+
+
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131119/0e4a0abd/attachment.html>
+
+From rjmccall at apple.com  Wed Nov 20 05:33:31 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 19 Nov 2013 21:33:31 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <8378D80B-AF16-4786-BFCB-F102CC07D94D@apple.com>
+
+On Nov 19, 2013, at 5:57 PM, Richard Smith <richardsmith at google.com> wrote:
+> There are a few things in the current ABI which are known to be suboptimal, but we cannot change because doing so would introduce an ABI break. However, vendors sometimes get an opportunity to break their ABI (or are defining a new ABI), and for some vendors, this is a very common occurrence. To this end, I think it would be valuable for the ABI document to describe what we might want to put in a 'Version 2' of the ABI; that is, a set of changes that we recommend be made whenever a vendor has a chance to introduce an ABI break.
+> 
+> (Or perhaps this should be viewed from the opposite perspective: we could make improvements to the ABI, with an annex listing changes that old platforms must make for compatibility.)
+> 
+> Would there be support for this idea?
+
+Personally, I?m in favor of us generally documenting any vendor-specific deviations, as long as the vendor?s okay with it.  In principle, that list of deviations could get unmanageably long, but I doubt it?d be a real issue.
+
+> In off-line discussion with John McCall, we came up with the following list of potential changes that might be made (sorry if I forgot any):
+> 
+>  * Simplify case 2b in non-POD class layout.
+
+>  * Make constructors and destructors return 'this' instead of returning 'void', in order to allow callers to avoid a reload in common cases and to allow more tail calls.
+>  * Make virtual functions that are defined as 'inline' not be key functions
+
+Credit the good folks at ARM for these two ideas.
+
+>  * Fix the bug that -1 is both the null pointer-to-data-member value and also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+>  * Relax the definition of POD used in the ABI, in order to allow more class types to be passed in registers
+
+POD-ness doesn't affect what can be passed in registers; that?s just about the copy constructor(s) and destructor.
+
+Making a type POD in the ABI means that we can?t allocate subobjects of subclasses into its tail-padding.  This is, at least, in theory, a tradeoff:
+  - The downside is that derived classes might get larger.
+  - The upside is that assignments into an opaque T& can copy sizeof(T) bytes instead of dsize(T).  When those quantities differ, copying sizeof(T) is generally faster because a round number of words can be copied in fewer instructions; e.g. 24 bytes (8-byte aligned) can be done in three 64-bit stores, whereas 22 bytes (but still 8-byte aligned) requires two 64-bit stores, a 32-bit store, and a 16-bit store.
+
+I would argue that it?s abstractly more likely that trivially-copyable type will be assigned at some point than that it will be used as a base class, but I don?t have empirical evidence for that.
+
+> Are there any other things that it would make sense to change in a version 2 of the ABI?
+
+We could consider giving standard substitutions to some of the newer library features, like std::shared_ptr and std::unique_ptr.  I don?t know if standard substitutions still matter to other people; Apple?s committed to libc++, which intentionally subverts them with inline namespaces.
+
+> Also, would there be any support for documenting common deviations from the ABI that platform vendors might want to consider when specifying their own ABIs? In addition to some of the above, this would also include:
+> 
+>  * Representation of pointers-to-member-functions (in particular, the current representation assumes that the lowest bit of a function pointer is unused, which isn't true in general)
+
+>  * Representation of guard variables (some platforms use the native word size rather than forcing this to be 64 bits wide)
+
+I would actually call this one a recommended change.  As far as I know, making them 64 bits on all platforms was just an Itanium assumption sneaking in.  I don?t know of any clever locking strategies that vitally require two pointers of data.
+
+John.
+
+From marc.glisse at inria.fr  Wed Nov 20 17:30:57 2013
+From: marc.glisse at inria.fr (Marc Glisse)
+Date: Wed, 20 Nov 2013 18:30:57 +0100 (CET)
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <alpine.DEB.2.10.1311201709490.4576@stedding.saclay.inria.fr>
+
+On Tue, 19 Nov 2013, Richard Smith wrote:
+
+> Would there be support for this idea?
+
+I thought it was a big NO-NO, so I am happy to hear it isn't.
+
+> In off-line discussion with John McCall, we came up with the following list
+> of potential changes that might be made (sorry if I forgot any):
+
+Maybe revisit some old issues?
+
+A-9 has the comment: "this won't happen often", but it affects 
+sizeof(tuple<tuple<int>>) in libstdc++. Hmm, no, it doesn't, but it would 
+if they swapped the order of their bases (currently for 
+tuple<int,unsigned> they store the unsigned before the int). Of the 3 
+permutations tuple<int,E,E>, tuple<E,int,E> and tuple<E,E,int> where E is 
+empty, only 1 has a small size, whereas I believe at most 1 should be 
+large (0 would be great). And that's not the only place I've hit this.
+
+A-5: gcc and HP seemed to find it hard to implement at the time. Would 
+that still be the case? (it may need to mention move constructors now)
+I seem to be missing the detail that makes it so complicated.
+
+
+-- 
+Marc Glisse
+
+From rjmccall at apple.com  Thu Nov 21 00:20:40 2013
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 20 Nov 2013 16:20:40 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <alpine.DEB.2.10.1311201709490.4576@stedding.saclay.inria.fr>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<alpine.DEB.2.10.1311201709490.4576@stedding.saclay.inria.fr>
+Message-ID: <2269DE1C-64FA-46F3-9B17-929AB4B4F830@apple.com>
+
+On Nov 20, 2013, at 9:30 AM, Marc Glisse <marc.glisse at inria.fr> wrote:
+> On Tue, 19 Nov 2013, Richard Smith wrote:
+> 
+>> Would there be support for this idea?
+> 
+> I thought it was a big NO-NO, so I am happy to hear it isn?t.
+
+Well, to be clear, these would be recommendations for people willing to endure an ABI break.  That would still be a big NO-NO for any established platforms that care about binary compatibility.
+
+And most of these changes are pretty minor improvements; the ABI has really held up very well.
+
+Oh, one thing that Richard forgot:  changing the rules for RTTI uniqueness to reduce the need for coalescing weak RTTI symbols at dynamic load time.  I should probably make that a separate thread, though; Clang and GCC are both doing things in this area, but for slightly different reasons.
+
+>> In off-line discussion with John McCall, we came up with the following list
+>> of potential changes that might be made (sorry if I forgot any):
+> 
+> Maybe revisit some old issues?
+> 
+> A-9 has the comment: "this won't happen often", but it affects sizeof(tuple<tuple<int>>) in libstdc++. Hmm, no, it doesn't, but it would if they swapped the order of their bases (currently for tuple<int,unsigned> they store the unsigned before the int). Of the 3 permutations tuple<int,E,E>, tuple<E,int,E> and tuple<E,E,int> where E is empty, only 1 has a small size, whereas I believe at most 1 should be large (0 would be great). And that's not the only place I've hit this.
+> 
+> A-5: gcc and HP seemed to find it hard to implement at the time. Would that still be the case? (it may need to mention move constructors now)
+> I seem to be missing the detail that makes it so complicated.
+
+I am not sure how to interpret these comments.  Would you mind translating them into HTML #entity references, or at least section numbers, of the living document at:
+  http://mentorembedded.github.io/cxx-abi/abi.html
+
+John.
+
+From rjmccall at apple.com  Thu Nov 21 05:43:29 2013
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 20 Nov 2013 21:43:29 -0800
+Subject: [cxx-abi-dev] RTTI symbol uniqueness
+Message-ID: <14FA812A-A04A-4BF9-B7CA-4DC91536FFC9@apple.com>
+
+The ABI often requires symbols to be emitted with vague linkage: inline functions, static data members of class temploids, RTTI objects and names for types that aren?t polymorphic classes with a key function, etc.
+
+Vague linkage is fine during static linking*.  However, it can be really expensive if the program needs dynamic linking***, and it?s expensive even if only one shared object actually defines the symbol.
+
+  * Well, no, it causes terrible build-time regressions, but that?s hard to avoid in the C++ translation model.**
+  ** Unless you are EDG.
+  *** Which is to say, always, unless you?re on a very special platform.
+
+When the symbol is a function, a lot of this cost is avoidable, or at least postponable:
+  - Direct calls and v-table references don?t care about the exact address and can potentially be resolved within the shared object.* **
+  - Direct calls can use a lazy-binding stub to postpone symbol resolution until the code actually executes.
+
+  * At least, this is legal by the language standard.  IIRC, GCC has historically not done this on the grounds that it violates the ELF standard.
+  ** Although this can hurt code locality by causing multiple copies of a function to be executed.
+
+When the symbol is a variable, including RTTI objects and names, that resolution has to occur immediately upon load.*  That?s a lot of work, but more importantly, it?s a lot of memory that has to be loaded from disk before you can even start running global constructors.
+
+  * References from code could also use lazy binding in theory, but I don?t think anybody does this for various reasons.  References from data, like the name pointer from an RTTI object, have to be resolved immediately.
+
+Some of that work is absolutely necessary: the language requires variables to have a single, unique address.  But the language has no such requirement on RTTI objects and names; that?s purely our requirement, done to make it more efficient to compare type_infos.
+
+In practice, users take measures to reduce these costs, e.g. using broad-spectrum visibility switches like GCC/Clang?s -fvisibility=hidden.  If they use dynamic libraries, they then usually have to manually undo that for specific symbols, e.g. with attributes like GCC/Clang?s __attribute__((visibility(?default?))).  Symbol visibility is its own, glorious thing that some of us probably ought to standardize the computation of one of these days.  All that?s really important is that it?s not uncommon for RTTI symbols to get hidden despite actually needing to be uniqued across library boundaries.
+
+I believe GCC and libstdc++ have recently(-ish) taken measures against that problem.  If the RTTI name starts with ?*?, it is known to have a unique address; otherwise, equality/comparison must happen with strcmp.  I don?t know exactly when the library and compile use that ABI, however, or what causes the compiler to emit a name starting with ?*'.
+
+On ARM64, Apple/clang/libc++ does something very similar.  When an RTTI object would otherwise have default visibility and vague linkage, we instead give it hidden visibility and set a high bit in the RTTI object?s name pointer.*  If that bit is set on both pointers, we fall back on using string comparison.  Using a high bit means that, in the fast path, the name data never needs to be loaded at all.
+
+  * On ARM64, the top eight bits of all pointers are reserved for shenanigans.**
+  ** Not Objective-C object pointers.
+
+The chief difference* is that Apple?s approach still requires the type to be formally given the right visibility.**   It's primarily a targeted optimization to eliminate a common need for vague linkage in the dynamic linker; it's also ARM64-specific, and on all other platforms, Apple?s clang still hews exactly to the ABI.  In contrast, I believe GCC?s approach is intended to Do The Right Thing even when types are completely mis-decorated (or at least, left undecorated under -fvisibility=hidden).
+
+  * Ignoring the minor representation difference.
+  ** Clang provides a type_visibility attribute which only controls the visibility only of a type, not its (non-type) members.  This makes it easy to formally export a type without changing the visibility rules for any of its member functions.  This is also essentially what happens with -fvisibility-ms-compat.
+
+This seems to be a growing area of disagreement between vendors, and I wanted to bring it to the list?s attention for discussion.
+
+John.
+
+From marc.glisse at inria.fr  Thu Nov 21 08:41:42 2013
+From: marc.glisse at inria.fr (Marc Glisse)
+Date: Thu, 21 Nov 2013 09:41:42 +0100 (CET)
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <2269DE1C-64FA-46F3-9B17-929AB4B4F830@apple.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<alpine.DEB.2.10.1311201709490.4576@stedding.saclay.inria.fr>
+	<2269DE1C-64FA-46F3-9B17-929AB4B4F830@apple.com>
+Message-ID: <alpine.DEB.2.10.1311210920380.3743@laptop-mg.saclay.inria.fr>
+
+On Wed, 20 Nov 2013, John McCall wrote:
+
+> Well, to be clear, these would be recommendations for people willing to 
+> endure an ABI break.  That would still be a big NO-NO for any 
+> established platforms that care about binary compatibility.
+>
+> And most of these changes are pretty minor improvements; the ABI has 
+> really held up very well.
+
+Indeed.
+
+>> Maybe revisit some old issues?
+>>
+>> A-9 has the comment: "this won't happen often", but it affects sizeof(tuple<tuple<int>>) in libstdc++. Hmm, no, it doesn't, but it would if they swapped the order of their bases (currently for tuple<int,unsigned> they store the unsigned before the int). Of the 3 permutations tuple<int,E,E>, tuple<E,int,E> and tuple<E,E,int> where E is empty, only 1 has a small size, whereas I believe at most 1 should be large (0 would be great). And that's not the only place I've hit this.
+>>
+>> A-5: gcc and HP seemed to find it hard to implement at the time. Would that still be the case? (it may need to mention move constructors now)
+>> I seem to be missing the detail that makes it so complicated.
+>
+> I am not sure how to interpret these comments.  Would you mind 
+> translating them into HTML #entity references, or at least section 
+> numbers, of the living document at:
+>  http://mentorembedded.github.io/cxx-abi/abi.html
+
+A-5, A-9 were references to the issue list:
+http://mentorembedded.github.io/cxx-abi/cxx-closed.html#A9
+(A-5 has no anchor but is easy to find)
+
+A-5 is about section 3.1.3 #empty-parameter, where we could omit some 
+empty arguments passed by value.
+
+A-9 is about section 2.4.II.3 #class-types, where if offset 0 fails we 
+don't try offset nvalign(D), 2*nvalign(D), etc but jump straight to 
+dsize(C).
+
+
+PS: sorry if my message has to go through moderation as a post by a 
+non-member, I am receiving the emails, and I even found the message from 
+when I registered, and I did use the same email address, so I don't know 
+why it is complaining.
+
+-- 
+Marc Glisse
+
+From anthony at justsoftwaresolutions.co.uk  Thu Nov 21 08:24:19 2013
+From: anthony at justsoftwaresolutions.co.uk (Anthony Williams)
+Date: Thu, 21 Nov 2013 08:24:19 +0000
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <528DC333.9070906@justsoftwaresolutions.co.uk>
+
+On 20/11/13 01:57, Richard Smith wrote:
+> There are a few things in the current ABI which are known to be
+> suboptimal, but we cannot change because doing so would introduce an ABI
+> break. However, vendors sometimes get an opportunity to break their ABI
+> (or are defining a new ABI), and for some vendors, this is a very common
+> occurrence. To this end, I think it would be valuable for the ABI
+> document to describe what we might want to put in a 'Version 2' of the
+> ABI; that is, a set of changes that we recommend be made whenever a
+> vendor has a chance to introduce an ABI break.
+
+> Are there any other things that it would make sense to change in a
+> version 2 of the ABI?
+
+If people are willing to make an ABI change, it would be great if they
+could add in the necessary information to allow std::current_exception
+to take a copy of the exception rather than increasing the reference
+count on the existing exception.
+
+See my blog post on the subject, with a patch for gcc 4.5.0.
+
+http://www.justsoftwaresolutions.co.uk/cplusplus/copying_exceptions.html
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     http://www.stdthread.co.uk/book/
+just::thread C++11 thread library             http://www.stdthread.co.uk
+Just Software Solutions Ltd       http://www.justsoftwaresolutions.co.uk
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+From jason at redhat.com  Thu Nov 21 16:45:26 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 21 Nov 2013 11:45:26 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <528E38A6.6040100@redhat.com>
+
+Allow a pure virtual destructor to be a key function.
+
+Jason
+
+From rjmccall at apple.com  Thu Nov 21 18:23:52 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 21 Nov 2013 10:23:52 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <alpine.DEB.2.10.1311210920380.3743@laptop-mg.saclay.inria.fr>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<alpine.DEB.2.10.1311201709490.4576@stedding.saclay.inria.fr>
+	<2269DE1C-64FA-46F3-9B17-929AB4B4F830@apple.com>
+	<alpine.DEB.2.10.1311210920380.3743@laptop-mg.saclay.inria.fr>
+Message-ID: <7CE01B8B-BFBC-4939-A2A0-B9330FF2C9C7@apple.com>
+
+On Nov 21, 2013, at 12:41 AM, Marc Glisse <marc.glisse at inria.fr> wrote:
+> On Wed, 20 Nov 2013, John McCall wrote:
+>> Well, to be clear, these would be recommendations for people willing to endure an ABI break.  That would still be a big NO-NO for any established platforms that care about binary compatibility.
+>> 
+>> And most of these changes are pretty minor improvements; the ABI has really held up very well.
+> 
+> Indeed.
+> 
+>>> Maybe revisit some old issues?
+>>> 
+>>> A-9 has the comment: "this won't happen often", but it affects sizeof(tuple<tuple<int>>) in libstdc++. Hmm, no, it doesn't, but it would if they swapped the order of their bases (currently for tuple<int,unsigned> they store the unsigned before the int). Of the 3 permutations tuple<int,E,E>, tuple<E,int,E> and tuple<E,E,int> where E is empty, only 1 has a small size, whereas I believe at most 1 should be large (0 would be great). And that's not the only place I've hit this.
+>>> 
+>>> A-5: gcc and HP seemed to find it hard to implement at the time. Would that still be the case? (it may need to mention move constructors now)
+>>> I seem to be missing the detail that makes it so complicated.
+>> 
+>> I am not sure how to interpret these comments.  Would you mind translating them into HTML #entity references, or at least section numbers, of the living document at:
+>> http://mentorembedded.github.io/cxx-abi/abi.html
+> 
+> A-5, A-9 were references to the issue list:
+> http://mentorembedded.github.io/cxx-abi/cxx-closed.html#A9
+> (A-5 has no anchor but is easy to find)
+
+Oh, I should have recognized that, sorry.
+
+> A-5 is about section 3.1.3 #empty-parameter, where we could omit some empty arguments passed by value.
+
+Empty structs are a reality in C: an extension, to be sure, but a common one and thus a reality.  We should defer to the psABI.  Platform compiler vendors can define the problem away for themselves however they please.
+
+> A-9 is about section 2.4.II.3 #class-types, where if offset 0 fails we don't try offset nvalign(D), 2*nvalign(D), etc but jump straight to dsize(C).
+
+Ah, yes, that seems like a reasonable thing to change, although I think it increases the complexity of actually implementing that quite a bit.
+
+John.
+
+From rjmccall at apple.com  Thu Nov 21 18:32:48 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 21 Nov 2013 10:32:48 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <528DC333.9070906@justsoftwaresolutions.co.uk>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<528DC333.9070906@justsoftwaresolutions.co.uk>
+Message-ID: <1D2BB966-83C4-484B-A787-EFC7C7336D0E@apple.com>
+
+On Nov 21, 2013, at 12:24 AM, Anthony Williams <anthony at justsoftwaresolutions.co.uk> wrote:
+> On 20/11/13 01:57, Richard Smith wrote:
+>> There are a few things in the current ABI which are known to be
+>> suboptimal, but we cannot change because doing so would introduce an ABI
+>> break. However, vendors sometimes get an opportunity to break their ABI
+>> (or are defining a new ABI), and for some vendors, this is a very common
+>> occurrence. To this end, I think it would be valuable for the ABI
+>> document to describe what we might want to put in a 'Version 2' of the
+>> ABI; that is, a set of changes that we recommend be made whenever a
+>> vendor has a chance to introduce an ABI break.
+> 
+>> Are there any other things that it would make sense to change in a
+>> version 2 of the ABI?
+> 
+> If people are willing to make an ABI change, it would be great if they
+> could add in the necessary information to allow std::current_exception
+> to take a copy of the exception rather than increasing the reference
+> count on the existing exception.
+
+You should not expect that anybody is going to make an ABI change
+to an existing platform.
+
+John.
+
+From anthony at justsoftwaresolutions.co.uk  Fri Nov 22 09:16:43 2013
+From: anthony at justsoftwaresolutions.co.uk (Anthony Williams)
+Date: Fri, 22 Nov 2013 09:16:43 +0000
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <1D2BB966-83C4-484B-A787-EFC7C7336D0E@apple.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<528DC333.9070906@justsoftwaresolutions.co.uk>
+	<1D2BB966-83C4-484B-A787-EFC7C7336D0E@apple.com>
+Message-ID: <528F20FB.8050403@justsoftwaresolutions.co.uk>
+
+On 21/11/13 18:32, John McCall wrote:
+> On Nov 21, 2013, at 12:24 AM, Anthony Williams <anthony at justsoftwaresolutions.co.uk> wrote:
+>> On 20/11/13 01:57, Richard Smith wrote:
+>>> There are a few things in the current ABI which are known to be
+>>> suboptimal, but we cannot change because doing so would introduce an ABI
+>>> break. However, vendors sometimes get an opportunity to break their ABI
+>>> (or are defining a new ABI), and for some vendors, this is a very common
+>>> occurrence. To this end, I think it would be valuable for the ABI
+>>> document to describe what we might want to put in a 'Version 2' of the
+>>> ABI; that is, a set of changes that we recommend be made whenever a
+>>> vendor has a chance to introduce an ABI break.
+>>
+>>> Are there any other things that it would make sense to change in a
+>>> version 2 of the ABI?
+>>
+>> If people are willing to make an ABI change, it would be great if they
+>> could add in the necessary information to allow std::current_exception
+>> to take a copy of the exception rather than increasing the reference
+>> count on the existing exception.
+> 
+> You should not expect that anybody is going to make an ABI change
+> to an existing platform.
+
+I don't: that much was made quite clear at the WG21 meeting where this
+was discussed.
+
+However, I don't think it's unreasonable for version N+1 of a platform
+to extend the ABI in this way. Precompiled code written for version N
+would continue to run, but code compiled for version N+1 could take
+advantage of the new ABI. I expect I could come up with a change that
+worked nicer than my quick patch if I put some time into it.
+
+Isn't the point of a "version 2 ABI" that it is different to version 1?
+Richard introduced it above as "a set of changes that we recommend be
+made whenever a vendor has a chance to introduce an ABI break."
+
+This is a change I would like to see under such circumstances.
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     http://www.stdthread.co.uk/book/
+just::thread C++11 thread library             http://www.stdthread.co.uk
+Just Software Solutions Ltd       http://www.justsoftwaresolutions.co.uk
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+From rjmccall at apple.com  Fri Nov 22 19:08:43 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 22 Nov 2013 11:08:43 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <528F20FB.8050403@justsoftwaresolutions.co.uk>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<528DC333.9070906@justsoftwaresolutions.co.uk>
+	<1D2BB966-83C4-484B-A787-EFC7C7336D0E@apple.com>
+	<528F20FB.8050403@justsoftwaresolutions.co.uk>
+Message-ID: <DAF23F58-5BFB-46F1-8DCE-4119EF714F7F@apple.com>
+
+On Nov 22, 2013, at 1:16 AM, Anthony Williams <anthony at justsoftwaresolutions.co.uk> wrote:
+> On 21/11/13 18:32, John McCall wrote:
+>> On Nov 21, 2013, at 12:24 AM, Anthony Williams <anthony at justsoftwaresolutions.co.uk> wrote:
+>>> On 20/11/13 01:57, Richard Smith wrote:
+>>>> There are a few things in the current ABI which are known to be
+>>>> suboptimal, but we cannot change because doing so would introduce an ABI
+>>>> break. However, vendors sometimes get an opportunity to break their ABI
+>>>> (or are defining a new ABI), and for some vendors, this is a very common
+>>>> occurrence. To this end, I think it would be valuable for the ABI
+>>>> document to describe what we might want to put in a 'Version 2' of the
+>>>> ABI; that is, a set of changes that we recommend be made whenever a
+>>>> vendor has a chance to introduce an ABI break.
+>>> 
+>>>> Are there any other things that it would make sense to change in a
+>>>> version 2 of the ABI?
+>>> 
+>>> If people are willing to make an ABI change, it would be great if they
+>>> could add in the necessary information to allow std::current_exception
+>>> to take a copy of the exception rather than increasing the reference
+>>> count on the existing exception.
+>> 
+>> You should not expect that anybody is going to make an ABI change
+>> to an existing platform.
+> 
+> I don't: that much was made quite clear at the WG21 meeting where this
+> was discussed.
+> 
+> However, I don't think it's unreasonable for version N+1 of a platform
+> to extend the ABI in this way. Precompiled code written for version N
+> would continue to run, but code compiled for version N+1 could take
+> advantage of the new ABI. I expect I could come up with a change that
+> worked nicer than my quick patch if I put some time into it.
+> 
+> Isn't the point of a "version 2 ABI" that it is different to version 1?
+> Richard introduced it above as "a set of changes that we recommend be
+> made whenever a vendor has a chance to introduce an ABI break.?
+
+Right, of course it?s something that we could do given an ABI break.
+What I?m saying is that the scenario that you just described...
+
+> Precompiled code written for version N
+> would continue to run, but code compiled for version N+1 could take
+> advantage of the new ABI.
+
+
+...is not an ABI break; version N+1 of a platform is still required to
+interoperate with version N.  None of the other changes we?re discussing
+would permit binary interoperation.
+
+An ABI break is more like what Apple just had when we ported iOS to ARM64:
+we didn?t have any binary compatibility requirements with previous versions
+of iOS on ARM64, so we were completely free to change the ABI.
+
+> This is a change I would like to see under such circumstances.
+
+If you?d like to make a concrete proposal for a revised ABI, you?re welcome to,
+and we can debate it then.  However, before we can, we really need to
+understand the language feature we?d be implementing; it seems to be
+somewhat underspecified.
+
+For starters, [propagation]p8 does not define how the exception should be
+copied on implementation that do perform this copy.  I presume that you'd
+like it to be copied as if from a const l-value.  However, we do not appear
+to be authorized to introduce a use of such a constructor; [except.throw]p5
+only authorizes the compiler to check access to the constructor that would be
+used to initialize the exception object from the throw operand, and in C++11,
+that will often be a move constructor.
+
+Also, substituting std::bad_exception just because we don?t know how to
+copy the exception, as opposed to because copying the exception actually
+failed, does not actually appear to be authorized.  The standard should define
+the desired behavior when the copy constructor is non-const, inaccessible,
+or defined as deleted.
+
+John.
+
+From hstong at ca.ibm.com  Fri Nov 22 21:38:11 2013
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Fri, 22 Nov 2013 16:38:11 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <DAF23F58-5BFB-46F1-8DCE-4119EF714F7F@apple.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>	<528DC333.9070906@justsoftwaresolutions.co.uk>
+	<1D2BB966-83C4-484B-A787-EFC7C7336D0E@apple.com>	<528F20FB.8050403@justsoftwaresolutions.co.uk>
+	<DAF23F58-5BFB-46F1-8DCE-4119EF714F7F@apple.com>
+Message-ID: <OFDA85D89A.7EF39FF6-ON85257C2B.0075E051-85257C2B.0076DC13@ca.ibm.com>
+
+
+> If you?d like to make a concrete proposal for a revised ABI, you?re
+> welcome to,
+> and we can debate it then.  However, before we can, we really need to
+> understand the language feature we?d be implementing; it seems to be
+> somewhat underspecified.
+Right.
+
+>
+> For starters, [propagation]p8 does not define how the exception should be
+> copied on implementation that do perform this copy.  I presume that you'd
+> like it to be copied as if from a const l-value.  However, we do not
+appear
+> to be authorized to introduce a use of such a constructor;
+[except.throw]p5
+> only authorizes the compiler to check access to the constructor that
+would be
+> used to initialize the exception object from the throw operand, and in C+
++11,
+> that will often be a move constructor.
+>
+> Also, substituting std::bad_exception just because we don?t know how to
+> copy the exception, as opposed to because copying the exception actually
+> failed, does not actually appear to be authorized.  The standard should
+define
+> the desired behavior when the copy constructor is non-const,
+inaccessible,
+> or defined as deleted.
+Or if the copy constructor is a specialization of a template which would
+otherwise not be instantiated.
+The issues were also brought up in N3771 as issue CA 12.
+
+>
+> John.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131122/a7303e82/attachment.html>
+
+From mkg at us.ibm.com  Tue Nov 26 03:05:32 2013
+From: mkg at us.ibm.com (Michael Gschwind)
+Date: Mon, 25 Nov 2013 22:05:32 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+Message-ID: <OF9A423C69.3577D788-ON85257C2F.000E9BB0-85257C2F.0010FD48@us.ibm.com>
+
+On Wed Nov 20 05:33:31 UTC 2013, John McCall <rjmccall at apple.com> wrote 
+: 
+| On Nov 19, 2013, at 5:57 PM, Richard Smith <richardsmith at google.com> 
+wrote:
+| > There are a few things in the current ABI which are known to be 
+suboptimal, but we cannot change because doing so would introduce an ABI 
+break. However, vendors sometimes get an opportunity to break their ABI 
+(or are defining a new ABI), and for some vendors, this is a very common 
+occurrence. To this end, I think it would be valuable for the ABI document 
+to describe what we might want to put in a 'Version 2' of the ABI; that 
+is, a set of changes that we recommend be made whenever a vendor has a 
+chance to introduce an ABI break.
+| > 
+| > (Or perhaps this should be viewed from the opposite perspective: we 
+could make improvements to the ABI, with an annex listing | changes that 
+old platforms must make for compatibility.)
+| > 
+| > Would there be support for this idea?
+| 
+| Personally, I?m in favor of us generally documenting any vendor-specific 
+deviations, as long as the vendor?s okay with it.  In principle, that list 
+of deviations could get unmanageably long, but I doubt it?d be a real 
+issue.
+|
+| > In off-line discussion with John McCall, we came up with the following 
+list of potential changes that might be made (sorry if I forgot any):
+| > 
+| >  * Simplify case 2b in non-POD class layout.
+|
+| >  * Make constructors and destructors return 'this' instead of 
+returning 'void', in order to allow callers to avoid a reload in | common 
+cases and to allow more tail calls.
+| >  * Make virtual functions that are defined as 'inline' not be key 
+functions
+| 
+| Credit the good folks at ARM for these two ideas.
+
+I am curious about the history here, because it seems that the AArch64 ARM 
+ABI appears to drop these changes?  Does anybody have an explanation what 
+transpired to make ARM reconisder and go back to a more vanilla 
+"industry-standard ABI" (aka Itanium ABI)? 
+
+Did it turn out that the improvements to be gotten (e.g., by shaving off a 
+few cycles for reloading this) just wasn't worth the cost of deviating 
+from the center of gravity for the C++ ABI that everybody else had, or can 
+we infer more substantial reasons?  (I think there may still be a few 
+testcase fails for ARM32b due to different name mangling etc.)
+
+Also, the  iOS ABI on 32b ARM seems to have stepped back from the full 
+scope of the ARM 32b ABI?   Any thoughts what is pulling these ABIs back 
+into the  mainline?
+
+
+On Nov 21, 2013, at 12:41 AM, Marc Glisse <marc.glisse at inria.fr> wrote:
+> On Wed, 20 Nov 2013, John McCall wrote:
+>> Well, to be clear, these would be recommendations for people willing to 
+endure an ABI break.  That would still be a big NO-NO for any established 
+platforms that care about binary compatibility.
+>> 
+>> And most of these changes are pretty minor improvements; the ABI has 
+really held up very well.
+> 
+> Indeed.
+
+Not only that, but it appears that those who departed on the occasion of 
+an ABI break seem to have come back into the fold on the next ABI break?
+
+Mike
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131125/4186624b/attachment.html>
+
+From mkg at us.ibm.com  Tue Nov 26 18:36:21 2013
+From: mkg at us.ibm.com (Michael Gschwind)
+Date: Tue, 26 Nov 2013 13:36:21 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+Message-ID: <OFD4954592.F04AAC4C-ON85257C2F.00662795-85257C2F.0066355A@us.ibm.com>
+
+On Wed Nov 20 05:33:31 UTC 2013, John McCall <rjmccall at apple.com> wrote 
+: 
+| On Nov 19, 2013, at 5:57 PM, Richard Smith <richardsmith at google.com> 
+wrote:
+| > There are a few things in the current ABI which are known to be 
+suboptimal, but we cannot change because doing so would introduce an ABI 
+break. However, vendors sometimes get an opportunity to break their ABI 
+(or are defining a new ABI), and for some vendors, this is a very common 
+occurrence. To this end, I think it would be valuable for the ABI document 
+to describe what we might want to put in a 'Version 2' of the ABI; that 
+is, a set of changes that we recommend be made whenever a vendor has a 
+chance to introduce an ABI break.
+| > 
+| > (Or perhaps this should be viewed from the opposite perspective: we 
+could make improvements to the ABI, with an annex listing | changes that 
+old platforms must make for compatibility.)
+| > 
+| > Would there be support for this idea?
+| 
+| Personally, I?m in favor of us generally documenting any vendor-specific 
+deviations, as long as the vendor?s okay with it.  In principle, that list 
+of deviations could get unmanageably long, but I doubt it?d be a real 
+issue.
+|
+| > In off-line discussion with John McCall, we came up with the following 
+list of potential changes that might be made (sorry if I forgot any):
+| > 
+| >  * Simplify case 2b in non-POD class layout.
+|
+| >  * Make constructors and destructors return 'this' instead of 
+returning 'void', in order to allow callers to avoid a reload in | common 
+cases and to allow more tail calls.
+| >  * Make virtual functions that are defined as 'inline' not be key 
+functions
+| 
+| Credit the good folks at ARM for these two ideas.
+
+I am curious about the history here, because it seems that the AArch64 ARM 
+ABI appears to drop these changes?  Does anybody have an explanation what 
+transpired to make ARM reconisder and go back to a more vanilla 
+"industry-standard ABI" (aka Itanium ABI)? 
+
+Did it turn out that the improvements to be gotten (e.g., by shaving off a 
+few cycles for reloading this) just wasn't worth the cost of deviating 
+from the center of gravity for the C++ ABI that everybody else had, or can 
+we infer more substantial reasons?  (I think there may still be a few 
+testcase fails for ARM32b due to different name mangling etc.)
+
+Also, the  iOS ABI on 32b ARM seems to have stepped back from the full 
+scope of the ARM 32b ABI?   Any thoughts what is pulling these ABIs back 
+into the  mainline?
+
+
+On Nov 21, 2013, at 12:41 AM, Marc Glisse <marc.glisse at inria.fr> wrote:
+> On Wed, 20 Nov 2013, John McCall wrote:
+>> Well, to be clear, these would be recommendations for people willing to 
+endure an ABI break.  That would still be a big NO-NO for any established 
+platforms that care about binary compatibility.
+>> 
+>> And most of these changes are pretty minor improvements; the ABI has 
+really held up very well.
+> 
+> Indeed.
+
+Not only that, but it appears that those who departed on the occasion of 
+an ABI break seem to have come back into the fold on the next ABI break?
+
+Mike
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131126/49633a11/attachment.html>
+
+From michaelw at ca.ibm.com  Thu Nov 28 17:53:48 2013
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Thu, 28 Nov 2013 12:53:48 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+Message-ID: <OFA0BBCA36.B23A3449-ON85257C31.0060ACE7-85257C31.006254DE@ca.ibm.com>
+
+
+I understand many of these are picked from the ARM C++ ABI suggestions and
+as Michael Gschwinn commented ARM have also pulled back which make me
+suspicious as to whether there are data to show these ideas are
+consistently good performance wins, or just sometimes wins. And if its an
+always win, then it might be worth the ABI breakage.  In this note, I am
+hoping to get a clearer idea of what they are and some feedback on whether
+they are always a win. But thanks Richard for suggestion some of these as
+we have been looking at some of these as well. More questions embedded
+below.
+
+
+cxx-abi-dev-bounces at codesourcery.com wrote on 11/19/2013 08:57:50 PM:
+
+> From:
+>
+> Richard Smith <richardsmith at google.com>
+>
+> To:
+>
+> "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>,
+>
+> Date:
+>
+> 11/19/2013 08:58 PM
+>
+> Subject:
+>
+> [cxx-abi-dev] C++ ABI version 2
+>
+> Sent by:
+>
+> cxx-abi-dev-bounces at codesourcery.com
+>
+> Hi,
+>
+> There are a few things in the current ABI which are known to be
+> suboptimal, but we cannot change because doing so would introduce an
+> ABI break. However, vendors sometimes get an opportunity to break
+> their ABI (or are defining a new ABI), and for some vendors, this is
+> a very common occurrence. To this end, I think it would be valuable
+> for the ABI document to describe what we might want to put in a
+> 'Version 2' of the ABI; that is, a set of changes that we recommend
+> be made whenever a vendor has a chance to introduce an ABI break.
+>
+> (Or perhaps this should be viewed from the opposite perspective: we
+> could make improvements to the ABI, with an annex listing changes
+> that old platforms must make for compatibility.)
+>
+> Would there be support for this idea?
+>
+> In off-line discussion with John McCall, we came up with the
+> following list of potential changes that might be made (sorry if I
+> forgot any):
+>
+> ?* Make constructors and destructors return 'this' instead of
+> returning 'void', in order to allow callers to avoid a reload in
+> common cases and to allow more tail calls.
+
+This seems like a simple idea, but does it save extra calls in every case
+for the cost of the ABI breakage? I think I can think of a few cases where
+it will save, but can there be cases where it won't save? Do we think we
+will implement this using another set of differently named C1,C2, C3,
+D1,D2,D3 to make sure that we know which one return this and which one
+return void, otherwise how do implementations tell the difference between
+the old set and the new set?
+
+> ?* Simplify case 2b in non-POD class layout.
+I could not track down what the simplify proposal is in the ARM C++ ABI. Is
+this saying we will remove the complication of the search for the
+Nearly-Empty base which causes such headache for implementers 10 years ago?
+But now that we all have it, is it worth the few weeks that it would take
+to pull it out. For us, this code is fairly infused into the whole primary
+base search mechanism. Is this simplification something else?
+
+> ?* Make virtual functions that are defined as 'inline' not be key
+functions
+
+While I like this change because it removes a persistent ambiguity, my
+question is do the majority of compilers pick the base that does not have
+the out-of-class inline keyword (i.e. the first virtual void f()). We still
+pick the out-of-class inline one (the virtual void b()) that is not
+declared inlined in the class. This is clearly IMHO against the spirit of
+the key function, but don't all compilers do the same thing and if so, why
+change it? May be it is better to change the definition to define precisely
+what everyone already do and just leave it as a wart?
+
+> ?* Fix the bug that -1 is both the null pointer-to-data-member value
+> and also a valid value of a pointer-to-data-member (could use
+> SIZE_MIN instead)
+
+This is the one I would probably pick to like the most if someone can show
+me the ambiguous case. I just could not think of it. Aren't all the offset
+to base always positive? Since you said it exists, I believe you so I just
+want to see what it is and if so I would agree the fix is needed.
+
+> ?* Relax the definition of POD used in the ABI, in order to allow
+> more class types to be passed in registers
+>
+> Are there any other things that it would make sense to change in a
+> version 2 of the ABI?
+
+Do we want to specify how dynamic Thread local storage is done? As some can
+do it using a Compiler guard, while others can do it through a new OS
+section making it non-interopearable?
+
+>
+> Also, would there be any support for documenting common deviations
+> from the ABI that platform vendors might want to consider when
+> specifying their own ABIs? In addition to some of the above, this
+> would also include:
+>
+> ?* Representation of pointers-to-member-functions (in particular,
+> the current representation assumes that the lowest bit of a function
+> pointer is unused, which isn't true in general)
+> ?* Representation of guard variables (some platforms use the native
+> word size rather than forcing this to be 64 bits wide)
+>
+> Are there any others?
+>
+> Thanks!_______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+_________________________________________________________
+Regards, Michael
+http://isocpp.org/wiki/faq/wg21:michael-wong
+OpenMP CEO: http://openmp.org/wp/about-openmp/
+My Blogs: http://ibm.co/pCvPHR
+C++11 status: http://tinyurl.com/43y8xgf
+Boost test results
+http://www.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+
+C/C++ Compilers Feature Request Page
+http://www.ibm.com/developerworks/rfe/?PROD_ID=700
+TM: https://sites.google.com/site/tmforcplusplus/
+
+IBM Corporation
+XL C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario L6G 1C7
+W:905-413-3283 F:905-413-4839
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131128/7f627cc3/attachment.html>
+
+From rjmccall at apple.com  Fri Nov 29 07:28:50 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 28 Nov 2013 23:28:50 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OF9A423C69.3577D788-ON85257C2F.000E9BB0-85257C2F.0010FD48@us.ibm.com>
+References: <OF9A423C69.3577D788-ON85257C2F.000E9BB0-85257C2F.0010FD48@us.ibm.com>
+Message-ID: <3E633C71-9735-43DF-99CF-269D4757CBC7@apple.com>
+
+On Nov 25, 2013, at 7:05 PM, Michael Gschwind <mkg at us.ibm.com> wrote:
+> On Wed Nov 20 05:33:31 UTC 2013, John McCall <rjmccall at apple.com> wrote : 
+> | Credit the good folks at ARM for these two ideas.
+> 
+> I am curious about the history here, because it seems that the AArch64 ARM ABI appears to drop these changes?  Does anybody have an explanation what transpired to make ARM reconisder and go back to a more vanilla "industry-standard ABI" (aka Itanium ABI)?
+> 
+> Did it turn out that the improvements to be gotten (e.g., by shaving off a few cycles for reloading this) just wasn't worth the cost of deviating from the center of gravity for the C++ ABI that everybody else had, or can we infer more substantial reasons?  (I think there may still be a few testcase fails for ARM32b due to different name mangling etc.) 
+> 
+> Also, the  iOS ABI on 32b ARM seems to have stepped back from the full scope of the ARM 32b ABI?   Any thoughts what is pulling these ABIs back into the  mainline? 
+
+I believe you're over-interpreting the data. :)  Compilers have been very slow to implement any of the changes from the ARM C++ ABI (except the mandatory change to member function pointers), essentially because (I believe) no major ARM-based platform has actually adopted ARM?s C++ ABI in full, essentially because compilers have been very slow to implement any of it.
+
+The point of this proposal is that, if a vendor is motivated enough to implement a better ABI when it?s bringing up the compiler for a new platform, it?d be good to have recommendations for what to do.  And if those recommendations are actually out there and widely agreed upon, that becomes an inducement for compiler vendors to implement them, which of course makes it easier for any such new platforms to adopt them.
+
+John.
+
+From mkg at us.ibm.com  Fri Nov 29 08:25:12 2013
+From: mkg at us.ibm.com (Michael Gschwind)
+Date: Fri, 29 Nov 2013 03:25:12 -0500
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <3E633C71-9735-43DF-99CF-269D4757CBC7@apple.com>
+References: <OF9A423C69.3577D788-ON85257C2F.000E9BB0-85257C2F.0010FD48@us.ibm.com>
+	<3E633C71-9735-43DF-99CF-269D4757CBC7@apple.com>
+Message-ID: <OF692436B5.25B55257-ON85257C32.002D34D3-85257C32.002E41B9@us.ibm.com>
+
+John McCall <rjmccall at apple.com> wrote on 11/29/2013 02:28:50 AM:
+On Nov 25, 2013, at 7:05 PM, Michael Gschwind <mkg at us.ibm.com> wrote:
+> > On Wed Nov 20 05:33:31 UTC 2013, John McCall <rjmccall at 
+> apple.com> wrote : 
+> > | Credit the good folks at ARM for these two ideas.
+> > 
+> > I am curious about the history here, because it seems that the 
+> AArch64 ARM ABI appears to drop these changes?  Does anybody have an
+> explanation what transpired to make ARM reconisder and go back to a 
+> more vanilla "industry-standard ABI" (aka Itanium ABI)?
+> > 
+> > Did it turn out that the improvements to be gotten (e.g., by 
+> shaving off a few cycles for reloading this) just wasn't worth the 
+> cost of deviating from the center of gravity for the C++ ABI that 
+> everybody else had, or can we infer more substantial reasons?  (I 
+> think there may still be a few testcase fails for ARM32b due to 
+> different name mangling etc.) 
+> > 
+> > Also, the  iOS ABI on 32b ARM seems to have stepped back from the 
+> full scope of the ARM 32b ABI?   Any thoughts what is pulling these 
+> ABIs back into the  mainline? 
+> 
+> I believe you're over-interpreting the data. :)  Compilers have been
+> very slow to implement any of the changes from the ARM C++ ABI 
+> (except the mandatory change to member function pointers), 
+> essentially because (I believe) no major ARM-based platform has 
+> actually adopted ARM?s C++ ABI in full, essentially because 
+> compilers have been very slow to implement any of it.
+> 
+> The point of this proposal is that, if a vendor is motivated enough 
+> to implement a better ABI when it?s bringing up the compiler for a 
+> new platform, it?d be good to have recommendations for what to do. 
+> And if those recommendations are actually out there and widely 
+> agreed upon, that becomes an inducement for compiler vendors to 
+> implement them, which of course makes it easier for any such new 
+> platforms to adopt them.
+
+
+I understand the point you're making, but in the specific example, Apple 
+was the one bringing up a new platform (which is exactly the opportunity 
+point you're referencing) and chose not to do what you describe.  And, as 
+a kicker, ARM then basically went back on the platform recommendations 
+they had for the 32b ABI when the spec'ed a new ABI for 64b. 
+
+To phrase the question differently, when that platform vendor is to spec a 
+new ABI (like Apple did), are the benefits of the proposed changes 
+sufficient to motivate changes in what is (mostly) a machine-independent 
+part of a compiler, that then has to be maintained separately, and can 
+cause all sorts of distinct maintenance work?  At what point does a 
+platform vendor like Apple decide to walk down a trodden path - as per 
+precedent - and how high has the payoff to be to forge a new path?
+
+The Itanium C++  ABI changes rose to a level of changeworthiness in the 
+eyes of many and hence was widely implemented and adopted.  ARM's proposed 
+improvements, though arguably nice, shave off a small number of cycles of 
+what is otherwise a comparatively larger cost, and it seems that when 
+making a cost/benefit analysis both Apple for iOS and ARM for AArch64 
+chose to forgo those changes, possibly based on enablement cost vs. 
+expected benefits, as you're pointing out (implicitly). 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131129/770eb600/attachment-0001.html>
+
+From rjmccall at apple.com  Fri Nov 29 08:30:27 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 29 Nov 2013 00:30:27 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OFA0BBCA36.B23A3449-ON85257C31.0060ACE7-85257C31.006254DE@ca.ibm.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<OFA0BBCA36.B23A3449-ON85257C31.0060ACE7-85257C31.006254DE@ca.ibm.com>
+Message-ID: <A7449858-9752-45B0-945C-14064398985C@apple.com>
+
+On Nov 28, 2013, at 9:53 AM, Michael Wong <michaelw at ca.ibm.com> wrote:
+> cxx-abi-dev-bounces at codesourcery.com wrote on 11/19/2013 08:57:50 PM:
+> > From:
+> > 
+> > Richard Smith <richardsmith at google.com>
+> > 
+> > To:
+> > 
+> > "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>, 
+> > 
+> > Date:
+> > 
+> > 11/19/2013 08:58 PM
+> > 
+> > Subject:
+> > 
+> > [cxx-abi-dev] C++ ABI version 2
+> > 
+> > Sent by:
+> > 
+> > cxx-abi-dev-bounces at codesourcery.com
+> > 
+> > Hi,
+> > 
+> > There are a few things in the current ABI which are known to be 
+> > suboptimal, but we cannot change because doing so would introduce an
+> > ABI break. However, vendors sometimes get an opportunity to break 
+> > their ABI (or are defining a new ABI), and for some vendors, this is
+> > a very common occurrence. To this end, I think it would be valuable 
+> > for the ABI document to describe what we might want to put in a 
+> > 'Version 2' of the ABI; that is, a set of changes that we recommend 
+> > be made whenever a vendor has a chance to introduce an ABI break.
+> > 
+> > (Or perhaps this should be viewed from the opposite perspective: we 
+> > could make improvements to the ABI, with an annex listing changes 
+> > that old platforms must make for compatibility.)
+> > 
+> > Would there be support for this idea?
+> > 
+> > In off-line discussion with John McCall, we came up with the 
+> > following list of potential changes that might be made (sorry if I 
+> > forgot any):
+> > 
+> >  * Make constructors and destructors return 'this' instead of 
+> > returning 'void', in order to allow callers to avoid a reload in 
+> > common cases and to allow more tail calls.
+> 
+> This seems like a simple idea, but does it save extra calls in every case for the cost of the ABI breakage? I think I can think of a few cases where it will save, but can there be cases where it won't save?
+
+It never saves a call.  It can avoid some stack traffic, which has the pleasant side effect of decreasing code size.  There?s also a distant possibility of allowing the call to the constructor or destructor to be emitted as a tail-call, if the function that calls the constructor just immediately returns a pointer to the constructed object (as a normal pointer, not a smart pointer ? a smart pointer would be non-POD and therefore returned indirectly).
+
+> Do we think we will implement this using another set of differently named C1,C2, C3, D1,D2,D3 to make sure that we know which one return this and which one return void, otherwise how do implementations tell the difference between the old set and the new set?
+
+Constructors that return ?this? and constructors that don't shouldn?t ever co-exist.  You should be able to know from the target whether constructors and destructors make this guarantee.
+
+> >  * Simplify case 2b in non-POD class layout.
+> I could not track down what the simplify proposal is in the ARM C++ ABI.
+
+It?s not in the ARM C++ ABI.  It follows a footnote in the main ABI.
+
+> Is this saying we will remove the complication of the search for the Nearly-Empty base which causes such headache for implementers 10 years ago? But now that we all have it, is it worth the few weeks that it would take to pull it out. For us, this code is fairly infused into the whole primary base search mechanism. Is this simplification something else?
+
+I believe the simplification is to remove the clause ", or just the first one if they are all indirect primaries?.  A nearly-empty virtual base that is not an indirect primary would still be a candidate for primary base.
+
+> >  * Make virtual functions that are defined as 'inline' not be key functions
+> 
+> While I like this change because it removes a persistent ambiguity, my question is do the majority of compilers pick the base that does not have the out-of-class inline keyword (i.e. the first virtual void f()). We still pick the out-of-class inline one (the virtual void b()) that is not declared inlined in the class. This is clearly IMHO against the spirit of the key function, but don't all compilers do the same thing and if so, why change it? May be it is better to change the definition to define precisely what everyone already do and just leave it as a wart?
+
+The ABI *does* require that; it says "the first non-pure virtual function that is not inline at the point of class definition?.
+
+The change would be to say ?the first non-pure virtual function that is not inline?.  So after processing the class definition, you might think that foo() is the key function, but then you see an inline definition of foo() and realize it isn?t.
+
+This works because the language requires virtual functions with inline definitions to be defined in every translation unit that defines the class.  So the compiler?s idea of what the key function is might change as it processes a translation unit, but it should still reach the same conclusion in every translation unit, because it?s required to see the exact same set of inline definitions.
+
+This change does have the potential to break programs that aren?t technically compliant, though.
+
+> >  * Fix the bug that -1 is both the null pointer-to-data-member value
+> > and also a valid value of a pointer-to-data-member (could use 
+> > SIZE_MIN instead)
+> 
+> This is the one I would probably pick to like the most if someone can show me the ambiguous case. I just could not think of it. Aren't all the offset to base always positive? Since you said it exists, I believe you so I just want to see what it is and if so I would agree the fix is needed.
+
+I think the only legal examples are all really convoluted.
+
+> >  * Relax the definition of POD used in the ABI, in order to allow 
+> > more class types to be passed in registers
+> > 
+> > Are there any other things that it would make sense to change in a 
+> > version 2 of the ABI?
+> 
+> Do we want to specify how dynamic Thread local storage is done? As some can do it using a Compiler guard, while others can do it through a new OS section making it non-interopearable?
+
+I think we actually worked that out on the list; it just hasn?t made it into the document yet.  (I?d happily add it if someone wouldn?t mind drafting a patch.)
+
+John.
+
+From rjmccall at apple.com  Fri Nov 29 09:37:49 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 29 Nov 2013 01:37:49 -0800
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OF692436B5.25B55257-ON85257C32.002D34D3-85257C32.002E41B9@us.ibm.com>
+References: <OF9A423C69.3577D788-ON85257C2F.000E9BB0-85257C2F.0010FD48@us.ibm.com>
+	<3E633C71-9735-43DF-99CF-269D4757CBC7@apple.com>
+	<OF692436B5.25B55257-ON85257C32.002D34D3-85257C32.002E41B9@us.ibm.com>
+Message-ID: <98A11B46-49F5-4FE1-89CF-EE39AE505B68@apple.com>
+
+On Nov 29, 2013, at 12:25 AM, Michael Gschwind <mkg at us.ibm.com> wrote:
+> John McCall <rjmccall at apple.com> wrote on 11/29/2013 02:28:50 AM:
+> On Nov 25, 2013, at 7:05 PM, Michael Gschwind <mkg at us.ibm.com> wrote:
+> > > On Wed Nov 20 05:33:31 UTC 2013, John McCall <rjmccall at 
+> > apple.com> wrote : 
+> > > | Credit the good folks at ARM for these two ideas.
+> > > 
+> > > I am curious about the history here, because it seems that the 
+> > AArch64 ARM ABI appears to drop these changes?  Does anybody have an
+> > explanation what transpired to make ARM reconisder and go back to a 
+> > more vanilla "industry-standard ABI" (aka Itanium ABI)?
+> > > 
+> > > Did it turn out that the improvements to be gotten (e.g., by 
+> > shaving off a few cycles for reloading this) just wasn't worth the 
+> > cost of deviating from the center of gravity for the C++ ABI that 
+> > everybody else had, or can we infer more substantial reasons?  (I 
+> > think there may still be a few testcase fails for ARM32b due to 
+> > different name mangling etc.) 
+> > > 
+> > > Also, the  iOS ABI on 32b ARM seems to have stepped back from the 
+> > full scope of the ARM 32b ABI?   Any thoughts what is pulling these 
+> > ABIs back into the  mainline? 
+> > 
+> > I believe you're over-interpreting the data. :)  Compilers have been
+> > very slow to implement any of the changes from the ARM C++ ABI 
+> > (except the mandatory change to member function pointers), 
+> > essentially because (I believe) no major ARM-based platform has 
+> > actually adopted ARM?s C++ ABI in full, essentially because 
+> > compilers have been very slow to implement any of it.
+> > 
+> > The point of this proposal is that, if a vendor is motivated enough 
+> > to implement a better ABI when it?s bringing up the compiler for a 
+> > new platform, it?d be good to have recommendations for what to do.  
+> > And if those recommendations are actually out there and widely 
+> > agreed upon, that becomes an inducement for compiler vendors to 
+> > implement them, which of course makes it easier for any such new 
+> > platforms to adopt them.
+> 
+> 
+> I understand the point you're making, but in the specific example, Apple was the one bringing up a new platform (which is exactly the opportunity point you're referencing) and chose not to do what you describe.
+
+We didn?t when we brought up 32-bit iOS, mostly because, like I said, the compiler didn?t already have that support.  It was not a conscious decision to reject an enhancement; it was, at best, a conscious decision not to take on new feature work in what was already an enormous project.
+
+But we did do this when we brought up 64-bit iOS, perhaps mostly because the rest of the port was comparatively simple, but nonetheless.  As a result, that support is now present in clang, which helps to break the vicious cycle, at least for this change (and a few of the others).
+
+> And, as a kicker, ARM then basically went back on the platform recommendations they had for the 32b ABI when the spec'ed a new ABI for 64b.
+
+You?d have to ask them about their motivations.
+
+> To phrase the question differently, when that platform vendor is to spec a new ABI (like Apple did), are the benefits of the proposed changes sufficient to motivate changes in what is (mostly) a machine-independent part of a compiler, that then has to be maintained separately, and can cause all sorts of distinct maintenance work?
+
+I see your point, but frankly, this kind of maintenance burden is tiny compared to, say, the burden of supporting multiple language dialects simultaneously, which most of the major compiler vendors do.  Plus, like you just said (implicitly), there are no truly machine-independent parts of a compiler; it?s just a question of what you?ve already hooked to allow for idiosyncratic targets.  And the fact that many of these changes were already formally specced for ARM meant that our compiler was likely to have to support them anyway.  Just like anybody else who wants to be able to compile for iOS 64 with perfect compatibility now has to, in fact.
+
+> At what point does a platform vendor like Apple decide to walk down a trodden path - as per precedent - and how high has the payoff to be to forge a new path?
+
+As far as software engineering management questions go, this seems straightforward.  Let?s assume that you actually have to implement the feature yourself instead of piggy-backing on someone else?s work, and let?s assume that you have some spare engineering cycles to pursue general target-specific optimizations.  The question is then: how committed are you to supporting this new platform?  Because if you?re planning to release more compilers for it later, then you?ll get more chances to make minor improvements to the register allocator; but you will never get another chance to fix the ABI.  So you at least have to weigh it higher than you would otherwise.
+
+But frankly, our experience was that this was a very small amount of work to actually implement, on the order of a week of one engineer?s time; most of the cost was in deciding what to do.  For example, we initially considered changing the standard mangling substitutions to privilege libc++, but then we realized that far too many tools make the assumption that demangling is platform-agnostic.  A set of recommendations would therefore have been very helpful, even when paving our own implementation road.
+
+John.
+

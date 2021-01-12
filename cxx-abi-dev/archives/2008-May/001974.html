@@ -1,0 +1,377 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> ABI modification for exception propagation
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C4839E759.9080005%40getdesigned.at%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001973.html">
+   <LINK REL="Next"  HREF="001975.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>ABI modification for exception propagation</H1>
+    <B>Sebastian Redl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C4839E759.9080005%40getdesigned.at%3E"
+       TITLE="ABI modification for exception propagation">sebastian.redl at getdesigned.at
+       </A><BR>
+    <I>Sun May 25 22:25:29 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001973.html">[cxx-abi-dev] Discuss DFP mangling was(Re: [cxx-abi-dev] C++0x: mangling of char16_t and char32_t)
+</A></li>
+        <LI>Next message: <A HREF="001975.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1974">[ date ]</a>
+              <a href="thread.html#1974">[ thread ]</a>
+              <a href="subject.html#1974">[ subject ]</a>
+              <a href="author.html#1974">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I experimentally implemented N2197 &quot;Exception Propagation&quot; in GCC and 
+came to the conclusion that the current exception handling ABI 
+specification is insufficient. It needs to be changed in order to make 
+exception propagation possible.
+
+I wrote up a proposal for the changes. My current implementation doesn't 
+quite follow this proposal, since I came up with some of the ideas while 
+writing the document, but I will change it.
+
+The proposal is copied below.
+
+Sebastian Redl
+
+--------------------------------
+
+With the integration of N2197 &quot;Exception Propagation&quot; into the C++0x working
+paper, the C++ ABI described at 
+<A HREF="http://www.codesourcery.com/cxx-abi/abi-eh.html">http://www.codesourcery.com/cxx-abi/abi-eh.html</A>
+has unfortunately become insufficient. It describes a model where exceptions
+are bound to a single thread and cannot be copied.
+
+In order to allow implementation of exception propagation, I propose the
+following changes to the ABI. These changes have been successfully 
+implemented
+in the G++ compiler.
+
+The Level I ABI remains unchanged.
+
+
+Level II: C++ ABI
+
+The current C++ ABI is structured like this: the exception data lies in 
+a single
+block of memory, starting with C++-specific information (the __cxa_exception
+object), then the general unwind header (the unwindHeader field of the
+__cxa_exception object), and finally the actual C++ exception object. 
+Neither
+the __cxa_exception object nor the unwind header can be used concurrently in
+more than one thread. Therefore, the exception data must be copied in 
+order to
+implement N2197.
+Since the exception data contains the exception object, copying the data 
+implies
+copying the exception object, unless the object is separated from the 
+data. Both
+approaches are possible. In this proposal, I've chosen the separation 
+approach,
+because it requires fewer changes to the compiler itself. In the old 
+model, a
+copy constructor was not necessary. Were the new model to require 
+copying of the
+exception object, a copy constructor would have to be stored in the 
+data. In the
+case of G++, this would mean that a copy constructor would have to be 
+looked up
+and (because of inconsistent signatures allowed for copy constructors) 
+possibly
+even generated.
+
+This proposal therefore suggests splitting the data transported for a C++
+exception into two parts. The first part is the current __cxa_exception 
+object,
+slightly changed. There is one such object for every exception actually 
+thrown.
+The second part is the actual exception object, plus some type information
+(the exceptionType and exceptionDestructor fields of the current 
+__cxa_exception
+structure). This block is reference-counted and shared between all 
+exceptions
+that are really the same exception object, as well as all exception_ptrs
+referring to the exception.
+
+Because of the incompatible changes with earlier versions, the proposal 
+suggests
+changing the language-specific exception identifier to C+09. 
+Implementations may
+treat legacy C++ exceptions as foreign, or they may branch on the 
+exception type
+in order to support both.
+
+2.2.1 C++ Exception Objects
+
+The __cxa_exception is renamed and looks like this in the new scheme:
+
+    struct __cxa_unwind_header {
+        void *             exceptionObject;
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The name is changed because the object no longer represents the entire
+exception, but really a language-specific extension of the _Unwind_Exception
+structure.
+
+The new field exceptionObject points to the actual exception object.
+The exception object is prepended the type information and reference count.
+
+    struct __cxa_exception_info {
+        std::size_t        referenceCount;
+        std::type_info *   exceptionType;
+        void (*exceptionDestructor) (void *):
+    };
+
+The memory layout of a complete exception looks like this:
+
++--------------------------------+-------------------+
+|<i> __cxa_unwind_header            | _Unwind_Exception |
+</I>+--------------------------------+-------------------+
+ |
+ +---------------------+
+                       |
+                      \|/
++----------------------+-----------------------------+
+|<i> __cxa_exception_info | actual exception object     |
+</I>+----------------------+-----------------------------+
+
+Note that __cxa_unwind_header::exceptionObject points at the start of the
+exception object, not the additional information. This, plus the fact that
+exceptionObject is the first field of __cxa_unwind_header, allows the 
+compiler
+to treat a pointer to a __cxa_unwind_header as a double pointer to the 
+exception
+object.
+
+The referenceCount field of __cxa_exception_info counts the number of both
+__cxa_unwind_header and std::exception_ptr objects referring to the 
+exception.
+Working with this count must happen in a thread-safe manner.
+
+The meaning of all other fields remains unchanged.
+
+The convention that a __cxa_exception pointer points to behind the header is
+abandoned. Since the exception object is no longer there, the header 
+object can
+be freely extended in this direction, making the convention no longer 
+useful.
+
+The convention is instead adopted for __cxa_exception_info pointers.
+
+
+2.4.1 Overview of Throw Processing
+
+__cxa_allocate_exception cannot return a pointer to the exception 
+object, since
+this would mean that the unwind header is unreachable. It is therefore 
+changed
+to return a pointer to the beginning of the __cxa_unwind_header. Since 
+the first
+field of that structure is a pointer to the exception object, the 
+generated code
+need merely add a dereference operation. The produced code should look like
+this:
+
+    // Allocate -- never throws:
+    temp1 = __cxa_allocate_exception(sizeof(X));
+
+    // Construct the exception object:
+    #if COPY_ELISION
+        [evaluate X into *temp1]
+    #else
+        [evaluate X into temp2]
+        copy-constructor(*temp1, temp2)
+        // Landing Pad L1 if this throws
+    #endif
+
+    // Pass the exception object to unwind library:
+    __cxa_throw(temp1, type_info&lt;X&gt;, destructor&lt;X&gt;); // Never returns
+
+    // Landing pad for copy constructor:
+    L1: __cxa_free_exception(temp1) // never throws
+
+
+2.4.2 Allocating the Exception Object
+
+Memory for the exception is still allocated by __cxa_allocate_exception.
+However, the return value now points to the start of the __cxa_unwind_header
+instead of past the end.
+__cxa_allocate_exception allocates memory for both the 
+__cxa_unwind_header and
+the __cxa_exception_info with the associated exception. The 
+__cxa_unwind_header
+refers to the __cxa_exception_info, whose reference count is 1.
+
+However, there is now also the need to allocate a __cxa_unwind_header for an
+existing __cxa_exception_info. A new function is specified for this:
+
+    __cxa_unwind_header*
+    __cxa_allocate_unwind_header(void *obj) throw();
+
+obj points behind a __cxa_exception_info; the allocated 
+__cxa_unwind_header's
+exceptionObject contains this value unchanged.
+The __cxa_exception_info's reference count is increased by 1.
+
+Finally, to facilitate an implementation of copy_exception that is more
+efficient than throwing and catching an exception, a third function is 
+supplied:
+
+    void* __cxa_allocate_exception_object(size_t thrown_size) throw();
+
+This function allocates a __cxa_exception_info and thrown_size bytes of
+additional space. All fields of the object are set to zero/null.
+It returns a pointer behind the __cxa_exception_info, to the start of the
+additional space.
+
+The three allocation functions have their counterparts in only two 
+deallocation
+functions. One is __cxa_free_exception, which has slightly changed 
+semantics.
+
+__cxa_free_exception takes a pointer to the start of a __cxa_unwind_header,
+instead of the end. It deallocates the object and decreases the 
+reference count
+of the pointed-to __cxa_exception_info by 1. If the reference count 
+drops to zero, it calls __cxa_free_exception_object.
+
+    void __cxa_free_exception_object(void *obj) throw();
+
+__cxa_free_exception_object takes a pointer to the end of a
+__cxa_exception_info. It calls the destructor for the exception object and
+frees the memory unconditionally.
+
+
+2.4.3 Throwing the Exception Object
+
+__cxa_throw remains nearly unchanged, except for two details: the first
+parameter points to the start of the __cxa_unwind_header instead of the 
+end, and
+tinfo and dest are stored in the __cxa_exception_info.
+
+
+2.5.3 Exception Handlers
+
+The semantics of __cxa_begin_catch and __cxa_end_catch remain unchanged. 
+Note
+that __cxa_end_catch does not destroy the exception object unless its 
+reference
+count drops to zero.
+
+With std::current_exception() available, it would be possible to add an
+ABI-specific extension to exception_ptr with equivalent functionality as
+__cxa_current_exception_type(). For example:
+
+    exception_ptr ep = current_exception();
+    std::type_info *ti = ep.__cxa_exception_type();
+
+
+2.5.4 Rethrowing Exceptions
+
+The semantics of __cxa_rethrow are unchanged. std::rethrow_exception is
+described separately.
+
+
+2.5.5 Finishing and Destroying the Exception
+
+An exception object is considered unreferenced:
+* When all exceptions using the object are finished AND
+* When there are no more exception_ptr instances referring to the object.
+
+The actual exception object must not be destroyed before it is unreferenced,
+whereas the unwind header will be freed when the exception is finished.
+
+When the exception is finished, __cxa_free_exception shall be called, 
+but the
+destructor is not explicitly called. This is left to
+__cxa_free_exception_object.
+
+
+2.7 Exception Propagation
+
+Since exception_ptr provides a mechanism to influence the lifetime of
+exceptions, I consider it part of this machinery and will describe it in 
+short
+here.
+
+exception_ptr is a smart pointer. Its only data member is a pointer past the
+__cxa_exception_info it refers to. Upon construction, exception_ptr 
+increments
+the reference count. Upon destruction, it decrements it, and calls
+__cxa_free_exception_object if the count drops to zero. exception_ptr 
+does not
+manage a __cxa_unwind_header.
+
+std::current_exception() shall construct an exception_ptr referring to the
+exceptionObject field of the __cxa_unwind_header that is the head of the 
+current
+thread's exception chain. If there is no such exception, or if that 
+exception
+is foreign, current_exception returns the null pointer. Note that, if the
+implementation switches on the exception class to handle legacy code, it 
+still
+cannot return an exception_ptr for such exceptions.
+Because the function does not allocate memory, it will never return a 
+pointer
+to a std::bad_alloc object.
+
+std::rethrow_exception() shall call __cxa_allocate_exception_wrapper() 
+and pass
+the pointer of the exception_ptr. It then behaves like __cxa_throw: it 
+stores
+the unexpected and terminate handlers, sets the exception_class field,
+increments the uncaught_exception flag and calls _Unwind_RaiseException.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001973.html">[cxx-abi-dev] Discuss DFP mangling was(Re: [cxx-abi-dev] C++0x: mangling of char16_t and char32_t)
+</A></li>
+	<LI>Next message: <A HREF="001975.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1974">[ date ]</a>
+              <a href="thread.html#1974">[ thread ]</a>
+              <a href="subject.html#1974">[ subject ]</a>
+              <a href="author.html#1974">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

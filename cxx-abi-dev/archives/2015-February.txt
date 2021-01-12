@@ -1,0 +1,884 @@
+From rjmccall at apple.com  Thu Feb  5 00:11:03 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 4 Feb 2015 16:11:03 -0800
+Subject: [cxx-abi-dev] Layout of overaligned empty base classes
+In-Reply-To: <CAGL0aWdkwojJVGQ2isUvt+agaeHJXqu2aUXsKqT4uy+bv7TtSQ@mail.gmail.com>
+References: <CAGL0aWdkwojJVGQ2isUvt+agaeHJXqu2aUXsKqT4uy+bv7TtSQ@mail.gmail.com>
+Message-ID: <E06C5D25-8C57-4B5D-AE67-26EAE8FD510B@apple.com>
+
+> On Apr 24, 2014, at 2:52 PM, Richard Smith <richardsmith at google.com> wrote:
+> 2.4/II/3 says:
+> 
+> "If D is an empty proper base class: [...potentially misalign the D base class...] Note that nvalign(D) is 1, so no update of align(C) is needed."
+> 
+> This is not true.
+> 
+> struct A {};
+> struct B : A { char c; };
+> struct alignas(4) D : A {};
+> struct C : B, D {};
+> 
+> This puts a D object at offset 1 within C, and gives C nvalign of 1, which is obviously not right. Fortunately, GCC, Clang, and EDG all deviate from the ABI and instead do the natural thing here (put it at offset zero if you can, and otherwise allocate it like any other subobject). Looks like the wording only needs a little massaging here to say the right thing.
+
+Catching up on my queue, and I found this very old email.  Would you mind proposing an exact wording change?
+
+John.
+
+From richardsmith at google.com  Thu Feb  5 00:26:41 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 4 Feb 2015 16:26:41 -0800
+Subject: [cxx-abi-dev] Layout of overaligned empty base classes
+In-Reply-To: <E06C5D25-8C57-4B5D-AE67-26EAE8FD510B@apple.com>
+References: <CAGL0aWdkwojJVGQ2isUvt+agaeHJXqu2aUXsKqT4uy+bv7TtSQ@mail.gmail.com>
+	<E06C5D25-8C57-4B5D-AE67-26EAE8FD510B@apple.com>
+Message-ID: <CAGL0aWfp1MyQ8Ns_kQv-6UoWCBB2XDhji1UzxCMKuS7NPofRXQ@mail.gmail.com>
+
+Change the final paragraph of 2.4/II/3 as follows:
+
+"""
+Once offset(D) has been chosen, update sizeof(C) to max (sizeof(C),
+offset(D)+sizeof(D))
+<ins>, and align(C) to max (align(C), nvalign(D))</ins>.
+<del>Note that nvalign(D) is 1, so no update of align(C) is needed.</del>
+S<del>imilarly, s</del>ince D is an empty base class, no update of dsize(C)
+is needed.
+"""
+
+On 4 February 2015 at 16:11, John McCall <rjmccall at apple.com> wrote:
+
+> > On Apr 24, 2014, at 2:52 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > 2.4/II/3 says:
+> >
+> > "If D is an empty proper base class: [...potentially misalign the D base
+> class...] Note that nvalign(D) is 1, so no update of align(C) is needed."
+> >
+> > This is not true.
+> >
+> > struct A {};
+> > struct B : A { char c; };
+> > struct alignas(4) D : A {};
+> > struct C : B, D {};
+> >
+> > This puts a D object at offset 1 within C, and gives C nvalign of 1,
+> which is obviously not right. Fortunately, GCC, Clang, and EDG all deviate
+> from the ABI and instead do the natural thing here (put it at offset zero
+> if you can, and otherwise allocate it like any other subobject). Looks like
+> the wording only needs a little massaging here to say the right thing.
+>
+> Catching up on my queue, and I found this very old email.  Would you mind
+> proposing an exact wording change?
+>
+> John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150204/1a4956b2/attachment.html>
+
+From rjmccall at apple.com  Thu Feb  5 06:53:02 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 4 Feb 2015 22:53:02 -0800
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAL7bZ_cMy4A5UBJEXzUtH2BrTrNmN6ZYZfFxmojPvNc2sgZPEA@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+	<CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+	<F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+	<CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+	<CAL7bZ_cMy4A5UBJEXzUtH2BrTrNmN6ZYZfFxmojPvNc2sgZPEA@mail.gmail.com>
+Message-ID: <BE09AA17-9C32-44E9-82CB-358638DC22E7@apple.com>
+
+
+> On Jan 9, 2015, at 5:14 PM, David Majnemer <david.majnemer at gmail.com> wrote:
+> 
+> 
+> On Tue, May 6, 2014 at 4:46 PM, David Majnemer <david.majnemer at gmail.com <mailto:david.majnemer at gmail.com>> wrote:
+> On Mon, May 5, 2014 at 1:36 PM, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> On May 5, 2014, at 1:32 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> On 5 May 2014 12:10, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>>> On 5 May 2014 10:14, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>>> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>>>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>>>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com <mailto:david.majnemer at gmail.com>> wrote:
+>>>> > The Itanium ABI does not seem to provide a mangling for reference temporaries.
+>>>> >
+>>>> > Consider the following:
+>>>> > struct A { const int (&x)[3]; };
+>>>> > struct B { const A (&x)[2]; };
+>>>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>>>> > B &temp = b<void>;
+>>>> >
+>>>> > The temporaries created by instantiating b<void> must be the same in all translation units.
+>>>> >
+>>>> > To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+>>>> 
+>>>> What does GCC do?
+>>>> 
+>>>> GCC trunk seems to use
+>>>> 
+>>>>   <special-name> ::= GR <object name> <nonnegative number>
+>>>> 
+>>>> where the first reference temporary gets number 0, and so on. It appears to number them through a post-order tree walk of the expression. Older versions of GCC did not add a number, IIRC.
+>>> 
+>>> Okay.  So we have two different manglings out there that both look basically the same except for an off-by-one and a major semantic ordering difference.  I think we should either standardize on one or the other or switch to a different prefix entirely.
+>>> 
+>>> Looking at the GCC output again, I see:
+>>>   * GCC actually does seem to be using lexical order (of the start of the expression) after all (at least in the std::initializer_list array temporary case).
+>>>   * GCC emits these symbols with internal linkage.
+>>> 
+>>> So I don't think there's any compatibility problem with GCC.
+>> 
+>> Okay.
+>> 
+>>> Has the clang mangling actually been used in a released compiler, or did it just get implemented?
+>>> 
+>>> Sort of? Until very recently, Clang used the same mangling for all the temporaries, and added numbers to disambiguate, so we got the current proposal by accident (except the numbering starts from 1 instead of from 0) -- at least, in some cases: Clang would number the temporaries in a different order if they were initialized by constant expressions (because it happened to emit them in a different order).
+>> 
+>> Yeah, we don?t need to work to maintain compatibility with that.
+>> 
+>>> Hmm.  Putting a <number> after a <name> requires demangler lookahead, doesn?t it?
+>>> 
+>>> <name> is self-delimiting, so a demangler can walk over it, then read digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are only nested if they appear within a <local-name>, which has a terminating E.) Not sure if that addresses your concern, though.
+>> 
+>> Ah, right, I was thinking of <encoding>.
+>> 
+>> Let?s just follow the example of <susbtitution>, which is basically what you?re proposing except a <seq-id> instead of a <number> and always followed by a _.
+>> 
+>> Compared to the previous proposal (without the _), that's an ABI break for Clang in the overwhelmingly common case where a declaration lifetime-extends a single temporary, but I can live with it.
+> 
+> Yeah, I?m comfortable with this.
+> 
+>> Do you want someone to provide wording for the ABI document?
+> 
+> Sure, might as well re-submit the proposal.  It would be nice to get some feedback from someone not working on Clang, however.
+> 
+> To implement support for mangling reference temporaries:
+> 
+> 1. An additional <special-name> non-terminal production should be added:
+> 
+> <special-name> ::= GR <object name> [ <seq-id> ] _   # Reference temporaries
+> 
+> The <seq-id> is strictly the lexical order in which the reference temporary was written in the source.
+> 
+> The following exists as a practical example:
+> 
+> _ZGR1bIvE_ would be given to the 'B' object that 't' would refer to.
+> _ZGR1bIvE0_ would be given to the array of 'A' object references
+> _ZGR1bIvE1_ would be given to the object containing the first array of ints, {1, 2, 3}
+> _ZGR1bIvE2_ would be given to the object containing the second array of ints, {4, 5, 6}
+> 
+> 2. The text describing <seq-id> should probably refrain from mentioning substitutable entities.
+> 
+> Does anything else need to happen to get this added to the ABI document?
+
+It should be there now.  Sorry for the delay.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150204/ab3aa13d/attachment-0001.html>
+
+From rjmccall at apple.com  Thu Feb  5 07:15:28 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 4 Feb 2015 23:15:28 -0800
+Subject: [cxx-abi-dev] Layout of overaligned empty base classes
+In-Reply-To: <CAGL0aWfp1MyQ8Ns_kQv-6UoWCBB2XDhji1UzxCMKuS7NPofRXQ@mail.gmail.com>
+References: <CAGL0aWdkwojJVGQ2isUvt+agaeHJXqu2aUXsKqT4uy+bv7TtSQ@mail.gmail.com>
+	<E06C5D25-8C57-4B5D-AE67-26EAE8FD510B@apple.com>
+	<CAGL0aWfp1MyQ8Ns_kQv-6UoWCBB2XDhji1UzxCMKuS7NPofRXQ@mail.gmail.com>
+Message-ID: <EB5E9EDF-A018-4BEF-B7E2-C6256092789B@apple.com>
+
+> On Feb 4, 2015, at 4:26 PM, Richard Smith <richardsmith at google.com> wrote:
+> 
+> Change the final paragraph of 2.4/II/3 as follows:
+> 
+> """
+> Once offset(D) has been chosen, update sizeof(C) to max (sizeof(C), offset(D)+sizeof(D))
+> <ins>, and align(C) to max (align(C), nvalign(D))</ins>.
+> <del>Note that nvalign(D) is 1, so no update of align(C) is needed.</del>
+> S<del>imilarly, s</del>ince D is an empty base class, no update of dsize(C) is needed.
+> ?""
+
+Applied, thanks!
+
+John.
+
+From richardsmith at google.com  Wed Feb 18 19:46:37 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 18 Feb 2015 11:46:37 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param> <template-args>
+	in <unresolved-name>
+Message-ID: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+
+Consider these two cases:
+
+template<typename T> struct X { struct Y {}; };
+
+template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+template<template<typename> class U> decltype(X<int>::Y().U<int>::Y::~Y())
+g();
+
+Neither of these function templates has a mangling. We get to
+<unresolved-name> for the destructor name, and find a template template
+parameter with template args, which we cannot mangle as an
+<unresolved-type>, and must not mangle as a <simple-id> (because the name
+of the template template parameter can change between redeclarations).
+
+Suggested fix: U<int> should be an <unresolved-type>. Replace
+
+  <unresolved-type> ::= <template-param>
+
+with
+
+  <unresolved-type> ::= <template-param> [ <template-args> ]
+
+... which results, I think, in these manglings for f<X> and g<X>:
+
+_Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+_Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+
+(Clang trunk implements this, but gets the g<X> mangling wrong for other
+reasons.)
+
+OK?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150218/ad501e72/attachment.html>
+
+From rjmccall at apple.com  Wed Feb 18 21:04:57 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Feb 2015 13:04:57 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param>
+	<template-args>	in <unresolved-name>
+In-Reply-To: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+References: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+Message-ID: <B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+
+> On Feb 18, 2015, at 11:46 AM, Richard Smith <richardsmith at google.com> wrote:
+> Consider these two cases:
+> 
+> template<typename T> struct X { struct Y {}; };
+> 
+> template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+> template<template<typename> class U> decltype(X<int>::Y().U<int>::Y::~Y()) g();
+> 
+> Neither of these function templates has a mangling. We get to <unresolved-name> for the destructor name, and find a template template parameter with template args, which we cannot mangle as an <unresolved-type>, and must not mangle as a <simple-id> (because the name of the template template parameter can change between redeclarations).
+> 
+> Suggested fix: U<int> should be an <unresolved-type>. Replace
+> 
+>   <unresolved-type> ::= <template-param>
+> 
+> with
+> 
+>   <unresolved-type> ::= <template-param> [ <template-args> ]
+> 
+> ... which results, I think, in these manglings for f<X> and g<X>:
+> 
+> _Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+> _Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+> 
+> (Clang trunk implements this, but gets the g<X> mangling wrong for other reasons.)
+> 
+> OK?
+
+I had to go and convince myself that an optional dangling production is fine here, but it does look like it can unambiguously and unheroically demangled.  There are several other major productions that use an optional dangling <template-args> like this, most notably <simple-id>; so while this is not my favorite way of designing a mangling, it?s widely precedented in the grammar with this exact production, so the rest of the grammar has been designed to not collide with it.  I did go ahead and verify that it?s unambiguous anyway.  So this looks good to me.
+
+Is ~T::T() legal with a template parameter, or does that actually look up ?T" in the template argument?
+
+John.
+
+From richardsmith at google.com  Wed Feb 18 21:45:00 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 18 Feb 2015 13:45:00 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param>
+ <template-args> in <unresolved-name>
+In-Reply-To: <B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+References: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+	<B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+Message-ID: <CAGL0aWfQHzOLF79swQsAX4siJh8qZQqjf00tsiOw3Wjz9Uvjrg@mail.gmail.com>
+
+On 18 February 2015 at 13:04, John McCall <rjmccall at apple.com> wrote:
+
+> > On Feb 18, 2015, at 11:46 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > Consider these two cases:
+> >
+> > template<typename T> struct X { struct Y {}; };
+> >
+> > template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+> > template<template<typename> class U>
+> decltype(X<int>::Y().U<int>::Y::~Y()) g();
+> >
+> > Neither of these function templates has a mangling. We get to
+> <unresolved-name> for the destructor name, and find a template template
+> parameter with template args, which we cannot mangle as an
+> <unresolved-type>, and must not mangle as a <simple-id> (because the name
+> of the template template parameter can change between redeclarations).
+> >
+> > Suggested fix: U<int> should be an <unresolved-type>. Replace
+> >
+> >   <unresolved-type> ::= <template-param>
+> >
+> > with
+> >
+> >   <unresolved-type> ::= <template-param> [ <template-args> ]
+> >
+> > ... which results, I think, in these manglings for f<X> and g<X>:
+> >
+> > _Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+> > _Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+> >
+> > (Clang trunk implements this, but gets the g<X> mangling wrong for other
+> reasons.)
+> >
+> > OK?
+>
+> I had to go and convince myself that an optional dangling production is
+> fine here, but it does look like it can unambiguously and unheroically
+> demangled.  There are several other major productions that use an optional
+> dangling <template-args> like this, most notably <simple-id>; so while this
+> is not my favorite way of designing a mangling, it?s widely precedented in
+> the grammar with this exact production, so the rest of the grammar has been
+> designed to not collide with it.  I did go ahead and verify that it?s
+> unambiguous anyway.  So this looks good to me.
+>
+> Is ~T::T() legal with a template parameter, or does that actually look up
+> ?T" in the template argument?
+
+
+It depends on whether the base object has a dependent type. If x's type is
+not dependent, then x.T::~T() looks up the first T within the type and
+names the template parameter if T is not found within the type. If x's type
+is dependent, (the standard is not clear but) lookup within the class is
+deemed to fail and the first T always names the template parameter. In all
+cases, the second T is looked up in the same scope(s) as the first.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150218/c40191ff/attachment.html>
+
+From rjmccall at apple.com  Wed Feb 18 23:35:52 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Feb 2015 15:35:52 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param>
+	<template-args> in <unresolved-name>
+In-Reply-To: <CAGL0aWfQHzOLF79swQsAX4siJh8qZQqjf00tsiOw3Wjz9Uvjrg@mail.gmail.com>
+References: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+	<B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+	<CAGL0aWfQHzOLF79swQsAX4siJh8qZQqjf00tsiOw3Wjz9Uvjrg@mail.gmail.com>
+Message-ID: <B35D7BE7-E3F0-47BF-ADDD-FA76FD0F1393@apple.com>
+
+> On Feb 18, 2015, at 1:45 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 18 February 2015 at 13:04, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Feb 18, 2015, at 11:46 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+> > Consider these two cases:
+> >
+> > template<typename T> struct X { struct Y {}; };
+> >
+> > template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+> > template<template<typename> class U> decltype(X<int>::Y().U<int>::Y::~Y()) g();
+> >
+> > Neither of these function templates has a mangling. We get to <unresolved-name> for the destructor name, and find a template template parameter with template args, which we cannot mangle as an <unresolved-type>, and must not mangle as a <simple-id> (because the name of the template template parameter can change between redeclarations).
+> >
+> > Suggested fix: U<int> should be an <unresolved-type>. Replace
+> >
+> >   <unresolved-type> ::= <template-param>
+> >
+> > with
+> >
+> >   <unresolved-type> ::= <template-param> [ <template-args> ]
+> >
+> > ... which results, I think, in these manglings for f<X> and g<X>:
+> >
+> > _Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+> > _Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+> >
+> > (Clang trunk implements this, but gets the g<X> mangling wrong for other reasons.)
+> >
+> > OK?
+> 
+> I had to go and convince myself that an optional dangling production is fine here, but it does look like it can unambiguously and unheroically demangled.  There are several other major productions that use an optional dangling <template-args> like this, most notably <simple-id>; so while this is not my favorite way of designing a mangling, it?s widely precedented in the grammar with this exact production, so the rest of the grammar has been designed to not collide with it.  I did go ahead and verify that it?s unambiguous anyway.  So this looks good to me.
+> 
+> Is ~T::T() legal with a template parameter, or does that actually look up ?T" in the template argument?
+> 
+> It depends on whether the base object has a dependent type. If x's type is not dependent, then x.T::~T() looks up the first T within the type and names the template parameter if T is not found within the type. If x's type is dependent, (the standard is not clear but) lookup within the class is deemed to fail and the first T always names the template parameter. In all cases, the second T is looked up in the same scope(s) as the first.
+
+Okay, thanks.  Do you agree that that?s not something that needs to be preserved in the mangling?  It seems like that rule allows us to uniformly decide on srT_dnT_ or sd1Tdn1T at parse time in the non-dependent case, and whether we?re in the dependent or non-dependent case should always be reflected by the mangling of the base expression.
+
+If the language required us to do the member-type lookup in the dependent case, we?d need a special kind of <unresolved-type> (and even crazier logic in function template redeclaration matching, because you wouldn?t be able to match templates using different template parameter names when this happened?).
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150218/893694a1/attachment-0001.html>
+
+From richardsmith at google.com  Wed Feb 18 23:54:03 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 18 Feb 2015 15:54:03 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param>
+ <template-args> in <unresolved-name>
+In-Reply-To: <B35D7BE7-E3F0-47BF-ADDD-FA76FD0F1393@apple.com>
+References: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+	<B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+	<CAGL0aWfQHzOLF79swQsAX4siJh8qZQqjf00tsiOw3Wjz9Uvjrg@mail.gmail.com>
+	<B35D7BE7-E3F0-47BF-ADDD-FA76FD0F1393@apple.com>
+Message-ID: <CAGL0aWcN=DeEfBSBx6Bw2NErFz9FoedxCAjEncNvEqPuEBe7WA@mail.gmail.com>
+
+On 18 February 2015 at 15:35, John McCall <rjmccall at apple.com> wrote:
+
+> On Feb 18, 2015, at 1:45 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> On 18 February 2015 at 13:04, John McCall <rjmccall at apple.com> wrote:
+>
+>> > On Feb 18, 2015, at 11:46 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > Consider these two cases:
+>> >
+>> > template<typename T> struct X { struct Y {}; };
+>> >
+>> > template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+>> > template<template<typename> class U>
+>> decltype(X<int>::Y().U<int>::Y::~Y()) g();
+>> >
+>> > Neither of these function templates has a mangling. We get to
+>> <unresolved-name> for the destructor name, and find a template template
+>> parameter with template args, which we cannot mangle as an
+>> <unresolved-type>, and must not mangle as a <simple-id> (because the name
+>> of the template template parameter can change between redeclarations).
+>> >
+>> > Suggested fix: U<int> should be an <unresolved-type>. Replace
+>> >
+>> >   <unresolved-type> ::= <template-param>
+>> >
+>> > with
+>> >
+>> >   <unresolved-type> ::= <template-param> [ <template-args> ]
+>> >
+>> > ... which results, I think, in these manglings for f<X> and g<X>:
+>> >
+>> > _Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+>> > _Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+>> >
+>> > (Clang trunk implements this, but gets the g<X> mangling wrong for
+>> other reasons.)
+>> >
+>> > OK?
+>>
+>> I had to go and convince myself that an optional dangling production is
+>> fine here, but it does look like it can unambiguously and unheroically
+>> demangled.  There are several other major productions that use an optional
+>> dangling <template-args> like this, most notably <simple-id>; so while this
+>> is not my favorite way of designing a mangling, it?s widely precedented in
+>> the grammar with this exact production, so the rest of the grammar has been
+>> designed to not collide with it.  I did go ahead and verify that it?s
+>> unambiguous anyway.  So this looks good to me.
+>>
+>> Is ~T::T() legal with a template parameter, or does that actually look up
+>> ?T" in the template argument?
+>
+>
+> It depends on whether the base object has a dependent type. If x's type is
+> not dependent, then x.T::~T() looks up the first T within the type and
+> names the template parameter if T is not found within the type. If x's type
+> is dependent, (the standard is not clear but) lookup within the class is
+> deemed to fail and the first T always names the template parameter. In all
+> cases, the second T is looked up in the same scope(s) as the first.
+>
+>
+> Okay, thanks.  Do you agree that that?s not something that needs to be
+> preserved in the mangling?  It seems like that rule allows us to uniformly
+> decide on srT_dnT_ or sd1Tdn1T at parse time in the non-dependent case, and
+> whether we?re in the dependent or non-dependent case should always be
+> reflected by the mangling of the base expression.
+>
+
+Yes, I agree.
+
+If the language required us to do the member-type lookup in the dependent
+> case, we?d need a special kind of <unresolved-type> (and even crazier logic
+> in function template redeclaration matching, because you wouldn?t be able
+> to match templates using different template parameter names when this
+> happened?).
+>
+
+If the language required that, I'd call it a defect in the specification.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150218/cbd6b5f3/attachment.html>
+
+From rjmccall at apple.com  Thu Feb 19 00:04:44 2015
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 18 Feb 2015 16:04:44 -0800
+Subject: [cxx-abi-dev] missing mangling for <template-param>
+	<template-args> in <unresolved-name>
+In-Reply-To: <CAGL0aWcN=DeEfBSBx6Bw2NErFz9FoedxCAjEncNvEqPuEBe7WA@mail.gmail.com>
+References: <CAGL0aWfWPTzVTjATRqc1UQzEn_X2kF4DzE969Z9MRtSzCwQZ1g@mail.gmail.com>
+	<B5D2D638-EBB9-4AC5-A2F2-9FD2F648BC13@apple.com>
+	<CAGL0aWfQHzOLF79swQsAX4siJh8qZQqjf00tsiOw3Wjz9Uvjrg@mail.gmail.com>
+	<B35D7BE7-E3F0-47BF-ADDD-FA76FD0F1393@apple.com>
+	<CAGL0aWcN=DeEfBSBx6Bw2NErFz9FoedxCAjEncNvEqPuEBe7WA@mail.gmail.com>
+Message-ID: <ACF97850-6A2A-4C7E-A70F-58051C895FB9@apple.com>
+
+> On Feb 18, 2015, at 3:54 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 18 February 2015 at 15:35, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> On Feb 18, 2015, at 1:45 PM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> On 18 February 2015 at 13:04, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> > On Feb 18, 2015, at 11:46 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> > Consider these two cases:
+>> >
+>> > template<typename T> struct X { struct Y {}; };
+>> >
+>> > template<template<typename> class U> decltype(X<int>().~U<int>()) f();
+>> > template<template<typename> class U> decltype(X<int>::Y().U<int>::Y::~Y()) g();
+>> >
+>> > Neither of these function templates has a mangling. We get to <unresolved-name> for the destructor name, and find a template template parameter with template args, which we cannot mangle as an <unresolved-type>, and must not mangle as a <simple-id> (because the name of the template template parameter can change between redeclarations).
+>> >
+>> > Suggested fix: U<int> should be an <unresolved-type>. Replace
+>> >
+>> >   <unresolved-type> ::= <template-param>
+>> >
+>> > with
+>> >
+>> >   <unresolved-type> ::= <template-param> [ <template-args> ]
+>> >
+>> > ... which results, I think, in these manglings for f<X> and g<X>:
+>> >
+>> > _Z1fI1XEDTcldtcvS0_IiE_EdnT_IiEEEv
+>> > _Z1gI1XEDTcldtcvNS0_IiE1YE_EsrNT_IiE1YEdn1YEEv
+>> >
+>> > (Clang trunk implements this, but gets the g<X> mangling wrong for other reasons.)
+>> >
+>> > OK?
+>> 
+>> I had to go and convince myself that an optional dangling production is fine here, but it does look like it can unambiguously and unheroically demangled.  There are several other major productions that use an optional dangling <template-args> like this, most notably <simple-id>; so while this is not my favorite way of designing a mangling, it?s widely precedented in the grammar with this exact production, so the rest of the grammar has been designed to not collide with it.  I did go ahead and verify that it?s unambiguous anyway.  So this looks good to me.
+>> 
+>> Is ~T::T() legal with a template parameter, or does that actually look up ?T" in the template argument?
+>> 
+>> It depends on whether the base object has a dependent type. If x's type is not dependent, then x.T::~T() looks up the first T within the type and names the template parameter if T is not found within the type. If x's type is dependent, (the standard is not clear but) lookup within the class is deemed to fail and the first T always names the template parameter. In all cases, the second T is looked up in the same scope(s) as the first.
+> 
+> Okay, thanks.  Do you agree that that?s not something that needs to be preserved in the mangling?  It seems like that rule allows us to uniformly decide on srT_dnT_ or sd1Tdn1T at parse time in the non-dependent case, and whether we?re in the dependent or non-dependent case should always be reflected by the mangling of the base expression.
+> 
+> Yes, I agree.
+> 
+> If the language required us to do the member-type lookup in the dependent case, we?d need a special kind of <unresolved-type> (and even crazier logic in function template redeclaration matching, because you wouldn?t be able to match templates using different template parameter names when this happened?).
+> 
+> If the language required that, I'd call it a defect in the specification.
+
+Agreed on that, too.
+
+Okay, I?ll commit this in a week or so if nobody objects.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150218/e9db4fb9/attachment.html>
+
+From david.majnemer at gmail.com  Thu Feb 19 22:51:19 2015
+From: david.majnemer at gmail.com (David Majnemer)
+Date: Thu, 19 Feb 2015 14:51:19 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+Message-ID: <CAL7bZ_d-=65M+95TJ-DghEADOxAdO_Qb4dHR2Sm+Dccd5O6+KA@mail.gmail.com>
+
+Hi,
+
+It seems that the ABI has no means to mangle the contents of string
+constants.
+
+The cxx-abi-dev archives have a proposal
+http://sourcerytools.com/pipermail/cxx-abi-dev/2012-January/000032.html but
+it seems this was never integrated into the ABI document.  Further, the
+proposal doesn't specify how to mangle UTF-16/UTF-32 string literals.  Such
+a mangling would have to specify the endianness used to encode the code
+points.
+
+At the moment, I am trying to figure out how we should mangle the string
+constant in:
+struct X {
+  static constexpr const char *p = "foo";
+};
+
+We are required to give the storage for the string the same name in all
+translation units in order to adhere to the ODR.
+
+One idea I had was to treat it like a lifetime extended temporary but this
+might break compatibility with existing programs.
+
+Are there any preferences as to what should be done?
+
+-- 
+David Majnemer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150219/7d0b101b/attachment.html>
+
+From dhandly at cup.hp.com  Fri Feb 20 07:44:44 2015
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 19 Feb 2015 23:44:44 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+Message-ID: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+
+>From: David Majnemer <david.majnemer at gmail.com>
+>It seems that the ABI has no means to mangle the contents of string constants.
+
+Why is that needed?
+The current scheme is to just number the constants in order.
+And that handles both strings and wide strings.
+And by the ODR rule the inlines must be the same.
+
+>the proposal doesn't specify how to mangle UTF-16/UTF-32 string literals.
+>Such a mangling would have to specify the endianness used to encode the code
+>points.
+
+Again why?  We just need mangling to make sure they match addresses.
+Do we really to check code enforcement?
+We don't do for narrow vs wide.
+
+>I am trying to figure out how we should mangle the string constant in:
+>struct X {
+>  static constexpr const char *p = "foo";
+>};
+
+I thought this was defined?
+
+From rjmccall at apple.com  Fri Feb 20 23:51:52 2015
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 20 Feb 2015 15:51:52 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+In-Reply-To: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+References: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+Message-ID: <2EF0943D-8D5D-4820-A4BF-CE2EFA2E2FDC@apple.com>
+
+> On Feb 19, 2015, at 11:44 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+>> From: David Majnemer <david.majnemer at gmail.com>
+>> It seems that the ABI has no means to mangle the contents of string constants.
+> 
+> Why is that needed?
+> The current scheme is to just number the constants in order.
+> And that handles both strings and wide strings.
+> And by the ODR rule the inlines must be the same.
+
+I think this is what David means by numbering like a reference temporary.
+
+To the extent that this is needed, I agree with you that that?s the right solution: string literals should be mangled in the same sequence as reference temporaries.  (Which already applies to more than just reference temporaries anyway, since the same concept of lifetime extension applies to std::initializer_list temporaries.)
+
+I have some of the same concerns here as I do with guaranteeing the uniqueness of string literals within inline functions: I want to make sure the language isn?t accidentally promising something that grotesquely affects performance far out of proportion to its utility to the programmer.  It would be very unfortunate if we, say, introduced thousands of new global weak symbols just to unique the strings used by assertions.  We can take things like this back to the committee if necessary.
+
+But if we can restrict this guarantee to string literals that appear in reference-temporary-like positions in constexpr initializers, I think it?s reasonable enough.
+
+John.
+
+From rjmccall at apple.com  Sat Feb 21 01:58:23 2015
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 20 Feb 2015 17:58:23 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+In-Reply-To: <CAGL0aWdQUHkFCgt73YOqwApc-eRkHNJV5Z27kAxwap+ck32bCQ@mail.gmail.com>
+References: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+	<2EF0943D-8D5D-4820-A4BF-CE2EFA2E2FDC@apple.com>
+	<CAGL0aWdQUHkFCgt73YOqwApc-eRkHNJV5Z27kAxwap+ck32bCQ@mail.gmail.com>
+Message-ID: <7E307DDF-E2F7-492D-B45E-AD915D861D08@apple.com>
+
+> On Feb 20, 2015, at 4:28 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 20 February 2015 at 15:51, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+> > On Feb 19, 2015, at 11:44 PM, Dennis Handly <dhandly at cup.hp.com <mailto:dhandly at cup.hp.com>> wrote:
+> >> From: David Majnemer <david.majnemer at gmail.com <mailto:david.majnemer at gmail.com>>
+> >> It seems that the ABI has no means to mangle the contents of string constants.
+> >
+> > Why is that needed?
+> > The current scheme is to just number the constants in order.
+> > And that handles both strings and wide strings.
+> > And by the ODR rule the inlines must be the same.
+> 
+> I think this is what David means by numbering like a reference temporary.
+> 
+> To the extent that this is needed, I agree with you that that?s the right solution: string literals should be mangled in the same sequence as reference temporaries.  (Which already applies to more than just reference temporaries anyway, since the same concept of lifetime extension applies to std::initializer_list temporaries.)
+> 
+> I have some of the same concerns here as I do with guaranteeing the uniqueness of string literals within inline functions: I want to make sure the language isn?t accidentally promising something that grotesquely affects performance far out of proportion to its utility to the programmer.  It would be very unfortunate if we, say, introduced thousands of new global weak symbols just to unique the strings used by assertions.  We can take things like this back to the committee if necessary.
+> 
+> But if we can restrict this guarantee to string literals that appear in reference-temporary-like positions in constexpr initializers, I think it?s reasonable enough.
+> 
+> We can't. Consider:
+> 
+> constexpr const char *f(const char *p) { return p; }
+> constexpr const char *g() { return "foo"; }
+> struct X {
+>   constexpr static const char *p = "foo", // ok
+>   *q = f("foo"), // not in a "reference-temporary-like" position
+>   *r = g(); // string literal is not even lexically within the initializer
+> };
+
+Yeah, I thought about this a bit too late.  There are two ways to salvage the idea: mark string literals by position as they appear in the actual constexpr result, or just don?t promise anything in this case.
+
+Another concern with widespread string-literal mangling that occurs to me is whether it will completely defeat ordinary string-literal sharing.  To do this feature optimally, we would need? in ELF terms, what, a COMDAT alias (?) into the string literal section?   This might be pushing the boundaries of supported linker behavior a lot.  If we have to emit separate, unmergeable string literal objects just because they were used in a constexpr, that would be a disaster.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150220/94688325/attachment.html>
+
+From richardsmith at googlers.com  Thu Feb 19 23:04:46 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 19 Feb 2015 15:04:46 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+In-Reply-To: <CAL7bZ_d-=65M+95TJ-DghEADOxAdO_Qb4dHR2Sm+Dccd5O6+KA@mail.gmail.com>
+References: <CAL7bZ_d-=65M+95TJ-DghEADOxAdO_Qb4dHR2Sm+Dccd5O6+KA@mail.gmail.com>
+Message-ID: <CAGL0aWfbSTcnP=+LxTTFmYZUJJ1ypV=CCDVgj6w8xp_7_8VgZg@mail.gmail.com>
+
+On 19 February 2015 at 14:51, David Majnemer <david.majnemer at gmail.com>
+wrote:
+
+> Hi,
+>
+> It seems that the ABI has no means to mangle the contents of string
+> constants.
+>
+> The cxx-abi-dev archives have a proposal
+> http://sourcerytools.com/pipermail/cxx-abi-dev/2012-January/000032.html
+> but it seems this was never integrated into the ABI document.  Further, the
+> proposal doesn't specify how to mangle UTF-16/UTF-32 string literals.  Such
+> a mangling would have to specify the endianness used to encode the code
+> points.
+>
+> At the moment, I am trying to figure out how we should mangle the string
+> constant in:
+> struct X {
+>   static constexpr const char *p = "foo";
+> };
+>
+> We are required to give the storage for the string the same name in all
+> translation units in order to adhere to the ODR.
+>
+> One idea I had was to treat it like a lifetime extended temporary but this
+> might break compatibility with existing programs.
+>
+> Are there any preferences as to what should be done?
+>
+
+A related case:
+
+inline constexpr const char *f() { return "foo"; }
+struct X {
+  static constexpr const char *p = f(), *q = f();
+};
+
+We've removed the language rule that required that p == q, but we still
+have a constraint that every translation unit sees the same value for p.
+
+I think the simplest way to address this problem and David's original one
+is to give a mangling for string literals based on their contents. This
+mangling would be optional in all cases *except* where the string literal
+object must be the same across translation units, in which case the
+mangling must be used and the string literal must be emitted with vague
+linkage. I would expect there are few enough such cases that we don't need
+to worry about the implied extra symbols.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150219/8024b1e3/attachment.html>
+
+From richardsmith at googlers.com  Fri Feb 20 21:22:32 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Fri, 20 Feb 2015 13:22:32 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+In-Reply-To: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+References: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+Message-ID: <CAGL0aWfHep=AMfD2j_aq89ni3_ft7C76JQa_69uq1u9HBLVE8Q@mail.gmail.com>
+
+On 19 February 2015 at 23:44, Dennis Handly <dhandly at cup.hp.com> wrote:
+
+> >From: David Majnemer <david.majnemer at gmail.com>
+> >It seems that the ABI has no means to mangle the contents of string
+> constants.
+>
+> Why is that needed?
+>
+
+See the linked message:
+http://sourcerytools.com/pipermail/cxx-abi-dev/2012-January/000032.html
+
+This is about string literals in signatures, where we need to mangle the
+contents because the contents can be observed through evaluation of a
+value-dependent constant expression.
+
+The current scheme is to just number the constants in order.
+> And that handles both strings and wide strings.
+> And by the ODR rule the inlines must be the same.
+>
+> >the proposal doesn't specify how to mangle UTF-16/UTF-32 string literals.
+> >Such a mangling would have to specify the endianness used to encode the
+> code
+> >points.
+>
+> Again why?  We just need mangling to make sure they match addresses.
+> Do we really to check code enforcement?
+> We don't do for narrow vs wide.
+>
+> >I am trying to figure out how we should mangle the string constant in:
+> >struct X {
+> >  static constexpr const char *p = "foo";
+> >};
+>
+> I thought this was defined?
+
+
+Apparently not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150220/2b4ef711/attachment.html>
+
+From richardsmith at googlers.com  Sat Feb 21 00:28:00 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Fri, 20 Feb 2015 16:28:00 -0800
+Subject: [cxx-abi-dev] Mangling string constants
+In-Reply-To: <2EF0943D-8D5D-4820-A4BF-CE2EFA2E2FDC@apple.com>
+References: <201502200744.t1K7iik25088@adlwrk06.cce.hp.com>
+	<2EF0943D-8D5D-4820-A4BF-CE2EFA2E2FDC@apple.com>
+Message-ID: <CAGL0aWdQUHkFCgt73YOqwApc-eRkHNJV5Z27kAxwap+ck32bCQ@mail.gmail.com>
+
+On 20 February 2015 at 15:51, John McCall <rjmccall at apple.com> wrote:
+
+> > On Feb 19, 2015, at 11:44 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+> >> From: David Majnemer <david.majnemer at gmail.com>
+> >> It seems that the ABI has no means to mangle the contents of string
+> constants.
+> >
+> > Why is that needed?
+> > The current scheme is to just number the constants in order.
+> > And that handles both strings and wide strings.
+> > And by the ODR rule the inlines must be the same.
+>
+> I think this is what David means by numbering like a reference temporary.
+>
+> To the extent that this is needed, I agree with you that that?s the right
+> solution: string literals should be mangled in the same sequence as
+> reference temporaries.  (Which already applies to more than just reference
+> temporaries anyway, since the same concept of lifetime extension applies to
+> std::initializer_list temporaries.)
+>
+> I have some of the same concerns here as I do with guaranteeing the
+> uniqueness of string literals within inline functions: I want to make sure
+> the language isn?t accidentally promising something that grotesquely
+> affects performance far out of proportion to its utility to the
+> programmer.  It would be very unfortunate if we, say, introduced thousands
+> of new global weak symbols just to unique the strings used by assertions.
+> We can take things like this back to the committee if necessary.
+>
+> But if we can restrict this guarantee to string literals that appear in
+> reference-temporary-like positions in constexpr initializers, I think it?s
+> reasonable enough.
+
+
+We can't. Consider:
+
+constexpr const char *f(const char *p) { return p; }
+constexpr const char *g() { return "foo"; }
+struct X {
+  constexpr static const char *p = "foo", // ok
+  *q = f("foo"), // not in a "reference-temporary-like" position
+  *r = g(); // string literal is not even lexically within the initializer
+};
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150220/2b9bc942/attachment.html>
+

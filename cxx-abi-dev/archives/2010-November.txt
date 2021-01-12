@@ -1,0 +1,272 @@
+From anthony at justsoftwaresolutions.co.uk  Wed Nov 17 08:32:59 2010
+From: anthony at justsoftwaresolutions.co.uk (Anthony Williams)
+Date: Wed, 17 Nov 2010 08:32:59 +0000
+Subject: C++0x std::rethrow_exception, data races and the Itanium ABI
+Message-ID: <4CE3933B.9070008@justsoftwaresolutions.co.uk>
+
+Hi,
+
+With the current draft of the upcoming C++0x standard, it is unclear 
+whether the exception thrown by std::rethrow_exception is the same 
+exception object that was originally thrown, or a copy thereof. Indeed, 
+different implementations do different things: gcc rethrows the same 
+exception object, and MSVC2010 throws a copy.
+
+I believe that this is a mistake; std::rethrow_exception should always 
+throw a copy. If it rethrows the same exception then the same exception 
+object may now become active in multiple threads. This then exposes the 
+**handlers** to data races should they catch by reference and call any 
+member functions that modify the exception object.
+
+One use case I have seen for this is to add call stack information to an 
+exception for logging purposes. e.g.
+
+void g();
+
+struct my_exception
+{
+     void add_caller(std::string const& function_name,int arg1,int arg2);
+};
+
+void f(int arg1,int arg2){
+    try{
+       g();
+    catch(my_exception& e)
+    {
+       e.add_caller("f(int,int)",arg1,arg2);
+       throw;
+    }
+}
+
+Under C++03, any exception thrown by g() must originate in this thread, 
+so there is no possibility of a data race in f(). Under C++0x we must 
+contend with the possibility that the exception originated in another 
+thread. e.g.
+
+std::mutex m;
+std::exception_ptr ep;
+
+void g()
+{
+     std::lock_guard<std::mutex> lk(m);
+     if(ep)
+         std::rethrow_exception(ep);
+}
+
+If multiple threads call g() they may thus each rethrow the same 
+exception. If this truly is the **same** exception object (and not a 
+copy) then callers such as f() have now been exposed to a data race, 
+**without changing f()**.
+
+Also, under the latitude provided by the C++0x draft, this behaviour may 
+vary from compiler to compiler. I can write some code that is race-free 
+under MSVC2010, but if I then recompile it with gcc then I have a data 
+race, **without any indication from the compiler**.
+
+I am aware that the reason for gcc's behaviour in this case is that the 
+Itanium ABI does not provide the necessary information to copy an 
+exception object, which is why I am posting here. I would like to 
+propose changing the Itanium ABI to provide the necessary information to 
+copy the exception object, **whilst remaining backwards compatible**.
+
+Based on the documentation at 
+http://www.codesourcery.com/public/cxx-abi/abi.html I have a couple of 
+ideas on how this could be done.
+
+One option I see would be to add a new class derived from 
+abi::__class_type_info that had virtual member functions for the size 
+and copy constructor:
+
+class __copyable_class_type_info: public __class_type_info
+{
+public:
+     size_t __object_size;
+     virtual void __copy_construct(void* __source, void* __dest)=0;
+};
+
+You would need similar derived classes for __si_class_type_info and 
+__vmi_class_type_info.
+
+Because these are derived classes, they shouldn't affect the existing 
+ABI structures. The size of non-class types can be determined from the 
+type directly, since all pointers have the same size and fundamental 
+types have a fixed size under the ABI. Such types can also be copied 
+with memcpy(). The type_info for classes for which there is no public 
+copy constructor would not derive from these new type-info classes.
+
+rethrow_exception can then check the type_info pointed to by the 
+exceptionType member of the __cxa_exception header, and either
+
+(i) copy the exception with memcpy (because it's a fundamental type or 
+pointer)
+
+(ii) throw bad_alloc because this is an exception that cannot therefore 
+be copied (i.e. it has no public copy constructor, or because it is from 
+the old ABI)
+
+(iii) dynamic_cast the type info to __copyable_class_type_info use the 
+new __object_size and __copy_construct virtual functions to clone the 
+exception
+
+A second option is to add the size and copy construction functions to 
+the __cxa_exception header. The ABI says "By convention, a 
+__cxa_exception pointer points at the C++ object representing the 
+exception being thrown, immediately following the header. The header 
+structure is accessed at a negative offset from the __cxa_exception 
+pointer. This layout allows consistent treatment of exception objects 
+from different languages (or different implementations of the same 
+language), and allows future extensions of the header structure while 
+maintaining binary compatibility. "
+
+We could therefore take advantage of this leeway to "extend the header 
+structure while maintaining binary compatibility" to add the new size 
+and copy construction members. In this case, the stored copy constructor 
+could be NULL if there is no public copy constructor for the class.
+
+In either case, the intention is that old code would work without 
+recompilation even if the library code that it called was changed to use 
+the new ABI, and new code could take advantage of the ability to copy 
+exceptions where the exception was thrown from code that used the new ABI.
+
+What do you think? Are these options implementable in a 
+backwards-binary-compatible way? Is there an alternative implementation 
+option?
+
+Thanks,
+
+Anthony
+-- 
+Author of C++ Concurrency in Action     http://www.stdthread.co.uk/book/
+just::thread C++0x thread library             http://www.stdthread.co.uk
+Just Software Solutions Ltd       http://www.justsoftwaresolutions.co.uk
+15 Carrallack Mews, St Just, Cornwall, TR19 7UL, UK. Company No. 5478976
+
+
+From gdr at integrable-solutions.net  Tue Nov 23 20:05:14 2010
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 23 Nov 2010 14:05:14 -0600
+Subject: Dangling reference
+Message-ID: <AANLkTimn0TuUn9h=Mbj4gTB9amyVRHhAD3WgELgPXBNe@mail.gmail.com>
+
+Hi,
+
+The link
+
+     http://www.intel.com/design/itanium/downloads/24535803.pdf
+
+from the page
+
+  http://www.codesourcery.com/public/cxx-abi/abi-eh.html
+
+is pointing to nowhere.
+
+-- Gaby
+
+
+From mark at codesourcery.com  Tue Nov 23 22:52:19 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 23 Nov 2010 14:52:19 -0800
+Subject: [cxx-abi-dev] Dangling reference
+In-Reply-To: <AANLkTimn0TuUn9h=Mbj4gTB9amyVRHhAD3WgELgPXBNe@mail.gmail.com>
+References: <AANLkTimn0TuUn9h=Mbj4gTB9amyVRHhAD3WgELgPXBNe@mail.gmail.com>
+Message-ID: <4CEC45A3.5070400@codesourcery.com>
+
+On 11/23/2010 12:05 PM, Gabriel Dos Reis wrote:
+
+>      http://www.intel.com/design/itanium/downloads/24535803.pdf
+
+I've now adjusted the URL to point at the updated location on Intel's
+servers.  I also updated another reference to the same document
+elsewhere in the ABI specification.
+
+Thank you,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From mark at codesourcery.com  Wed Nov 24 17:49:56 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 24 Nov 2010 09:49:56 -0800
+Subject: Fwd: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE
+ rules
+In-Reply-To: <4CC0EEFF-65EF-4D43-B51D-BB5DD92C3CAD@edg.com>
+References: <7F342DBA-9704-4845-99C8-9A6F551F68AE@edg.com> <4CC0EEFF-65EF-4D43-B51D-BB5DD92C3CAD@edg.com>
+Message-ID: <4CED5044.8080400@codesourcery.com>
+
+On 10/25/2010 8:55 AM, David Vandevoorde wrote:
+
+> The patch in the mail below has been pending for quite a while now.  Could it be integrated into the document?
+
+David, I've finally checked in this change.  I apologize for sitting on
+it for so long.  (If the volume here were any higher, we'd have to
+figure out some way to allow other people to check in changes, but I
+guess we're just below the level where setting that up would be
+worthwhile...)
+
+Thank you,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From mjh at edg.com  Tue Nov 30 22:20:37 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Tue, 30 Nov 2010 17:20:37 -0500
+Subject: Additional mangled encodings for variadic templates
+Message-ID: <703DE2E0-9992-4605-A4F6-944CC830F727@edg.com>
+
+It appears that there are a few missing encodings in the IA-64 ABI document having to do with variadic templates and function parameters.
+
+Take for example:
+
+  template<class T, class... U> auto f1(T x, U... y) -> decltype(sizeof...(y),x);
+  int main() {
+    f1(0, 'c');
+  }
+
+The only option to encode a sizeof...() expression is:
+
+  <expression> ::= sZ <template-param>         # size of a parameter pack
+
+but the argument to sizeof...() in f1 above is a function parameter, not a template parameter.  Similarly, in this example:
+
+  template<class... T> void f(T... t);
+  template<class T, class... U> auto f2(T x, U... y) -> decltype(f(y...),x);
+  int main() {
+    f2(0, 'c');
+  }
+
+there appears to be no encoding for the function parameter pack expansion (i.e., y...) in this context; the only pack expansion is in <template-arg>:
+
+  <template-arg> ::= sp <expression>           # pack expansion (C++0x)
+
+but y... is used in an <expression> context.
+
+I think adding these two productions to <expression> will address these problems:
+
+                 ::= sZ <function-param>       # size of a function parameter pack
+                 ::= sp <expression>           # expression pattern expansion
+
+g++ 4.5.1 seems to already be using the second of these; the "sZ" mangling doesn't appear to be implemented in g++ as yet.
+
+We'd also like to propose removing this production:
+
+  <template-arg> ::= sp <expression>           # pack expansion (C++0x)
+
+from the existing grammar.  If needed, this can be mangled with the existing rule (and the newly proposed rule above):
+
+                 ::= X <expression> E          # expression
+
+Keeping the existing rule as it is eliminates any future use of "p" as a single-letter <type> code (since <template-arg> can also be a <type> and "s" is already a valid <type> encoding).  Currently "p" is one of the few single-letter <type> codes not in use.  We realize this may not be practical due to backward compatibility issues.
+
+Is there any other implementation experience for these cases?
+
+Mike.
+

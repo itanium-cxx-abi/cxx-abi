@@ -1,0 +1,1582 @@
+From sdouglass at arm.com  Fri Sep  6 11:59:18 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 06 Sep 2002 12:59:18 +0100
+Subject: COMDAT group questions
+Message-ID: <5.1.0.14.1.20020906123308.03dcd920@cam-pop.cambridge.arm.com>
+
+Hello,
+
+In section 5.2.2 Static Data the C++ ABI for Itanium (Draft) says:
+
+>Inline functions, whether or not declared as such, and whether they are inline or out-of-line copies, may reference static data or character string literals, that must be kept in common among all copies by using the local symbol mangling defined above. These objects are named according to the rules for local names in the Scope Encoding section above, and the definition of each is emitted in a COMDAT group, identified by the symbol name described in the Scope Encoding section above. Each COMDAT group must be emitted in any object with references to the symbol for the object it contains, whether inline or out-of-line. 
+
+Does "the definition of each is emitted in a COMDAT group" mean "the definition of each is emitted in its own COMDAT group"?  I think the rest of the paragraph implies this but I want to check that I'm not confused.
+
+A related question:  What are all the cases in the ABI where COMDAT groups have more than one section in them?  I think the following is true:
+  [] a vtable, its construction vtables (if any) and VTT (if any) are emitted in the same COMDAT group
+  [] a static guard variable may be in the same COMDAT group as the static variable it is guarding or it can be alone
+  [] all other COMDAT groups must contain just one section
+
+Have I got that right?
+
+Another:  What is the purpose of having the vtable, construction vtables and VTT in a single COMDAT group?  Is there some way in which problems could arise if the vtable, construction vtables and VTT were in separate COMDAT groups?  It seems like the vtable, construction vtables and VTT must be the identical in all translation units and from all compilers.  (Except the construction vtables names but they are only referred to from the VTT.)
+
+Thanks.
+
+
+
+From mark at codesourcery.com  Fri Sep  6 20:56:59 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 6 Sep 2002 13:56:59 -0700
+Subject: ABI Document Update
+Message-ID: <200209062056.g86Kuxe10950@localhost.localdomain>
+
+
+I updated the ABI document, as indicated by this patch.
+
+The changes include:
+
+1. Clarifying that, when name-mangling, there can be ternary
+   operators.  (Namely, the conditional operator.  We had already
+   specified "qu", but not extended the mangling grammar.)
+
+2. Clarifying the meaning of "low-order byte" as applicable to
+   guard variables.
+
+3. Removing some of the old change indications; they've all been
+   there fore at least a year.
+
+None of these are substantive changes; just clarifications.  Still,
+please look at the patch and make sure that you agree.
+  
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+Index: abi.html
+===================================================================
+RCS file: /usr/local/Repository/cxx-abi/abi.html,v
+retrieving revision 1.28
+diff -c -p -r1.28 abi.html
+*** abi.html	2002/08/29 18:05:51	1.28
+--- abi.html	2002/09/06 20:51:43
+***************
+*** 15,24 ****
+  C++ ABI for Itanium (Draft)
+  </b></i></font>
+  
+- <font size=-1>
+- <p>
+- <i>Revised 20 March 2001</i>
+- 
+  </center>
+  
+  </HEAD>
+--- 15,20 ----
+*************** Update sizeof(C) to max (sizeof(C), offs
+*** 842,857 ****
+  If non-empty, also update align(C) and dsize(C) as in II-2.
+  
+  <p>
+! The primary base class has already been allocated in I-2b.
+! Any indirect primary base class E of the current class C,
+! <span class="change">i.e. one</span>
+! that has been chosen as the primary base class of some other base class
+! (direct or indirect, virtual or non-virtual) of C,
+! will be allocated as part of that other base class,
+! and is not allocated here.
+! If E is a primary base class of more than one other base,
+! the instance used as its allocation in C shall be the first such
+! in the inheritance graph order.
+  
+  <i>
+  <p>
+--- 838,851 ----
+  If non-empty, also update align(C) and dsize(C) as in II-2.
+  
+  <p>
+! The primary base class has already been allocated in I-2b.  Any
+! indirect primary base class E of the current class C, i.e. one that
+! has been chosen as the primary base class of some other base class
+! (direct or indirect, virtual or non-virtual) of C, will be allocated
+! as part of that other base class, and is not allocated here.  If E is
+! a primary base class of more than one other base, the instance used as
+! its allocation in C shall be the first such in the inheritance graph
+! order.
+  
+  <i>
+  <p>
+*************** the execution of proper base class const
+*** 1490,1505 ****
+  These virtual tables are for specific cases of virtual inheritance.
+  
+  <p>
+! During the construction of a class object,
+! the object assumes the type of each of its proper base classes,
+! as each base class subobject is constructed.
+! RTTI queries in the base class constructor will return  
+! the type of the base class, and virtual calls will resolve to member  
+! functions of the base class rather than the complete class.  
+! <span class="change">RTTI queries,
+! dynamic casts and virtual calls of the object under construction statically
+! converted to bases of the base under construction will dynamically
+! resolve to the type of the base under construction.</span>
+  
+  Normally,  this behavior is accomplished by setting,
+  in the base class constructor,
+--- 1484,1498 ----
+  These virtual tables are for specific cases of virtual inheritance.
+  
+  <p>
+! During the construction of a class object, the object assumes the type
+! of each of its proper base classes, as each base class subobject is
+! constructed.  RTTI queries in the base class constructor will return
+! the type of the base class, and virtual calls will resolve to member
+! functions of the base class rather than the complete class.  RTTI
+! queries, dynamic casts and virtual calls of the object under
+! construction statically converted to bases of the base under
+! construction will dynamically resolve to the type of the base under
+! construction.
+  
+  Normally,  this behavior is accomplished by setting,
+  in the base class constructor,
+*************** proper base class constructor can find i
+*** 1538,1551 ****
+  Construction virtual tables are used in a similar way during the
+  execution of proper base class destructors.
+  
+- <div class="change">
+  <p>
+  <img src="warning.gif" alt="NOTE">
+  <i>
+! When a complete object constructor is constructing a virtual base, it must 
+! determine the base's location statically, rather than using vbase offsets
+! in the virtual table, since the possibly shared virtual pointer may 
+! point to a construction virtual table of an unrelated base class.
+  
+  For instance, in
+  <pre><code>
+--- 1531,1543 ----
+  Construction virtual tables are used in a similar way during the
+  execution of proper base class destructors.
+  
+  <p>
+  <img src="warning.gif" alt="NOTE">
+  <i>
+! When a complete object constructor is constructing a virtual base, it
+! must be wary of using the vbase offsets in the virtual table, since
+! the possibly shared virtual pointer may point to a construction
+! virtual table of an unrelated base class. 
+  
+  For instance, in
+  <pre><code>
+*************** constructor is about to construct U, tha
+*** 1559,1565 ****
+  a virtual table for T, and therefore cannot be used to locate U.
+  </i>
+  </p>
+- </div>
+  
+  <p>
+  <h4> 2.6.2 VTT Order</h4>
+--- 1551,1556 ----
+*************** non-virtual subobjects encountered in ea
+*** 1603,1651 ****
+  <p>
+  <li>
+  <i>Secondary virtual pointers</i>:
+! For each subobject X with either (a) virtual bases
+! or (b) <span class="change"><strike>virtual function declarations overridden 
+! along a virtual path</strike> reachable along a virtual path from D</span>,
+! the address of the secondary virtual table for X-in-D.
+! These include virtual and non-virtual, direct and indirect subobjects,
+! with the exception of primary non-virtual bases.
+! The order of the virtual pointers is
+! inheritance graph preorder.
+  <i>
+  Though primary non-virtual bases do not get secondary virtual pointers,
+  they do not otherwise affect the ordering.
+  </i>
+  
+- <div class="change">
+- <p><strike>
+- When constructing a sub-VTT for a subclass B of D in part 2 above,
+- the relevant condition (b) for the inclusion of a secondary virtual
+- pointer in the sub-VTT for B is the existence of a virtual function
+- declaration overridden along a virtual path between the declaration and B,
+- since otherwise the complete object virtual table for B is used
+- to initialize the B subobject.
+- </strike></p>
+- </div>
+- 
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+  "Along a virtual path" refers to the path in the inheritance graph
+- <span class="change">
+- <strike>between the class that declares the overridden virtual function
+- and the class derived from it that declares the overriding virtual
+- function</strike>
+  between X and D.
+- </span>
+  This is considered a virtual path if one of the class derivations it
+! represents is 
+! <span class="change">
+! <strike>from a virtual base.</strike>
+! a virtual base of D.
+! </span>
+  </i>
+  
+- <div class="change">
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+--- 1594,1618 ----
+  <p>
+  <li>
+  <i>Secondary virtual pointers</i>:
+! For each subobject X with either (a) virtual bases or (b) reachable
+! along a virtual path from D, the address of the secondary virtual
+! table for X-in-D.  These include virtual and non-virtual, direct and
+! indirect subobjects, with the exception of primary non-virtual bases.
+! The order of the virtual pointers is inheritance graph preorder.
+  <i>
+  Though primary non-virtual bases do not get secondary virtual pointers,
+  they do not otherwise affect the ordering.
+  </i>
+  
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+  "Along a virtual path" refers to the path in the inheritance graph
+  between X and D.
+  This is considered a virtual path if one of the class derivations it
+! represents is a virtual base of D.
+  </i>
+  
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+*************** table pointer. Should that primary virtu
+*** 1657,1663 ****
+  instance within the most derived object, the secondary virtual pointer
+  will be different.
+  </i>
+- </div>
+  
+  <p>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+--- 1624,1629 ----
+*************** particular construction virtual table ex
+*** 1735,1741 ****
+  <p>
+  For example, suppose we have the following hierarchy:
+  </i>
+- <div class="change">
+  <code><pre>
+    class A1 { int i; };
+    class A2 { int i; virtual void f(); };
+--- 1701,1706 ----
+*************** For example, suppose we have the followi
+*** 1756,1762 ****
+  	// C1 is primary base, C2 is secondary base, C3 is non-polymorphic
+  
+  </pre></code>
+- </div>
+  
+  <i>
+  Then the VTT for D would appear in the following order,
+--- 1721,1726 ----
+*************** where indenting indicates the sub-VTT st
+*** 1764,1770 ****
+  and asterisks (*) indicate that construction virtual tables instead of
+  complete object virtual tables are required.
+  </i>
+- <div class="change">
+  <code><pre>
+    // 1. Primary virtual pointer:
+    [0] D has virtual bases (complete object vptr)
+--- 1728,1733 ----
+*************** complete object virtual tables are requi
+*** 1798,1810 ****
+      // (V3 has no virtual bases)
+  
+  </pre></code>
+- </div>
+  
+  <p>
+  <i>
+  If A2 is a virtual base of V1,
+! the VTT will contain <span class="change"><strike>14</strike> more</span>
+! more elements
+  (exercise left to the astute reader).
+  </i>
+  
+--- 1761,1771 ----
+      // (V3 has no virtual bases)
+  
+  </pre></code>
+  
+  <p>
+  <i>
+  If A2 is a virtual base of V1,
+! the VTT will contain more elements
+  (exercise left to the astute reader).
+  </i>
+  
+*************** parameter.
+*** 2697,2725 ****
+  <p>
+  <h4> 3.1.3 Empty Parameters </h4>
+  
+- <div class="change">
+- <p>
+- <strike>
+- A parameter of an empty class type will normally occupy a position
+- in the parameter sequence as though it were a single-byte integer.
+- There is one exception:
+- </p>
+- <ul>
+- 
+- <p>
+- <li>
+- If the type has a non-trivial copy constructor,
+- it must be passed by reference as described in Section 3.1.1 above.
+- 
+- </ul>
+- </strike>
+- 
+  <p>
+  Empty classes will be passed no differently from ordinary classes.  If
+  passed in registers the NaT bit must not be set on all registers that
+  make up the class.
+  </p>
+- </div>
+  
+  <p>
+  The contents of the single byte parameter slot are unspecified,
+--- 2658,2668 ----
+*************** A test program for this can be found in 
+*** 3135,3148 ****
+  <h4> 3.3.2 One-time Construction API </h4>
+  
+  <p>
+! As described in <a href=#guards>Section 2.8</a>,
+! function-scope static objects have associated guard variables used
+! to support the requirement that they be initialized exactly once,
+! the first time the scope declaring them is entered.
+! An implementation that does not anticipate supporting multi-threading
+! may simply check the low-order byte of that guard variable,
+! initializing if and only if its value is zero,
+! and then setting it to a non-zero value.
+  
+  <p>
+  However, an implementation intending to support
+--- 3078,3091 ----
+  <h4> 3.3.2 One-time Construction API </h4>
+  
+  <p>
+! As described in <a href=#guards>Section 2.8</a>, function-scope static
+! objects have associated guard variables used to support the
+! requirement that they be initialized exactly once, the first time the
+! scope declaring them is entered.  An implementation that does not
+! anticipate supporting multi-threading may simply check the first byte
+! (i.e., the byte with lowest address) of that guard variable,
+! initializing if and only if its value is zero, and then setting it to
+! a non-zero value.
+  
+  <p>
+  However, an implementation intending to support
+*************** and should use the following API to achi
+*** 3153,3162 ****
+  such implementations.
+  <code><pre>
+  	if ( <i>obj_guard.first_byte</i> == false ) {
+! 	  if ( __cxa_guard_acquire (<i>obj_guard</i>) ) {
+  	    <i>... initialize the object ...</i>;
+  	    <i>... queue object destructor with __cxa_atexit() ...</i>;
+! 	    __cxa_guard_release (<i>obj_guard</i>);
+  	  }
+  	}
+  
+--- 3096,3105 ----
+  such implementations.
+  <code><pre>
+  	if ( <i>obj_guard.first_byte</i> == false ) {
+! 	  if ( __cxa_guard_acquire (<i>&amp;obj_guard</i>) ) {
+  	    <i>... initialize the object ...</i>;
+  	    <i>... queue object destructor with __cxa_atexit() ...</i>;
+! 	    __cxa_guard_release (<i>&amp;obj_guard</i>);
+  	  }
+  	}
+  
+*************** The destructor pointer may be NULL,
+*** 3366,3372 ****
+  in which case this routine does nothing.
+  </dd>
+  
+- <div class="change">
+  <dt><code><pre>
+  extern "C" void __cxa_vec_cleanup (
+  	    void *array_address,
+--- 3309,3314 ----
+*************** If the destructor throws an exception, c
+*** 3383,3389 ****
+  The destructor pointer may be NULL,
+  in which case this routine does nothing.
+  </dd>
+- </div>
+  
+  <dt><code><pre>
+  extern "C" void __cxa_vec_delete (
+--- 3325,3330 ----
+*************** are encoded with a void parameter specif
+*** 4297,4304 ****
+  Therefore function types always encode at least one parameter type,
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+! Member functions do not encode the <span class="change"><strike>type of their implicit <code>this</code> parameter</strike> types of
+! implicit parameters, either <code>this</code> or the VTT parameter.</span>
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+--- 4238,4245 ----
+  Therefore function types always encode at least one parameter type,
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+! Member functions do not encode the types of
+! implicit parameters, either <code>this</code> or the VTT parameter.
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+*************** it represents the source token stream.
+*** 4460,4465 ****
+--- 4401,4407 ----
+  <pre><font color=blue><code>
+    &lt;expression> ::= &lt;<i>unary</i> operator-name> &lt;expression>
+  	       ::= &lt;<i>binary</i> operator-name> &lt;expression> &lt;expression>
++ 	       ::= &lt;<i>trinary</i> operator-name> &lt;expression> &lt;expression> &lt;expression>
+                 ::= st &lt;type&gt;
+  	       ::= &lt;expr-primary>
+    &lt;expr-primary> ::= &lt;template-param>
+*************** with the virtual table mangled name as t
+*** 4828,4839 ****
+  <i>
+  Note that if the key function is not declared inline in the class definition,
+  but its definition later is always declared inline,
+! it will be emitted in every object containing the definition.
+  
+! <span class="change">Note also that if we had thought of it in time, we
+! could also have used a pure virtual destructor as the key function, as it
+! must be defined even though it is pure.</span>
+! </i>
+  
+  <p>
+  <a name=vague-rtti></a>
+--- 4770,4784 ----
+  <i>
+  Note that if the key function is not declared inline in the class definition,
+  but its definition later is always declared inline,
+! it will be emitted in every object containing the definition.</i>
+  
+! <p>
+! <img src=warning.gif alt="<b>NOTE</b>:">
+! <i>In the abstract, a pure virtual destructor could be used as the key
+! function, as it must be defined even though it is pure.  However, the
+! ABI committee did not realize this fact until after the specification
+! of key function was complete; therefore a pure virtual destructor
+! cannot be the key function.</i>
+  
+  <p>
+  <a name=vague-rtti></a>
+*************** an implementation using it must emit it 
+*** 4891,4944 ****
+  in a COMDAT group identified by the constructor name.
+  
+  <p>
+- <div class=change>
+- <strike>
+- <a name=vague-vfunc></a>
+- <h4> 5.2.6 Virtual Function Override Thunks </h4>
+- 
+- <p>
+- Normally, a virtual function override thunk becomes necessary when an
+- overriding virtual function is declared.
+- In such cases, it is emitted with the overriding virtual function,
+- and needs to have vague linkage if and only if the base function does,
+- so it should be included in the base function's COMDAT group.
+- 
+- <p>
+- However, it is possible to determine that an override thunk is needed
+- after the base function is declared.
+- For instance, consider this example:
+- 
+- <code><pre>
+- struct A { virtual void f(); };
+- struct B : virtual public A { int i; };
+- struct C : virtual public A { int j; };
+- struct D : public B, public C {};
+- 
+- </pre></code> 
+- 
+- <p>
+- When B and C are declared, A is a primary base in each case,
+- so although vcall offsets are allocated in the A-in-B and A-in-C vtables,
+- no 'this' adjustment is required and no thunk is generated.
+- However, inside D objects, A is no longer a primary base of C,
+- and calls to C::f() must adjust 'this' from C* to B::A*,
+- so a thunk is required.
+- 
+- <p>
+- In such cases, where the need for a thunk is identified
+- after the base function is declared,
+- the thunk is emitted in a COMDAT group,
+- identified by the (mangled) thunk name.
+- It must be emitted in the object containing the key function definition
+- for any class that causes it to be needed (D in the above example),
+- or in all objects referencing it if there is no key function.
+- Observe that different class hierarchies with the same virtual base may
+- require override thunks for the same base function,
+- which will coincide iff the adjustment offsets do.
+- </strike>
+- </div>
+- 
+- <p>
+  <a name=vague-itemplate></a>
+  <h4> 5.2.7 Instantiated Templates</h4>
+  
+--- 4836,4841 ----
+*************** unwind table location.
+*** 4999,5004 ****
+--- 4896,4906 ----
+  <p> <hr> <p>
+  
+  <p>
++ <font color=blue>[020906]</font>
++ Add trinary expression variant.  Remove use of &quot;low-order&quot;
++ to describe bytes in guard variables.
++ 
++ <p>
+  <font color=blue>[020827]</font>
+  Clarify definition of nearly empty class, dsize, nvsize, nvalign.
+  
+*************** Selected first variant for empty base al
+*** 5258,5264 ****
+  <hr>
+  
+  <p>
+! Please send corrections to <a href="mailto:samuel at codesourcery.com">Alex Samuel</a>.
+  
+  </BODY>
+  </HTML>
+--- 5160,5166 ----
+  <hr>
+  
+  <p>
+! Please send corrections to the <a href="mailto:cxx-abi-dev at codesourcery.com">C++ ABI mailing list</a>.
+  
+  </BODY>
+  </HTML>
+
+
+From dehnert at transmeta.com  Sun Sep  8 03:32:48 2002
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Sat, 07 Sep 2002 20:32:48 -0700
+Subject: [cxx-abi-dev] COMDAT group questions
+References: <5.1.0.14.1.20020906123308.03dcd920@cam-pop.cambridge.arm.com>
+Message-ID: <3D7AC4E0.F1B51122@transmeta.com>
+
+scott douglass wrote:
+> 
+> Hello,
+> 
+> In section 5.2.2 Static Data the C++ ABI for Itanium (Draft) says:
+> 
+> >Inline functions, whether or not declared as such, and whether they are inline or out-of-line copies, may reference static data or character string literals, that must be kept in common among all copies by using the local symbol mangling defined above. These objects are named according to the rules for local names in the Scope Encoding section above, and the definition of each is emitted in a COMDAT group, identified by the symbol name described in the Scope Encoding section above. Each COMDAT group must be emitted in any object with references to the symbol for the object it contains, whether inline or out-of-line.
+> 
+> Does "the definition of each is emitted in a COMDAT group" mean "the definition of each is emitted in its own COMDAT group"?  I think the rest of the paragraph implies this but I want to check that I'm not confused.
+
+Yes, it needs to.  Though different compilations will define each matching
+object the same, because of optimization differences they may not define the
+same set of them.  If you put them all in the same COMDAT group, the instance
+that is linked might not include the full set that the other need; if they're
+separate everything needed will be linked.
+
+> Have I got that right?
+> 
+> Another:  What is the purpose of having the vtable, construction vtables and VTT in a single COMDAT group?  Is there some way in which problems could arise if the vtable, construction vtables and VTT were in separate COMDAT groups?  It seems like the vtable, construction vtables and VTT must be the identical in all translation units and from all compilers.  (Except the construction vtables names but they are only referred to from the VTT.)
+
+This is the flip side of the previous issue.  By putting construction vtables
+and VTT in the same group, you are guaranteed that you'll get a matched set in
+the link.  Also, a single group should involve a bit less space in the object
+file and less linker processing.
+
+Jim
+
+(p.s. I don't know the answer to your second question off hand.
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+From michaelw at ca.ibm.com  Fri Sep 13 20:32:21 2002
+From: michaelw at ca.ibm.com (michaelw at ca.ibm.com)
+Date: Fri, 13 Sep 2002 16:32:21 -0400
+Subject: Ordering of introduced functions before replicated overridden functions
+ from non-primary
+Message-ID: <OF4048C2C3.0BBB6D10-ON85256C33.006FC782@torolab.ibm.com>
+
+The latest gcc 3.2 exhibits a possible error from the abi while gcc 3.0.3
+conforms. Here is the testcase:
+
+Here is a simple testcase with all covariant return functions removed to
+remove their effects:
+class A {
+virtual void f();
+//virtual A* i();
+virtual void j();
+int a;
+};
+class B  {
+virtual void f();
+virtual void g();
+//virtual B* l();
+virtual void k();
+int b;
+};
+class C : public A, virtual public B{
+virtual void f(); //OR from primary (1)
+virtual void g(); // OR of fn introduced by a non-primary base (3)
+virtual void h(); //introduced (2)
+//virtual C* l(); // covariant OR of fns introduced in non-primary (4)
+//virtual C* i(); // covariant OR of fns introduced in primary (2)
+int b;
+};
+C dummyObjectOf_C;
+main(){}
+
+Left side is 3.0.3, right side (scrolll over to the right end) is 3.2.
+There are
+3 differences:
+1. the round brackets beside function names
+2. the  negative values in the offsets are shown as their unsigned
+equivalent
+3. the order of function in 3.0.3 is:
+f,j,h,g while the order in 3.2 is f,j,g,h
+But the ABI Section 2.5.2 cat 2 (non-virtual bases only which also applies
+to sharing in mixed bases)
+and Cat 3 (virtual bases only which also applies to non-sharing
+bases)clearly shows that:
+introduced function (h) is preferred over overriden replicated entries (g)
+
+
+(Bars indicated diffs)
+
+Vtable for C                                                       Vtable
+for C
+C::_ZTV1C: 15 entries                                   C::_ZTV1C: 15
+entries
+0     12                                                                 0
+12
+4     0                                                                   4
+0
+8     &_ZTI1C                                                    8
+&_ZTI1C
+12    C::f                                                           |  12
+C::f()
+16    A::j                                                           |  16
+A::j()
+20    C::h                                                         |  20
+C::g()
+24    C::g                                                         |  24
+C::h()
+28    0                                                                  28
+0
+32    -12                                                           |  32
+4294967284
+36    -12                                                           |  36
+4294967284
+40    -12                                                           |  40
+4294967284
+44    &_ZTI1C                                                   44
+&_ZTI1C
+48    C::_ZTv0_n12_N1C1fEv                  |  48    C::_ZTv0_n12_N1C1fEv()
+52    C::_ZTv0_n16_N1C1gEv                |  52    C::_ZTv0_n16_N1C1gEv()
+56    B::k                                                         |  56
+B::k()
+
+
+Unless I misinterpret the ABI, this is a g++3.2 bug which can seriously
+affect binary compatibility. I believe 3.0.3 exhibits the correct behaviour
+in this respect as intended by the ABI.
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+
+From michaelw at ca.ibm.com  Fri Sep 13 20:41:17 2002
+From: michaelw at ca.ibm.com (michaelw at ca.ibm.com)
+Date: Fri, 13 Sep 2002 16:41:17 -0400
+Subject: Ordering of introduced functions ahead of replicated overridden functions
+ from non-primary
+Message-ID: <OF817364B9.95C52494-ON85256C33.0070E18F@torolab.ibm.com>
+
+GCC 3.2 has changed the order of virtual functions. It seems to exhibit an
+incorrect behaviour from the ABI in this matter, while gcc 3.0.3 seems to
+be correct. Here is an example testcase with all covariant return functions
+removed to remove their effects:
+
+class A {
+virtual void f();
+//virtual A* i();
+virtual void j();
+int a;
+};
+class B  {
+virtual void f();
+virtual void g();
+//virtual B* l();
+virtual void k();
+int b;
+};
+class C : public A, virtual public B{
+virtual void f(); //OR from primary (1)
+virtual void g(); // OR of fn introduced by a non-primary base (3)
+virtual void h(); //introduced (2)
+//virtual C* l(); // covariant OR of fns introduced in non-primary (4)
+//virtual C* i(); // covariant OR of fns introduced in primary (2)
+int b;
+};
+C dummyObjectOf_C;
+main(){}
+
+Left side is 3.0.3, right side (scrolll over to the right end) is 3.2.
+There are 3 differnces:
+1. the round brackets beside function names
+2. negative offsets are now displayed as their unsigned equivalents
+2. the order of function in 3.0.3 is:
+f,j,h,g while the order in 3.2 is f,j,g,h
+But the ABI Section 2.5.2 cat 2 (non-virtual bases only which also applies
+to sharing in mixed bases)
+and Cat 3 (virtual bases only which also applies to non-sharing bases)
+clearly shows that:
+
+introduced function (h) is preferred over overriden replicated entries (g)
+
+Here is the relevant section of the vtable with change bars:
+
+Vtable for C                                                       Vtable
+for C
+C::_ZTV1C: 15 entries                                    C::_ZTV1C: 15
+entries
+0     12                                                                  0
+12
+4     0
+4     0
+8     &_ZTI1C                                                     8
+&_ZTI1C
+12    C::f                                                            |  12
+C::f()
+16    A::j                                                            |  16
+A::j()
+20    C::h                                                           |  20
+C::g()   <-- g is replicated
+24    C::g                                                           |  24
+C::h()   <-- h is introduced
+28    0
+28    0
+32    -12                                                            |  32
+4294967284
+36    -12                                                            |  36
+4294967284
+40    -12                                                            |  40
+4294967284
+44    &_ZTI1C                                                      44
+&_ZTI1C
+48    C::_ZTv0_n12_N1C1fEv                   |  48    C::_ZTv0_n12_N1C1fEv
+()
+52    C::_ZTv0_n16_N1C1gEv                 |  52    C::_ZTv0_n16_N1C1gEv()
+56    B::k                                                          |  56
+B::k()
+
+I don't care so much about change #1 (although it does cause us headaches,
+but I understand there is no  guarantees to maintain format), but change #2
+looks like an unintended side-effect while change #3 , if you agree it
+differs from the ABI looks like a serious binary compatibility problem.
+
+Comment?
+
+Michael Wong
+VisualAge C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+
+
+
+From mark at codesourcery.com  Fri Sep 13 20:58:17 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 13 Sep 2002 13:58:17 -0700
+Subject: [cxx-abi-dev] Ordering of introduced functions before
+ replicated overridden functions from non-primary
+In-Reply-To: <OF4048C2C3.0BBB6D10-ON85256C33.006FC782@torolab.ibm.com>
+Message-ID: <93090000.1031950697@warlock.codesourcery.com>
+
+> Left side is 3.0.3, right side (scrolll over to the right end) is 3.2.
+> There are
+> 3 differences:
+> 1. the round brackets beside function names
+> 2. the  negative values in the offsets are shown as their unsigned
+> equivalent
+
+I'm not sure what you're getting at with these first two points; these
+don't matter as far as I can tell.
+
+> 3. the order of function in 3.0.3 is:
+> f,j,h,g while the order in 3.2 is f,j,g,h
+
+Yes, this is a change.  GCC 3.2 is correct.  After laying out the
+primary part of the vtable, you iterate through the remaining functions,
+adding those that are overridden in the final derived class but do not
+already appear.
+
+The bullets in Category 2 are not supposed to indicate ordering,
+although just yesterday another person was confused by this as well.
+
+I will endeavor to clarify this portion.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Mon Sep 16 11:30:24 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Mon, 16 Sep 2002 12:30:24 +0100
+Subject: IA-64 C++ ABI key function question
+Message-ID: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com>
+
+Hello,
+
+In section 5.2.3 of the IA-64 C++ ABI it is very specific that T::f is
+the key function in the following example:
+
+  struct T {
+    virtual void f();
+    virtual void g();
+  };
+  inline void T::f() { }
+  // no inline definition of T::g
+
+What is the rationale for making T::f the key function?
+
+We find that this sort of usage is fairly common in header files which, as the ABI document points out, causes the vtable (and a potential cascade of the inline virtual functions) to be emitted in every object file.
+
+I'm guessing the idea was to avoid choosing different key functions in
+different translation units because T::f is defined as inline in one
+(like above) but not defined at all in another translation unit.  But
+this situation is already a violation of 3.2 One Definition Rule because
+"A virtual member function is used if it is not pure." and "An inline
+function shall be defined in every translation unit in which it is used.".
+
+Am I correct in thinking that key function was defined this way to enable this particular extension to C++?  Is this a common usage?
+
+Is there some other case I'm missing?
+
+Thanks.
+
+
+
+From jason at redhat.com  Mon Sep 16 12:26:47 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 16 Sep 2002 13:26:47 +0100
+Subject: [cxx-abi-dev] IA-64 C++ ABI key function question
+In-Reply-To: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com> (scott
+ douglass's message of "Mon, 16 Sep 2002 12:30:24 +0100")
+References: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com>
+Message-ID: <wvlbs6ynmrc.fsf@prospero.cambridge.redhat.com>
+
+On Mon, 16 Sep 2002 12:30:24 +0100, scott douglass <sdouglass at arm.com> wrote:
+
+> In section 5.2.3 of the IA-64 C++ ABI it is very specific that T::f is
+> the key function in the following example:
+>
+>   struct T {
+>     virtual void f();
+>     virtual void g();
+>   };
+>   inline void T::f() { }
+>   // no inline definition of T::g
+>
+> What is the rationale for making T::f the key function?
+>
+> We find that this sort of usage is fairly common in header files which,
+> as the ABI document points out, causes the vtable (and a potential
+> cascade of the inline virtual functions) to be emitted in every object
+> file.
+>
+> I'm guessing the idea was to avoid choosing different key functions in
+> different translation units because T::f is defined as inline in one
+> (like above) but not defined at all in another translation unit.
+
+Yes.
+
+> But this situation is already a violation of 3.2 One Definition Rule
+> because "A virtual member function is used if it is not pure." and "An
+> inline function shall be defined in every translation unit in which it is
+> used.".
+
+Hmm, good point.
+
+Jason
+
+
+From loewis at informatik.hu-berlin.de  Mon Sep 16 12:33:09 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 16 Sep 2002 14:33:09 +0200
+Subject: [cxx-abi-dev] IA-64 C++ ABI key function question
+In-Reply-To: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com>
+References: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com>
+Message-ID: <j4elbum7wa.fsf@informatik.hu-berlin.de>
+
+scott douglass <sdouglass at arm.com> writes:
+
+> Am I correct in thinking that key function was defined this way to
+> enable this particular extension to C++?  Is this a common usage?
+
+I think the rationale is the same as for the case of the pure virtual
+destructor, which could also be used as a key function, but is not:
+The committee codified existing practice among several compilers, and
+later could not change the ABI anymore.
+
+For the specific issue, I recommend that a quality implementation
+issues a warning that a virtual function should not be defined inline,
+since it usually can't be invoked inline, anyway.
+
+Notice that even in the case of multiple copies, COMDAT sections will
+eliminate duplicates in the linker.
+
+Regards,
+Martin
+
+
+From Gabriel.Dos-Reis at cmla.ens-cachan.fr  Mon Sep 16 15:29:39 2002
+From: Gabriel.Dos-Reis at cmla.ens-cachan.fr (Gabriel Dos Reis)
+Date: 16 Sep 2002 17:29:39 +0200
+Subject: [cxx-abi-dev] IA-64 C++ ABI key function question
+In-Reply-To: loewis@informatik.hu-berlin.de's message of "16 Sep 2002 14:33:09 +0200"
+References: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com> <j4elbum7wa.fsf@informatik.hu-berlin.de>
+Message-ID: <flznui0x7g.fsf@jambon.cmla.ens-cachan.fr>
+
+loewis at informatik.hu-berlin.de (Martin v. L?wis) writes:
+
+| For the specific issue, I recommend that a quality implementation
+| issues a warning that a virtual function should not be defined inline,
+| since it usually can't be invoked inline, anyway.
+
+Certainly, existing compilers out there can inline virtual functions.
+
+In particular, when the dynamic type matches the static type -- that
+appears frequently in some applications.
+
+What about
+
+   struct A {
+     virtual ~A();
+   };
+
+   struct B : A { 
+    // ~B defined inline by the compiler
+   };
+
+-- Gaby
+
+
+From mark at codesourcery.com  Mon Sep 16 20:05:31 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 16 Sep 2002 13:05:31 -0700
+Subject: Clarifications for vtables / mangling
+Message-ID: <30040000.1032206731@warlock.codesourcery.com>
+
+Prompted by inquiries by various people, I've attempted to clarify two
+items:
+
+(1) Ordering of functions in virtual function tables.
+
+(2) A mangling example that showed more substitutions than it should have.
+
+I've installed the attached patch; please contact me if you believe that
+it has changed the semantics of the document.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: application/octet-stream
+Size: 6586 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020916/c4eb68f4/attachment.obj>
+
+From loewis at informatik.hu-berlin.de  Tue Sep 17 07:01:19 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 17 Sep 2002 09:01:19 +0200
+Subject: [cxx-abi-dev] IA-64 C++ ABI key function question
+In-Reply-To: <flznui0x7g.fsf@jambon.cmla.ens-cachan.fr>
+References: <5.1.0.14.1.20020916122135.03cf5d40@cam-pop.cambridge.arm.com>
+	<j4elbum7wa.fsf@informatik.hu-berlin.de>
+	<flznui0x7g.fsf@jambon.cmla.ens-cachan.fr>
+Message-ID: <j4fzw9kslc.fsf@informatik.hu-berlin.de>
+
+Gabriel Dos Reis <Gabriel.Dos-Reis at cmla.ens-cachan.fr> writes:
+
+> Certainly, existing compilers out there can inline virtual functions.
+
+Sure. The question is: how often do they actually inline the function,
+and how much overhead does it cost to emit the function in each
+object. Users may not be aware of the issue, so they should be warned
+to either move the definition into the class, or out of line, or
+declare the function inline inside the class.
+
+Regards,
+Martin
+
+
+From sdouglass at arm.com  Thu Sep 19 12:36:35 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Thu, 19 Sep 2002 13:36:35 +0100
+Subject: mangling of UCNs
+Message-ID: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+
+Hello,
+
+The mangling of UCNs is not specified by the ABI.  I think it should be.  Perhaps the idea is that the mangling of UCNs would have to be the same as an implementation's C99 implementation?  The only implementation I know that supports UCNs encodes them as "_unnnn" which makes "x\u00c0" mangle the same as the legal user identifier "x_u00c0".
+
+Anyway, here's a fairly simple proposal.  I'm imagining that allowing "$" in identifiers is a common extension.
+
+"n" is a hex digit [0-9a-f].
+
+Treat \U0000nnnn as \unnnn
+Encode hex digits as lower case.
+\u0024 => "$"
+\u0040 => "@"
+\unnnn => "\unnnnn"
+\Unnnn => "\Unnnnnnnnn"
+
+This assumes the linker is happy with symbols containing "$", "@" and "\".
+
+As far as I know "@" is rarely allowed in identifiers so an alternative that avoids "\" is:
+
+Treat \U0000nnnn as \unnnn
+\u0024 => "$"
+\unnnn => "@unnnnn"
+\Unnnn => "@Unnnnnnnnn"
+
+Other alternatives:
+  You could pick a different escape charater from the other non-identifier characters, e.g. "#", "!", ...
+  You could use two escape characters instead of "@u" and "@U", e.g. "@00co" and "!00010000".
+  You could adopt the variable width encoding similar to what other manglings use, e.g.  "@c0_" and "@10000_".
+
+Interestingly Annex E gives no legal UCNs that require the \Unnnnnnnn form.
+
+Fire away.
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Sep 19 14:16:11 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 19 Sep 2002 16:16:11 +0200
+Subject: [cxx-abi-dev] mangling of UCNs
+In-Reply-To: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+References: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+Message-ID: <j4lm5yrro4.fsf@informatik.hu-berlin.de>
+
+scott douglass <sdouglass at arm.com> writes:
+
+> The mangling of UCNs is not specified by the ABI.  I think it should
+> be.  Perhaps the idea is that the mangling of UCNs would have to be
+> the same as an implementation's C99 implementation?
+
+I think there are two reasons why this is not specified:
+- there was no prior experience in the committee,
+- there were contradicting approaches.
+
+However, there was consensus that it should be the same as in C.
+
+> Anyway, here's a fairly simple proposal.  
+
+I think any approach involving mangling is more complicated than
+necessary. Here is my proposal:
+
+Identifiers are encoded in UTF-8.
+
+That's it. It's nicely integrates C, C++, and, if needed, Java.
+It is also the "right thing", IMO.
+
+Regards,
+Martin
+
+
+From sdouglass at arm.com  Thu Sep 19 15:17:35 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Thu, 19 Sep 2002 16:17:35 +0100
+Subject: [cxx-abi-dev] mangling of UCNs
+In-Reply-To: <j4lm5yrro4.fsf@informatik.hu-berlin.de>
+References: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+ <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20020919161249.03c12d50@cam-pop.cambridge.arm.com>
+
+At 19-09-02 04:16 PM +0200, Martin v. L?wis wrote:
+>scott douglass <sdouglass at arm.com> writes:
+>
+>> Anyway, here's a fairly simple proposal.  
+>
+>I think any approach involving mangling is more complicated than
+>necessary. Here is my proposal:
+>
+>Identifiers are encoded in UTF-8.
+
+Mangling is just a synonym for "encoding" isn't it?
+
+>That's it. It's nicely integrates C, C++, and, if needed, Java.
+>It is also the "right thing", IMO.
+
+That seems reasonable if we think all linkers are happy to eat UTF-8.  I don't have any counter examples but my sample size is approximately one.
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Sep 19 16:14:49 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 19 Sep 2002 18:14:49 +0200
+Subject: [cxx-abi-dev] mangling of UCNs
+In-Reply-To: <5.1.0.14.1.20020919161249.03c12d50@cam-pop.cambridge.arm.com>
+References: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+	<5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+	<5.1.0.14.1.20020919161249.03c12d50@cam-pop.cambridge.arm.com>
+Message-ID: <j4y99yq7ly.fsf@informatik.hu-berlin.de>
+
+scott douglass <sdouglass at arm.com> writes:
+
+> >Identifiers are encoded in UTF-8.
+> 
+> Mangling is just a synonym for "encoding" isn't it?
+
+Not really. Every identifier is encoded, usually in US-ASCII. To
+mangle an identifier means to use escape characters for
+meta-information, i.e. the characters don't literally represent their
+character value anymore, but some other information.
+
+For UTF-8, this is different. Characters mean characters (even though
+multiple bytes might be needed for a character).
+
+> That seems reasonable if we think all linkers are happy to eat UTF-8.
+
+I think the gABI more-or-less defines that arbitrary byte sequences
+can appear in symbols - atleast it does not pose a restriction on the
+byte sequences. If some linker fails to process this correctly, I'd
+claim that the linker has a bug.
+
+For some compilers, the input that the assembler accepts may also be
+relevant. Again, I'd claim that this is a vendor issue, not one that
+the ABI must be concerned with. If non-ASCII letters in identifiers
+are not supported, the vendor must fix the tool-chain anyway to
+achieve interoperability.
+
+Regards,
+Martin
+
+
+
+From eboling at borland.com  Thu Sep 19 18:17:40 2002
+From: eboling at borland.com (Eli Boling)
+Date: Thu, 19 Sep 2002 13:17:40 -0500
+Subject: [cxx-abi-dev] mangling of UCNs
+References: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+ <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+ <5.1.0.14.1.20020919161249.03c12d50@cam-pop.cambridge.arm.com>
+ <j4y99yq7ly.fsf@informatik.hu-berlin.de>
+Message-ID: <3D8A14C4.314493C5@borland.com>
+
+> For some compilers, the input that the assembler accepts may also be
+> relevant. Again, I'd claim that this is a vendor issue, not one that
+> the ABI must be concerned with. If non-ASCII letters in identifiers
+> are not supported, the vendor must fix the tool-chain anyway to
+> achieve interoperability.
+
+Well, if all the tool chains get busted by such a change, and you can't
+mobilize the resources to fix it, then from a practical standpoint, it is
+something that the ABI must be concerned with.
+
+-Eli
+
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Sep 19 17:23:06 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 19 Sep 2002 19:23:06 +0200
+Subject: [cxx-abi-dev] mangling of UCNs
+In-Reply-To: <3D8A14C4.314493C5@borland.com>
+References: <5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+	<5.1.0.14.1.20020919115401.076acae8@cam-pop.cambridge.arm.com>
+	<5.1.0.14.1.20020919161249.03c12d50@cam-pop.cambridge.arm.com>
+	<j4y99yq7ly.fsf@informatik.hu-berlin.de>
+	<3D8A14C4.314493C5@borland.com>
+Message-ID: <j44rclyjut.fsf@informatik.hu-berlin.de>
+
+Eli Boling <eboling at borland.com> writes:
+
+> Well, if all the tool chains get busted by such a change, and you
+> can't mobilize the resources to fix it, then from a practical
+> standpoint, it is something that the ABI must be concerned with.
+
+Certainly. However, I don't think this is the case for this specific
+issue.
+
+Regards,
+Martin
+
+
+
+From sdouglass at arm.com  Fri Sep 20 14:51:05 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Fri, 20 Sep 2002 15:51:05 +0100
+Subject: deleting destructors
+Message-ID: <5.1.0.14.1.20020920142956.03e74610@cam-pop.cambridge.arm.com>
+
+Hi,
+
+I have a question about delete destructors (D0).  Must they handle being passed a null this pointer?  The ABI document doesn't seem to address this.  I would guess the answer is: "D0 destructors that represent non-virtual destructors must handle this == 0.  D0 destructors that represent virtual destructors may assume this != 0."
+
+In general the ABI document seems to assume the reader understands the basics of the responsibilites of C1/C2/C3 and D0/D1/D2.  It does go into sufficient gory detail about VTTs in 3.3.1 but having some more basic information would be nice.  For example, I know that in-charge constructors must construct all virtual bases and not-in-charge constructors must not -- but I don't think the ABI says so (but I could have missed it).
+
+I also believe that for a class with no virtual bases the C1 and C2 constructors have identical effect (and similarly for the D1 and D2 destructors).  So when constructing (destructing) a base or member subobject that has no virtual bases either constructor (destructor) may be used.
+
+Here's some psuedo-code that reflects my understand.  Have I got it right?
+
+void T::T{C1}(void* this, ...user args...) { // in-charge (aka complete object)
+  ... construct virtual bases, if any ...
+  T::T{C2}(this[, T::VTT], ...user args...);
+}
+
+void T::T{C2}(void* this[, VTT* vtt], ...user args...) { // in-charge (aka subobject)
+  ... construct non-virtual base subobjects, if any ...
+  ... construct member subobjects, if any ...
+  ... user code ...
+}
+
+T* T::T{C3}(...user args...) { // allocating
+  T* this = operator new(sizeof(T));
+  T::T{C1}(this, ...user args...);
+  return this;
+}
+
+void T::~T{D0}(T* this) { // deleting
+  if (this != 0) { // not needed if T::~T is virtual
+    T::~T{D1}(this);
+    operator delete(this); // or operator delete(this, sizeof(T));
+  }
+}
+
+void T::~T{D1}(T* this) { // in-charge (aka complete object)
+   T::~T{D2}(this[, T::VTT]);
+   ... destruct virtual base subobjects, if any ...
+}
+
+void T::~T{D2}(T* this[, VTT* vtt]) { // in-charge (aka subobject)
+   ... user code ... // user returns must be specially handled
+   ... destruct member subobjects, if any ...
+   ... destruct non-virtual base subobjects, if any ...
+}
+
+
+Very minor nit:  The ABI document uses both "sub-object" and "subobject" which make searching it a bit harder.  The C++ Standard use "subobject".
+
+
+
+From mark at codesourcery.com  Mon Sep 30 04:06:43 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 29 Sep 2002 21:06:43 -0700
+Subject: [cxx-abi-dev] deleting destructors
+In-Reply-To: <5.1.0.14.1.20020920142956.03e74610@cam-pop.cambridge.arm.com>
+Message-ID: <8500000.1033358803@warlock.codesourcery.com>
+
+
+> I have a question about delete destructors (D0).  Must they handle being
+> passed a null this pointer?
+
+This is a good question; it is unspecified at present.
+
+G++'s D0 destructors do not handle a NULL this pointer.
+
+What do HP and Intel do?
+
+> I also believe that for a class with no virtual bases the C1 and C2
+> constructors have identical effect (and similarly for the D1 and D2
+> destructors).  So when constructing (destructing) a base or member
+> subobject that has no virtual bases either constructor (destructor) may
+> be used.
+
+You're correct that the C1/C2 and D1/D2 variants will behave identically
+in this case.  I don't see why an implementation would have to call one,
+rather than the other.  However, the implementation must *emit* both
+symbols; you can't optimize away the subobject version.  (There's no
+particularly good reason for this, but there's nothing in the ABI that
+says that you can optimize away the subobject constructor.)  You can,
+of course, make both symbols mark the same location.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Mon Sep 30 08:00:23 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Mon, 30 Sep 2002 09:00:23 +0100
+Subject: comlete objet 'structors for abstarct classes (was deleting
+  destructors)
+In-Reply-To: <8500000.1033358803@warlock.codesourcery.com>
+References: <5.1.0.14.1.20020920142956.03e74610@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20020930085015.07752300@cam-pop.cambridge.arm.com>
+
+Hello,
+
+I've noticed that it's probably reasonable to not produce C1/D1/D0 'structors for abstract classes -- the language rules prevent ever needing to construct or destruct a complete object of abstract type.
+
+Since the C++ ABI doesn't specify when the various 'structor functions may be callled called, it's not clear that not producing them conforms.
+
+Must C1/D1/D0 'structors for abstract classes be produced?
+
+
+
+From mark at codesourcery.com  Mon Sep 30 08:33:58 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 30 Sep 2002 01:33:58 -0700
+Subject: [cxx-abi-dev] comlete objet 'structors for abstarct classes
+ (was deleting  destructors)
+In-Reply-To: <5.1.0.14.1.20020930085015.07752300@cam-pop.cambridge.arm.com>
+Message-ID: <24830000.1033374838@warlock.codesourcery.com>
+
+
+
+--On Monday, September 30, 2002 09:00:23 AM +0100 scott douglass 
+<sdouglass at arm.com> wrote:
+
+> Hello,
+>
+> I've noticed that it's probably reasonable to not produce C1/D1/D0
+> 'structors for abstract classes -- the language rules prevent ever
+> needing to construct or destruct a complete object of abstract type.
+
+You certinaly need D0:
+
+  struct S { virtual void f () = 0; ~S (); };
+
+  void g (S* sp) {
+    delete sp;
+  }
+
+You may need D1 and C1 too; this is the flip side of your question
+about whether you need D2/C2 when there are no virtual bases.  The
+ABI doesn't clearly say which version(s) of these functions derived
+classes can call, so you can't eliminate any of them.  You can,
+however, assign both symbols to one address, which means the only
+penalty you pay is a few bytes in object files.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From sdouglass at arm.com  Mon Sep 30 09:21:46 2002
+From: sdouglass at arm.com (scott douglass)
+Date: Mon, 30 Sep 2002 10:21:46 +0100
+Subject: [cxx-abi-dev] comlpete object 'structors for abstract
+  classes (was deleting destructors)
+In-Reply-To: <24830000.1033374838@warlock.codesourcery.com>
+References: <5.1.0.14.1.20020930085015.07752300@cam-pop.cambridge.arm.com>
+Message-ID: <5.1.0.14.1.20020930095444.07752300@cam-pop.cambridge.arm.com>
+
+At 30-09-02 01:33 AM -0700, Mark Mitchell wrote:
+>--On Monday, September 30, 2002 09:00:23 AM +0100 scott douglass <sdouglass at arm.com> wrote:
+>
+>>Hello,
+>>
+>>I've noticed that it's probably reasonable to not produce C1/D1/D0
+>>'structors for abstract classes -- the language rules prevent ever
+>>needing to construct or destruct a complete object of abstract type.
+>
+>You certinaly need D0:
+>
+> struct S { virtual void f () = 0; ~S (); };
+>
+> void g (S* sp) {
+>   delete sp;
+> }
+
+I don't follow that.  We know that sp must point to some class derived from S (because S is abstract).  The only reference to D0 will be in the vtable for S.  If I'm producing the vtable for S I can just substitute NULL (or some such).  I see now that since I don't know what compiler is producing the S vtable I can't know if D0 is referenced so I do need to produce the D0 symbol if I'm producing D2 -- but I can rely on D0 never actually being called (by legal code).
+
+Or do you mean that other compilers are free to refer to D0 in ways that I don't understand?
+
+>You may need D1 and C1 too; this is the flip side of your question
+>about whether you need D2/C2 when there are no virtual bases.  The
+>ABI doesn't clearly say which version(s) of these functions derived
+>classes can call, so you can't eliminate any of them.
+
+I am relying on the language restrictions that you can never create/destroy a complete object of abstract type.  What does calling the C1 of an abstract class do?  I think that these language restrictions mean that constructing/destructing a complete object (i.e. calling C1/D1/D0) of abstract type has no meaning.
+
+>You can, however, assign both symbols to one address, which means the only
+>penalty you pay is a few bytes in object files.
+For C1/C2 and D1/D2 in the absence of virtual bases, yes.  I'd also like to remove the object code for D0 of abstract classes.
+
+
+
+
+From mark at codesourcery.com  Mon Sep 30 15:41:10 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 30 Sep 2002 08:41:10 -0700
+Subject: [cxx-abi-dev] comlpete object 'structors for abstract  classes
+ (was deleting destructors)
+In-Reply-To: <5.1.0.14.1.20020930095444.07752300@cam-pop.cambridge.arm.com>
+Message-ID: <30510000.1033400469@warlock.codesourcery.com>
+
+
+
+--On Monday, September 30, 2002 10:21:46 AM +0100 scott douglass 
+<sdouglass at arm.com> wrote:
+
+> At 30-09-02 01:33 AM -0700, Mark Mitchell wrote:
+>> --On Monday, September 30, 2002 09:00:23 AM +0100 scott douglass
+>> <sdouglass at arm.com> wrote:
+>>
+>>> Hello,
+>>>
+>>> I've noticed that it's probably reasonable to not produce C1/D1/D0
+>>> 'structors for abstract classes -- the language rules prevent ever
+>>> needing to construct or destruct a complete object of abstract type.
+>>
+>> You certinaly need D0:
+>>
+>> struct S { virtual void f () = 0; ~S (); };
+>>
+>> void g (S* sp) {
+>>   delete sp;
+>> }
+>
+> I don't follow that.  We know that sp must point to some class derived
+> from S (because S is abstract).
+
+Note that ~S is not virtual.  There is nothing that says that an abstract
+class must have a virtual destructor, even though many style guidelines
+suggest that.
+
+>> You may need D1 and C1 too; this is the flip side of your question
+>> about whether you need D2/C2 when there are no virtual bases.  The
+>> ABI doesn't clearly say which version(s) of these functions derived
+>> classes can call, so you can't eliminate any of them.
+>
+> I am relying on the language restrictions that you can never
+> create/destroy a complete object of abstract type.  What does calling the
+> C1 of an abstract class do?
+
+The ABI specifies the behavior of C1 in that case just fine.  You construct
+the bases classes, fill in the vtable, and run the code the user wrote in
+the constructor.
+
+You observed earlier that for a class with no virtual bases a derived
+class can choose to call C1 instead of C2 -- after all, they do the same
+thing.  I think you're right -- we didn't preclude that.  We certainly
+didn't preclude a derived class from calling C1 if the base class is
+abstract.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dhandly at cup.hp.com  Mon Sep 30 20:41:50 2002
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 30 Sep 2002 13:41:50 -0700 (PDT)
+Subject: [cxx-abi-dev] deleting destructors
+Message-ID: <200209302041.NAA24991@hpcll183.cup.hp.com>
+
+>> I have a question about delete destructors (D0).  Must they handle being
+>> passed a null this pointer?
+
+>What do HP and Intel do?
+Mark Mitchell
+
+In aC++, all three destructors check for NULL "this" pointers.
+
+
+From zibi at ca.ibm.com  Mon Sep 30 20:42:44 2002
+From: zibi at ca.ibm.com (zibi at ca.ibm.com)
+Date: Mon, 30 Sep 2002 16:42:44 -0400
+Subject: substitution for std::char_traits<char> in mangled name issue
+Message-ID: <OFF18F384E.F8D645B9-ON85256C44.006F54B5@torolab.ibm.com>
+
+Hi all,
+
+I just came across an issue with the name mangling schema used be g++ v.
+3.2.  Consider the following source:
+
+namespace std {
+
+  template < class C > struct char_traits { };
+  template<typename _CharT, typename _Traits> class    basic_ios { };
+
+  template<typename _CharT, typename _Traits = char_traits<_CharT> >
+    class basic_ostream : virtual public basic_ios<_CharT, _Traits>
+    {
+    public:
+
+      typedef basic_ios<_CharT, _Traits>                __ios_type;
+      typedef basic_ostream<_CharT, _Traits>            __ostream_type;
+
+      virtual
+      ~basic_ostream() { }
+      __ostream_type&  operator<<(__ios_type& (*__pf)(__ios_type&)) {
+return *((__ostream_type*)0); }
+
+    };
+  }
+
+using namespace std;
+
+basic_ios<char, char_traits<char> >& foo(basic_ios<char, char_traits<char>
+>& b) { return b; }
+
+int main() {
+  basic_ostream<char, char_traits<char> > bo;
+  bo << &foo;
+  return 0;
+}
+
+The mangle name genrated by g++ for std::basic_ostream::operator<< (the one
+in bold above) is _ZNSolsEPFRSt9basic_iosIcSt11char_traitsIcEES3_E.  Should
+it be
+_ZNSolsEPFRSt9basic_iosIcS1_ES4_E?
+
+The reason I question this substitution schema in the name mangling is
+because when I  changed the namespace std to stdd then I got :
+_ZN4stdd13basic_ostreamIcNS_11char_traitsIcEEElsEPFRNS_9basic_iosIcS2_EES6_E
+which indicates that stdd::char_traits<char> has been substituted with S2_
+but why std::char_traits<char> is not substituted in the case with std
+namespace?  Is this a nonconformance to API spec or there is a special
+encoding for std::char_traits<char>?
+
+Regards, ______________________________________
+Zbigniew Sarbinowski (Zibi)  C++ for AS/400 developer
+Tel.  905-413-6071;  Internet: zibi at ca.ibm.com
+8200 Warden Ave. Markham ON, L6G 1C7;  C2/712/8200/MKM
+
+
+

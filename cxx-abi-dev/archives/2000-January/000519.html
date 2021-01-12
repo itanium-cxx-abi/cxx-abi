@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> rtti data structures (again)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3Cu9emb01t2n.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000518.html">
+   <LINK REL="Next"  HREF="000521.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>rtti data structures (again)</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3Cu9emb01t2n.fsf%40yorick.cygnus.com%3E"
+       TITLE="rtti data structures (again)">jason at cygnus.com
+       </A><BR>
+    <I>Sat Jan 29 21:11:44 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000518.html">rtti data structures (again)
+</A></li>
+        <LI>Next message: <A HREF="000521.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#519">[ date ]</a>
+              <a href="thread.html#519">[ thread ]</a>
+              <a href="subject.html#519">[ subject ]</a>
+              <a href="author.html#519">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>&gt; writes:
+</I>
+ &gt; I fail to see how the catch matcher can get different results comparing
+ &gt; __tiPP1B to __tiPCPC1A as opposed to comparing __tiPP1B to __tiPCPC1B.
+ &gt; They both look like qualification conversions of pointers to pointers to
+ &gt; incomplete type.
+
+Good point.  I was forgetting about multi-level qualification conversions.
+
+I think that leaves us with something like what EDG does now: namely,
+comparisons are done by comparing the addresses of one-byte commons rather
+than of the type_info nodes themselves.  Then we could emit incomplete info
+in one file and complete info in another file and they would compare the
+same because both refer to the same ID proxy.
+
+We could mangle the complete and incomplete versions differently, so they
+would not be combined by the linker.
+
+This would also change how we refer to type_infos; under the current
+scheme, references to type_infos in the EH type table need to be via relocs
+that will be resolved by the dynamic linker at runtime.  If we don't need
+to compare addresses, we could use gp-relative references.  Of course, we'd
+still have the absolute references in the type_infos to the ID proxies, so
+we're no better off.
+
+ &gt;&gt; We also decided that the flags should move from __class_type_info into
+ &gt;&gt; __vmi_class_type_info, and that the polymorphic flag should be removed.
+
+ &gt; I think this moving of the flags is a mistake. If I understood correctly,
+ &gt; they indicated information about direct and indirect bases (whether there
+ &gt; was virtuality anywhere in the heirarchy for instance). Such information
+ &gt; can speed up dynamic cast. When walking the inheritance graph, we can
+ &gt; take some early outs, if we know there are no multiple sub object types
+ &gt; within the complete graph. With the flags in every class's type_info, it
+ &gt; becomes easier to get hold of that info. With it only for vmi classes,
+ &gt; we have to remember `unknown' when presented with a complete object of
+ &gt; si type, and fill the information in when/if we find a vmi base.
+
+So what you're saying is if we try to dynamic_cast from A* to B*, where B
+has a unique A subobject and the A* does not actually point to part of a B,
+if we know that B has no multiple subobjects we can check the passed
+offset, see that it doesn't match, and return failure.  Without that
+information, we would have to recurse up the single-inheritance chain until
+we either reach the A or a class with multiple or virtual bases.
+
+I think I'd rather pay that small performance hit than add a word to the
+type_info for each class.  Matt, would this affect locales?
+
+ &gt; Another case is in a potential cross-cast case, which I had in the
+ &gt; previous email.  Suppose we've found the target base, which we know is
+ &gt; unique, but not found the source base (because we early outed,
+ &gt; maybe). To be a valid cross-cast both the source and target base objects
+ &gt; must be public in the complete object. If we know the complete heirarchy
+ &gt; has no non-public bases, there's no need to search for the source base
+ &gt; in this case.
+
+But cross-casts only come up in the context of classes with multiple bases,
+so it wouldn't make sense to look for this in single inheritance classes
+anyway.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000518.html">rtti data structures (again)
+</A></li>
+	<LI>Next message: <A HREF="000521.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#519">[ date ]</a>
+              <a href="thread.html#519">[ thread ]</a>
+              <a href="subject.html#519">[ subject ]</a>
+              <a href="author.html#519">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

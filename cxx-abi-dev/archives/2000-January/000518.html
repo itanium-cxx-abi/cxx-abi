@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> rtti data structures (again)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C3893052F.E3AB18F5%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000517.html">
+   <LINK REL="Next"  HREF="000519.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>rtti data structures (again)</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C3893052F.E3AB18F5%40codesourcery.com%3E"
+       TITLE="rtti data structures (again)">sidwell at codesourcery.com
+       </A><BR>
+    <I>Sat Jan 29 15:20:15 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000517.html">rtti data structures (again)
+</A></li>
+        <LI>Next message: <A HREF="000519.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#518">[ date ]</a>
+              <a href="thread.html#518">[ thread ]</a>
+              <a href="subject.html#518">[ subject ]</a>
+              <a href="author.html#518">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>&gt; writes:
+</I>
+&gt;<i>  &gt;      struct A;
+</I>&gt;<i>  &gt;      struct B;
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;      int main ()
+</I>&gt;<i>  &gt;      {
+</I>&gt;<i>  &gt;        try {
+</I>&gt;<i>  &gt;          throw (B **)0;
+</I>&gt;<i>  &gt;        } catch (A const * const *) {
+</I>&gt;<i>  &gt;          abort ();
+</I>&gt;<i>  &gt;        } catch (B const * const *) {
+</I>&gt;<i>  &gt;          ;//ok
+</I>&gt;<i>  &gt;        } catch (...) {
+</I>&gt;<i>  &gt;          abort ();
+</I>&gt;<i>  &gt;        }
+</I>&gt;<i>  &gt;      }
+</I>&gt;<i> 
+</I>&gt;<i> We decided on Thursday that this can be handled by not emitting info for A
+</I>&gt;<i> and B, just referring to them using weak references.  The EH matcher will
+</I>&gt;<i> never look past the inner pointers.
+</I>I'm sorry, I'm just not getting this. The type_infos for `B **' and `B *'
+will be, (I'm using g++'s existing name mangling, but these are new-abi
+structures)
+__tiPP1B:
+        .long   __vt_19__pointer_type_info
+        .long   .LC2
+        .long   0
+        .long   __tiP1B
+
+__tiP1B:
+        .long   __vt_19__pointer_type_info
+        .long   .LC3
+        .long   0
+        .long   __ti1B	;; not emitted, will resolve to zero
+
+In the catch matching, the type_infos for `A const *const *' and `A const *'
+will be,
+
+__tiPCPC1A:
+        .long   __vt_19__pointer_type_info
+        .long   .LC1
+        .long   1
+        .long   __tiPC1A
+
+__tiPC1A:
+        .long   __vt_19__pointer_type_info
+        .long   .LC4
+        .long   1
+        .long   __ti1A ;; not emitted, will resolve to zero
+
+and those for `B const *const *' and `B const *'
+
+__tiPCPC1B:
+        .long   __vt_19__pointer_type_info
+        .long   .LC0
+        .long   1
+        .long   __tiPC1B
+
+__tiPC1B:
+        .long   __vt_19__pointer_type_info
+        .long   .LC5
+        .long   1
+        .long   __ti1B ;; not emitted, will resolve to zero
+
+I fail to see how the catch matcher can get different results comparing
+__tiPP1B to __tiPCPC1A as opposed to comparing __tiPP1B to __tiPCPC1B.
+They both look like qualification conversions of pointers to pointers to
+incomplete type. In the first case we'll end up comparing __tiP1B to
+__tiPC1A, which still is a valid qualification conversion, then have
+two NULL pointers for the pointed to types, which somehow we have to
+tell apart. In the second case we'll end up comparing __tiP1B to
+__tiPC1B, and again have two NULL pointers for the pointed to types,
+but this time we have to consider them the same type.
+I don't see anything in [conv.qual] saying that qualification conversions
+don't have to deal with incomplete types.
+N.B old-abi g++ seg faults on the above code because it does wander into
+the NULL pointers.
+
+&gt;<i> We decided on Thursday was that your &quot;mistakes&quot; are what we want.  __si
+</I>&gt;<i> will be for any class with a single direct base at offset 0 which is public
+</I>&gt;<i> and non-virtual.
+</I>great.
+
+&gt;<i> We also decided that the flags should move from __class_type_info into
+</I>&gt;<i> __vmi_class_type_info, and that the polymorphic flag should be removed.
+</I>I think this moving of the flags is a mistake. If I understood correctly,
+they indicated information about direct and indirect bases (whether there
+was virtuality anywhere in the heirarchy for instance). Such information
+can speed up dynamic cast. When walking the inheritance graph, we can
+take some early outs, if we know there are no multiple sub object types
+within the complete graph. With the flags in every class's type_info, it
+becomes easier to get hold of that info. With it only for vmi classes,
+we have to remember `unknown' when presented with a complete object of
+si type, and fill the information in when/if we find a vmi base. Another
+case is in a potential cross-cast case, which I had in the previous email.
+Suppose we've found the target base, which we know is unique, but not
+found the source base (because we early outed, maybe). To be a valid
+cross-cast both the source and target base objects must be public in the
+complete object. If we know the complete heirarchy has no non-public bases,
+there's no need to search for the source base in this case.
+
+Now, these might both seem small optimizations, but they're the two
+most evident uses (to me) of the flags. It would be rash to remove such
+information from si_class_type_info.
+
+
+nathan
+-- 
+Dr Nathan Sidwell :: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>  <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A>  <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at cs.bris.ac.uk</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000517.html">rtti data structures (again)
+</A></li>
+	<LI>Next message: <A HREF="000519.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#518">[ date ]</a>
+              <a href="thread.html#518">[ thread ]</a>
+              <a href="subject.html#518">[ subject ]</a>
+              <a href="author.html#518">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

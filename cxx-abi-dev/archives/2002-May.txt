@@ -1,0 +1,130 @@
+From webmaster at eclickz.net  Tue May  7 20:11:17 2002
+From: webmaster at eclickz.net (eClickz)
+Date: Tue, 7 May 2002 13:11:17 -0700
+Subject: New search engine! eClickz.net 
+Message-ID: <200205072011.g47KBHR14768@camp.321host-it.com>
+
+eClickz is a brand new pay-per-click (ppc) search engine where users can find relevant information on any topic conceivable. Features lightning fast search results and an affiliate program where webmasters can earn money by placing a search box on their website.
+
+Enjoy !
+
+
+
+
+
+From Kevin.Backhouse at arm.com  Fri May 17 15:56:05 2002
+From: Kevin.Backhouse at arm.com (Kevin.Backhouse at arm.com)
+Date: Fri, 17 May 2002 16:56:05 +0100
+Subject: Finding the type of a virtual table
+Message-ID: <OF1BC9D851.00B63140-ON80256BBC.0053595E@cambridge.arm.com>
+
+For the purposes of performing a static analysis, I am interested to know
+whether it is possible to determine the type of an object by looking at its
+vtable. VTables contain RTTI information so it ought to be possible, but I
+am unsure about secondary vtables and I wonder if anyone can help.
+
+To illustrate, here is an example of a class hierarchy:
+
+     class A
+     class B
+     class C : A, B
+     class D : B, C
+
+If I understand the C++ ABI for Itanium correctly, class D will have the
+following vtables:
+
+     D's primary vtable (which extends B's vtable)
+     Secondary vtable for C in D (which extends A's vtable)
+     Secondary vtable for B in C in D
+
+Given (say) the secondary vtable for B in C in D and nothing else, is it
+possible to determine that objects with this vtable have type B? The RTTI
+information in this vtable contains the type information for D, so the
+information for B must be obtained via an indirect route. The RTTI for D
+contains base type information for each direct base class of D. If B is a
+non-virtual base class, then I believe that it is possible to match up the
+B-in-C-in-D vtable with B's type-info by comparing the offset-to-top in the
+vtable with the offsets stored in D's type info. However, if B is a virtual
+base class, then I am not sure if this is possible. D's type info contains
+"... the offset in the virtual table of the virtual base offset for the
+virtual base referenced (negative.)" [page 21]. This information can only
+be used if D's primary vtable is available. Is it possible to uniquely
+determine D's primary table, given only D's type info? Is it true that it
+is the only vtable with offset-to-top = 0 and D's type info in its RTTI
+slot?
+
+I would be very grateful for any feedback on whether this strategy is
+correct and whether I have understood the ABI correctly.
+
+thanks,
+
+Kevin
+
+
+
+From mark at codesourcery.com  Fri May 17 16:16:34 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 17 May 2002 09:16:34 -0700
+Subject: [cxx-abi-dev] Finding the type of a virtual table
+In-Reply-To: <OF1BC9D851.00B63140-ON80256BBC.0053595E@cambridge.arm.com>
+References: <OF1BC9D851.00B63140-ON80256BBC.0053595E@cambridge.arm.com>
+Message-ID: <12300000.1021652194@gandalf.codesourcery.com>
+
+> can only be used if D's primary vtable is available. Is it possible to
+> uniquely determine D's primary table, given only D's type info? Is it
+> true that it is the only vtable with offset-to-top = 0 and D's type info
+> in its RTTI slot?
+
+Yes -- except for construction vtables.  A D-in-E construction vtable
+might also have this configuration.  But, it will not be named _ZTV1D;
+you might be able to use the mangled name for D to obtain D's vtable,
+if you have that handy.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Fri May 17 20:54:58 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 17 May 2002 21:54:58 +0100
+Subject: [cxx-abi-dev] Finding the type of a virtual table
+In-Reply-To: <OF1BC9D851.00B63140-ON80256BBC.0053595E@cambridge.arm.com>
+ (<Kevin.Backhouse@arm.com>'s message of "Fri, 17 May 2002 16:56:05 +0100")
+References: <OF1BC9D851.00B63140-ON80256BBC.0053595E@cambridge.arm.com>
+Message-ID: <wvl7km2sdel.fsf@prospero.cambridge.redhat.com>
+
+>>>>>   <Kevin.Backhouse at arm.com> writes:
+
+> For the purposes of performing a static analysis, I am interested to know
+> whether it is possible to determine the type of an object by looking at its
+> vtable. VTables contain RTTI information so it ought to be possible, but I
+> am unsure about secondary vtables and I wonder if anyone can help.
+
+> To illustrate, here is an example of a class hierarchy:
+
+>      class A
+>      class B
+>      class C : A, B
+>      class D : B, C
+
+> If I understand the C++ ABI for Itanium correctly, class D will have the
+> following vtables:
+
+>      D's primary vtable (which extends B's vtable)
+>      Secondary vtable for C in D (which extends A's vtable)
+>      Secondary vtable for B in C in D
+
+> Given (say) the secondary vtable for B in C in D and nothing else, is it
+> possible to determine that objects with this vtable have type B?
+
+Why would you want to?  The only way to get at that vtable would be through
+a pointer of type B*.  If you're using a B*, then you know that the
+(sub)object referred to has type B.
+
+Can you be more specific about the analysis you're trying to perform?
+
+Jason
+
+

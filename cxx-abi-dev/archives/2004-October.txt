@@ -1,0 +1,130 @@
+From kerch at cup.hp.com  Wed Oct 20 18:35:25 2004
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Wed, 20 Oct 2004 11:35:25 -0700
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <413CE553.1050105@codesourcery.com>
+References: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com> <413C63BC.9000704@codesourcery.com> <413CE553.1050105@codesourcery.com>
+Message-ID: <4176AFED.60008@cup.hp.com>
+
+Seems like this issue hasn't been resolved...
+
+Mark Mitchell wrote:
+> Nathan Sidwell wrote:
+> 
+>> Yan Liu wrote:
+>>
+>>>
+>>>
+>>>
+>>> I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+>>> following testcase:
+>>> struct A {char a;};
+>>>
+>>> struct B: virtual public A {};
+>>>
+>>> struct C:public B{
+>>>   int c;
+>>>   virtual void f() {};
+>>> };
+>>> struct D {
+>>>         char d;
+>>> };
+>>> struct E {int:3;};
+>>> struct F: public C, virtual E, public D {
+>>>         char f1;
+>>>         virtual void f(){}
+>>> };
+>>> int main()
+>>> {F f;}
+>>>
+>>> Attached files are the class and vft  layout results with three g++
+>>> compilers using -fdump-class-hierarchy option.
+>>>
+>>>
+>>> (See attached file: temp4.g++35.class)(See attached file:
+>>> temp4.g++33.class)(See attached file: temp4.C.g++34_32.class)
+>>> According to the C++ ABI online document chapter 2.4
+>>> (http://www.codesourcery.com/cxx-abi/abi.html).  After mapping the 
+>>> virtual
+>>> base class A while mapping of the most derived class F,  the 
+>>> dsize(F)=11,
+>>> size(F)=11, align(F)=4, and nvsize(E)=4, nvalign(E)=4.  So, when mapping
+>>> virtual base class E, the next available bits are at offset 
+>>> dsize(F)=11.  E
+>>> should be put at offset(F) which is the dsize(F) =11, and the final 
+>>> class
+>>> size should be 12. To me, g++3.4 gives the most reasonable result, I 
+>>> don't
+>>> understand why g++3.5 put E at offset 12, and the final class size is 
+>>> 16.
+>>> Is it means that ABI has changed or just a gcc bug?
+>>>
+>>> Your kind help is highly appreciated. Thanks.
+>>
+>>
+>>
+>> the layout 3.5 gives looks ok to me.  E requires 4 byte alignment, so
+>> cannot be at 11.
+> 
+> 
+> If E should have 4-byte alignment (as indicated above by "nvalign(E)"), 
+> then I agree.
+> 
+Since E only contains an "unnamed bitfield" which is not even considered
+a member (see 9.6 P2) I think the nvalign(E) should be 1.
+
+> Of course, independently of which choice is correct, we don't want G++ 
+> changing the ABI without explicit use of -fabi-version.  However, I see 
+> the size of F as 12 with both G++ 3.4.1 and the current mainline, on 
+> i686-pc-linux-gnu.
+> 
+
+Does this need extra wording in the ABI to deal with the special case
+of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+     If D is not an unnamed bitfield
+         update align(C) to max(align(C),align(T))
+
+
+
+
+From mark at codesourcery.com  Tue Oct 26 01:13:01 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 25 Oct 2004 18:13:01 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <415831BC.5060405@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com> <4154527E.2000906@codesourcery.com> <415459FE.2090306@codesourcery.com> <4157C8AA.6090702@codesourcery.com> <415831BC.5060405@codesourcery.com>
+Message-ID: <417DA49D.2050603@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> Yes, you're correct, the standard does guarantee that you can do 
+> bitwise copies for PODs  using their size.
+> In other words, your point is that unless we interpret the ABI as 
+> meaning "TC1 POD", it is not the ABI for a correct C++ compiler, 
+> because it will fall afoul of this rule.  This is [basic.types]/3, for 
+> reference.
+>
+> I think that's a pretty compelling agument that we should clarify the 
+> ABI to indicate that POD means "POD as defined by TC1".  Any 
+> objections to that proposal?  Are there any compilers other than aCC 
+> implementing the pre-TC1 definition?
+
+Nobody objected, so I committed the following change, requiring the TC1 
+definition.  The change will be reflected in the online copy shortly.  I 
+also clarified the fact that an array that is a POD type, but whose 
+elements are not a POD for the purpose of layout is not itself a POD for 
+the purpose of layout.
+
+FYI,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: POD.patch
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20041025/b263ddcd/attachment.ksh>
+

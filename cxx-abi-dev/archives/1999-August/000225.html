@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> vtable layout
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3C852567DE.005417BB.00%40D51MTA06.pok.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000224.html">
+   <LINK REL="Next"  HREF="000228.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>vtable layout</H1>
+    <B>thomson at ca.ibm.com</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3C852567DE.005417BB.00%40D51MTA06.pok.ibm.com%3E"
+       TITLE="vtable layout">thomson at ca.ibm.com
+       </A><BR>
+    <I>Tue Aug 31 14:52:52 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000224.html">vtable layout
+</A></li>
+        <LI>Next message: <A HREF="000228.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#225">[ date ]</a>
+              <a href="thread.html#225">[ thread ]</a>
+              <a href="subject.html#225">[ subject ]</a>
+              <a href="author.html#225">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Christophe:
+
+&gt;<i>In terms of performance, the impact is limited, because it will
+</I>&gt;<i>occur only if you use an A* to call f() or g(). With a B*, a C* or a
+</I>&gt;<i>D*, the pair (vtable, offset) is unique. The same offset can be
+</I>&gt;<i>reused for f() and g() and mean, in one case, &quot;convert_to_X&quot;, in the
+</I>&gt;<i>other case, &quot;convert_to_Y&quot;. Same thing for non-virtual inheritance.
+</I>&gt;<i>Last, the thunk generated in that case is no worse than the thunk
+</I>&gt;<i>that would be generated otherwise: we win in other cases, and don't
+</I>&gt;<i>lose in this one.
+</I>
+I still don't fully understand.  What cases of virtual inheritance
+will not require a thunk?  Is it when the virtual base appears only
+once in the hierarchy (and so might as well not have been virtual)?
+That is the only time when you can maintain the spatial relationship
+between derived and virtual base vtables.
+
+And, as Jason points out, you are using the worst kind of thunk, it
+probably isn't even on the same page as any of the other code never mind
+the same cache line.
+
+
+Jason:
+
+I think your response is complete except for one item,
+
+&gt;<i>These effects are negated if the thunk is located immediately before the
+</I>&gt;<i>target function, and you can use a pc-relative branch or just fall through.
+</I>&gt;<i>And your method faces the same issues.  That's why I talk about third-party
+</I>&gt;<i>thunks; they're the only ones that have performance problems.
+</I>
+A thunk that can fall through has no penalty, but modern deeply
+pipelined processors don't like taken branches even if they are correctly
+predicted (as an unconditional, pc-relative branch would be).
+Because prediction happens in a later stage the prefetcher
+normally assumes fall-through control flow and gets corrected a cycle or two
+later when the predictor kicks in.  Whether the resulting &quot;bubble&quot; in
+instruction issue actually ends up affecting throughput will depend on how
+full the rest of the pipeline was. I interpret some of Christophe's
+earlier contributions to suggest that we are likely to have just
+suffered a mispredicted indirect branch, and in words stolen from
+Gulliver's Travels, which seems to have something to say about
+almost any situation, we may find the pipeline &quot;lank as a bladder&quot;.
+
+Let's see how well I can summarize this for nonvirtual inheritance:
+
+On the one hand we have Christophe's reach-back entry point which,
+because of RAW dependencies, is intrinsically 3 cycles and may suffer
+an extra D-cache miss, but which can always fall through.
+
+On the other hand we have the thunks we have been discussing, which
+are one cycle but only one of them can fall through.  Others will have
+a taken branch penalty which may or may not affect throughput.
+
+It looks to me that our performance is better in the fall-through case
+and, as long as the penalty is 2 cycles or less, at least as good
+in the other cases, and we don't risk the extra D-cache miss, and we have
+avoided growing the vtables in a way that has a worst-case 2X expansion.
+
+
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000224.html">vtable layout
+</A></li>
+	<LI>Next message: <A HREF="000228.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#225">[ date ]</a>
+              <a href="thread.html#225">[ thread ]</a>
+              <a href="subject.html#225">[ subject ]</a>
+              <a href="author.html#225">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

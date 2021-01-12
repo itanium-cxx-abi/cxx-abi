@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Volatile nonstatic data members
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Volatile%20nonstatic%20data%20members&In-Reply-To=%3CCAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk%2BXBi5%3DMBHZJeHEA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002816.html">
+   <LINK REL="Next"  HREF="002818.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Volatile nonstatic data members</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Volatile%20nonstatic%20data%20members&In-Reply-To=%3CCAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk%2BXBi5%3DMBHZJeHEA%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Volatile nonstatic data members">richardsmith at googlers.com
+       </A><BR>
+    <I>Fri Mar  6 19:52:14 UTC 2015</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002816.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+        <LI>Next message: <A HREF="002818.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2817">[ date ]</a>
+              <a href="thread.html#2817">[ thread ]</a>
+              <a href="subject.html#2817">[ subject ]</a>
+              <a href="author.html#2817">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 6 March 2015 at 09:35, David Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt; wrote:
+
+&gt;<i> At some point, the C++ standard changed to cause volatile nonstatic data
+</I>&gt;<i> members to make a generated copy/move constructor nontrivial.
+</I>&gt;<i>
+</I>
+To save anyone else looking, this was
+<A HREF="http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496">http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496</A>
+
+Unfortunately, that would change the parameter passing mechanism if we
+&gt;<i> stuck to letter of the ABI; see 3.1.1/1:
+</I>&gt;<i>
+</I>&gt;<i> 1. In the special case where the parameter type has a non-trivial copy
+</I>&gt;<i> constructor or destructor, the caller must allocate space
+</I>&gt;<i>    for a temporary copy, and pass the resulting copy by reference (below).
+</I>&gt;<i> Specifically, ...
+</I>&gt;<i>
+</I>&gt;<i> AFAICT, recent versions of GCC and Clang do implement the language aspects
+</I>&gt;<i> of nontriviality of copy/move constructors in such cases (e.g., causing
+</I>&gt;<i> union constructors to become deleted), but not this ABI aspect of it.
+</I>
+
+Clang does not implement this (<A HREF="http://clang.llvm.org/cxx_dr_status.html#496">http://clang.llvm.org/cxx_dr_status.html#496</A>);
+I'm not sure about GCC trunk. We still accept
+
+  struct A { volatile int v; };
+  union U { A a; };
+  extern U u1;
+  U u2(u1);
+
+(for example).
+
+For example:
+&gt;<i>
+</I>&gt;<i>  typedef struct { int value; } TypeA;
+</I>&gt;<i>  typedef struct { TypeA volatile value; } TypeB;
+</I>&gt;<i>  typedef struct { TypeA value; } TypeC;
+</I>&gt;<i>
+</I>&gt;<i>  int foo(TypeB p) { return p.value.value; }
+</I>&gt;<i>  int foo(TypeC p) { return p.value.value; }
+</I>&gt;<i>
+</I>&gt;<i> Identical code is being generated for these two definitions of foo, even
+</I>&gt;<i> though TypeB has a nontrivial copy constructor and TypeC has a trivial copy
+</I>&gt;<i> constructor.
+</I>&gt;<i>
+</I>&gt;<i> If that is right, should the 3.1.1/1 words above be edited to read:
+</I>&gt;<i>
+</I>&gt;<i> 1. In the special case where the parameter type has a non-trivial copy
+</I>&gt;<i> constructor (with the exception of a generated copy constructor that is
+</I>&gt;<i>    nontrivial only because one or more nonstatic data member are trivial)
+</I>&gt;<i> or destructor, the caller must allocate space for a temporary copy,
+</I>&gt;<i>    and pass the resulting copy by reference (below).  Specifically, ...
+</I>&gt;<i>
+</I>&gt;<i> ?
+</I>&gt;<i>
+</I>
+No strong preference here, but...
+
+Do you have any feeling about how much code would be broken if we don't do
+this? If we were starting from a clean sheet, I think I'd prefer the rule
+as it is (volatile subobjects prevent a class from being passed in
+registers), so if this doesn't actually happen in practice, I'd prefer for
+us to leave the ABI alone.
+
+        Daveed
+&gt;<i>
+</I>&gt;<i> P.S.: I sent this e-mail from a different account a few days ago.  Sorry
+</I>&gt;<i> if anyone sees it twice.
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/fc1a4fd4/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/fc1a4fd4/attachment.html</A>&gt;
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002816.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+	<LI>Next message: <A HREF="002818.html">[cxx-abi-dev] Volatile nonstatic data members
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2817">[ date ]</a>
+              <a href="thread.html#2817">[ thread ]</a>
+              <a href="subject.html#2817">[ subject ]</a>
+              <a href="author.html#2817">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

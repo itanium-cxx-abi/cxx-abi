@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] mangling for c++17 decomposition declarations
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20mangling%20for%20c%2B%2B17%20decomposition%20declarations&In-Reply-To=%3CCAGL0aWc5_DdYzWV8Snr%3DUASompUbSOxQKkuuNshZJOwRB5G5-g%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002952.html">
+   <LINK REL="Next"  HREF="002954.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] mangling for c++17 decomposition declarations</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20mangling%20for%20c%2B%2B17%20decomposition%20declarations&In-Reply-To=%3CCAGL0aWc5_DdYzWV8Snr%3DUASompUbSOxQKkuuNshZJOwRB5G5-g%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] mangling for c++17 decomposition declarations">richardsmith at google.com
+       </A><BR>
+    <I>Sat Aug 13 01:06:03 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002952.html">[cxx-abi-dev] mangling for c++17 decomposition declarations
+</A></li>
+        <LI>Next message: <A HREF="002954.html">[cxx-abi-dev] mangling for c++17 decomposition declarations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2953">[ date ]</a>
+              <a href="thread.html#2953">[ thread ]</a>
+              <a href="subject.html#2953">[ subject ]</a>
+              <a href="author.html#2953">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 12 August 2016 at 17:29, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+
+&gt;<i> &gt; On Aug 12, 2016, at 4:59 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; C++17 decomposition declarations are (surprisingly) permitted at global
+</I>&gt;<i> scope. They can't be forward-declared nor made inline (yet...), and it
+</I>&gt;<i> seems likely that the wording probably didn't *mean* to allow them to be
+</I>&gt;<i> declared as templates, so we don't appear to need a cross-vendor mangling
+</I>&gt;<i> for them. However, establishing a convention would be useful for demanglers.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; For now, I'm mangling global decomposition declarations as:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;   &lt;unqualified-name&gt; ::= DC &lt;source-name&gt;* E
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; ... where the &lt;source-name&gt;s are the names of the bindings. (I'm
+</I>&gt;<i> mangling the bindings in the obvious way, as if they were reference
+</I>&gt;<i> declarations, but they get a mangled name even at global scope.)
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; We could get away with mangling only the name of the first binding, but
+</I>&gt;<i> the extra information seems useful to people looking at the mangled name.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Thoughts? Is it worth specifying this in the ABI?
+</I>&gt;<i>
+</I>&gt;<i> For those of us who aren't following the standards process that closely,
+</I>&gt;<i> would you mind explaining the more basic ABI impact of the feature?  Are
+</I>&gt;<i> the individual bindings separate objects that should be mangled as it they
+</I>&gt;<i> were actually declared separately, and so this compound mangling only
+</I>&gt;<i> serves to uniquely identify the initializer in case it contains entities
+</I>&gt;<i> that need / ought to be mangled?
+</I>
+
+Yes, but the bindings are always of reference type when they exist at all.
+In a decomposition declaration like:
+
+  auto [a, b, c] = expr;
+
+there are (potentially, see below) four distinct entities: a variable
+
+  auto e = expr;
+
+and three bindings (a, b, and c). The mangling above would be used for the
+'e' variable. There is no way to reference that implicit variable except
+through the bindings.
+
+There are two different cases for the behavior of the bindings: either they
+are built-in bindings representing some subobject of e (including bitfield
+members) with no corresponding entity, or (for types like std::tuple) they
+act as variables of reference type initialized by some user-specified
+expression which can have arbitrary side-effects (the corresponding
+extension mechanism involves specializing standard-library templates and
+providing a function template to be found by ADL, and has no ABI impact).
+
+For the built-in case, it seems most straightforward to not generate
+globals at all (and emit references to a, b, and c directly as references
+to the corresponding subobject of e), but for the user-defined extension
+case, code is run to initialize the bindings and they generally need to act
+like global variables. A pedantic reading of the standard suggests that you
+could do this:
+
+  auto [a] = std::tuple&lt;int&gt;(0); // tu1.cc
+
+  extern int &amp;&a; // tu2.cc
+
+... which would certainly restrict the ABI choices, but I don't think that
+was an intended consequence of the rules.
+
+There is (currently) no way to declare the same decomposition declaration
+across multiple translation units (there's a syntactic limitation
+preventing them from being static locals, inline globals, or static data
+members), so in that sense there is no formal ABI impact.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160812/c98b94d5/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160812/c98b94d5/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002952.html">[cxx-abi-dev] mangling for c++17 decomposition declarations
+</A></li>
+	<LI>Next message: <A HREF="002954.html">[cxx-abi-dev] mangling for c++17 decomposition declarations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2953">[ date ]</a>
+              <a href="thread.html#2953">[ thread ]</a>
+              <a href="subject.html#2953">[ subject ]</a>
+              <a href="author.html#2953">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

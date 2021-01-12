@@ -1,0 +1,295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> How to layout the class (with bitfield members) in the inheritance hierarchy on GCC 3.3
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20How%20to%20layout%20the%20class%20%28with%20bitfield%20members%29%20in%20the%20inheritance%0A%20hierarchy%20on%20GCC%203.3&In-Reply-To=%3COFFCC788CE.496B2486-ON85256EA6.0051029F-85256EA6.0057BAF1%40ca.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001831.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>How to layout the class (with bitfield members) in the inheritance hierarchy on GCC 3.3</H1>
+    <B>Yan Shi</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20How%20to%20layout%20the%20class%20%28with%20bitfield%20members%29%20in%20the%20inheritance%0A%20hierarchy%20on%20GCC%203.3&In-Reply-To=%3COFFCC788CE.496B2486-ON85256EA6.0051029F-85256EA6.0057BAF1%40ca.ibm.com%3E"
+       TITLE="How to layout the class (with bitfield members) in the inheritance hierarchy on GCC 3.3">yanshi at ca.ibm.com
+       </A><BR>
+    <I>Tue Jun  1 15:57:58 UTC 2004</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001831.html">[cxx-abi-dev] How to layout the class (with bitfield members) in the inheritance hierarchy on GCC 3.3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1830">[ date ]</a>
+              <a href="thread.html#1830">[ thread ]</a>
+              <a href="subject.html#1830">[ subject ]</a>
+              <a href="author.html#1830">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+
+
+
+Hi,
+
+According to C++ ABI 2.4 Non-POD Class Types defintion:
+&quot;Allocation of Members Other Than Virtual Bases
+For each data component D (first the primary base of C, if any, then the
+non-primary, non-virtual direct base classes in declaration order, then the
+non-static data members in declaration order), allocate as follows:
+
+If D is a bitfield, i.e. declared as &quot;T [b]: n;&quot;, for some integral POD
+type T and bit count n:
+There are two cases depending on sizeof(T) and n:
+
+If sizeof(T)*8 &gt;= n, the bitfield is allocated as required by the
+underlying C psABI. That is, it will be placed in the next available n
+bits, subject to the constraint that it does not cross an alignment
+boundary for type T.
+If dsize(C) &gt; 0, and the byte at offset dsize(C) - 1 is partially filled by
+a bitfield, and that bitfield is also a data member declared in C (but not
+in one of C's proper base classes), the next available bits are the
+unfilled bits at offset dsize(C) - 1. Otherwise, the next available bits
+are at offset dsize(C).
+
+Update align(C) to max (align(C), align(T)). &quot;
+
+
+For the following test cases, the bitfield members (b0, b1, b2, b3, b4),
+should all be allocated together in 4 bytes, therefore the total size of
+struct B4 (test2.C) should be 8 bytes and the alignment of struct B4 is 4
+bytes.
+
+However, I tried both test cases with GCC 3.3 on SLES9 Linux, the size of
+struct B4 (test2.C) is 12 bytes, while the alignment of struct B4 is 4
+bytes on 32-bit mode, which does not agree with the ABI definition.  Could
+some one please explain what the rules/algorithm for such behavior in GCC
+3.3?
+
+Here are the attached test cases, actual/expected struct layout, and my
+observations:
+|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>       |      test.C                     |    test2.C                    |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>test   |struct B0     {                  |struct B0     {                |
+</I>|<i>cases  |        int b0 :1;               |        virtual void foo() {}; |
+</I>|<i>       |};                               |&lt;===== with vft table          |
+</I>|<i>       |struct B1 : public B0 {          |        int b0 :1;;            |
+</I>|<i>       |        int b1 :10;              |};                             |
+</I>|<i>       |};                               |struct B1 : public B0 {        |
+</I>|<i>       |                                 |        int b1 :10;            |
+</I>|<i>       |struct B2 : public B1  {         |};                             |
+</I>|<i>       |        int b2 :1;               |                               |
+</I>|<i>       |};                               |struct B2 : public B1  {       |
+</I>|<i>       |                                 |        int b2 :1;             |
+</I>|<i>       |struct B3 : public B2  {         |};                             |
+</I>|<i>       |        int b3 :1;               |                               |
+</I>|<i>       |};                               |struct B3 : public B2  {       |
+</I>|<i>       |                                 |        int b3 :1;             |
+</I>|<i>       |struct B4 : public B3  {         |};                             |
+</I>|<i>       |        int b4 :6;               |                               |
+</I>|<i>       |};                               |struct B4 : public B3  {       |
+</I>|<i>       |                                 |        int b4 :1;             |
+</I>|<i>       |(See attached file: test.C)      |};                             |
+</I>|<i>       |                                 |(See attached file: test2.C)   |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>Dump   |--b4.b0--- dumping 12 bytes----- |--b4.b0--- dumping 12          |
+</I>|<i>struct |10000000 00000000 00000000       |bytes-----                     |
+</I>|<i>B4     |00000000                         |00000000 00000000 00000000     |
+</I>|<i>member |00000000 00000000 00000000       |00000000                       |
+</I>|<i>layout |00000000                         |10000000 00000000 00000000     |
+</I>|<i>       |00000000 00000000 00000000       |00000000                       |
+</I>|<i>on     |00000000                         |00000000 00000000 00000000     |
+</I>|<i>32-bit |                                 |00000000                       |
+</I>|<i>mode   |--b4.b1--- dumping 12 bytes----- |                               |
+</I>|<i>       |00000000 00000000 00000000       |--b4.b1--- dumping 12          |
+</I>|<i>(GCC   |00000000                         |bytes-----                     |
+</I>|<i>3.3    |11111111 11000000 00000000       |00000000 00000000 00000000     |
+</I>|<i>ouput) |00000000                         |00000000                       |
+</I>|<i>       |00000000 00000000 00000000       |01111111 11100000 00000000     |
+</I>|<i>       |00000000                         |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |--b4.b2--- dumping 12 bytes----- |00000000                       |
+</I>|<i>       |00000000 00000000 00000000       |                               |
+</I>|<i>       |00000000                         |--b4.b2--- dumping 12          |
+</I>|<i>       |00000000 00100000 00000000       |bytes-----                     |
+</I>|<i>       |00000000                         |00000000 00000000 00000000     |
+</I>|<i>       |00000000 00000000 00000000       |00000000                       |
+</I>|<i>       |00000000                         |00000000 00010000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |--b4.b3--- dumping 12 bytes----- |00000000 00000000 00000000     |
+</I>|<i>       |00000000 00000000 00000000       |00000000                       |
+</I>|<i>       |00000000                         |                               |
+</I>|<i>       |00000000 00000000 00000000       |--b4.b3--- dumping 12          |
+</I>|<i>       |10000000                         |bytes-----                     |
+</I>|<i>       |00000000 00000000 00000000       |00000000 00000000 00000000     |
+</I>|<i>       |00000000                         |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |--b4.b4--- dumping 12 bytes----- |10000000                       |
+</I>|<i>       |00000000 00000000 00000000       |00000000 00000000 00000000     |
+</I>|<i>       |00000000                         |00000000                       |
+</I>|<i>       |00000000 00000000 00000000       |                               |
+</I>|<i>       |01111110                         |--b4.b4--- dumping 12          |
+</I>|<i>       |00000000 00000000 00000000       |bytes-----                     |
+</I>|<i>       |00000000                         |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |01000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>Dump   |the same as the output on 32-bit |--b4.b0--- dumping 16          |
+</I>|<i>struct |mode                             |bytes-----                     |
+</I>|<i>B4     |                                 |00000000 00000000 00000000     |
+</I>|<i>member |                                 |00000000                       |
+</I>|<i>layout |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>on     |                                 |10000000 00000000 00000000     |
+</I>|<i>64-bit |                                 |00000000                       |
+</I>|<i>mode   |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>(GCC   |                                 |                               |
+</I>|<i>3.3    |                                 |--b4.b1--- dumping 16          |
+</I>|<i>ouput) |                                 |bytes-----                     |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |01111111 11100000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |                               |
+</I>|<i>       |                                 |--b4.b2--- dumping 16          |
+</I>|<i>       |                                 |bytes-----                     |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00010000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |                               |
+</I>|<i>       |                                 |--b4.b3--- dumping 16          |
+</I>|<i>       |                                 |bytes-----                     |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |10000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |                               |
+</I>|<i>       |                                 |--b4.b4--- dumping 16          |
+</I>|<i>       |                                 |bytes-----                     |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |01000000                       |
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>Observa| (1) it cannot put more than two |the same observation as test.C |
+</I>|<i>tion   |bit fields from different classes|                               |
+</I>|<i>       |in a byte.                       |                               |
+</I>|<i>       | (2) if previous bits exactly fit|                               |
+</I>|<i>       |the byte container (all 8 bits   |                               |
+</I>|<i>       |are used, no remaining free      |                               |
+</I>|<i>       |bits), then pad the following    |                               |
+</I>|<i>       |bits that is from different      |                               |
+</I>|<i>       |classes tightly                  |                               |
+</I>|<i>       |(3) else, pad the following bits |                               |
+</I>|<i>       |that is from different classes   |                               |
+</I>|<i>       |one byte after the previous      |                               |
+</I>|<i>       |bit-ending byte (vacate one byte)|                               |
+</I>|<i>       |(4) Question: why vacate last    |                               |
+</I>|<i>       |4-byte in struct B4 (useless     |                               |
+</I>|<i>       |padding)?                        |                               |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>|<i>Suggest|--b4.b0--- dumping 4 bytes-----  |--b4.b0--- dumping 8 bytes-----|
+</I>|<i>ed     |10000000 00000000 00000000       |00000000 00000000 00000000     |
+</I>|<i>layout |00000000                         |00000000                       |
+</I>|<i>on     |                                 |10000000 00000000 00000000     |
+</I>|<i>32-bit |--b4.b1--- dumping 4 bytes-----  |00000000                       |
+</I>|<i>mode   |01111111 11100000 00000000       |                               |
+</I>|<i>       |00000000                         |--b4.b1--- dumping 8 bytes-----|
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |--b4.b2--- dumping 4 bytes-----  |00000000                       |
+</I>|<i>       |00000000 00010000 00000000       |01111111 11100000 00000000     |
+</I>|<i>       |00000000                         |00000000                       |
+</I>|<i>       |                                 |                               |
+</I>|<i>       |--b4.b3--- dumping 4 bytes-----  |--b4.b2--- dumping 8 bytes-----|
+</I>|<i>       |00000000 00001000 00000000       |00000000 00000000 00000000     |
+</I>|<i>       |00000000                         |00000000                       |
+</I>|<i>       |                                 |00000000 00010000 00000000     |
+</I>|<i>       |--b4.b4--- dumping 4 bytes-----  |00000000                       |
+</I>|<i>       |00000000 00000111 11100000       |                               |
+</I>|<i>       |00000000                         |--b4.b3--- dumping 8 bytes-----|
+</I>|<i>       |                                 |00000000 00000000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |00000000 00001000 00000000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>       |                                 |                               |
+</I>|<i>       |                                 |--b4.b4--- dumping 4 bytes-----|
+</I>|<i>       |                                 |00000000 00000111 11100000     |
+</I>|<i>       |                                 |00000000                       |
+</I>|<i>-------+---------------------------------+-------------------------------|
+</I>
+
+Your reply will be appreciated.
+
+Best regards,
+
+Yan (Barbara) Shi
+C++ Front End and Runtime Development
+Email: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">yanshi at ca.ibm.com</A>
+Tel: (905) 413-3813   Tie: 969-3813   Location: C2/KD2/8200/MKM
+IBM Toronto Laboratory, 8200 Warden Ave, Markham, Ontario, Canada L6G 1C7
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.C
+Type: application/octet-stream
+Size: 1537 bytes
+Desc: not available
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment.obj">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test2.C
+Type: application/octet-stream
+Size: 1567 bytes
+Desc: not available
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment-0001.obj">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment-0001.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001831.html">[cxx-abi-dev] How to layout the class (with bitfield members) in the inheritance hierarchy on GCC 3.3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1830">[ date ]</a>
+              <a href="thread.html#1830">[ thread ]</a>
+              <a href="subject.html#1830">[ subject ]</a>
+              <a href="author.html#1830">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

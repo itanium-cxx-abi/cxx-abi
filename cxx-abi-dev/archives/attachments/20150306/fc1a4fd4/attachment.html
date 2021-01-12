@@ -1,0 +1,36 @@
+<tt>
+&lt;div&nbsp;dir=&quot;ltr&quot;&gt;&lt;div&nbsp;class=&quot;gmail_extra&quot;&gt;&lt;div&nbsp;class=&quot;gmail_quote&quot;&gt;On&nbsp;6&nbsp;March&nbsp;2015&nbsp;at&nbsp;09:35,&nbsp;David&nbsp;Vandevoorde&nbsp;&lt;span&nbsp;dir=&quot;ltr&quot;&gt;&lt;&lt;a&nbsp;href=&quot;mailto:daveed@edg.com&quot;&nbsp;target=&quot;_blank&quot;&gt;daveed@edg.com&lt;/a&gt;&gt;&lt;/span&gt;&nbsp;wrote:&lt;br&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;At&nbsp;some&nbsp;point,&nbsp;the&nbsp;C++&nbsp;standard&nbsp;changed&nbsp;to&nbsp;cause&nbsp;volatile&nbsp;nonstatic&nbsp;data&nbsp;members&nbsp;to&nbsp;make&nbsp;a&nbsp;generated&nbsp;copy/move&nbsp;constructor&nbsp;nontrivial.&lt;br&gt;&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;To&nbsp;save&nbsp;anyone&nbsp;else&nbsp;looking,&nbsp;this&nbsp;was&nbsp;&lt;a&nbsp;href=&quot;http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496&quot;&gt;http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496&lt;/a&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;<br>
+Unfortunately,&nbsp;that&nbsp;would&nbsp;change&nbsp;the&nbsp;parameter&nbsp;passing&nbsp;mechanism&nbsp;if&nbsp;we&nbsp;stuck&nbsp;to&nbsp;letter&nbsp;of&nbsp;the&nbsp;ABI;&nbsp;see&nbsp;3.1.1/1:&lt;br&gt;<br>
+&lt;br&gt;<br>
+1.&nbsp;In&nbsp;the&nbsp;special&nbsp;case&nbsp;where&nbsp;the&nbsp;parameter&nbsp;type&nbsp;has&nbsp;a&nbsp;non-trivial&nbsp;copy&nbsp;constructor&nbsp;or&nbsp;destructor,&nbsp;the&nbsp;caller&nbsp;must&nbsp;allocate&nbsp;space&lt;br&gt;<br>
+ &nbsp; for&nbsp;a&nbsp;temporary&nbsp;copy,&nbsp;and&nbsp;pass&nbsp;the&nbsp;resulting&nbsp;copy&nbsp;by&nbsp;reference&nbsp;(below).&nbsp;Specifically,&nbsp;...&lt;br&gt;<br>
+&lt;br&gt;<br>
+AFAICT,&nbsp;recent&nbsp;versions&nbsp;of&nbsp;GCC&nbsp;and&nbsp;Clang&nbsp;do&nbsp;implement&nbsp;the&nbsp;language&nbsp;aspects&nbsp;of&nbsp;nontriviality&nbsp;of&nbsp;copy/move&nbsp;constructors&nbsp;in&nbsp;such&nbsp;cases&nbsp;(e.g.,&nbsp;causing&nbsp;union&nbsp;constructors&nbsp;to&nbsp;become&nbsp;deleted),&nbsp;but&nbsp;not&nbsp;this&nbsp;ABI&nbsp;aspect&nbsp;of&nbsp;it.&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Clang&nbsp;does&nbsp;not&nbsp;implement&nbsp;this&nbsp;(&lt;a&nbsp;href=&quot;http://clang.llvm.org/cxx_dr_status.html#496&quot;&gt;http://clang.llvm.org/cxx_dr_status.html#496&lt;/a&gt;);&nbsp;I&#39;m&nbsp;not&nbsp;sure&nbsp;about&nbsp;GCC&nbsp;trunk.&nbsp;We&nbsp;still&nbsp;accept&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt; &nbsp;struct&nbsp;A&nbsp;{&nbsp;volatile&nbsp;int&nbsp;v;&nbsp;};&lt;/div&gt;&lt;div&gt; &nbsp;union&nbsp;U&nbsp;{&nbsp;A&nbsp;a;&nbsp;};&lt;/div&gt;&lt;div&gt; &nbsp;extern&nbsp;U&nbsp;u1;&lt;/div&gt;&lt;div&gt; &nbsp;U&nbsp;u2(u1);&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;(for&nbsp;example).&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;For&nbsp;example:&lt;br&gt;<br>
+&lt;br&gt;<br>
+ typedef&nbsp;struct&nbsp;{&nbsp;int&nbsp;value;&nbsp;}&nbsp;TypeA;&lt;br&gt;<br>
+ typedef&nbsp;struct&nbsp;{&nbsp;TypeA&nbsp;volatile&nbsp;value;&nbsp;}&nbsp;TypeB;&lt;br&gt;<br>
+ typedef&nbsp;struct&nbsp;{&nbsp;TypeA&nbsp;value;&nbsp;}&nbsp;TypeC;&lt;br&gt;<br>
+&lt;br&gt;<br>
+ int&nbsp;foo(TypeB&nbsp;p)&nbsp;{&nbsp;return&nbsp;p.value.value;&nbsp;}&lt;br&gt;<br>
+ int&nbsp;foo(TypeC&nbsp;p)&nbsp;{&nbsp;return&nbsp;p.value.value;&nbsp;}&lt;br&gt;<br>
+&lt;br&gt;<br>
+Identical&nbsp;code&nbsp;is&nbsp;being&nbsp;generated&nbsp;for&nbsp;these&nbsp;two&nbsp;definitions&nbsp;of&nbsp;foo,&nbsp;even&nbsp;though&nbsp;TypeB&nbsp;has&nbsp;a&nbsp;nontrivial&nbsp;copy&nbsp;constructor&nbsp;and&nbsp;TypeC&nbsp;has&nbsp;a&nbsp;trivial&nbsp;copy&nbsp;constructor.&lt;br&gt;<br>
+&lt;br&gt;<br>
+If&nbsp;that&nbsp;is&nbsp;right,&nbsp;should&nbsp;the&nbsp;3.1.1/1&nbsp;words&nbsp;above&nbsp;be&nbsp;edited&nbsp;to&nbsp;read:&lt;br&gt;<br>
+&lt;br&gt;<br>
+1.&nbsp;In&nbsp;the&nbsp;special&nbsp;case&nbsp;where&nbsp;the&nbsp;parameter&nbsp;type&nbsp;has&nbsp;a&nbsp;non-trivial&nbsp;copy&nbsp;constructor&nbsp;(with&nbsp;the&nbsp;exception&nbsp;of&nbsp;a&nbsp;generated&nbsp;copy&nbsp;constructor&nbsp;that&nbsp;is&lt;br&gt;<br>
+ &nbsp; nontrivial&nbsp;only&nbsp;because&nbsp;one&nbsp;or&nbsp;more&nbsp;nonstatic&nbsp;data&nbsp;member&nbsp;are&nbsp;trivial)&nbsp;or&nbsp;destructor,&nbsp;the&nbsp;caller&nbsp;must&nbsp;allocate&nbsp;space&nbsp;for&nbsp;a&nbsp;temporary&nbsp;copy,&lt;br&gt;<br>
+ &nbsp; and&nbsp;pass&nbsp;the&nbsp;resulting&nbsp;copy&nbsp;by&nbsp;reference&nbsp;(below). &nbsp;Specifically,&nbsp;...&lt;br&gt;<br>
+&lt;br&gt;<br>
+?&lt;br&gt;&lt;/blockquote&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;No&nbsp;strong&nbsp;preference&nbsp;here,&nbsp;but...&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Do&nbsp;you&nbsp;have&nbsp;any&nbsp;feeling&nbsp;about&nbsp;how&nbsp;much&nbsp;code&nbsp;would&nbsp;be&nbsp;broken&nbsp;if&nbsp;we&nbsp;don&#39;t&nbsp;do&nbsp;this?&nbsp;If&nbsp;we&nbsp;were&nbsp;starting&nbsp;from&nbsp;a&nbsp;clean&nbsp;sheet,&nbsp;I&nbsp;think&nbsp;I&#39;d&nbsp;prefer&nbsp;the&nbsp;rule&nbsp;as&nbsp;it&nbsp;is&nbsp;(volatile&nbsp;subobjects&nbsp;prevent&nbsp;a&nbsp;class&nbsp;from&nbsp;being&nbsp;passed&nbsp;in&nbsp;registers),&nbsp;so&nbsp;if&nbsp;this&nbsp;doesn&#39;t&nbsp;actually&nbsp;happen&nbsp;in&nbsp;practice,&nbsp;I&#39;d&nbsp;prefer&nbsp;for&nbsp;us&nbsp;to&nbsp;leave&nbsp;the&nbsp;ABI&nbsp;alone.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;blockquote&nbsp;class=&quot;gmail_quote&quot;&nbsp;style=&quot;margin:0px&nbsp;0px&nbsp;0px&nbsp;0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex&quot;&gt;<br>
+ &nbsp; &nbsp; &nbsp; &nbsp;Daveed&lt;br&gt;<br>
+&lt;br&gt;<br>
+P.S.:&nbsp;I&nbsp;sent&nbsp;this&nbsp;e-mail&nbsp;from&nbsp;a&nbsp;different&nbsp;account&nbsp;a&nbsp;few&nbsp;days&nbsp;ago. &nbsp;Sorry&nbsp;if&nbsp;anyone&nbsp;sees&nbsp;it&nbsp;twice.&lt;br&gt;<br>
+&lt;br&gt;<br>
+_______________________________________________&lt;br&gt;<br>
+cxx-abi-dev&nbsp;mailing&nbsp;list&lt;br&gt;<br>
+&lt;a&nbsp;href=&quot;mailto:cxx-abi-dev@codesourcery.com&quot;&gt;cxx-abi-dev@codesourcery.com&lt;/a&gt;&lt;br&gt;<br>
+&lt;a&nbsp;href=&quot;http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev&quot;&nbsp;target=&quot;_blank&quot;&gt;http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev&lt;/a&gt;&lt;br&gt;<br>
+&lt;/blockquote&gt;&lt;/div&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;<br>
+
+</tt>

@@ -1,0 +1,1627 @@
+From david.majnemer at gmail.com  Mon May  5 03:00:11 2014
+From: david.majnemer at gmail.com (David Majnemer)
+Date: Sun, 4 May 2014 20:00:11 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+Message-ID: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+
+Hi,
+
+The Itanium ABI does not seem to provide a mangling for reference
+temporaries.
+
+Consider the following:
+struct A { const int (&x)[3]; };
+struct B { const A (&x)[2]; };
+template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+B &temp = b<void>;
+
+The temporaries created by instantiating b<void> must be the same in all
+translation units.
+
+To satisfy this requirement, I propose that we mangle the temporaries in
+lexical order using a mangling similar to what GCC 4.9 uses and identical
+to what trunk clang uses.
+
+<special-name> ::= GR <object name> [ <nonnegative number> ]
+
+The first special-name would have no trailing number, the second would have
+'0' and so on allocated in lexical order.
+
+For this example, the following names would be emitted:
+_ZGR1bIvE would be given to the 'B' object that 't' would refer to.
+_ZGR1bIvE0 would be given to the array of 'A' object references
+_ZGR1bIvE1 would be given to the object containing the first array of ints,
+{1, 2, 3}
+_ZGR1bIvE2 would be given to the object containing the second array of
+ints, {4, 5, 6}
+
+-- 
+David Majnemer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140504/b7f9a143/attachment.html>
+
+From rjmccall at apple.com  Mon May  5 16:13:07 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 05 May 2014 09:13:07 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+Message-ID: <30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+
+On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com> wrote:
+> The Itanium ABI does not seem to provide a mangling for reference temporaries.
+> 
+> Consider the following:
+> struct A { const int (&x)[3]; };
+> struct B { const A (&x)[2]; };
+> template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+> B &temp = b<void>;
+> 
+> The temporaries created by instantiating b<void> must be the same in all translation units.
+> 
+> To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+
+What does GCC do?  I would prefer to not introduce another place where the end of the mangling is ambiguous, especially one ending in a number, since that?s a common way to generate ?unique? function names.  (Or at least LLVM does it, and so I have to worry about it personally.)
+
+John.
+
+From richardsmith at google.com  Mon May  5 17:02:53 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 5 May 2014 10:02:53 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+Message-ID: <CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+
+On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+
+> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com>
+> wrote:
+> > The Itanium ABI does not seem to provide a mangling for reference
+> temporaries.
+> >
+> > Consider the following:
+> > struct A { const int (&x)[3]; };
+> > struct B { const A (&x)[2]; };
+> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+> > B &temp = b<void>;
+> >
+> > The temporaries created by instantiating b<void> must be the same in all
+> translation units.
+> >
+> > To satisfy this requirement, I propose that we mangle the temporaries in
+> lexical order using a mangling similar to what GCC 4.9 uses and identical
+> to what trunk clang uses.
+>
+> What does GCC do?
+
+
+GCC trunk seems to use
+
+  <special-name> ::= GR <object name> <nonnegative number>
+
+where the first reference temporary gets number 0, and so on. It appears to
+number them through a post-order tree walk of the expression. Older
+versions of GCC did not add a number, IIRC.
+
+I would prefer to not introduce another place where the end of the mangling
+> is ambiguous, especially one ending in a number, since that?s a common way
+> to generate ?unique? function names.  (Or at least LLVM does it, and so I
+> have to worry about it personally.)
+>
+> John.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/e9797655/attachment.html>
+
+From rjmccall at apple.com  Mon May  5 17:14:47 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 05 May 2014 10:14:47 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+Message-ID: <EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+
+On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com> wrote:
+> > The Itanium ABI does not seem to provide a mangling for reference temporaries.
+> >
+> > Consider the following:
+> > struct A { const int (&x)[3]; };
+> > struct B { const A (&x)[2]; };
+> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+> > B &temp = b<void>;
+> >
+> > The temporaries created by instantiating b<void> must be the same in all translation units.
+> >
+> > To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+> 
+> What does GCC do?
+> 
+> GCC trunk seems to use
+> 
+>   <special-name> ::= GR <object name> <nonnegative number>
+> 
+> where the first reference temporary gets number 0, and so on. It appears to number them through a post-order tree walk of the expression. Older versions of GCC did not add a number, IIRC.
+
+Okay.  So we have two different manglings out there that both look basically the same except for an off-by-one and a major semantic ordering difference.  I think we should either standardize on one or the other or switch to a different prefix entirely.
+
+Has the clang mangling actually been used in a released compiler, or did it just get implemented?
+
+Hmm.  Putting a <number> after a <name> requires demangler lookahead, doesn?t it?
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/5cc1c175/attachment.html>
+
+From richardsmith at google.com  Mon May  5 18:07:52 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 5 May 2014 11:07:52 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+Message-ID: <CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+
+On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+
+> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>
+>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com>
+>> wrote:
+>> > The Itanium ABI does not seem to provide a mangling for reference
+>> temporaries.
+>> >
+>> > Consider the following:
+>> > struct A { const int (&x)[3]; };
+>> > struct B { const A (&x)[2]; };
+>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>> > B &temp = b<void>;
+>> >
+>> > The temporaries created by instantiating b<void> must be the same in
+>> all translation units.
+>> >
+>> > To satisfy this requirement, I propose that we mangle the temporaries
+>> in lexical order using a mangling similar to what GCC 4.9 uses and
+>> identical to what trunk clang uses.
+>>
+>> What does GCC do?
+>
+>
+> GCC trunk seems to use
+>
+>   <special-name> ::= GR <object name> <nonnegative number>
+>
+> where the first reference temporary gets number 0, and so on. It appears
+> to number them through a post-order tree walk of the expression. Older
+> versions of GCC did not add a number, IIRC.
+>
+>
+> Okay.  So we have two different manglings out there that both look
+> basically the same except for an off-by-one and a major semantic ordering
+> difference.  I think we should either standardize on one or the other or
+> switch to a different prefix entirely.
+>
+
+Looking at the GCC output again, I see:
+  * GCC actually does seem to be using lexical order (of the start of the
+expression) after all (at least in the std::initializer_list array
+temporary case).
+  * GCC emits these symbols with internal linkage.
+
+So I don't think there's any compatibility problem with GCC.
+
+Has the clang mangling actually been used in a released compiler, or did it
+> just get implemented?
+>
+
+Sort of? Until very recently, Clang used the same mangling for all the
+temporaries, and added numbers to disambiguate, so we got the current
+proposal by accident (except the numbering starts from 1 instead of from 0)
+-- at least, in some cases: Clang would number the temporaries in a
+different order if they were initialized by constant expressions (because
+it happened to emit them in a different order).
+
+Hmm.  Putting a <number> after a <name> requires demangler lookahead,
+> doesn?t it?
+>
+
+<name> is self-delimiting, so a demangler can walk over it, then read
+digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are
+only nested if they appear within a <local-name>, which has a terminating
+E.) Not sure if that addresses your concern, though.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/fffc8aa6/attachment-0001.html>
+
+From rjmccall at apple.com  Mon May  5 19:10:26 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 05 May 2014 12:10:26 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+Message-ID: <41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+
+On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com> wrote:
+>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com> wrote:
+>> > The Itanium ABI does not seem to provide a mangling for reference temporaries.
+>> >
+>> > Consider the following:
+>> > struct A { const int (&x)[3]; };
+>> > struct B { const A (&x)[2]; };
+>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>> > B &temp = b<void>;
+>> >
+>> > The temporaries created by instantiating b<void> must be the same in all translation units.
+>> >
+>> > To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+>> 
+>> What does GCC do?
+>> 
+>> GCC trunk seems to use
+>> 
+>>   <special-name> ::= GR <object name> <nonnegative number>
+>> 
+>> where the first reference temporary gets number 0, and so on. It appears to number them through a post-order tree walk of the expression. Older versions of GCC did not add a number, IIRC.
+> 
+> Okay.  So we have two different manglings out there that both look basically the same except for an off-by-one and a major semantic ordering difference.  I think we should either standardize on one or the other or switch to a different prefix entirely.
+> 
+> Looking at the GCC output again, I see:
+>   * GCC actually does seem to be using lexical order (of the start of the expression) after all (at least in the std::initializer_list array temporary case).
+>   * GCC emits these symbols with internal linkage.
+> 
+> So I don't think there's any compatibility problem with GCC.
+
+Okay.
+
+> Has the clang mangling actually been used in a released compiler, or did it just get implemented?
+> 
+> Sort of? Until very recently, Clang used the same mangling for all the temporaries, and added numbers to disambiguate, so we got the current proposal by accident (except the numbering starts from 1 instead of from 0) -- at least, in some cases: Clang would number the temporaries in a different order if they were initialized by constant expressions (because it happened to emit them in a different order).
+
+Yeah, we don?t need to work to maintain compatibility with that.
+
+> Hmm.  Putting a <number> after a <name> requires demangler lookahead, doesn?t it?
+> 
+> <name> is self-delimiting, so a demangler can walk over it, then read digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are only nested if they appear within a <local-name>, which has a terminating E.) Not sure if that addresses your concern, though.
+
+Ah, right, I was thinking of <encoding>.
+
+Let?s just follow the example of <susbtitution>, which is basically what you?re proposing except a <seq-id> instead of a <number> and always followed by a _.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/dc8169ec/attachment.html>
+
+From richardsmith at google.com  Mon May  5 20:32:36 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 5 May 2014 13:32:36 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+Message-ID: <CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+
+On 5 May 2014 12:10, John McCall <rjmccall at apple.com> wrote:
+
+> On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+>
+>> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com>
+>>> wrote:
+>>> > The Itanium ABI does not seem to provide a mangling for reference
+>>> temporaries.
+>>> >
+>>> > Consider the following:
+>>> > struct A { const int (&x)[3]; };
+>>> > struct B { const A (&x)[2]; };
+>>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>>> > B &temp = b<void>;
+>>> >
+>>> > The temporaries created by instantiating b<void> must be the same in
+>>> all translation units.
+>>> >
+>>> > To satisfy this requirement, I propose that we mangle the temporaries
+>>> in lexical order using a mangling similar to what GCC 4.9 uses and
+>>> identical to what trunk clang uses.
+>>>
+>>> What does GCC do?
+>>
+>>
+>> GCC trunk seems to use
+>>
+>>   <special-name> ::= GR <object name> <nonnegative number>
+>>
+>> where the first reference temporary gets number 0, and so on. It appears
+>> to number them through a post-order tree walk of the expression. Older
+>> versions of GCC did not add a number, IIRC.
+>>
+>>
+>> Okay.  So we have two different manglings out there that both look
+>> basically the same except for an off-by-one and a major semantic ordering
+>> difference.  I think we should either standardize on one or the other or
+>> switch to a different prefix entirely.
+>>
+>
+> Looking at the GCC output again, I see:
+>   * GCC actually does seem to be using lexical order (of the start of the
+> expression) after all (at least in the std::initializer_list array
+> temporary case).
+>   * GCC emits these symbols with internal linkage.
+>
+> So I don't think there's any compatibility problem with GCC.
+>
+>
+> Okay.
+>
+> Has the clang mangling actually been used in a released compiler, or did
+>> it just get implemented?
+>>
+>
+> Sort of? Until very recently, Clang used the same mangling for all the
+> temporaries, and added numbers to disambiguate, so we got the current
+> proposal by accident (except the numbering starts from 1 instead of from 0)
+> -- at least, in some cases: Clang would number the temporaries in a
+> different order if they were initialized by constant expressions (because
+> it happened to emit them in a different order).
+>
+>
+> Yeah, we don?t need to work to maintain compatibility with that.
+>
+> Hmm.  Putting a <number> after a <name> requires demangler lookahead,
+>> doesn?t it?
+>>
+>
+> <name> is self-delimiting, so a demangler can walk over it, then read
+> digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are
+> only nested if they appear within a <local-name>, which has a terminating
+> E.) Not sure if that addresses your concern, though.
+>
+>
+> Ah, right, I was thinking of <encoding>.
+>
+> Let?s just follow the example of <susbtitution>, which is basically what
+> you?re proposing except a <seq-id> instead of a <number> and always
+> followed by a _.
+>
+
+Compared to the previous proposal (without the _), that's an ABI break for
+Clang in the overwhelmingly common case where a declaration
+lifetime-extends a single temporary, but I can live with it.
+
+Do you want someone to provide wording for the ABI document?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/07541842/attachment.html>
+
+From rjmccall at apple.com  Mon May  5 20:36:14 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 05 May 2014 13:36:14 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+	<CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+Message-ID: <F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+
+On May 5, 2014, at 1:32 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 5 May 2014 12:10, John McCall <rjmccall at apple.com> wrote:
+> On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com> wrote:
+>> On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+>> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com> wrote:
+>>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com> wrote:
+>>> > The Itanium ABI does not seem to provide a mangling for reference temporaries.
+>>> >
+>>> > Consider the following:
+>>> > struct A { const int (&x)[3]; };
+>>> > struct B { const A (&x)[2]; };
+>>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>>> > B &temp = b<void>;
+>>> >
+>>> > The temporaries created by instantiating b<void> must be the same in all translation units.
+>>> >
+>>> > To satisfy this requirement, I propose that we mangle the temporaries in lexical order using a mangling similar to what GCC 4.9 uses and identical to what trunk clang uses.
+>>> 
+>>> What does GCC do?
+>>> 
+>>> GCC trunk seems to use
+>>> 
+>>>   <special-name> ::= GR <object name> <nonnegative number>
+>>> 
+>>> where the first reference temporary gets number 0, and so on. It appears to number them through a post-order tree walk of the expression. Older versions of GCC did not add a number, IIRC.
+>> 
+>> Okay.  So we have two different manglings out there that both look basically the same except for an off-by-one and a major semantic ordering difference.  I think we should either standardize on one or the other or switch to a different prefix entirely.
+>> 
+>> Looking at the GCC output again, I see:
+>>   * GCC actually does seem to be using lexical order (of the start of the expression) after all (at least in the std::initializer_list array temporary case).
+>>   * GCC emits these symbols with internal linkage.
+>> 
+>> So I don't think there's any compatibility problem with GCC.
+> 
+> Okay.
+> 
+>> Has the clang mangling actually been used in a released compiler, or did it just get implemented?
+>> 
+>> Sort of? Until very recently, Clang used the same mangling for all the temporaries, and added numbers to disambiguate, so we got the current proposal by accident (except the numbering starts from 1 instead of from 0) -- at least, in some cases: Clang would number the temporaries in a different order if they were initialized by constant expressions (because it happened to emit them in a different order).
+> 
+> Yeah, we don?t need to work to maintain compatibility with that.
+> 
+>> Hmm.  Putting a <number> after a <name> requires demangler lookahead, doesn?t it?
+>> 
+>> <name> is self-delimiting, so a demangler can walk over it, then read digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are only nested if they appear within a <local-name>, which has a terminating E.) Not sure if that addresses your concern, though.
+> 
+> Ah, right, I was thinking of <encoding>.
+> 
+> Let?s just follow the example of <susbtitution>, which is basically what you?re proposing except a <seq-id> instead of a <number> and always followed by a _.
+> 
+> Compared to the previous proposal (without the _), that's an ABI break for Clang in the overwhelmingly common case where a declaration lifetime-extends a single temporary, but I can live with it.
+
+Yeah, I?m comfortable with this.
+
+> Do you want someone to provide wording for the ABI document?
+
+Sure, might as well re-submit the proposal.  It would be nice to get some feedback from someone not working on Clang, however.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/93875313/attachment-0001.html>
+
+From jason at redhat.com  Mon May  5 20:45:08 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 05 May 2014 16:45:08 -0400
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+Message-ID: <5367F854.60309@redhat.com>
+
+On 05/04/2014 11:00 PM, David Majnemer wrote:
+> Consider the following:
+> struct A { const int (&x)[3]; };
+> struct B { const A (&x)[2]; };
+> template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+> B &temp = b<void>;
+>
+> The temporaries created by instantiating b<void> must be the same in all
+> translation units.
+
+Why?  As long as b<void> is itself unique, why does it matter what the 
+name of the temporary it points to is?  All access to the temporary 
+should go through the named variable.
+
+Jason
+
+
+From richardsmith at google.com  Mon May  5 20:59:22 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 5 May 2014 13:59:22 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <5367F854.60309@redhat.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<5367F854.60309@redhat.com>
+Message-ID: <CAGL0aWftjSR3rng0mp0Fex3UY-w8PCedNbSDA2Ky+0gMsa9Nxg@mail.gmail.com>
+
+On 5 May 2014 13:45, Jason Merrill <jason at redhat.com> wrote:
+
+> On 05/04/2014 11:00 PM, David Majnemer wrote:
+>
+>> Consider the following:
+>> struct A { const int (&x)[3]; };
+>> struct B { const A (&x)[2]; };
+>> template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+>> B &temp = b<void>;
+>>
+>> The temporaries created by instantiating b<void> must be the same in all
+>> translation units.
+>>
+>
+> Why?  As long as b<void> is itself unique, why does it matter what the
+> name of the temporary it points to is?  All access to the temporary should
+> go through the named variable.
+
+
+Why should the optimizer not be able to look through the initializer? If I
+have:
+
+  extern const int &r = temp.x[1].x[2];
+
+... then with -O, clang will statically initialize this to a subobject of
+_ZGR1bIvE1, as the standard allows. And with:
+
+  template<typename> struct S { static const int &r; };
+  template<typename T> const int &S<T>::r = 1;
+  extern constexpr const int &k = S<int>::r;
+
+we are *required* to statically initialize 'k' to refer to the
+lifetime-extended temporary. And it must be the same temporary in every TU.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/d6379860/attachment.html>
+
+From hstong at ca.ibm.com  Mon May  5 20:59:59 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Mon, 5 May 2014 16:59:59 -0400
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <5367F854.60309@redhat.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<5367F854.60309@redhat.com>
+Message-ID: <OF9B8296E4.FC289802-ON85257CCF.0073381D-85257CCF.00735BFC@ca.ibm.com>
+
+
+The temporary can be used in constant expressions I think.
+
+> cat q.cc
+struct A { int pad; const int (&x)[1]; };
+
+template <typename T>
+struct B {
+   static constexpr A a = { 0, { 0 } };
+   static constexpr const int *x = a.x;
+};
+
+template <typename T> constexpr A B<T>::a;
+
+const void *foo();
+
+extern "C" int printf(const char *, ...);
+int main() {
+   printf("%p\n", static_cast<const void *>(B<short>::x));
+   printf("%p\n", foo());
+}
+Return:  0x00:0
+
+> cat q2.cc
+struct A { int pad; const int (&x)[1]; };
+
+template <typename T>
+struct B {
+   static constexpr A a = { 0, { 0 } };
+   static constexpr const int *x = a.x;
+};
+
+template <typename T> constexpr A B<T>::a;
+
+const void *foo() {
+   return B<short>::x;
+}
+Return:  0x00:0
+
+Hubert S K Tong
+C++ Front-End and Runtime Development for XL C/C++
+IBM Canada Ltd, C2/YGH/8200/MKM
+8200 Warden Ave, Markham ON  L6G 1C7
+Canada
+Phone:  +1 (905) 413-4207; ITN:  23134207
+E-mail:  hstong at ca.ibm.com
+
+~ My heart is human ~ My blood is boiling ~ My brain, IBM ~
+
+
+
+From:	Jason Merrill <jason at redhat.com>
+To:	David Majnemer <david.majnemer at gmail.com>,
+            cxx-abi-dev at codesourcery.com,
+Date:	05-05-2014 04:45 PM
+Subject:	Re: [cxx-abi-dev] Mangling of reference temporaries
+Sent by:	cxx-abi-dev-bounces at codesourcery.com
+
+
+
+On 05/04/2014 11:00 PM, David Majnemer wrote:
+> Consider the following:
+> struct A { const int (&x)[3]; };
+> struct B { const A (&x)[2]; };
+> template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } } };
+> B &temp = b<void>;
+>
+> The temporaries created by instantiating b<void> must be the same in all
+> translation units.
+
+Why?  As long as b<void> is itself unique, why does it matter what the
+name of the temporary it points to is?  All access to the temporary
+should go through the named variable.
+
+Jason
+
+_______________________________________________
+cxx-abi-dev mailing list
+cxx-abi-dev at codesourcery.com
+http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/b6165c7d/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140505/b6165c7d/attachment.gif>
+
+From david.majnemer at gmail.com  Tue May  6 23:46:34 2014
+From: david.majnemer at gmail.com (David Majnemer)
+Date: Tue, 6 May 2014 16:46:34 -0700
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+	<CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+	<F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+Message-ID: <CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+
+On Mon, May 5, 2014 at 1:36 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On May 5, 2014, at 1:32 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On 5 May 2014 12:10, John McCall <rjmccall at apple.com> wrote:
+>
+>> On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>>
+>>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com>
+>>>> wrote:
+>>>> > The Itanium ABI does not seem to provide a mangling for reference
+>>>> temporaries.
+>>>> >
+>>>> > Consider the following:
+>>>> > struct A { const int (&x)[3]; };
+>>>> > struct B { const A (&x)[2]; };
+>>>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } }
+>>>> };
+>>>> > B &temp = b<void>;
+>>>> >
+>>>> > The temporaries created by instantiating b<void> must be the same in
+>>>> all translation units.
+>>>> >
+>>>> > To satisfy this requirement, I propose that we mangle the temporaries
+>>>> in lexical order using a mangling similar to what GCC 4.9 uses and
+>>>> identical to what trunk clang uses.
+>>>>
+>>>> What does GCC do?
+>>>
+>>>
+>>> GCC trunk seems to use
+>>>
+>>>   <special-name> ::= GR <object name> <nonnegative number>
+>>>
+>>> where the first reference temporary gets number 0, and so on. It appears
+>>> to number them through a post-order tree walk of the expression. Older
+>>> versions of GCC did not add a number, IIRC.
+>>>
+>>>
+>>> Okay.  So we have two different manglings out there that both look
+>>> basically the same except for an off-by-one and a major semantic ordering
+>>> difference.  I think we should either standardize on one or the other or
+>>> switch to a different prefix entirely.
+>>>
+>>
+>> Looking at the GCC output again, I see:
+>>   * GCC actually does seem to be using lexical order (of the start of the
+>> expression) after all (at least in the std::initializer_list array
+>> temporary case).
+>>   * GCC emits these symbols with internal linkage.
+>>
+>> So I don't think there's any compatibility problem with GCC.
+>>
+>>
+>> Okay.
+>>
+>> Has the clang mangling actually been used in a released compiler, or did
+>>> it just get implemented?
+>>>
+>>
+>> Sort of? Until very recently, Clang used the same mangling for all the
+>> temporaries, and added numbers to disambiguate, so we got the current
+>> proposal by accident (except the numbering starts from 1 instead of from 0)
+>> -- at least, in some cases: Clang would number the temporaries in a
+>> different order if they were initialized by constant expressions (because
+>> it happened to emit them in a different order).
+>>
+>>
+>> Yeah, we don?t need to work to maintain compatibility with that.
+>>
+>> Hmm.  Putting a <number> after a <name> requires demangler lookahead,
+>>> doesn?t it?
+>>>
+>>
+>> <name> is self-delimiting, so a demangler can walk over it, then read
+>> digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are
+>> only nested if they appear within a <local-name>, which has a terminating
+>> E.) Not sure if that addresses your concern, though.
+>>
+>>
+>> Ah, right, I was thinking of <encoding>.
+>>
+>> Let?s just follow the example of <susbtitution>, which is basically what
+>> you?re proposing except a <seq-id> instead of a <number> and always
+>> followed by a _.
+>>
+>
+> Compared to the previous proposal (without the _), that's an ABI break for
+> Clang in the overwhelmingly common case where a declaration
+> lifetime-extends a single temporary, but I can live with it.
+>
+>
+> Yeah, I?m comfortable with this.
+>
+> Do you want someone to provide wording for the ABI document?
+>
+>
+> Sure, might as well re-submit the proposal.  It would be nice to get some
+> feedback from someone not working on Clang, however.
+>
+
+To implement support for mangling reference temporaries:
+
+1. An additional <special-name> non-terminal production should be added:
+
+<special-name> ::= GR <object name> [ <seq-id> ] _   # Reference temporaries
+
+The <seq-id> is strictly the lexical order in which the reference temporary
+was written in the source.
+
+The following exists as a practical example:
+
+_ZGR1bIvE_ would be given to the 'B' object that 't' would refer to.
+_ZGR1bIvE0_ would be given to the array of 'A' object references
+_ZGR1bIvE1_ would be given to the object containing the first array of
+ints, {1, 2, 3}
+_ZGR1bIvE2_ would be given to the object containing the second array of
+ints, {4, 5, 6}
+
+2. The text describing <seq-id> should probably refrain from
+mentioning substitutable entities.
+
+-- 
+David Majnemer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140506/341074fc/attachment.html>
+
+From hstong at ca.ibm.com  Wed May  7 00:02:23 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Tue, 6 May 2014 20:02:23 -0400
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+	<CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>	<F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+	<CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+Message-ID: <OF9DE88536.A9585252-ON85257CD0.0083B5E0-85257CD1.00003910@ca.ibm.com>
+
+
+By reference temporaries, I think we want to say temporaries bound to
+references with vague linkage?
+
+-- HT
+
+=====
+Hubert S. K. Tong
+C++ Front-End and Runtime Development for XL C/C++
+IBM Canada Ltd., C2/YGH/8200/MKM, 8200 Warden Avenue, Markham, Ontario  L6G
+1C7, Canada
+--
+Phone:  +1 (905) 413-4207
+E-mail:  hstong at ca.ibm.com
+===
+
+
+cxx-abi-dev-bounces at codesourcery.com wrote on 06-05-2014 07:46:34 PM:
+
+> From: David Majnemer <david.majnemer at gmail.com>
+> To: John McCall <rjmccall at apple.com>,
+> Cc: Richard Smith <richardsmith at google.com>, "cxx-abi-
+> dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> Date: 06-05-2014 07:46 PM
+> Subject: Re: [cxx-abi-dev] Mangling of reference temporaries
+> Sent by: cxx-abi-dev-bounces at codesourcery.com
+>
+> To implement support for mangling reference temporaries:
+>
+> 1. An additional <special-name> non-terminal production should be added:
+>
+> <special-name> ::= GR <object name> [ <seq-id> ] _ ? # Reference
+temporaries
+>
+> The <seq-id> is strictly the lexical order in which the reference
+> temporary was written in the source.
+>
+> The following exists as a practical example:
+>
+> _ZGR1bIvE_ would be given to the 'B' object that 't' would refer to.
+> _ZGR1bIvE0_ would be given to the array of 'A' object references
+> _ZGR1bIvE1_ would be given to the object containing the first array
+> of ints, {1, 2, 3}
+> _ZGR1bIvE2_ would be given to the object containing the second array
+> of ints, {4, 5, 6}
+>
+> 2. The text describing <seq-id> should probably refrain from
+> mentioning?substitutable entities.
+>
+> --
+> David Majnemer_______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140506/374843fd/attachment.html>
+
+From richardsmith at google.com  Wed May  7 01:31:38 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 6 May 2014 18:31:38 -0700
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <98474B05-838F-45A0-959A-38409296539D@apple.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+Message-ID: <CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+
+On 26 November 2012 14:54, John McCall <rjmccall at apple.com> wrote:
+
+> On Nov 26, 2012, at 2:04 PM, David Vandevoorde <daveed at edg.com> wrote:
+> > That works for me.
+>
+> I agree, this sounds great.  Thanks, Richard!  Let me know how this
+> proposal goes with the committee;  if it gets adopted, I'll change the ABI
+> document.
+
+
+The core language part of this (core issue 1590) is now in 'ready' status.
+Time to go ahead with the corresponding ABI change?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140506/0f4b83cf/attachment-0001.html>
+
+From jason at redhat.com  Wed May  7 02:57:08 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 06 May 2014 22:57:08 -0400
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>	<50AFDEA2.9040209@redhat.com>	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+Message-ID: <5369A104.4020009@redhat.com>
+
+On 05/06/2014 09:31 PM, Richard Smith wrote:
+> The core language part of this (core issue 1590) is now in 'ready'
+> status. Time to go ahead with the corresponding ABI change?
+
+On 11/26/2012 04:09 PM, Richard Smith wrote:> Suggestion for Itanium > 
+Suggestion for Itanium ABI:
+>
+> [parameters and return values are passed by address if] the type has a non-trivial copy constructor, move constructor or destructor, or if neither the copy constructor nor the move constructor is public and non-deleted.
+
+I disagree with the latter part of this; passing by invisible reference 
+should based on triviality, not on callability.
+
+Jason
+
+
+From richardsmith at google.com  Wed May  7 07:11:19 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 7 May 2014 00:11:19 -0700
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <5369A104.4020009@redhat.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+	<5369A104.4020009@redhat.com>
+Message-ID: <CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+
+On 6 May 2014 19:57, Jason Merrill <jason at redhat.com> wrote:
+
+> On 05/06/2014 09:31 PM, Richard Smith wrote:
+>
+>> The core language part of this (core issue 1590) is now in 'ready'
+>> status. Time to go ahead with the corresponding ABI change?
+>>
+>
+> On 11/26/2012 04:09 PM, Richard Smith wrote:> Suggestion for Itanium >
+> Suggestion for Itanium ABI:
+>
+>
+>> [parameters and return values are passed by address if] the type has a
+>> non-trivial copy constructor, move constructor or destructor, or if neither
+>> the copy constructor nor the move constructor is public and non-deleted.
+>>
+>
+> I disagree with the latter part of this; passing by invisible reference
+> should based on triviality, not on callability.
+
+
+I think it would be *extremely* surprising if we implicitly added a call to
+a function that is deleted or inaccessible, that the original code didn't
+call. What alternative do you suggest?
+
+Backstory:
+
+struct A {
+  A(void*);
+  A(const A&) = delete;
+  A(A&&) = default;
+  void *p;
+};
+
+Here, A should "obviously" be passed by value, not by pointer (you don't
+want to pass unique_ptr indirectly). And here we have a trivial copy ctor,
+a trivial deleted move ctor, and a trivial dtor. But if the copy ctor is
+*also* deleted:
+
+struct B {
+  B(void*);
+  B(const B&) = delete;
+  B(B&&) = delete;
+  void *p;
+};
+
+... then I think it's equally obvious that this should *not* be passed by
+value, and must be passed by "invisible reference". Eg:
+
+  B::B(void*) : p(this) {}
+  void f(B b) { assert(b.p == &b); } // this assert should hold!
+  int main() { f({0}); }
+
+The only difference between these two is whether the copy ctor is deleted
+(it's trivial either way). So it seems to me that we /must/ consider that.
+
+Access checking probably doesn't have as compelling a story, but as with
+deletedness checking, the fundamental point seems to be that we should not
+implicitly *add* a call to a function that the code in question couldn't
+originally call.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140507/cf435b15/attachment.html>
+
+From jason at redhat.com  Wed May  7 14:28:59 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 07 May 2014 10:28:59 -0400
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>	<50AFDEA2.9040209@redhat.com>	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>	<98474B05-838F-45A0-959A-38409296539D@apple.com>	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>	<5369A104.4020009@redhat.com>
+	<CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+Message-ID: <536A432B.3060107@redhat.com>
+
+On 05/07/2014 03:11 AM, Richard Smith wrote:
+> I think it would be *extremely* surprising if we implicitly added a call
+> to a function that is deleted or inaccessible, that the original code
+> didn't call.   What alternative do you suggest?
+
+It seems to me that for a trivially copyable class, copying doesn't need 
+to be modeled as a call at all.
+
+Jason
+
+
+From matthew at dempsky.org  Wed May  7 17:15:33 2014
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Wed, 7 May 2014 10:15:33 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+Message-ID: <CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+
+On Sun, Apr 27, 2014 at 11:14 PM, John McCall <rjmccall at apple.com> wrote:
+> Yes, preparing a proposal would be great.  Please send it here,
+> though, not as a push request to github.
+
+Okay, here's my first stab at this.  Feedback welcome.
+
+
+diff --git a/abi.html b/abi.html
+index bdd8476..b46c398 100644
+--- a/abi.html
++++ b/abi.html
+@@ -3786,8 +3786,8 @@ All references are via the API described below.
+ <p>
+ <li> Object construction:
+ <p>
+-After constructing a global (or local static) object,
+-that will require destruction on exit,
++After constructing an object with static storage duration,
++that will require destruction on process exit,
+ a termination function is <i>registered</i> as follows:
+ <center><code>
+ extern "C" int __cxa_atexit ( void (*f)(void *), void *p, void *d );
+@@ -3801,6 +3801,29 @@ It returns zero if registration is successful,
+nonzero on failure.
+ The registration function is not called from within the constructor.
+
+ <p>
++<li> Thread-local object construction:
++<p>
++After constructing an object with thread storage duration,
++that will require destruction on process or thread exit,
++a thread-local termination function is <i>registered</i> as follows:
++<center><code>
++extern "C" int __cxa_thread_atexit ( void (*f)(void *), void *p, void *d );
++</code></center>
++This registration, e.g. <code>__cxa_thread_atexit(f,p,d)</code>,
++is intended to cause the call <code>f(p)</code> when the calling
+thread terminates
++(e.g. by returning from its initial function or calling
+<code>std::exit</code>),
++before all such thread-local termination calls registered before this one.
++It returns zero if registration is successful, nonzero on failure.
++
++<p>
++The registration function is not called from within the constructor.
++Additionally, the registration increments the reference count for DSO
+<code>d</code>.
++
++<p>
++The thread-local termination function is called from the same thread
+that registered it.
++After <code>f(p)</code> returns, the reference count for DSO
+<code>d</code> is decremented.
++
++<p>
+ <li> User <code>atexit</code> calls:
+ <p>
+ When the user registers exit functions with <code>atexit</code>,
+@@ -3819,12 +3842,13 @@ with a parameter or a home DSO.
+ <p>
+ <li> Termination:
+ <p>
+-When linking any DSO containing a call to <code>__cxa_atexit</code>,
++When linking any DSO containing a call to <code>__cxa_atexit</code>
+or <code>__cxa_thread_atexit</code>,
+ the linker should define a hidden symbol <code>__dso_handle</code>,
+ with a value which is an address in one of the object's segments.
+ (It does not matter what address,
+ as long as they are different in different DSOs.)
+-It should also include a call to the following function in the FINI
++Additionally, DSOs that contain a call to <code>__cxa_atexit</code>
++should also include a call to the following function in the FINI
+ list (to be executed first):
+ <center><code>
+ extern "C" void __cxa_finalize ( void *d );
+@@ -3851,7 +3875,9 @@ the implementation may either remove entries or
+mark them finished.
+
+ <p>
+ When the main program calls <code>exit</code>,
+-it must call any remaining <code>__cxa_atexit</code>-registered functions,
++it must first call any <code>__cxa_thread_atexit</code>-registered functions
++for the exiting thread.
++Next, it must call any remaining <code>__cxa_atexit</code>-registered
+functions,
+ either by calling <code>__cxa_finalize(NULL)</code>,
+ or by walking the registration list itself.
+
+@@ -3863,8 +3889,8 @@ in the opposite of the order in which they were
+enqueued by
+ </ol>
+
+ <p>
+-Since <code>__cxa_atexit</code> and <code>__cxa_finalize</code>
+-must both manipulate the same termination function list,
++Since calls to <code>__cxa_atexit</code>,
+<code>__cxa_thread_atexit</code>, and <code>__cxa_finalize</code>
++must manipulate the same termination function lists,
+ they must be defined in the implementation's runtime library,
+ rather than in the individual linked objects.
+
+From rjmccall at apple.com  Wed May  7 18:23:29 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 07 May 2014 11:23:29 -0700
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+	<5369A104.4020009@redhat.com>
+	<CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+Message-ID: <58CA80E3-06A2-4383-B112-60067566F87E@apple.com>
+
+On May 7, 2014, at 12:11 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 6 May 2014 19:57, Jason Merrill <jason at redhat.com> wrote:
+> On 05/06/2014 09:31 PM, Richard Smith wrote:
+> The core language part of this (core issue 1590) is now in 'ready'
+> status. Time to go ahead with the corresponding ABI change?
+> 
+> On 11/26/2012 04:09 PM, Richard Smith wrote:> Suggestion for Itanium > Suggestion for Itanium ABI:
+> 
+> 
+> [parameters and return values are passed by address if] the type has a non-trivial copy constructor, move constructor or destructor, or if neither the copy constructor nor the move constructor is public and non-deleted.
+> 
+> I disagree with the latter part of this; passing by invisible reference should based on triviality, not on callability.
+> 
+> I think it would be *extremely* surprising if we implicitly added a call to a function that is deleted or inaccessible, that the original code didn't call. What alternative do you suggest?
+> 
+> Backstory:
+> 
+> struct A {
+>   A(void*);
+>   A(const A&) = delete;
+>   A(A&&) = default;
+>   void *p;
+> };
+> 
+> Here, A should "obviously" be passed by value, not by pointer (you don't want to pass unique_ptr indirectly). And here we have a trivial copy ctor, a trivial deleted move ctor, and a trivial dtor. But if the copy ctor is *also* deleted:
+> 
+> struct B {
+>   B(void*);
+>   B(const B&) = delete;
+>   B(B&&) = delete;
+>   void *p;
+> };
+> 
+> ... then I think it's equally obvious that this should *not* be passed by value, and must be passed by "invisible reference". Eg:
+> 
+>   B::B(void*) : p(this) {}
+>   void f(B b) { assert(b.p == &b); } // this assert should hold!
+>   int main() { f({0}); }
+> 
+> The only difference between these two is whether the copy ctor is deleted (it's trivial either way). So it seems to me that we /must/ consider that.
+> 
+> Access checking probably doesn't have as compelling a story, but as with deletedness checking, the fundamental point seems to be that we should not implicitly *add* a call to a function that the code in question couldn't originally call.
+
+I continue to think that making the ABI dependent on access control is not a good idea.  I agree that it?s problematic that this means we might use a private copy constructor, but frankly, I?m a lot less worried about violating the standard in this corner case than I am about making the ABI dependent on access control.
+
+I?d be okay with the rule ?if the type has a non-trivial copy constructor, move constructor, or destructor, or if all its copy and move constructors are declared as deleted?.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140507/fbcf8319/attachment.html>
+
+From richardsmith at google.com  Wed May  7 18:35:05 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 7 May 2014 11:35:05 -0700
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <58CA80E3-06A2-4383-B112-60067566F87E@apple.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+	<5369A104.4020009@redhat.com>
+	<CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+	<58CA80E3-06A2-4383-B112-60067566F87E@apple.com>
+Message-ID: <CAGL0aWfTJkSybFBigW+W2=ekENzvTcBBsGmzPJP6+XZ8p3ffeQ@mail.gmail.com>
+
+On 7 May 2014 11:23, "John McCall" <rjmccall at apple.com> wrote:
+>
+> On May 7, 2014, at 12:11 AM, Richard Smith <richardsmith at google.com>
+wrote:
+>>
+>> On 6 May 2014 19:57, Jason Merrill <jason at redhat.com> wrote:
+>>>
+>>> On 05/06/2014 09:31 PM, Richard Smith wrote:
+>>>>
+>>>> The core language part of this (core issue 1590) is now in 'ready'
+>>>> status. Time to go ahead with the corresponding ABI change?
+>>>
+>>>
+>>> On 11/26/2012 04:09 PM, Richard Smith wrote:> Suggestion for Itanium >
+Suggestion for Itanium ABI:
+>>>
+>>>>
+>>>> [parameters and return values are passed by address if] the type has a
+non-trivial copy constructor, move constructor or destructor, or if neither
+the copy constructor nor the move constructor is public and non-deleted.
+>>>
+>>>
+>>> I disagree with the latter part of this; passing by invisible reference
+should based on triviality, not on callability.
+>>
+>>
+>> I think it would be *extremely* surprising if we implicitly added a call
+to a function that is deleted or inaccessible, that the original code
+didn't call. What alternative do you suggest?
+>>
+>> Backstory:
+>>
+>> struct A {
+>>   A(void*);
+>>   A(const A&) = delete;
+>>   A(A&&) = default;
+>>   void *p;
+>> };
+>>
+>> Here, A should "obviously" be passed by value, not by pointer (you don't
+want to pass unique_ptr indirectly). And here we have a trivial copy ctor,
+a trivial deleted move ctor, and a trivial dtor. But if the copy ctor is
+*also* deleted:
+>>
+>> struct B {
+>>   B(void*);
+>>   B(const B&) = delete;
+>>   B(B&&) = delete;
+>>   void *p;
+>> };
+>>
+>> ... then I think it's equally obvious that this should *not* be passed
+by value, and must be passed by "invisible reference". Eg:
+>>
+>>   B::B(void*) : p(this) {}
+>>   void f(B b) { assert(b.p == &b); } // this assert should hold!
+>>   int main() { f({0}); }
+>>
+>> The only difference between these two is whether the copy ctor is
+deleted (it's trivial either way). So it seems to me that we /must/
+consider that.
+>>
+>> Access checking probably doesn't have as compelling a story, but as with
+deletedness checking, the fundamental point seems to be that we should not
+implicitly *add* a call to a function that the code in question couldn't
+originally call.
+>
+>
+> I continue to think that making the ABI dependent on access control is
+not a good idea.  I agree that it?s problematic that this means we might
+use a private copy constructor, but frankly, I?m a lot less worried about
+violating the standard in this corner case than I am about making the ABI
+dependent on access control.
+>
+> I?d be okay with the rule ?if the type has a non-trivial copy
+constructor, move constructor, or destructor, or if all its copy and move
+constructors are declared as deleted?.
+
+I could live with that (but the currently-proposed language change doesn't
+allow it; we'd need to remove the accessibility check there). Drop the
+"declared as", though - I don't think it should matter how the functions
+came to be deleted.
+
+I think I'd also prefer to phrase this in a way that's not dependent on
+whether a deleted function is trivial.
+
+"[Pass an object of class type by value if] every copy constructor and move
+constructor is deleted or trivial and at least one of them is not deleted,
+and the destructor is trivial."
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140507/253381e0/attachment-0001.html>
+
+From jason at redhat.com  Wed May  7 18:41:05 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 07 May 2014 14:41:05 -0400
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+Message-ID: <536A7E41.5080706@redhat.com>
+
+On 05/07/2014 01:15 PM, Matthew Dempsky wrote:
+> +Additionally, the registration increments the reference count for DSO
+> <code>d</code>.
+
+> +After <code>f(p)</code> returns, the reference count for DSO
+> <code>d</code> is decremented.
+
+This seems overly specific to the glibc implementation; I would say 
+something more generic, perhaps just that the effect of dlclose with 
+pending cleanups is undefined.
+
+Jason
+
+
+From jason at redhat.com  Wed May  7 18:44:06 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 07 May 2014 14:44:06 -0400
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWfTJkSybFBigW+W2=ekENzvTcBBsGmzPJP6+XZ8p3ffeQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>	<50AFDEA2.9040209@redhat.com>	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>	<98474B05-838F-45A0-959A-38409296539D@apple.com>	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>	<5369A104.4020009@redhat.com>	<CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>	<58CA80E3-06A2-4383-B112-60067566F87E@apple.com>
+	<CAGL0aWfTJkSybFBigW+W2=ekENzvTcBBsGmzPJP6+XZ8p3ffeQ@mail.gmail.com>
+Message-ID: <536A7EF6.70405@redhat.com>
+
+On 05/07/2014 02:35 PM, Richard Smith wrote:
+> I could live with that (but the currently-proposed language change
+> doesn't allow it; we'd need to remove the accessibility check there).
+> Drop the "declared as", though - I don't think it should matter how the
+> functions came to be deleted.
+>
+> I think I'd also prefer to phrase this in a way that's not dependent on
+> whether a deleted function is trivial.
+>
+> "[Pass an object of class type by value if] every copy constructor and
+> move constructor is deleted or trivial and at least one of them is not
+> deleted, and the destructor is trivial."
+
+I'm OK with that.
+
+Jason
+
+
+From rjmccall at apple.com  Wed May  7 18:49:10 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 07 May 2014 11:49:10 -0700
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWfTJkSybFBigW+W2=ekENzvTcBBsGmzPJP6+XZ8p3ffeQ@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<A0560282-BDF0-48B2-8255-1F9B664A77BC@edg.com>
+	<98474B05-838F-45A0-959A-38409296539D@apple.com>
+	<CAGL0aWes5X1Q367ZpkVA0kz0dKThv6mMG+Q+jqHkjaQbHsOZvg@mail.gmail.com>
+	<5369A104.4020009@redhat.com>
+	<CAGL0aWe=8fneB0Tcrk+=_BizBujjByY6T3d_KG32sEMqUOtmDQ@mail.gmail.com>
+	<58CA80E3-06A2-4383-B112-60067566F87E@apple.com>
+	<CAGL0aWfTJkSybFBigW+W2=ekENzvTcBBsGmzPJP6+XZ8p3ffeQ@mail.gmail.com>
+Message-ID: <EAA2EEF7-5D48-4026-99CD-9F62BB2B44F2@apple.com>
+
+On May 7, 2014, at 11:35 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 7 May 2014 11:23, "John McCall" <rjmccall at apple.com> wrote:
+> > I?d be okay with the rule ?if the type has a non-trivial copy constructor, move constructor, or destructor, or if all its copy and move constructors are declared as deleted?.
+> 
+> I could live with that (but the currently-proposed language change doesn't allow it; we'd need to remove the accessibility check there). Drop the "declared as", though - I don't think it should matter how the functions came to be deleted.
+
+I keep forgetting that it?s illegal to retroactively delete a function.  Yes, I agree that it shouldn?t matter how the function came to be deleted.
+
+> I think I'd also prefer to phrase this in a way that's not dependent on whether a deleted function is trivial.
+> 
+> "[Pass an object of class type by value if] every copy constructor and move constructor is deleted or trivial and at least one of them is not deleted, and the destructor is trivial.?
+
+That works.
+
+John.
+
+From matthew at dempsky.org  Thu May  8 19:41:53 2014
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Thu, 8 May 2014 12:41:53 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <536A7E41.5080706@redhat.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+	<536A7E41.5080706@redhat.com>
+Message-ID: <CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>
+
+On Wed, May 7, 2014 at 11:41 AM, Jason Merrill <jason at redhat.com> wrote:
+> On 05/07/2014 01:15 PM, Matthew Dempsky wrote:
+>>
+>> +Additionally, the registration increments the reference count for DSO
+>> <code>d</code>.
+>
+>
+>> +After <code>f(p)</code> returns, the reference count for DSO
+>> <code>d</code> is decremented.
+>
+>
+> This seems overly specific to the glibc implementation; I would say
+> something more generic, perhaps just that the effect of dlclose with pending
+> cleanups is undefined.
+
+Any suggestions on appropriate relaxed wording?  Should I just remove
+this wording altogether?
+
+Is it worth instead including some informative text reminding that
+C++11 requires destruction of objects with thread storage duration to
+be sequenced before destruction of objects with static storage
+duration, so implementations should make sure they DSO isn't unloaded
+(and its static objects destroyed) until all outstanding thread-local
+registrations have run (e.g., by holding a DSO reference count in the
+registration)?
+
+From jason at redhat.com  Mon May 12 18:26:03 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 12 May 2014 14:26:03 -0400
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>	<536A7E41.5080706@redhat.com>
+	<CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>
+Message-ID: <5371123B.3090501@redhat.com>
+
+On 05/08/2014 03:41 PM, Matthew Dempsky wrote:
+> On Wed, May 7, 2014 at 11:41 AM, Jason Merrill <jason at redhat.com> wrote:
+>> On 05/07/2014 01:15 PM, Matthew Dempsky wrote:
+>>>
+>>> +Additionally, the registration increments the reference count for DSO
+>>> <code>d</code>.
+>>
+>>> +After <code>f(p)</code> returns, the reference count for DSO
+>>> <code>d</code> is decremented.
+>>
+>> This seems overly specific to the glibc implementation; I would say
+>> something more generic, perhaps just that the effect of dlclose with pending
+>> cleanups is undefined.
+>
+> Any suggestions on appropriate relaxed wording?  Should I just remove
+> this wording altogether?
+
+"The effect of dlclosing a DSO with registered thread cleanups is 
+undefined."
+
+> Is it worth instead including some informative text reminding that
+> C++11 requires destruction of objects with thread storage duration to
+> be sequenced before destruction of objects with static storage
+> duration, so implementations should make sure they DSO isn't unloaded
+> (and its static objects destroyed) until all outstanding thread-local
+> registrations have run (e.g., by holding a DSO reference count in the
+> registration)?
+
+That seems reasonable, I was just trying to allow for implementations 
+that don't have any way to implement that, because they can't change the 
+dynamic loader.
+
+Jason
+
+
+From matthew at dempsky.org  Tue May 13 18:52:08 2014
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Tue, 13 May 2014 11:52:08 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <5371123B.3090501@redhat.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+	<536A7E41.5080706@redhat.com>
+	<CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>
+	<5371123B.3090501@redhat.com>
+Message-ID: <CANKkrzEg2VGfG30BNkNX8SELWO4aWuCdKXpusLCTiwgk4nic_g@mail.gmail.com>
+
+On Mon, May 12, 2014 at 11:26 AM, Jason Merrill <jason at redhat.com> wrote:
+> "The effect of dlclosing a DSO with registered thread cleanups is
+> undefined."
+
+Do you mean "undefined" as in the C++ standard nasal demons sense, or
+just unspecified/implementation-defined?
+
+> That seems reasonable, I was just trying to allow for implementations that
+> don't have any way to implement that, because they can't change the dynamic
+> loader.
+
+That's fair, though I'd argue that's the burden of the implementation
+to push for appropriate mechanisms in their dependencies to implement
+the needed functionality.  Are there platforms + toolchain
+combinations where this is unreasonable?  E.g., a couple
+implementation possibilities I see (assuming appropriate
+platform-specific extensions are available):
+
+ 1. Implement __cxa_thread_atexit directly in the dynamic linker
+(e.g., basically what glibc does with __cxa_thread_atexit_impl).
+
+ 2. Use dladdr() to find dli_fname for dso_handle, and then use
+dlopen() on that filename and take advantage of the implicit refcount
+from using dlopen(); when the thread destructor runs, use dlclose() to
+release the refcount.
+
+ 3. Mark any DSOs that use __cxa_thread_atexit() as DF_1_NODELETE in
+DT_FLAGS_1, to ensure they won't be deleted and the thread-local
+registration will remain valid.  (Obvious consequence is this prevents
+the DSO's resources from being freed prior to process termination.)
+
+From jason at redhat.com  Wed May 14 03:18:46 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 13 May 2014 23:18:46 -0400
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <CANKkrzEg2VGfG30BNkNX8SELWO4aWuCdKXpusLCTiwgk4nic_g@mail.gmail.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>	<536A7E41.5080706@redhat.com>	<CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>	<5371123B.3090501@redhat.com>
+	<CANKkrzEg2VGfG30BNkNX8SELWO4aWuCdKXpusLCTiwgk4nic_g@mail.gmail.com>
+Message-ID: <5372E096.5050206@redhat.com>
+
+On 05/13/2014 02:52 PM, Matthew Dempsky wrote:
+> On Mon, May 12, 2014 at 11:26 AM, Jason Merrill <jason at redhat.com> wrote:
+>> "The effect of dlclosing a DSO with registered thread cleanups is
+>> undefined."
+>
+> Do you mean "undefined" as in the C++ standard nasal demons sense, or
+> just unspecified/implementation-defined?
+
+Demons.  Realistically, the likely possibilities are "no effect" and 
+"SEGV when we try to run the cleanups".
+
+>> That seems reasonable, I was just trying to allow for implementations that
+>> don't have any way to implement that, because they can't change the dynamic
+>> loader.
+>
+> That's fair, though I'd argue that's the burden of the implementation
+> to push for appropriate mechanisms in their dependencies to implement
+> the needed functionality.  Are there platforms + toolchain
+> combinations where this is unreasonable?
+
+Well, GCC supports lots of platforms that don't also use glibc.
+
+Jason
+
+
+From matthew at dempsky.org  Wed May 14 04:36:46 2014
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Tue, 13 May 2014 21:36:46 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <5372E096.5050206@redhat.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+	<902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+	<CANKkrzHM4SvDkGyNS9ieM_rt1iTKT6-6JDw1QSw0BNwFzpzhyg@mail.gmail.com>
+	<536A7E41.5080706@redhat.com>
+	<CANKkrzGzHprNoUaZZvwEfJ49wjaCOFm1dHkt3ENEuTLd5Nj7Cw@mail.gmail.com>
+	<5371123B.3090501@redhat.com>
+	<CANKkrzEg2VGfG30BNkNX8SELWO4aWuCdKXpusLCTiwgk4nic_g@mail.gmail.com>
+	<5372E096.5050206@redhat.com>
+Message-ID: <CANKkrzEUFqGRmX8D3FRj+LyQDuxXmnuHSu-xg2PX331KLgck3g@mail.gmail.com>
+
+On Tue, May 13, 2014 at 8:18 PM, Jason Merrill <jason at redhat.com> wrote:
+> Well, GCC supports lots of platforms that don't also use glibc.
+
+Sure, but what's wrong with saying those platforms won't have proper
+C++11 support until they implement __cxa_thread_atexit()?  Just like
+how GCC supports (or used to support) platforms that don't have
+__cxa_atexit() by using atexit() instead, and those platforms just
+wouldn't have fully correct behavior.
+
+Or just don't enable thread_local if __cxa_thread_atexit() isn't
+available.  On platforms that don't support ELF TLS segments, GCC
+prints a "thread-local storage not supported for this target" error
+message when you try to use __thread.
+
+But anyway, we've been arguing this back-and-forth a bit now. :)  I'd
+love to hear some input from others on the list.  (And if not, I'll
+probably fallback to "undefined behavior" if just for the sake of
+getting it in the ABI.)
+

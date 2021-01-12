@@ -1,0 +1,77 @@
+From clark.nelson at intel.com  Sat Oct 13 00:35:42 2001
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Fri, 12 Oct 2001 17:35:42 -0700
+Subject: Virtual base allocation question
+Message-ID: <B9A8FCDAEEB7D51199E500508B68C4465ECC65@orsmsx102.jf.intel.com>
+
+Consider the following case:
+
+struct S { virtual void s(void) {} };
+struct T : virtual public S { virtual void t(void) {} };
+struct W : virtual public S { virtual void w(void) {} };
+struct Y : virtual public T, public W {
+  virtual void x(void) {}
+};
+
+S is T's primary base class, because it's nearly empty. For the same reason,
+S is W's primary base class.
+
+W is Y's primary base class, because it's dynamic and non-virtual. Because T
+is not Y's primary base class, it is allocated as a virtual base class.
+
+The question is, what is the offset of S in Y? Y actually contains 2
+sub-objects of type S, one each in sub-objects of type T and W. But
+according to the language rules, S is not an ambiguous base of Y, so
+conversion from Y* to S* is well-formed. Then what's the value of the
+result?
+
+Needless to say, this isn't a problem for other object models with which I'm
+familiar, in which virtual base allocation doesn't have exceptions for
+sharing of virtual pointers with virtual bases.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From nathan at codesourcery.com  Mon Oct 15 09:53:03 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 15 Oct 2001 10:53:03 +0100
+Subject: [cxx-abi-dev] Virtual base allocation question
+References: <B9A8FCDAEEB7D51199E500508B68C4465ECC65@orsmsx102.jf.intel.com>
+Message-ID: <3BCAB1FF.AACE299A@codesourcery.com>
+
+"Nelson, Clark" wrote:
+> 
+> Consider the following case:
+> 
+> struct S { virtual void s(void) {} };
+> struct T : virtual public S { virtual void t(void) {} };
+> struct W : virtual public S { virtual void w(void) {} };
+> struct Y : virtual public T, public W {
+>   virtual void x(void) {}
+> };
+
+> The question is, what is the offset of S in Y? Y actually contains 2
+> sub-objects of type S, one each in sub-objects of type T and W. But
+> according to the language rules, S is not an ambiguous base of Y, so
+> conversion from Y* to S* is well-formed. Then what's the value of the
+> result?
+S is at offset 4 within the T sub object. The virtual primary bases are
+allocated in inheritance graph order. T is met before W, so T gets
+S as a primary base.
+
+hope that helps. BTW, you can use -fdump-class-hierarchy on gcc 3.0 to
+output what it thinks the layout should be (if you find errors, please
+let me know!)
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+

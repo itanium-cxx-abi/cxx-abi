@@ -1,0 +1,328 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Do we need to reopen B1?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38B5E49C.54BE269E%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000656.html">
+   <LINK REL="Next"  HREF="000662.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Do we need to reopen B1?</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Do%20we%20need%20to%20reopen%20B1%3F&In-Reply-To=%3C38B5E49C.54BE269E%40cup.hp.com%3E"
+       TITLE="Do we need to reopen B1?">ddd at cup.hp.com
+       </A><BR>
+    <I>Fri Feb 25 02:10:36 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000656.html">Do we need to reopen B1?
+</A></li>
+        <LI>Next message: <A HREF="000662.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#658">[ date ]</a>
+              <a href="thread.html#658">[ thread ]</a>
+              <a href="subject.html#658">[ subject ]</a>
+              <a href="author.html#658">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt; writes:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; In the absence of the &quot;adjusting entry points&quot; I proposed, you have to
+</I>&gt;<i>  &gt; use thunks. Within a same class, of course, you can use the 'AddAddAdd'
+</I>&gt;<i>  &gt; scheme, since you know the different offsets at compile time for the
+</I>&gt;<i>  &gt; various subobjects that compose the class. However, a derived class
+</I>&gt;<i>  &gt; cannot share this, because its vtable may very well be emitted in a
+</I>&gt;<i>  &gt; different .o.
+</I>&gt;<i> 
+</I>&gt;<i> I strongly disagree.  This is the primary goal of my design.
+</I>
+Rereading through the e-mail and the writeup, I finally get it. But this was
+totally obscured to me by the existing wording... So I guess Mark was not the
+only one who got confused:
+
+First:
+
+	For each secondary vtable from a non-virtual base class 'B'
+	which defines f, an additional entry point is generated which
+	performs the constant adjustment from A* to B*. 
+
+So, the intent is indeed that this is a real entry point, with a name and so on,
+and that it actually converts from _ B* to A* _, correct? And this entry point
+had a name that you can use to refer to it from other vtables, including in
+other translation units, correct? So: we need to specify that name. Also, let's
+no longer ever call them 'thunk', since to me a thunk is something that gets
+emitted with the vtable, not with the target function.
+
+
+I was also really sent off track by the note:
+
+	Note that the ABI only specifies the multiple entry points;
+	how those entry points are provided is unspecified. An existing
+	compiler which uses thunks could be converted to use this ABI by
+	only adding support for the vcall offsets. A more efficient
+	implementation would be to emit all of the thunks immediately
+	before the non-adjusting entry point to the function. Another
+	might use predication rather than branches to reach the main
+	function. Another might emit a new copy of the function for
+	each entry point; this is a quality of implementation issue. 
+
+Let me propose a few changes here:
+
+	Note that the ABI only specifies the name and existence of
+	multiple entry points. How those entry points are implemented
+	is unspecified, as long as they are emitted with the corresponding
+	virtual table. An existing compiler which uses thunks could be
+	converted to use this ABI by only adding support for the vcall
+	offsets (in the case of virtual inheritance), and by creating
+	a named entry point and a thunk for each possible adjustment
+	from a secondary base to the derived class (in the case of
+	multiple, non-virtual inheritance).
+
+	A more efficient implementation would be to emit all of the
+	adjusting entry points immediately before the non-adjusting
+	entry point to the function. Such thunks can also be combined
+	in the form of multiple 'Add' instructions that fall through
+	to the main entry point. Another implementation yet is to use
+	predication rather than branches to reach the main function
+	[Note: I'm not sure this actually works without a calling
+	convention on predicates...]. Another might emit a new copy
+	of the function for each entry point. Selecting one of these
+	implementations is a quality of implementation issue.
+
+Does this wording sound better?
+
+
+&gt;<i> 
+</I>&gt;<i>  &gt; For instance, consider:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;      struct A { virtual a(); int aa; };
+</I>&gt;<i>  &gt;      struct B { virtual b(); int bb; };
+</I>&gt;<i>  &gt;      struct C { virtual c(); int cc; };
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;      struct D : A, B { virtual b(); int dd; }
+</I>&gt;<i>  &gt;      struct E : D { /* Does not override b() */ }
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; The primary vtable for D points to D::b, no adjustment required. The
+</I>&gt;<i>  &gt; secondary vtable for B in D points to D::b with, say, an 'Add'
+</I>&gt;<i>  &gt; adjustment, which would be of -16 (from the B* to the D*).
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; When you emit the vtable for E, the good news is that the adjustment is
+</I>&gt;<i>  &gt; the same (-16 from B* to D*). The bad news is that you don't know how to
+</I>&gt;<i>  &gt; locate the thunk that adds -16 (unless we all agree on the algorithm for
+</I>&gt;<i>  &gt; emitting this kind of &quot;AddAddAdd&quot; thunk, which we did not.)
+</I>&gt;<i> 
+</I>&gt;<i> Oh, come on.  Yes, we still need to define what entry point symbols will
+</I>&gt;<i> be emitted with D::b, and how they are mangled, so that derived classes can
+</I>&gt;<i> refer to them.  But we certainly can do that.
+</I>
+Of course, we can, which is why I said &quot;unless we all agree [...], which we did
+not&quot;... To me, the initial wording just said: &quot;Emit the thunk if you want&quot;.
+
+[Egg on face: with that new understanding, what I wrote for shared libraries was
+really n'importe quoi]
+
+
+ 
+&gt;<i>  &gt; So my proposal is simply that, for the non-virtual multiple inheritance
+</I>&gt;<i>  &gt; case, we have a this-pointer adjustment offset in each secondary vtable,
+</I>&gt;<i>  &gt; that adjusts form the secondary vtable class to the function's target
+</I>&gt;<i>  &gt; class.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; The algorithm I proposed to allocate these offsets was the following:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; - While defining class C, we allocate a single offset &quot;convert_to_C&quot;,
+</I>&gt;<i>  &gt; that converts from the class of the secondary vtable in which it is
+</I>&gt;<i>  &gt; stored to the C class.
+</I>&gt;<i> 
+</I>&gt;<i> We allocate this in each secondary vtable where we refer to a function
+</I>&gt;<i> overridden in C, correct?
+</I>
+Yes.
+
+&gt;<i> 
+</I>&gt;<i> This changes the size of the secondary vtables, but we've agreed that
+</I>&gt;<i> doesn't matter.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; - The convert_to_C in the C primary vtable is theoretically present, but
+</I>&gt;<i>  &gt; its value is zero, so it may be omitted.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; - For all other classes, the offset of 'convert_to_C' relative to the
+</I>&gt;<i>  &gt; secondary vptr is constant. A naive algorithm to ensure that is that
+</I>&gt;<i>  &gt; this offset is the first negative offset not used by a 'convert_to_X' in
+</I>&gt;<i>  &gt; any of the bases. I acknoledge this generally may padding in the
+</I>&gt;<i>  &gt; vtables, but I did not see a better way to do it, short of using a
+</I>&gt;<i>  &gt; double indirection.
+</I>&gt;<i> 
+</I>&gt;<i> &quot;in any of the bases where we want to allocate this value&quot;.  OK.
+</I>
+Correct.
+
+&gt;<i> 
+</I>&gt;<i>  &gt; This 'convert_to_C' is used by an adjusting entry point emitted
+</I>&gt;<i>  &gt; immediatly prior to the main, non-adjusting entry point, which computes
+</I>&gt;<i>  &gt; this += convert_to_C. If I use this secondary entry point at all, I know
+</I>&gt;<i>  &gt; that the final overrider is C::f, and that the call was in the form
+</I>&gt;<i>  &gt; bptr-&gt;f(), where bptr is a non-primary non-virtual base of C.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; The same 'convert_to_C' value is shared by different virtual functions
+</I>&gt;<i>                            ^^^^^ you mean vptr offset?
+</I>
+Yes.
+
+&gt;<i> 
+</I>&gt;<i>  &gt; overriden in C, no matter from which base they are overriden (the
+</I>&gt;<i>  &gt; interesting case, of course, being when they are overriden from multiple
+</I>&gt;<i>  &gt; bases). The reason is that if C::f override B::f, the delta is the same
+</I>&gt;<i>  &gt; than if C::g overrides B::g. It may be different than the delta between
+</I>&gt;<i>  &gt; C::g and B2::g, but then I am using B2's secondary vtable, which
+</I>&gt;<i>  &gt; contains the B2-&gt;C conversion.
+</I>&gt;<i> 
+</I>&gt;<i> OK.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; This scheme has the following benefits:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; - For each virtual function, you emit a secondary entry point with a
+</I>&gt;<i>  &gt; known size.  The best possible size is 48 bytes, unless some magic
+</I>&gt;<i>  &gt; predication thingie I did not think of can reduce that. No matter how
+</I>&gt;<i>  &gt; many secondary vbases or how many derived classes reuse that function,
+</I>&gt;<i>  &gt; the size is 48.
+</I>&gt;<i> 
+</I>&gt;<i> You don't need it at all if none of your bases need an adjustment.
+</I>
+Yes. But in that case, you don't need it in any of our schemes. I'm trying to
+contrast this with the other thunk-generation models. 48 bytes is the cost of 3
+of our adds, or of 3 &quot;normal&quot; thunks. So this scheme becomes beneficial
+memory-wise for more than 3 bases with adjustment.
+
+&gt;<i> 
+</I>&gt;<i>  &gt; - For each secondary base, you add 8 (or more if padding) bytes to the
+</I>&gt;<i>  &gt; table.
+</I>&gt;<i> 
+</I>&gt;<i> &quot;each secondary base which refers to a funtion overridden in C&quot;.  Yes.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; - This scheme works accross shared libraries, since the thunk used is
+</I>&gt;<i>  &gt; always &quot;tied&quot; to the function.
+</I>&gt;<i> 
+</I>&gt;<i> This is also true for my design, as mentioned above.
+</I>
+Now I understand this.
+
+&gt;<i> 
+</I>&gt;<i> As you say above, this only applies to non-virtual inheritance.  This
+</I>&gt;<i> scheme could be combined with the existing vcall offsets for virtual bases
+</I>&gt;<i> such that you would get one additional entry point per virtual base that
+</I>&gt;<i> refers to the function, or two if non-virtual bases of that virtual base
+</I>&gt;<i> also refer to the function.  Is this what you had in mind?
+</I>
+I believe the scheme _has to_ be combined with the vcall offsets. It doesn't
+work for virtual inheritance. That's why I said earlier the two schemes were not
+opposed. So, yes, that's definitely what I have in mind.
+
+&gt;<i> 
+</I>&gt;<i> If so, I agree that this is a feasible design.  I'm still unconvinced that
+</I>&gt;<i> it's a big win; since you're allocating the convert_to_foo slots at the
+</I>&gt;<i> other end of the vtable from the function pointer, I don't see how you can
+</I>&gt;<i> expect d-cache locality.
+</I>
+I do not expect perfect D-cache locality (which is why I thought useful to
+specify in a previous e-mail the cost of a D-cache miss). I'm still looking for
+a better way to allocate it. Getting a better cache locality was the reason I
+was considering duplicating that (as you do for vcall offsets) and putting it
+next to the vtable entry.
+
+On the other hand, a frequent case where you do get cache locality is if you
+call different virtual functions for the same pointer in succession, and if the
+functions are overriden in the same class. Say:
+
+	for (i = 0; i &lt; max; i++)
+	{
+		Shape *shape = shapes[i];
+		shape-&gt;SetColor(red);
+		shape-&gt;Scale(3.0);
+		shape-&gt;Rotate(2.5);
+		shape-&gt;Draw();
+	}
+
+This code seems fairly reasonable. In that case, you can expect to pay a cache
+miss only for the first call. Note that this does not apply if g is called
+through f, since in that case we use the non-adjusting entry-point anyway. On
+the other hand, on that same code, there a high probability of I-cache miss for
+each function, and of double I-cache miss for thunks. So thunks go to their
+worst scenario, whereas adjusting entry points remain in their 'typical, no
+D-cache miss' scenario. Here, we get 9 vs. 3 &quot;abstract units of time&quot;.
+
+I would not say that this is an incredible win. Yet, this is a win for some
+common cases, it's not extraordinarily complicated, it was documented in my
+initial proposal, and it got dropped, I believe, more by distraction than on
+purpose (at least from my point of view.) We had found with 'AddAddAdd' an even
+better way to deal with the most frequent case, but dropping the next case most
+frequent case was not necessary.
+
+
+
+Summary:
+
++ The best case is clearly the 'AddAddAdd' for a limited number of offsets. No
+argument.
+
++ The second is adjusting entry point with no D-cache miss. This scenario is
+between 1 and 3 times as bad as the previous one, depending on the number of
+adds.
+
++ For third position, there is a tie speed-wise between the thunks and the
+adjusting entry point with D-cache miss, but then I believe the adjusting
+entry-point wins memory-wise except in pathological cases where padding would
+dominate. Speed-wise, this scenario is about 3 times as bad as scenario 2.
+
+
+As a reminder, the numbers I gave were  the following (I added memory usage):
+
+                        Best    Typical Worst	I-mem	D-mem
+        Thunks          5       9       20	16*F*C	0
+        AddAddAdd       0+N/M   0+N/M   9+N/M	16*F*C	0
+        Adjust          3       3       18	48*F	8*C+Pad
+        Adjust/D-miss   8       8       21	48*F	8*C+Pad
+
+C: number of secondary bases requiring adjustments. F: Number of virtual
+functions overriden in current class.
+
+
+Regards
+Christophe
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000656.html">Do we need to reopen B1?
+</A></li>
+	<LI>Next message: <A HREF="000662.html">Do we need to reopen B1?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#658">[ date ]</a>
+              <a href="thread.html#658">[ thread ]</a>
+              <a href="subject.html#658">[ subject ]</a>
+              <a href="author.html#658">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

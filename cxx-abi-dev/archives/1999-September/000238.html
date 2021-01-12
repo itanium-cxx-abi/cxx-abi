@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> problems with empty base layout algorithm
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problems%20with%20empty%20base%20layout%20algorithm&In-Reply-To=%3C872567E6.0072924F.00%40d53mta05h.boulder.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000239.html">
+   <LINK REL="Next"  HREF="000243.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>problems with empty base layout algorithm</H1>
+    <B>allen.chan at ca.ibm.com</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20problems%20with%20empty%20base%20layout%20algorithm&In-Reply-To=%3C872567E6.0072924F.00%40d53mta05h.boulder.ibm.com%3E"
+       TITLE="problems with empty base layout algorithm">allen.chan at ca.ibm.com
+       </A><BR>
+    <I>Wed Sep  8 20:51:02 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000239.html">longjmp question
+</A></li>
+        <LI>Next message: <A HREF="000243.html">problems with empty base layout algorithm
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+
+Looking at the non-virtual-base allocation procedure as outlined in the Data
+Layout document, I noticed a couple of problems with the empty base layout
+algorithm.
+
+Consider the following scenario:
+
+struct A {};
+struct B : public A {};
+struct C : public A {};
+struct D : public A {};
+struct E { int e; }
+struct F : public B, public C, public D, public E { };
+
+For the most derived class F, base classes B, C and D are empty bases. To map
+class F, we firsts have to allocate all base classes of F in declaration order.
+If we were to follow the described procedure, this is what we will get:
+
+1. The empty base B will be allocated at offset zero.
+2. The empty base C (which has a type conflict with B, since they have the same
+non-virtual base A), will be allocated at dsize(F), which is zero.
+3. The empty base D (which has a type conflict with B and C), will be allocated
+at dsize(F), which is zero.
+4. The base E will be allocated at dsize(F), which is zero.
+5. sizeof(F) = 4.
+
+So, even though B, C and D conflict with each other, they are all allocated at
+offset zero.
+
+To solve the problems, I am proposing the following changes to the algorithm for
+lying out empty bases:
+
+1. Maintain an index, ebase(C), which denotes the current offset for allocation
+of empty bases. In the beginning, ebase(C) = 0.
+2. For each empty base class D in C,
+     2a. If D and all its non-virtual base classes have not been allocated
+before, place D at offset zero.
+     2b. If D or any of its non-virtual base classes have been allocated before,
+place D at ebase(C) + 1. Update ebase(C) = ebase(C) + 1.
+3. After all components (virtual and non-virtual components) of C have been laid
+out, update sizeof(C) to max(sizeof(C), ebase(C)).
+
+Using the above algorithm, we will get:
+
+1. The empty base B will be allocated at offset zero.
+2. The empty base C will be allocated at offset one. Update ebase(F) = 1.
+3. The empty base D will be allocated at offset two. Update ebase(F) = 2.
+4. The base E will be allocated at dsize(F), which is zero.
+5. sizeof(F) = max(sizeof(F), ebase(F)) = max(4, 2) = 4.
+
+All comments are welcome.
+
+regards,
+Allen
+
+
+--
+Internet: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">allen.chan at ca.ibm.com</A>
+Notes: Allen Chan/Toronto/<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">IBM at IBMCA</A>
+IBM TieLine 8-778-3908 / Tel 416-448-3908
+VisualAge C++ Kernel Development
+My opinions are my own.
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000239.html">longjmp question
+</A></li>
+	<LI>Next message: <A HREF="000243.html">problems with empty base layout algorithm
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

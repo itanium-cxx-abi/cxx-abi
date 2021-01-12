@@ -1,0 +1,1501 @@
+From dehnert at baalbek.engr.sgi.com  Sat Nov  4 04:28:40 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 3 Nov 2000 20:28:40 -0800 (PST)
+Subject: RTTI portability
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com>
+Message-ID: <200011040428.UAA46648@baalbek.engr.sgi.com>
+
+> From nathan at codesourcery.com Tue Oct 17 01:31:43 2000
+> 
+> Jim Dehnert wrote:
+> 
+> > That solution implies a statement that the non-Standard-defined parts
+> > of the hierarchy are not available to users.  Fine with me, but someone
+> > wanted to make the field names in the hierarchy normative, which has no
+> > point unless they expected them to be used outside the target runtime.
+> > In the absence of allowing user access, you're right -- there's no
+> > problem.
+> 
+> Yup, though I'd been assuming that allowing user access, was just allowing
+> read access to those fields, or the creation of objects of types within
+> the abi heirarchy. Allowing that would not create a problem.
+> 
+> Whether we permit users to derive from those types is a different question,
+> and would create difficulty with the current spec. Do we really want to do
+> that too?
+> 
+> We could allow read access to compiler generated type_info objects, and
+> prevent user creation/derivation of those types by making the dtors
+> private in the most derived types, and protected in the intermediate ones.
+
+Someone's confused here (it might be me).  The problem with user access
+arises if (and only if, I believe) the user (a) makes the reference
+using a header file for the type_info structures that is not an
+accurate description of the runtime library actually present on the
+target system when his program runs, and (b) the fields referenced are
+in different places in the two versions.  This can happen with either
+data member references (if data members have been added or deleted), or
+with virtual function references (if virtual functions have been
+changed, or other vtable layout changes have occurred).  Users deriving
+types may be more likely to have problems since their new members will
+go at the end of the structures, but any reference is subject to a
+potential problem if the vendors rearrange the structure by adding
+members.
+
+The key observation is that user references generally start with a
+fixed offset based on the compiler's view of the class declarations in
+the header file, not on the actual runtime structure used by the
+library.
+
+In fact, since the user creates RTTI structures for user types, this
+may be an issue even if there are no explicit references to the members
+in the user source, if any data members change.
+
+So it seems to me that we must at least require that the data members
+not change between implementations, which allows their names to be
+normative if we like.  We need not make any requirements about virtual
+functions, unless we allow users to call them, or to derive from the
+classes.  Does anyone think we should not forbid this?
+
+Am I confused?  I know the above discussion didn't arrive at quite the
+place I expected when I started...
+
+> > It is a traditional part of the SysV ABI that libc is _always_ a DSO.
+> > I presume that we're extending that assumption to libcxa, though I
+> > guess we'd better say so.
+>
+> Yes, I think we'd better ...
+
+Upon looking, we already say so (in 1.4.1).
+
+
+
+> From loewis at informatik.hu-berlin.de Tue Oct 17 04:40:48 2000
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> > How does this help? Given Martin's -Bsymbolic example we'd just get
+> > different versions of __cxa_aux_type_info in FOO and the runtime. The
+> > same problem would still be manifest.
+> 
+> Indeed. I see no advantage of adding an implementation defined field
+> over allowing implementation-defined virtual functions.
+
+The advantage is that it allows the implementation some flexibility
+with absolutely no modification of the RTTI class or its virtual table.
+Perhaps it's not an important advantage...
+
+
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> > > A) a user program derives from abi::pointer_type_info and then attempts
+> > > to use objects of that class within the type_info system?
+> > >
+> > > B) parts of the program other than those in libcxa.so attempt to use
+> > > the implentation defined entry points?
+> > 
+> > I am concerned about both.
+> 
+> Why is that a concern? If a user inherits from abi::pointer_type_info,
+> what undesirable effects could come out of that?
+
+If the definition doesn't match what's in the library at runtime, and
+he creates a vtable that isn't correct that ends up being referenced by
+the runtime library, he won't be a happy camper.
+
+> I was more concerned about having the compiler-provided code in a
+> static library which then gets integrated into somebody's shared
+> library (as gcc's libgcc.a gets integrated into every shared library,
+> likewise libCrun.a and libCstd.a of Sun CC).
+
+As noted above, the vendor libcxa.so is required to be a DSO.  If you
+integrate a non-shared library into your program, there are no
+portability guarantees.
+
+> > That solution implies a statement that the non-Standard-defined parts
+> > of the hierarchy are not available to users.  Fine with me, but someone
+> > wanted to make the field names in the hierarchy normative, which has no
+> > point unless they expected them to be used outside the target
+> > runtime.
+> 
+> Used in the sense of being accessed - yes, why not? However, I would
+> not expect users ever to create typeinfo objects.
+
+They will certainly create typeinfo objects, for their user-defined
+classes.
+
+> > I personally believe that anyone who links the system libraries into
+> > their program is tying his program to a particular implementation, and
+> > had better use only pieces from that implementation (if it's supported
+> > at all, which I wouldn't, and SGI traditionally hasn't).  So, ... no
+> > problem.
+> 
+> The problem is that there is a difference between system libraries and
+> the C++ runtime library - those typically come with the C++ compiler,
+> not (necessarily) with the system.
+
+Yes, I suppose this is ambiguous.  View the "system" as the runtime C++
+system, including the target processor support and the C++ support
+being used on top of it.  The latter will most often come from the
+system vendor, but might not, e.g. g++.
+
+
+So, after all the above, I suggest the following actions:
+
+- Remove the statement that data member names are not normative.
+
+- Add a statement that the data members must be exactly as specified.
+
+- Leave the statement that the user may not reference the virtual
+  functions.  (Since the destructor is virtual, does this effectively
+  forbit deriving from the classes?)
+
+Does this create problems for anyone?
+
+Jim
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov  4 05:06:18 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 3 Nov 2000 21:06:18 -0800 (PST)
+Subject: 2.4.II.2
+Message-ID: <200011040506.VAA38040@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> This section (on laying out bases/fields) is still not right in the
+> case where the thing being laid out is a field.  Basically, this
+> section doesn't take into account that for fields you lay out the
+> virtual bases, too.
+
+I've fixed this by adding a comment at the top of 2.4 saying that
+nvsize=size and nvalign=align for data members.
+
+> In particular, 
+> 
+>   Otherwise, if D is not an empty base class (including all data
+>   members), start at offset dsize(C), incremented if necessary for
+>   alignment to nvalign(type(D)) for base classes or to align(type(D))
+>   for data members. Place D at this offset unless doing so would result
+>   in two components (direct or indirect) of the same type having the
+>   same offset. If such a component type conflict occurs, increment the
+>   candidate offset by nvalign(type(D)), and try again, repeating until
+>   success occurs (which will occur no later than sizeof(C) rounded up to
+>   the required alignment).
+> 
+> In this paragraph, both occurrences of `nvalign' are wrong for fields;
+> they should be `align' in that case.
+
+Only the second is wrong (the first already distinguished data
+members).  I made the second consistent with the first.
+> 
+>      Update sizeof(C) to max (sizeof(C), offset(D)+nvsize(D)). Update
+>      align(C) to max (align(C), nvalign(D)). If D is a base class (not
+>      empty in this case), update dsize(C) to offset(D)+nvsize(D). If D
+>      is a data member, update dsize(C) to max (offset(D)+dsize(D),
+>      offset(D)+1).
+> 
+> Similarly, the occurrences of `nvsize' in this section should be size
+> in this case.  Perhaps we could parameterize this section by making
+> `s' and `a' definitions at the beginning that are nvsize/sizeof and
+> nvalign/align appropriately.
+
+I fixed the align update (by distinguishing), and left the sizeof
+update to depend on the first change at the beginning.  I don't think
+it admits of much confusion -- you have to allocate the member with its
+bases, and shouldn't even consider not including their size...  Let me
+know if this isn't enough.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov  4 05:18:40 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 3 Nov 2000 21:18:40 -0800 (PST)
+Subject: Tail padding, again
+Message-ID: <200011040518.VAA46621@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> I think I recall that the committee was intentionally trying to use
+> the tail padding of one object to save space.  For example, consider:
+> 
+>   struct A { short s; char c; };
+>   struct B { A a; char d; };
+> 
+> (These are PODs, but you can easily make an equivalent non-POD example).
+> 
+> Here, I think the comittee wanted to give `B' size 4, by packing `d'
+> into the tail padding of `A'.
+
+The committee was also _very_ interested in using the tail padding, and
+examples were provided that I thought were fairly convincing.  Backing
+out of this at this time would cause various people a fair amount of
+trouble, I think.
+
+> I think this is a mistake.  David Gross came up with the following
+> example:
+> 
+>   - Code generator needs to copy dsize, not sizeof, unless it can prove
+>     that the object is in a context where tail padding isn't overlayed.
+>     Reason?  Tail padding might be overlayed by a volatile field.
+> 
+>     Hence, a non-POD that looks like
+> 
+>       struct S { short sh; char ch; };
+> 
+>     requires ld2/st2/ld1/st1 for a copy instead of ld4/st4 because we
+>     might have
+> 
+>       struct T { S s; volatile char d; };
+
+If overlaying by a volatile field is the problem, I'd prefer to make an
+exception for it.  But is it really?  There are two "kinds" of
+volatiles (to generalize about a very poorly defined concept), based on
+usage.  There are those declared volatile because they map hardware
+features that can't tolerate extra loads/stores -- these are the real
+issue, and I don't know if they end up in definitions that might be
+overlaid -- I doubt it.  The others are declared volatile because the
+user doesn't want their references moved/omitted, e.g. for locking
+purposes, but an extra load due to a larger copy won't affect anything.
+I don't feel strongly, but I could live with either forbidding
+overlaying volatile members, or ignoring them.  I don't think we should
+completely rearrange our layout at this point.
+
+> Similarly, people using memcpy to copy around POD components of
+> non-PODs will get burned.
+
+No, we explicitly say for PODs that size=nvsize (2.2).
+
+> This completely breaks user expectation since people routinely expect
+> to be able to stick a function or two into a POD without changing its
+> layout.
+> 
+> I think we should make the following changes:
+> 
+>   - Make nvsize a multiple of nvalign.  That ensures that we don't
+>     have odd sub-components that we can't copy around easily.
+> 
+>   - Allocate `sizeof' bytes for a data member, and `nvsize' bytes for
+>     a base class when laying out an object.
+> 
+> Note that this still permits the empty base optimization; nvsize will
+> be zero, and sizeof will be 1.
+> 
+> There's an important different between using the tail padding in an
+> empty base and the tail padding in a generic object: you know that you
+> never have to copy an empty base.
+
+But copying padding isn't supposed to matter.
+
+JIm
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Sat Nov  4 05:59:15 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 03 Nov 2000 21:59:15 -0800
+Subject: Tail padding, again
+In-Reply-To: <200011040518.VAA46621@baalbek.engr.sgi.com>
+References: <200011040518.VAA46621@baalbek.engr.sgi.com>
+Message-ID: <20001103215915P.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> The committee was also _very_ interested in using the tail
+    Jim> padding, and examples were provided that I thought were
+    Jim> fairly convincing.  Backing out of this at this time would
+    Jim> cause various people a fair amount of trouble, I think.
+
+Who?  Are those people committed to implementing the rest of the ABI?
+
+I know of three front-ends that have pretty major problems with doing
+this kind of overlyaing: GCC, HP, and EDG.  It's not easily doable in
+any of them.  Worse yet, it's going to cause major problems in various
+back-ends, too.  I know it will cause trouble in both the HP and GCC
+back-ends.  (For example, the GCC back-end assumes that access through
+an `S*' can only alias things of types that appear as fields in `S';
+that totally breaks if you overlay things.)
+
+Furthermore, this is going to break a *lot* of code, including pretty
+much any code that derives from/includes a C struct.  (Copy
+constructor for derived class calls C copying function, which does a
+memcpy, which clobbers parts of the derived class.)  Users are going
+to be very surprised when adding or removing a non-virtual member
+function changes the size of a class.
+
+Translation from C++ to C is something a *lot* of compilers and tools
+do internally.  This optimization makes it very, very difficult to
+represent C++ structure layout in terms of C structs.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sun Nov  5 05:45:41 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Sat, 4 Nov 2000 21:45:41 -0800 (PST)
+Subject: Tail padding, again
+References: <200011040518.VAA46621@baalbek.engr.sgi.com>
+Message-ID: <200011050545.VAA48292@baalbek.engr.sgi.com>
+
+> From mitchell at codesourcery.com Fri Nov  3 22:00:09 2000
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+> 
+>     Jim> The committee was also _very_ interested in using the tail
+>     Jim> padding, and examples were provided that I thought were
+>     Jim> fairly convincing.  Backing out of this at this time would
+>     Jim> cause various people a fair amount of trouble, I think.
+> 
+> Who?  Are those people committed to implementing the rest of the ABI?
+
+My understanding is that the Compaq compiler released in the summer
+implemented the data model.  The original request for this overlaying
+came from HP.  Perhaps they would like to comment.
+
+> I know of three front-ends that have pretty major problems with doing
+> this kind of overlyaing: GCC, HP, and EDG.  It's not easily doable in
+> any of them.  Worse yet, it's going to cause major problems in various
+> back-ends, too.  I know it will cause trouble in both the HP and GCC
+> back-ends.  (For example, the GCC back-end assumes that access through
+> an `S*' can only alias things of types that appear as fields in `S';
+> that totally breaks if you overlay things.)
+
+It only breaks if you do copying with memcpy(sizeof) instead of
+memcpy(dsize).  The Standard, as I recall, specifies copying
+member-by-member.  Both Jason (g++) and Daveed (HP, then EDG) were
+heavily involved in this subject, and didn't seem to expect such major
+problems.  Doesn't mean they didn't overlook them, of course, but it
+was discussed extensively.
+
+> Furthermore, this is going to break a *lot* of code, including pretty
+> much any code that derives from/includes a C struct.  (Copy
+> constructor for derived class calls C copying function, which does a
+> memcpy, which clobbers parts of the derived class.)  Users are going
+> to be very surprised when adding or removing a non-virtual member
+> function changes the size of a class.
+> 
+> Translation from C++ to C is something a *lot* of compilers and tools
+> do internally.  This optimization makes it very, very difficult to
+> represent C++ structure layout in terms of C structs.
+
+Again, POD data (C structs) has align=nvalign, and size=nvsize=dsize.
+We do NOT put other members in POD padding, for the reasons you
+mention.  As far as I can tell, C structs will be laid out exactly the
+same in C++ as in C, and C copying (memcpy) will work fine for them.
+That certainly was the intent.
+
+Are you overlooking this, or am I missing something?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Sun Nov  5 08:28:15 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 05 Nov 2000 00:28:15 -0800
+Subject: Tail padding, again
+In-Reply-To: <200011050545.VAA48292@baalbek.engr.sgi.com>
+References: <200011040518.VAA46621@baalbek.engr.sgi.com>
+	<200011050545.VAA48292@baalbek.engr.sgi.com>
+Message-ID: <20001105002815F.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> My understanding is that the Compaq compiler released in the
+    Jim> summer implemented the data model.  The original request for
+    Jim> this overlaying came from HP.  Perhaps they would like to
+    Jim> comment.
+
+David Gross will probably jump in, but suffice it to say that HP's
+back-end team thinks this is very hard.
+
+    Jim> Again, POD data (C structs) has align=nvalign, and
+    Jim> size=nvsize=dsize.  We do NOT put other members in POD
+    Jim> padding, for the reasons you mention.  As far as I can tell,
+    Jim> C structs will be laid out exactly the same in C++ as in C,
+    Jim> and C copying (memcpy) will work fine for them.  That
+    Jim> certainly was the intent.
+
+    Jim> Are you overlooking this, or am I missing something?
+
+The point is that C++ programmers often make C++ objects that have the
+same data members as C structs, but are not PODs.  Breaking that
+layout equivalence is very odd indeed.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Mon Nov  6 18:56:57 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Mon, 6 Nov 2000 19:56:57 +0100 (MET)
+Subject: RTTI portability
+In-Reply-To: <200011040428.UAA46648@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Fri, 3 Nov 2000 20:28:40 -0800 (PST))
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com> <200011040428.UAA46648@baalbek.engr.sgi.com>
+Message-ID: <200011061856.TAA06395@pandora.informatik.hu-berlin.de>
+
+> The key observation is that user references generally start with a
+> fixed offset based on the compiler's view of the class declarations in
+> the header file, not on the actual runtime structure used by the
+> library.
+
+Sure, but how would a user use a class derived from an RTTI class
+type? I.e. what is the application that makes it desirable to derive
+from these classes?
+
+> In fact, since the user creates RTTI structures for user types, this
+> may be an issue even if there are no explicit references to the members
+> in the user source, if any data members change.
+
+What do you mean by "creates RTTI structures for user types"? Like
+
+class X:virtual something{
+  fields;
+} *xptr;
+
+...
+if(typeid(x)<typeid(int)){...}
+
+With that code, the user certainly instantiates typeid objects - but
+those are of predefined classes, not user-defined classes
+(specifically, this is a __pointer_type_info instance).
+
+> So it seems to me that we must at least require that the data
+> members not change between implementations, which allows their names
+> to be normative if we like.
+
+Agreed, yes - since the compiler will allocate the typeinfo object.
+
+> We need not make any requirements about virtual functions, unless we
+> allow users to call them, or to derive from the classes.  Does
+> anyone think we should not forbid this?
+
+"this" being?
+
+> > Why is that a concern? If a user inherits from abi::pointer_type_info,
+> > what undesirable effects could come out of that?
+> 
+> If the definition doesn't match what's in the library at runtime, and
+> he creates a vtable that isn't correct that ends up being referenced by
+> the runtime library, he won't be a happy camper.
+
+Maybe that's the core of the terminology problem. "Users" don't create
+virtual tables - or did you think that the compiler vendor is the
+user, here?
+
+Otherwise, I can see that inheriting from pointer_type_info will cause
+problems if the user adds virtual functions, and then calls them
+himself. I just can't see why that is a problem - we could easily
+outrule inheritance from the typeinfo classes, without loss of
+usability.
+
+> As noted above, the vendor libcxa.so is required to be a DSO.  If you
+> integrate a non-shared library into your program, there are no
+> portability guarantees.
+
+Ok. If then the corresponding <abi.h> becomes a system header, then
+there won't be a problem with a mismatch - but maybe that is not
+desirable.
+
+> > Used in the sense of being accessed - yes, why not? However, I would
+> > not expect users ever to create typeinfo objects.
+> 
+> They will certainly create typeinfo objects, for their user-defined
+> classes.
+
+No, users won't - the compiler will, for them. The compiler doesn't
+even need to parse abi.h to do so.
+
+> - Remove the statement that data member names are not normative.
+
+Fine.
+
+> - Add a statement that the data members must be exactly as specified.
+
+Fine.
+
+> - Leave the statement that the user may not reference the virtual
+>   functions.  (Since the destructor is virtual, does this effectively
+>   forbit deriving from the classes?)
+> 
+> Does this create problems for anyone?
+
+No, sounds fine for me.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Nov  7 04:41:33 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 6 Nov 2000 20:41:33 -0800 (PST)
+Subject: RTTI portability
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com>
+    <200011040428.UAA46648@baalbek.engr.sgi.com>
+Message-ID: <200011070441.UAA51669@baalbek.engr.sgi.com>
+
+> From loewis at informatik.hu-berlin.de Mon Nov  6 10:57:26 2000
+> 
+> > The key observation is that user references generally start with a
+> > fixed offset based on the compiler's view of the class declarations in
+> > the header file, not on the actual runtime structure used by the
+> > library.
+> 
+> Sure, but how would a user use a class derived from an RTTI class
+> type? I.e. what is the application that makes it desirable to derive
+> from these classes?
+
+I don't know.  Most of this thread arose because someone wanted the
+RTTI member names to be normative, which only matters if they are to be
+referenced outside the implementation's runtime library, i.e. by users.
+Whoever it was, though, hasn't been standing up with examples.  Perhaps
+that's not a real issue.
+
+Before continuing, I'll note that in my quoted comments below, I was
+imprecise.  When I said things such as "user creates RTTI structures
+for user types," I really meant "compiler instantiates RTTI objects for
+user types" when compiling the user's code.  The key distinction is
+between the compiler and headers in use when the user compiles his
+modules, and the compiler and headers in use when the runtime
+environment vendor creates the runtime libraries.  The problems all
+arise if the RTTI definitions visible (in the headers) differ between
+the two environments.
+
+> > In fact, since the user creates RTTI structures for user types, this
+> > may be an issue even if there are no explicit references to the members
+> > in the user source, if any data members change.
+> 
+> What do you mean by "creates RTTI structures for user types"? Like
+
+See above.
+
+> With that code, the user certainly instantiates typeid objects - but
+> those are of predefined classes, not user-defined classes
+> (specifically, this is a __pointer_type_info instance).
+> 
+> > So it seems to me that we must at least require that the data
+> > members not change between implementations, which allows their names
+> > to be normative if we like.
+> 
+> Agreed, yes - since the compiler will allocate the typeinfo object.
+> 
+> > We need not make any requirements about virtual functions, unless we
+> > allow users to call them, or to derive from the classes.  Does
+> > anyone think we should not forbid this?
+> 
+> "this" being?
+
+... allow users to call (RTTI virtual functions), or to derive from the
+classes...
+
+> > > Why is that a concern? If a user inherits from abi::pointer_type_info,
+> > > what undesirable effects could come out of that?
+
+If the user inherits from abi::pointer_type_info, assuming a different
+layout than that used in the runtime, and ends up doing anything
+that mixes such a beast with the runtime's version (or another
+non-runtime version compiled with yet another compiler, he'll have
+problems.  Perhaps this isn't a likely scenario, in which case ...
+forbid it all?
+
+> > If the definition doesn't match what's in the library at runtime, and
+> > he creates a vtable that isn't correct that ends up being referenced by
+> > the runtime library, he won't be a happy camper.
+> 
+> Maybe that's the core of the terminology problem. "Users" don't create
+> virtual tables - or did you think that the compiler vendor is the
+> user, here?
+
+Above, yes.
+
+> Otherwise, I can see that inheriting from pointer_type_info will cause
+> problems if the user adds virtual functions, and then calls them
+> himself. I just can't see why that is a problem - we could easily
+> outrule inheritance from the typeinfo classes, without loss of
+> usability.
+> 
+> > As noted above, the vendor libcxa.so is required to be a DSO.  If you
+> > integrate a non-shared library into your program, there are no
+> > portability guarantees.
+> 
+> Ok. If then the corresponding <abi.h> becomes a system header, then
+> there won't be a problem with a mismatch - but maybe that is not
+> desirable.
+> 
+> > > Used in the sense of being accessed - yes, why not? However, I would
+> > > not expect users ever to create typeinfo objects.
+> > 
+> > They will certainly create typeinfo objects, for their user-defined
+> > classes.
+> 
+> No, users won't - the compiler will, for them. The compiler doesn't
+> even need to parse abi.h to do so.
+
+Again, my terminology at fault.  But the compiler will have problems.
+Whether it uses its (different abi.h) or its different internal
+assumptions about it, the difference could create problems.
+
+> > - Remove the statement that data member names are not normative.
+> 
+> Fine.
+> 
+> > - Add a statement that the data members must be exactly as specified.
+> 
+> Fine.
+> 
+> > - Leave the statement that the user may not reference the virtual
+> >   functions.  (Since the destructor is virtual, does this effectively
+> >   forbit deriving from the classes?)
+> > 
+> > Does this create problems for anyone?
+> 
+> No, sounds fine for me.
+> 
+> Regards,
+> Martin
+> 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From loewis at informatik.hu-berlin.de  Tue Nov  7 09:20:23 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Tue, 7 Nov 2000 10:20:23 +0100 (MET)
+Subject: RTTI portability
+In-Reply-To: <200011070441.UAA51669@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Mon, 6 Nov 2000 20:41:33 -0800 (PST))
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com>
+    <200011040428.UAA46648@baalbek.engr.sgi.com> <200011070441.UAA51669@baalbek.engr.sgi.com>
+Message-ID: <200011070920.KAA08361@pandora.informatik.hu-berlin.de>
+
+> I don't know.  Most of this thread arose because someone wanted the
+> RTTI member names to be normative, which only matters if they are to be
+> referenced outside the implementation's runtime library, i.e. by users.
+> Whoever it was, though, hasn't been standing up with examples.  Perhaps
+> that's not a real issue.
+
+To access the fields of typeinfo objects, you don't have to derive
+from those objects. Instead, you can do
+
+  type_info &foo = static_cast<class_type_info&>(typeid(bar));
+  cout<< foo.base_type->name() << endl; // prints name of base class
+
+There may be applications of browsing through the base class list of
+an object: if you want to efficiently classify an object into a number
+of root classes, that approach may be faster than a series of
+dynamic_casts.
+
+However, I can't foresee an application where the user would need to
+inherit from the RTTI classes.
+
+> Again, my terminology at fault.  But the compiler will have problems.
+> Whether it uses its (different abi.h) or its different internal
+> assumptions about it, the difference could create problems.
+
+Only if the number or order of fields is different. If it has
+different virtual functions in the header file, it won't be a problem:
+the compiler only emits a reference to the vtable, not the vtable
+itself - that one is in libcxa.so. Since the compiler will also need
+to use the ABI routines for processing typeinfo objects from
+libcxa.so, there will be no problem.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Nov  7 22:23:22 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 7 Nov 2000 14:23:22 -0800 (PST)
+Subject: RTTI portability
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com>
+    <200011040428.UAA46648@baalbek.engr.sgi.com>
+    <200011070441.UAA51669@baalbek.engr.sgi.com>
+Message-ID: <200011072223.OAA56857@baalbek.engr.sgi.com>
+
+> From loewis at informatik.hu-berlin.de Tue Nov  7 01:19:58 2000
+> 
+> > I don't know.  Most of this thread arose because someone wanted the
+> > RTTI member names to be normative, which only matters if they are to be
+> > referenced outside the implementation's runtime library, i.e. by users.
+> > Whoever it was, though, hasn't been standing up with examples.  Perhaps
+> > that's not a real issue.
+> 
+> To access the fields of typeinfo objects, you don't have to derive
+> from those objects. Instead, you can do
+> 
+>   type_info &foo = static_cast<class_type_info&>(typeid(bar));
+>   cout<< foo.base_type->name() << endl; // prints name of base class
+> 
+> There may be applications of browsing through the base class list of
+> an object: if you want to efficiently classify an object into a number
+> of root classes, that approach may be faster than a series of
+> dynamic_casts.
+> 
+> However, I can't foresee an application where the user would need to
+> inherit from the RTTI classes.
+
+OK, I think the current version is consistent with this.  The data
+members must be as specified, and their names are specified without the
+previous disclaimer that they are not normative, so they are.  OK with
+everyone?
+
+> > Again, my terminology at fault.  But the compiler will have problems.
+> > Whether it uses its (different abi.h) or its different internal
+> > assumptions about it, the difference could create problems.
+> 
+> Only if the number or order of fields is different. If it has
+> different virtual functions in the header file, it won't be a problem:
+> the compiler only emits a reference to the vtable, not the vtable
+> itself - that one is in libcxa.so. Since the compiler will also need
+> to use the ABI routines for processing typeinfo objects from
+> libcxa.so, there will be no problem.
+
+Ummm...  There are no ABI routines currently specified.  Those
+specified in the base class (type_info) are Standard-specified.  So
+this presents no problem as long as any necessary routines are
+non-virtual and consistent between implementations, but I'm not sure
+you're assuming that.  We haven't specified it.
+
+Note that although the compiler doesn't emit a vtable, it could emit a
+use of one of the vpointers in one.  So any user code referencing a
+type_info virtual function (except the destructor specified now, and
+presumably appearing first) presents the potential for a problem
+crossing between implementations.  The current version as written
+forbids this.  Is that OK with everyone?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Nov  8 00:02:55 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 8 Nov 2000 01:02:55 +0100 (MET)
+Subject: RTTI portability
+In-Reply-To: <200011072223.OAA56857@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Tue, 7 Nov 2000 14:23:22 -0800 (PST))
+References: <200010130033.RAA84807@baalbek.engr.sgi.com>
+    <200010132306.QAA87322@baalbek.engr.sgi.com>
+    <200011040428.UAA46648@baalbek.engr.sgi.com>
+    <200011070441.UAA51669@baalbek.engr.sgi.com> <200011072223.OAA56857@baalbek.engr.sgi.com>
+Message-ID: <200011080002.BAA16609@pandora.informatik.hu-berlin.de>
+
+> > itself - that one is in libcxa.so. Since the compiler will also need
+> > to use the ABI routines for processing typeinfo objects from
+> > libcxa.so, there will be no problem.
+> 
+> Ummm...  There are no ABI routines currently specified.
+
+I was thinking of __dynamic_cast. It's only a single routine, but it
+is part of the ABI, right? 
+
+Likewise, the typeinfo pointers stuffed into struct
+__cxa_throw_type_info are processed by libcxa.so routines only.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Nov  8 02:15:28 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 7 Nov 2000 18:15:28 -0800 (PST)
+Subject: Meeting Thursday
+Message-ID: <200011080215.SAA56907@baalbek.engr.sgi.com>
+
+Remember that we will be meeting on Thursday at 10:00 in the Magellan
+conference room at SGI.  There are a couple of significant proposals to
+discuss, so this is an important meeting.  Someone's going to be
+unhappy if our attendance looks like the last meeting or two...
+See in particular items 3 and 4 below.
+
+Following is an updated agenda.  The status pages are updated and on
+the web (HTML and PDF) at:
+
+      http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+As usual, most of the updates are in the ABI layout document, in red.
+Please take a careful look at the colored text, and raise any issues
+you observe.
+
+Take a look at the material associated with the following issues.
+If you see something, please send it by email.  #7 (exceptions) is most
+important, and I expect to devote at least half of the meeting to it
+unless noone has issues with it.  Please look it over carefully.
+
+  1) A-30 RTTI:  I think what's there now (2.9.5(1)) is agreeable to
+     everyone that's been vocal.  True?
+  
+  2) Please look at 3.1.1 (calling conventions).  There have been
+     changes in it lately, and I think it's a bit confused.  I'd like
+     the implementors to validate the steps there and tell me anything
+     that's wrong.
+
+  3) A-31: Laying out class members in padding.  We probably need to
+     make an exception for volatile data.  Should we make it more
+     general?  We have heard claims that the current definition is very
+     hard to implement -- please be prepared to explain those claims.
+     We have not heard from those who pushed hardest for this --
+     Christophe as I recall -- or from anyone who has implemented it --
+     Compaq I believe.  This could be a significant change, late in the
+     process.  We need to resolve it.
+
+  4) D-18: Can we replace __cxa_throw_type_info?
+
+  5) F-7:  Unicode.  It has been suggested that, rather than just
+     deferring the extended character set issue to the Open Group, we
+     specify what we intend to use, at least pending a contrary
+     decision.  I'm not averse to this.  But I want someone with some
+     knowledge of the issue to provide me with an appropriate
+     specification.
+
+  6) G-4:  Thread-safe data initialization.  See 3.3.2.  Christophe
+     had some ideas for optimization here.  I've updated 3.3.2 a bit,
+     but the discussion of potential changes for Christophe's concerns
+     is in the open issues page for issue G-4.  Christophe, can you
+     take a look at it?
+
+Note that it doesn't usually work to try to contact me by email
+or phone the morning of the meeting, as I come directly from home.  If
+you come in physically to the meeting, and the receptionist won't let
+you come back to the conference room on your own, have her call the
+conference room (it has a phone other than the one we use for the
+meeting).
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov 11 05:18:45 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 10 Nov 2000 21:18:45 -0800 (PST)
+Subject: C++ ABI: Substitutions and Vendor-Encoded Types
+Message-ID: <200011110518.VAA68283@baalbek.engr.sgi.com>
+
+We discussed this in the meeting yesterday.  Note that the grammar is
+correct (and matches the description) if the vendor extended qualifier
+is analogous to "pointer to" and doesn't match the description if it is
+analogous to "const."  We considered the possibility of extending the
+grammar to deal with both separately, and decided that it was not
+worthwhile for something with no current examples.  I've added a note
+to the document explaining that this situation exists and that a vendor
+adding a const-like qualifier will need to make appropriate
+adjustments.
+
+Thanks for pointing this out,
+Jim
+
+> From: Jeffrey Oldham <oldham at codesourcery.com>
+> 
+> Section 5.1.5 of the C++ ABI states
+> 
+>     <type> ::= <substitution>
+> 	   ::= U <source-name> <type>     # vendor extended type qualifier
+> 	   ...
+> 
+>     For purposes of substitution, given a CV-qualified type, the base type
+>     is substitutible, and the type with all the C, V, and r qualifiers
+>     plus any vendor extended types in the same order-insensitive set is
+>     substitutible; any types with a subset of those qualifiers is
+>     not. That is, given a type const volatile foo, the fully qualified
+>     type or foo may be substituted, but not const foo.
+> 
+> Which is correct, the grammar xor the text?  The grammar indicates
+> that 
+> 
+>      U 3foo U 3bar <type>
+> 
+> should be parsed and <type>, bar <type>, and foo bar <type> should be
+> placed in the substitution dictionary.  The text implies the middle
+> case should be omitted.  Which is right?  Should vendor-extended
+> qualifiers be merged with CV-qualifiers to form qualifiers to avoid
+> this difficulty?
+> 
+> Thanks,
+> Jeffrey D. Oldham
+> oldham at codesourcery.com
+> 
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov 11 05:47:37 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 10 Nov 2000 21:47:37 -0800 (PST)
+Subject: Results of the meeting on 9 November 2000
+Message-ID: <200011110547.VAA66837@baalbek.engr.sgi.com>
+
+Hi, all,
+
+We are almost done, we think.  I've made updates to the documents for
+yesterday's meeting as follows:
+
+A-5 (empty parameters):  Reopened this.  It appears to be much more
+trouble for the existing implementations than it is worth.  Read the
+comment in the issue, and the modified writeup in 3.1.3.  Barring
+screams of agony, we'll finalize this one next week.
+
+A-30 (RTTI portability):  Accepted as written.
+
+A-31 (layout in tail padding):  Accepted proposal to eliminate this
+from Mark (empty bases are still overlaid).
+
+3.1.1 (calling conventions):  With minor modification, should be fine now.
+
+D-14 (__cxa_begin/end_catch):  Closed -- this has been written up for
+a while now.
+
+D-18 (__cxa_throw_type_info):  Closed after replacing this class with
+its two components in the exception header and the __cxa_throw
+parameter list.
+
+F-8 (unicode):  Noone is prepared to pin this down yet.  Leave closed
+without specification.
+
+G-4 (thread-safe data initialization):  Accept the current writeup,
+with the addition of a release routine that leaves the object
+initialization flag unset for use when an exception is thrown
+(__cxa_guard_abort).
+
+The next normal meeting time would be Thanksgiving.  It won't happen.
+After that, we have one on the schedule for 7 December, but it won't
+happen either unless something new comes up.
+
+Enjoy your reading...
+
+Jim
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at sgi.com  Sat Nov 11 06:21:54 2000
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Fri, 10 Nov 2000 22:21:54 -0800
+Subject: Destruction of parameter objects
+References: <3A0B437D.D0B83A6F@edg.com>
+Message-ID: <3A0CE582.DE659DAD@sgi.com>
+
+This is now linked on the SGI site from the ABI summary page.
+Thanks, Daveed.
+
+Jim
+
+Daveed Vandevoorde wrote:
+> 
+> Not too long ago, the issue of when to destroy a parameter object
+> was raised among the IA-64 ABI members.  Attached is a submission
+> to J16 that traces the topic in the standard.  (Feel free to add
+> it as a supporting document to the web-repository.)
+> 
+>         Daveed
+>
+
+
+
+From mark at codesourcery.com  Mon Nov 13 19:39:24 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 13 Nov 2000 11:39:24 -0800
+Subject: Empty class passing details
+Message-ID: <20001113113924T.mitchell@codesourcery.com>
+
+
+We should also say what to do with return values.  And, I think in the
+spirit of easy reading, we should say:
+
+  as thought it were a struct containing a single char, i.e., 
+  `struct S { char c; };'
+
+The value of the char member are unspecified.  Similar language for
+return values.  This suggests an obvious, well-defined implementation.
+
+If there are associated performance issues, they don't really matter
+-- that was the unanimous conclusion of the experts we polled, and the
+reason for simplifying this stuff anyhow.  Let's make it
+super-simple. :-)
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Mon Nov 13 20:06:17 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 13 Nov 2000 12:06:17 -0800
+Subject: Empty class passing details
+In-Reply-To: <20001113113924T.mitchell@codesourcery.com>
+References: <20001113113924T.mitchell@codesourcery.com>
+Message-ID: <20001113120617J.mitchell@codesourcery.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+    Mark> We should also say what to do with return values.  And, I
+    Mark> think in the spirit of easy reading, we should say:
+
+    Mark>   as thought it were a struct containing a single char,
+    Mark> i.e., `struct S { char c; };'
+
+Will wonders never cease...
+
+David Gross points out that an empty class can have size greater than
+one.  (Conflicts from base classes that can't go at the same
+address...)
+
+I bet I have made this assumption in code in a few places, and I bet
+it's implied several places in the draft ABI, too.
+
+There are two ways to fix this:
+
+  - Change the definition of empty class to say a class that has 
+    no data members, etc., and has size one.
+
+  - Make a pass through everything fixing it up.
+
+This case is sufficiently pathological (empty classes with multiple
+inheritance, eventually from the same base class) that nobody will
+mind a bit if we choose the first option, so that's the one I would
+favor.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Nov 16 22:09:54 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Nov 2000 14:09:54 -0800
+Subject: Mangling local statics in constructors and destructors
+Message-ID: <20001116140954G.mitchell@codesourcery.com>
+
+
+In this kind of code:
+
+  struct S {
+    S ();
+    ~S ();
+  };
+
+  inline S::S () {
+    static int i;
+
+    i = 7;
+  }
+
+  inline S::~S () {
+    static int j;
+
+    j = 9;
+  }
+
+we need manglings for the local static variables.  These need to be
+consistent across the various constructor/destructor entry points; at
+present we do not have a mangling for a constructor independent of its
+entry point.
+
+Alex and I think we should use the `C1', `D1' alternatives for this
+case; these are the "complete" object constructors and destructors,
+which seems as sensible a choice as any.
+
+I don't think this is controversial; Jim, would you mind adding this
+to the document?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov 18 00:29:27 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Nov 2000 16:29:27 -0800 (PST)
+Subject: Mangling local statics in constructors and destructors
+Message-ID: <200011180029.QAA90482@baalbek.engr.sgi.com>
+
+This is done -- take a look and see if it is OK.
+
+Jim
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> In this kind of code:
+> 
+>   struct S {
+>     S ();
+>     ~S ();
+>   };
+> 
+>   inline S::S () {
+>     static int i;
+> 
+>     i = 7;
+>   }
+> 
+>   inline S::~S () {
+>     static int j;
+> 
+>     j = 9;
+>   }
+> 
+> we need manglings for the local static variables.  These need to be
+> consistent across the various constructor/destructor entry points; at
+> present we do not have a mangling for a constructor independent of its
+> entry point.
+> 
+> Alex and I think we should use the `C1', `D1' alternatives for this
+> case; these are the "complete" object constructors and destructors,
+> which seems as sensible a choice as any.
+> 
+> I don't think this is controversial; Jim, would you mind adding this
+> to the document?
+> 
+> Thanks,
+> 
+> --
+> Mark Mitchell                   mark at codesourcery.com
+> CodeSourcery, LLC               http://www.codesourcery.com
+> 
+-	    Jim Dehnert		dehnertj at acm.org
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Nov 18 00:26:00 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Nov 2000 16:26:00 -0800 (PST)
+Subject: Empty class passing details
+Message-ID: <200011180026.QAA67567@baalbek.engr.sgi.com>
+
+> Subject: Empty class passing details
+> From: Mark Mitchell <mark at codesourcery.com>
+> Date: Mon, 13 Nov 2000 11:39:24 -0800
+>
+> We should also say what to do with return values.  And, I think in the
+> spirit of easy reading, we should say:
+> 
+>   as thought it were a struct containing a single char, i.e., 
+>   `struct S { char c; };'
+
+Done.  Take a look.
+
+
+> Subject: Re: Empty class passing details
+> From: Mark Mitchell <mark at codesourcery.com>
+> Date: Mon, 13 Nov 2000 12:06:17 -0800
+> 
+> Will wonders never cease...
+> 
+> David Gross points out that an empty class can have size greater than
+> one.  (Conflicts from base classes that can't go at the same
+> address...)
+> 
+> I bet I have made this assumption in code in a few places, and I bet
+> it's implied several places in the draft ABI, too.
+> 
+> There are two ways to fix this:
+> 
+>   - Change the definition of empty class to say a class that has 
+>     no data members, etc., and has size one.
+> 
+>   - Make a pass through everything fixing it up.
+> 
+> This case is sufficiently pathological (empty classes with multiple
+> inheritance, eventually from the same base class) that nobody will
+> mind a bit if we choose the first option, so that's the one I would
+> favor.
+
+I don't know that we've made this assumption anywhere, though there are
+places (parameter passing) where it might prove inconvenient IF the
+empty class got bigger than a parameter register.  Given that such a
+class can't have any virtual bases or functions, I'm frankly not
+worried that this will _ever_ happen, let alone infrequently.  So I'm
+inclined to ignore it unless someone sees a place where we've got it
+wrong.
+
+Now I have a bias (laziness), but I'd rather not risk inserting
+inconsistencies if it's not necessary.
+
+Jim
+
+-	    Jim Dehnert		dehnertj at acm.org
+
+
+
+From dehnert at baalbek.engr.sgi.com  Mon Nov 20 06:53:39 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Sun, 19 Nov 2000 22:53:39 -0800 (PST)
+Subject: Moving on
+Message-ID: <200011200653.WAA54181@baalbek.engr.sgi.com>
+
+Greetings,
+
+I believe that we are essentially done, with no outstanding issues
+that must be solved, and with minimal editorial work to do.  Of course,
+with implementations still underway, additional issues will probably
+arise.  The web pages on our site (PDF and HTML) are up-to-date with
+the recent changes and discussions (though I haven't had access to
+email this weekend).  The next "normal" meeting time would be
+Thanksgiving, and clearly won't happen.  We have a meeting scheduled
+for 7 December, though we don't expect to hold it if nothing comes up.
+
+As of Monday, I am leaving SGI, and moving to Transmeta.  As a result,
+I will no longer be representing SGI on this ABI group.  We have
+not yet determined who will be, but Chandrasekhar Murthy,
+murthy at engr.sgi.com, is a likely candidate.  Please address SGI questions
+to Murthy or to Ross Towle, rat at sgi.com.  For the next couple of weeks,
+Ross is on vacation, and George Pirocanac can cover for him,
+georgep at engr.sgi.com.
+
+I've enjoyed working with this group -- it's been a very cooperative
+and productive one, I think.  My "permanent" email address is
+dehnertj at acm.org, and my new work email will be dehnert at transmeta.com.
+I remain interested in the ABI, and will continue on the mail alias.
+If the effort remains minor, and no one else wants to take over, I can
+probably continue to update documents.  But if someone volunteers to
+take this on, that would be great.
+
+Best regards,
+Jim Dehnert
+
+-	    Jim Dehnert		dehnertj at acm.org
+
+
+
+From loewis at informatik.hu-berlin.de  Mon Nov 20 12:05:05 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Mon, 20 Nov 2000 13:05:05 +0100 (MET)
+Subject: Moving on
+In-Reply-To: <200011200653.WAA54181@baalbek.engr.sgi.com> (message from Jim
+	Dehnert on Sun, 19 Nov 2000 22:53:39 -0800 (PST))
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+Message-ID: <200011201205.NAA08776@pandora.informatik.hu-berlin.de>
+
+> As of Monday, I am leaving SGI, and moving to Transmeta.  As a
+> result, I will no longer be representing SGI on this ABI group.
+
+Hi Jim,
+
+Let me take this opportunity to thank you for your efforts in managing
+the ABI group, in particular for the time spent in editing and
+maintaining the specification, as well as moderating discussions to
+achieve consensus.
+
+I wish you all the best in your new job, and hope you'll be around on
+this list.
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Mon Nov 20 19:03:01 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 20 Nov 2000 11:03:01 -0800
+Subject: Moving on
+In-Reply-To: <200011200653.WAA54181@baalbek.engr.sgi.com>
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+Message-ID: <20001120110301V.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> and will continue on the mail alias.  If the effort remains
+    Jim> minor, and no one else wants to take over, I can probably
+    Jim> continue to update documents.  But if someone volunteers to
+    Jim> take this on, that would be great.
+
+As others have said, we all owe Jim a round of thank yous.  Jim has
+done an excellent job coordinating, maintaining the web site,
+organizing the meetings, and arbitrating between us!
+
+There are a few new issues that have popped up since our last meeting
+-- it ain't over 'til it's over.  Still, I bet most of them are easily
+resolved, and could be handled largely by email.
+
+If you're looking for someone to take over the organizational duties,
+I'd suggest Alex Samuel (samuel at codesourcery.com).  Alex has done a
+lot of work on mangling, has implemented most of the ABI in the EDG
+front-end, and is presently working on implementing some of the EH
+bits, so he's familiar with all the issues.
+
+Thoughts?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Fri Nov 24 15:28:34 2000
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Fri, 24 Nov 2000 16:28:34 +0100 (MET)
+Subject: Moving on
+In-Reply-To: <20001120110301V.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Mon, 20 Nov 2000 11:03:01 -0800)
+References: <200011200653.WAA54181@baalbek.engr.sgi.com> <20001120110301V.mitchell@codesourcery.com>
+Message-ID: <200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+
+> If you're looking for someone to take over the organizational duties,
+> I'd suggest Alex Samuel (samuel at codesourcery.com).  Alex has done a
+> lot of work on mangling, has implemented most of the ABI in the EDG
+> front-end, and is presently working on implementing some of the EH
+> bits, so he's familiar with all the issues.
+> 
+> Thoughts?
+
+I didn't see any responses to this question, so I'll offer an opinion.
+
+I do think somebody needs to be in charge, and I certainly don't mind
+Alex (and thus codesourcery) taking over the work.
+
+I think there might be a problem with the Web location of the
+specification;
+http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html is a
+well-known location for it, known beyond the ABI working group.  So I
+think it is important that this link continues to operate; I'd
+appreciate if somebody from SGI could comment on whether there are any
+plans to remove Jim's pages from the 'net. In any case, it seems
+crucial that whoever takes over management has a chance to modify this
+content (of course, the Web offers a number of possible solutions).
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Sat Nov 25 00:36:24 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 24 Nov 2000 16:36:24 -0800
+Subject: Moving on
+In-Reply-To: <200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+	<20001120110301V.mitchell@codesourcery.com>
+	<200011241528.QAA26188@pandora.informatik.hu-berlin.de>
+Message-ID: <20001124163624O.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+    Martin> I think there might be a problem with the Web location of
+    Martin> the specification;
+    Martin> http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+    Martin> is a well-known location for it, known beyond the ABI
+    Martin> working group.  So I think it is important that this link
+    Martin> continues to operate;
+
+That would indeed be good.  
+
+We should prehaps also set up a vendor-neutral web-site
+(www.c++abi.org) or some such, to avoid such issues going forward.
+
+CodeSourcery would be happy to host such a site, if that would help.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Nov 29 17:00:12 2000
+From: jason at redhat.com (Jason Merrill)
+Date: 29 Nov 2000 17:00:12 +0000
+Subject: Moving on
+In-Reply-To: <200011201205.NAA08776@pandora.informatik.hu-berlin.de>
+References: <200011200653.WAA54181@baalbek.engr.sgi.com>
+	<200011201205.NAA08776@pandora.informatik.hu-berlin.de>
+Message-ID: <u9r93uk92b.fsf@casey.soma.redhat.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+> Let me take this opportunity to thank you for your efforts in managing
+> the ABI group, in particular for the time spent in editing and
+> maintaining the specification, as well as moderating discussions to
+> achieve consensus.
+
+Hear, hear.  Jim has done a fabulous job of managing the ABI process,
+mediating, researching, and doing the necessary legwork to keep the
+rest of us on track.  A valuable and under-appreciated skill.
+
+I have no objection to CodeSourcery maintaining the specification
+going forward.
+
+Jason
+
+
+
+From ravi.narayanaswamy at intel.com  Thu Nov 30 18:08:54 2000
+From: ravi.narayanaswamy at intel.com (Narayanaswamy, Ravi)
+Date: Thu, 30 Nov 2000 10:08:54 -0800
+Subject: C++ Exception object layout
+Message-ID: <10C8636AE359D4119118009027AE9987168945@FMSMSX34>
+
+In section 2.2.1 C++ Exception Objects,  the text part says that the unwind
+header
+structure is followed by the exception object itself, where as the layout
+of the structure is just the opposite.  Can someone tell me which is the
+correct
+one.
+Below is part of the section.
+Thanks
+Ravi
+Intel Corporation.
+
+2.2.1 C++ Exception Objects 
+A C++ exception object consists of a header, which is a wrapper around an
+unwind object header with additional C++ specific information, followed by
+the exception object itself. The structure of the header is as follows: 
+
+  struct __cxa_exception { 
+	std::type_info *	exceptionType;
+	void (*exceptionDestructor) (void *); 
+	unexpected_handler	unexpectedHandler;
+	terminate_handler	terminateHandler;
+	__cxa_exception *	nextException;
+
+	int			handlerCount;
+	int			handlerSwitchValue;
+	const char *		actionRecord;
+	const char *		languageSpecificData;
+	void *			catchTemp;
+	void *			adjustedPtr;
+
+	_Unwind_Exception	unwindHeader;
+   };
+
+
+
+

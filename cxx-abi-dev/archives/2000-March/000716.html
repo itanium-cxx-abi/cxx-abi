@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Resolution of B-2 not reflected in B-6 (aka covariant returns)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Resolution%20of%20B-2%20not%20reflected%20in%20B-6%20%28aka%20covariant%20returns%29&In-Reply-To=%3C200003082354.PAA48549%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000721.html">
+   <LINK REL="Next"  HREF="000719.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Resolution of B-2 not reflected in B-6 (aka covariant returns)</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Resolution%20of%20B-2%20not%20reflected%20in%20B-6%20%28aka%20covariant%20returns%29&In-Reply-To=%3C200003082354.PAA48549%40baalbek.engr.sgi.com%3E"
+       TITLE="Resolution of B-2 not reflected in B-6 (aka covariant returns)">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Mar  8 23:54:11 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000721.html">Local statics
+</A></li>
+        <LI>Next message: <A HREF="000719.html">Resolution of B-2 not reflected in B-6 (aka covariant returns)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#716">[ date ]</a>
+              <a href="thread.html#716">[ thread ]</a>
+              <a href="subject.html#716">[ subject ]</a>
+              <a href="author.html#716">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Date: Tue, 7 Mar 2000 23:16:37 +0100
+</I>&gt;<i> From: Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> I just tried to understand our scheme for covariant returns, and found
+</I>&gt;<i> I couldn't. All I found was:
+</I>&gt;<i> 
+</I>&gt;<i> - there are different vtable entries for each different return type.
+</I>&gt;<i> - at the end of issue B-2, it is explained that the exact definition
+</I>&gt;<i>   is found in issue B-6.
+</I>&gt;<i> - in issue B-6, it is explained that the resolution to that issue is
+</I>&gt;<i>   found in the ABI layout document
+</I>&gt;<i> - in the ABI layout document, there is no mentioning of covariant
+</I>&gt;<i>   returns.
+</I>
+You seem to be correct.  Let me try to explain my understanding of the
+situation and an appropriate rule derived from that, and then those of
+you more knowledgeable can clarify.
+
+&gt;<i> If desired, I can try to produce a draft.
+</I>
+That would be good, if you have a better scheme than below.
+
+First, a simple example:
+
+	class T {
+	  virtual void f();
+	};
+	class A {
+	  virtual A* foo (void);
+	};
+	class B: public T, public A {
+	  virtual A* foo (void);
+	};
+	class C: public B {
+	  virtual C* foo (void);
+	};
+	A* a = new A;
+	B* b = new B;	A* a_in_b = b;
+	C* c = new C;	B* b_in_c = c;
+
+Now, our layout rules, ignoring the covariant returns, provide:
+
+  1. Vtable A:  entry for A::foo non-adjusting (a-&gt;foo)
+  2. Vtable B:  entry for B::foo non-adjusting (b-&gt;foo)
+  3. Vtable A-in-B (not primary):  entry for B::foo adjusting (a_in_b-&gt;foo)
+  4. Vtable C:  entry for C::foo non-adjusting (c-&gt;foo)
+  5. Vtable B-in-C (primary):  entry for C::foo non-adjusting (b_in_c-&gt;foo)
+  6. Vtable A-in-C (not primary):  entry for C::foo adjusting (a_in_c-&gt;foo)
+
+Now, if we assume that all of the adjusting entrypoints also adjust the
+return pointer if necessary (it's not always, e.g. case (3)),
+everything works fine EXCEPT case (5).  In that case, the B-in-C vtable
+is primary, so the vtable C and vtable B-in-C entries for foo are the
+same entry.  But the C entry needs no result adjustment, and the B
+entry does (to an A*).
+
+I think this can be dealt with by the following rule:
+
+  The adjusting entrypoints referenced by vtable entries in secondary
+  vtables must adjust both the this pointer and the covariant return
+  pointer (if necessary).  If a derived class and its primary base
+  share a vtable, and the derived class overrides a virtual function in
+  the primary base's primary vtable with a different return type, then
+  the shared vtable entry adjusts the return type to that required by
+  the base class, and a second entry is allocated in the derived type's
+  vtable (according to the position rules for any vfunc added by the
+  derived class) for the overriding function, which adjusts neither
+  this nor the return type.
+
+Note that this rule does not provide what I originally assumed was
+meant by &quot;multiple entries for covariant returns,&quot; as it makes use of
+the multiple entries already present in secondary vtables when it can.
+
+Am I missing anything?  Is this clear?  Other comments?
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000721.html">Local statics
+</A></li>
+	<LI>Next message: <A HREF="000719.html">Resolution of B-2 not reflected in B-6 (aka covariant returns)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#716">[ date ]</a>
+              <a href="thread.html#716">[ thread ]</a>
+              <a href="subject.html#716">[ subject ]</a>
+              <a href="author.html#716">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

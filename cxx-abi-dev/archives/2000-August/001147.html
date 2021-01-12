@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> runtime mangling API
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20runtime%20mangling%20API&In-Reply-To=%3C14758.62717.437447.501987%40watercress.indetermi.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001148.html">
+   <LINK REL="Next"  HREF="001149.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>runtime mangling API</H1>
+    <B>Alex Samuel</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20runtime%20mangling%20API&In-Reply-To=%3C14758.62717.437447.501987%40watercress.indetermi.net%3E"
+       TITLE="runtime mangling API">samuel at codesourcery.com
+       </A><BR>
+    <I>Fri Aug 25 22:36:45 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001148.html">runtime demangler API
+</A></li>
+        <LI>Next message: <A HREF="001149.html">problem with local name mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1147">[ date ]</a>
+              <a href="thread.html#1147">[ thread ]</a>
+              <a href="subject.html#1147">[ subject ]</a>
+              <a href="author.html#1147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Folks,
+
+Here's some correspondence between Ulrich Drepper and me regarding
+runtime mangling.  I forgot to CC the cxx-abi list.
+
+------------------------------------------------------------------------
+From: Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt;
+To: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at cygnus.com</A> (Ulrich Drepper)
+Subject: Re: runtime demangler API
+
+Ulrich Drepper &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at redhat.com</A>&gt; writes:
+
+  Ulrich&gt; Sorry to step in without really follwoing the discussion.  I
+  Ulrich&gt; just want to make sure you also have a runtime mangler
+  Ulrich&gt; interface.  This is needed to handle dlsym() + C++.
+
+I'm not sure what you mean.  Do you mean a text-to-text mangling API?
+Is this possible even in principal?
+
+Regards
+Alex Samuel
+
+------------------------------------------------------------------------
+From: Ulrich Drepper &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at redhat.com</A>&gt;
+To: Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt;
+Subject: Re: runtime demangler API
+
+Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt; writes:
+
+&gt;<i> I'm not sure what you mean.  Do you mean a text-to-text mangling API?
+</I>
+Yes.  I'm calling
+
+	char **arr;
+	mangle (buf, bufsize, &quot;intfoo(int)&quot;, &amp;arr)
+
+and get an array with the possible mangled names back.  Due to the
+wide variety of possible mangling schemes it probably should be
+allowed to return more than one.
+
+&gt;<i> Is this possible even in principal?
+</I>
+The compiler does it, so why shouldn't it be possible at runtime?
+
+------------------------------------------------------------------------
+From: Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt;
+To: <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at cygnus.com</A> (Ulrich Drepper)
+Subject: Re: runtime demangler API
+
+Ulrich Drepper &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at redhat.com</A>&gt; writes:
+
+  Ulrich&gt; The compiler does it, so why shouldn't it be possible at
+  Ulrich&gt; runtime?
+
+I understand the need for it, but the compiler has a lot more context
+that a text-to-text mangling function will not.  
+
+In your example, for instance, you'd need to specify at least the full
+scope of all names, as in
+
+    mangle (buf, bufsize, &quot;int ::foo(int)&quot;, &amp;arr);
+
+Here's a more insidious example.  In this code,
+
+    template&lt;int I&gt; class C {};
+    void foo (C&lt;1&gt;) {}
+
+foo is mangled `_Z3foo1CILi1EE', but in this code,
+
+    template&lt;short I&gt; class C {};
+    void foo (C&lt;1&gt;) {}
+
+it's mangled `_Z3foo1CILs1EE'.  Which do you expect to get back from
+
+    mangle (buf, bufsize, &quot;void ::foo(::C&lt;1&gt;)&quot;, &amp;arr);
+
+?  There are a lot more examples like this where you'll have to supply
+a lot more information in the name than you normally would.
+Furthermore, preprocessor macros will not be visible, which can make
+things even more confusing.
+
+Even if we can sort all this out, do we want to link most of a C++
+parser into programs?
+
+Regards
+Alex
+
+------------------------------------------------------------------------
+From: Ulrich Drepper &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">drepper at redhat.com</A>&gt;
+To: Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt;
+Subject: Re: runtime demangler API
+
+Alex Samuel &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">samuel at codesourcery.com</A>&gt; writes:
+
+&gt;<i> ?  There are a lot more examples like this where you'll have to supply
+</I>&gt;<i> a lot more information in the name than you normally would.
+</I>&gt;<i> Furthermore, preprocessor macros will not be visible, which can make
+</I>&gt;<i> things even more confusing.
+</I>&gt;<i> 
+</I>&gt;<i> Even if we can sort all this out, do we want to link most of a C++
+</I>&gt;<i> parser into programs?
+</I>
+Make it a library function which people can use.  I get requests for
+things like this since people don't want to know the mangled name.  If
+it's not possible: fine.
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001148.html">runtime demangler API
+</A></li>
+	<LI>Next message: <A HREF="001149.html">problem with local name mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1147">[ date ]</a>
+              <a href="thread.html#1147">[ thread ]</a>
+              <a href="subject.html#1147">[ subject ]</a>
+              <a href="author.html#1147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

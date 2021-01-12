@@ -1,0 +1,861 @@
+From jason_merrill at redhat.com  Tue Aug 14 14:22:51 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 14 Aug 2001 15:22:51 +0100
+Subject: Patch for throw/catch problems
+In-Reply-To: <20010814093030.N3862@devserv.devel.redhat.com> (Jakub Jelinek's message of "Tue, 14 Aug 2001 09:30:30 -0400")
+References: <10280000.997759781@warlock.codesourcery.com>
+	<m3ae12x0e9.fsf@prospero.cambridge.redhat.com>
+	<20010814093030.N3862@devserv.devel.redhat.com>
+Message-ID: <m3sneuvhz8.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Jakub" == Jakub Jelinek <jakub at redhat.com> writes:
+
+[discussion of the runtime cost of fixing up all the static references to
+RTTI nodes and their NTBS's; Jakub was wondering about making the NTBS's
+internal to a shared object]
+
+> On Tue, Aug 14, 2001 at 01:59:42PM +0100, Jason Merrill wrote:
+>> I think that when we were discussing this, we failed to consider the
+>> runtime initialization impact of our choice.  I seem to remember a
+>> message from Intel a while back indicating an effect on EH code as well.
+>> 
+>> Jakub: The code relies on the ZTS nodes being shared between shared
+>> objects.  We cannot rely on all references to a type using the same ZTI
+>> node; in particular, we do something different for incomplete types.
+
+> Do you have some testcase which shows this? I see _ZTS nodes being put
+> into _ZTI constructor in just one place only in cp/rtti.c.
+
+I was confused; only pointers to incomplete types are represented
+differently.
+
+>> However, I would think the ZTI nodes could be made hidden.
+
+> If that would be true, even better (I believe there are more relocs against
+> _ZTI* symbols than relocs against _ZTS* symbols).
+> But http://reality.sgi.com/dehnert_engr/cxx/abi.html#vtable
+> says:
+
+> The typeinfo pointer points to the typeinfo object used for RTTI. It is
+> always present. All entries in each of the virtual tables for a given class
+> must point to the same typeinfo object. A correct implementation of typeinfo
+> equality is to check pointer equality, except for pointers (directly or
+> indirectly) to incomplete types. The typeinfo pointer is a valid pointer for
+> polymorphic classes, i.e. those with virtual functions, and is zero for
+> non-polymorphic classes.
+
+> which suggest that typeinfo compare should compare typeinfo pointers, not
+> __name fields.
+
+FYI, the official website for the ABI is now 
+
+  http://www.codesourcery.com/cxx-abi/
+
+but it says the same thing.  I believe that this is a case of obsolete
+wording; since we decided to commonize the NTBS, there is no reason to
+allow implementations to rely on being able to compare the type_info node
+addresses directly.  We certainly handle type_info comparison by looking at
+the NTBS address; would anyone object to new wording to disallow comparison
+of type_info node addresses?
+
+Jason
+
+
+From jason_merrill at redhat.com  Tue Aug 14 14:42:46 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 14 Aug 2001 15:42:46 +0100
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <m3sneuvhz8.fsf@prospero.cambridge.redhat.com> (Jason Merrill's message of "14 Aug 2001 15:22:51 +0100")
+References: <10280000.997759781@warlock.codesourcery.com>
+	<m3ae12x0e9.fsf@prospero.cambridge.redhat.com>
+	<20010814093030.N3862@devserv.devel.redhat.com>
+	<m3sneuvhz8.fsf@prospero.cambridge.redhat.com>
+Message-ID: <m3n152vh21.fsf_-_@prospero.cambridge.redhat.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+> I believe that this is a case of obsolete wording; since we decided to
+> commonize the NTBS, there is no reason to allow implementations to rely
+> on being able to compare the type_info node addresses directly.  We
+> certainly handle type_info comparison by looking at the NTBS address;
+> would anyone object to new wording to disallow comparison of type_info
+> node addresses?
+
+It occurs to me that even if we do this, we need to consider the case of a
+polymorphic class for which we only emit the vtable, and thus the
+type_info, in one place.  The type_info would still need to be addressable
+from outside the shared object where it is defined, though we could bind
+strongly within the shared object.
+
+Or we could change gcc to always generate type_infos wherever referenced; I
+believe that would be conformant, though I'm not sure it would be a win.
+
+Jason
+
+
+From jakub at redhat.com  Tue Aug 14 15:05:31 2001
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Tue, 14 Aug 2001 11:05:31 -0400
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <m3n152vh21.fsf_-_@prospero.cambridge.redhat.com>; from jason_merrill@redhat.com on Tue, Aug 14, 2001 at 03:42:46PM +0100
+References: <10280000.997759781@warlock.codesourcery.com> <m3ae12x0e9.fsf@prospero.cambridge.redhat.com> <20010814093030.N3862@devserv.devel.redhat.com> <m3sneuvhz8.fsf@prospero.cambridge.redhat.com> <m3n152vh21.fsf_-_@prospero.cambridge.redhat.com>
+Message-ID: <20010814110531.O3862@devserv.devel.redhat.com>
+
+On Tue, Aug 14, 2001 at 03:42:46PM +0100, Jason Merrill wrote:
+> >>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+> 
+> > I believe that this is a case of obsolete wording; since we decided to
+> > commonize the NTBS, there is no reason to allow implementations to rely
+> > on being able to compare the type_info node addresses directly.  We
+> > certainly handle type_info comparison by looking at the NTBS address;
+> > would anyone object to new wording to disallow comparison of type_info
+> > node addresses?
+> 
+> It occurs to me that even if we do this, we need to consider the case of a
+> polymorphic class for which we only emit the vtable, and thus the
+> type_info, in one place.  The type_info would still need to be addressable
+> from outside the shared object where it is defined, though we could bind
+> strongly within the shared object.
+> 
+> Or we could change gcc to always generate type_infos wherever referenced; I
+> believe that would be conformant, though I'm not sure it would be a win.
+
+This should be no problem if NTBS are private to each library and type_infos
+unique accross the whole program, if NTBS' are only referenced from type_infos
+with the same name (Jason, does your "only pointers to incomplete types are
+represented differently" mean this condition is always satisfied?).
+Then it really does not matter if you compare type_info pointers or their
+NTBS'.
+Without any kind of prelinking, it would probably be better to have
+type_infos private and NTBS COMDAT during run-time linkining, but with
+prelinking this kills some optimization possibilities (particularly removing
+unneeded NTBS conflicts). If NTBS are private and type_infos COMDAT, then
+prelinker can optimize by seeing if a particular type_info is never used
+(because its symbol is preempted by some other one earlier in the search
+path) and just avoid the relocation of that type_info structure.
+
+I don't know how could we make _ZTI symbols GLOBAL/WEAK while making
+relocations against them be resolved at static link time to that symbol,
+unless we special cased this in the linker, which is not a good idea IMHO.
+
+	Jakub
+
+
+From mark at codesourcery.com  Tue Aug 14 16:07:08 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 14 Aug 2001 09:07:08 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <20010814110531.O3862@devserv.devel.redhat.com>
+Message-ID: <67940000.997805228@warlock.codesourcery.com>
+
+
+
+--On Tuesday, August 14, 2001 11:05:31 AM -0400 Jakub Jelinek 
+<jakub at redhat.com> wrote:
+
+> On Tue, Aug 14, 2001 at 03:42:46PM +0100, Jason Merrill wrote:
+>> >>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+>>
+>> > I believe that this is a case of obsolete wording;
+
+Maybe -- but it is what it says, and it is what people have implemented.
+I know that there are C++ compilers out there with runtimes that do
+pointer comparisons now...
+
+Anyhow, there are two issues, both important:
+
+  - What happens with RTLD_LOCAL?
+
+  - How can we reduce startup cost?
+
+They're somewhat different, even if they might have a related solution.
+
+My opinion is that RTLD_LOCAL is not something we should even try to
+get right.  It's way too hard.
+
+Startup cost happens once per program, except for any excess memory
+used that hangs around.  So, for a long-running application (anything
+graphical definitely qualifies) this isn't *too* important, and there
+are techniques (caching, prelinking) that can get around the problem.
+On the other hand, there's no way I know of to recover the time you
+lose by comparing type-infos slowly, and there really are programs
+where that is the inner loop.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Tue Aug 14 21:51:34 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Tue, 14 Aug 2001 14:51:34 -0700
+Subject: [cxx-abi-dev] Re: Patch for throw/catch problems
+References: <10280000.997759781@warlock.codesourcery.com>
+		<m3ae12x0e9.fsf@prospero.cambridge.redhat.com>
+		<20010814093030.N3862@devserv.devel.redhat.com> <m3sneuvhz8.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3B799D66.312195CF@transmeta.com>
+
+Jason Merrill wrote:
+> but it says the same thing.  I believe that this is a case of obsolete
+> wording; since we decided to commonize the NTBS, there is no reason to
+> allow implementations to rely on being able to compare the type_info node
+> addresses directly.  We certainly handle type_info comparison by looking at
+> the NTBS address; would anyone object to new wording to disallow comparison
+> of type_info node addresses?
+
+No.  I seem to recall that one of the key objectives for the NTBS
+was to be the handle, rather than the nodes.
+
+Jim
+
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+From jason_merrill at redhat.com  Tue Aug 14 22:47:45 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 14 Aug 2001 23:47:45 +0100
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <67940000.997805228@warlock.codesourcery.com> (Mark Mitchell's message of "Tue, 14 Aug 2001 09:07:08 -0700")
+References: <67940000.997805228@warlock.codesourcery.com>
+Message-ID: <m3wv46tg1a.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> Maybe -- but it is what it says, and it is what people have implemented.
+> I know that there are C++ compilers out there with runtimes that do
+> pointer comparisons now...
+
+Really?  Comparisons of pointers to type_infos, complete with the special
+trickery necessary to handle pointers to incomplete type?  Why, when they
+can just as easily do pointer comparison of the NTBS?
+
+> Anyhow, there are two issues, both important:
+
+>   - What happens with RTLD_LOCAL?
+
+>   - How can we reduce startup cost?
+
+> They're somewhat different, even if they might have a related solution.
+
+> My opinion is that RTLD_LOCAL is not something we should even try to
+> get right.  It's way too hard.
+
+Yup.
+
+> Startup cost happens once per program, except for any excess memory
+> used that hangs around.  So, for a long-running application (anything
+> graphical definitely qualifies) this isn't *too* important, and there
+> are techniques (caching, prelinking) that can get around the problem.
+
+And yet it seems to be a significant problem for a significant number of
+people.  I was trying hard to avoid unnecessary dynamic relocations in the
+ABI; clearly I failed.  I think I wasn't paying close enough attention to
+the RTTI stuff.
+
+Jason
+
+
+From rth at redhat.com  Tue Aug 14 22:59:11 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Tue, 14 Aug 2001 15:59:11 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <m3wv46tg1a.fsf@prospero.cambridge.redhat.com>; from jason_merrill@redhat.com on Tue, Aug 14, 2001 at 11:47:45PM +0100
+References: <67940000.997805228@warlock.codesourcery.com> <m3wv46tg1a.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010814155911.A8583@redhat.com>
+
+On Tue, Aug 14, 2001 at 11:47:45PM +0100, Jason Merrill wrote:
+> >>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+> > Startup cost happens once per program, except for any excess memory
+> > used that hangs around.  So, for a long-running application (anything
+> > graphical definitely qualifies) this isn't *too* important, and there
+> > are techniques (caching, prelinking) that can get around the problem.
+> 
+> And yet it seems to be a significant problem for a significant number of
+> people.
+
+Indeed.  Mark, havn't you noticed that KDE, Gnome and Mozilla are
+high on the list of projects that complain about startup time?
+
+And no, caching and prelinking don't help here since we're dealing
+with weak symbols.  Those can't be prelinked and wind up on the
+conflict list (which uses yet more runtime memory, btw) which gets
+resolved after the rest of prelinking is complete.
+
+
+r~
+
+
+From mark at codesourcery.com  Tue Aug 14 23:01:39 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 14 Aug 2001 16:01:39 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <m3wv46tg1a.fsf@prospero.cambridge.redhat.com>
+Message-ID: <306810000.997830099@warlock.codesourcery.com>
+
+
+
+--On Tuesday, August 14, 2001 11:47:45 PM +0100 Jason Merrill 
+<jason_merrill at redhat.com> wrote:
+
+>>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+>
+>> Maybe -- but it is what it says, and it is what people have implemented.
+>> I know that there are C++ compilers out there with runtimes that do
+>> pointer comparisons now...
+>
+> Really?  Comparisons of pointers to type_infos, complete with the special
+> trickery necessary to handle pointers to incomplete type?  Why, when they
+> can just as easily do pointer comparison of the NTBS?
+
+Hmm.  Perhaps I misremember; I will try to find out.  It is true that
+it would be no less efficient (and probably more efficient) to do
+comparisions of the NTBS instead of the type_info.  I guess Richard
+confused me because the original bit on the GCC lists was about changing
+from pointer-comparison to strcmp for typeinfo names, and that is an
+efficiency hit.
+
+>
+>> My opinion is that RTLD_LOCAL is not something we should even try to
+>> get right.  It's way too hard.
+>
+> Yup.
+
+One down.
+
+>
+>> Startup cost happens once per program, except for any excess memory
+>> used that hangs around.  So, for a long-running application (anything
+>> graphical definitely qualifies) this isn't *too* important, and there
+>> are techniques (caching, prelinking) that can get around the problem.
+>
+> And yet it seems to be a significant problem for a significant number of
+> people.  I was trying hard to avoid unnecessary dynamic relocations in the
+> ABI; clearly I failed.  I think I wasn't paying close enough attention to
+> the RTTI stuff.
+
+Certainly a laudable goal.  I do wonder though if a better solution
+wouldn't be to improve the dynamic loader; it's certainly possible to
+write DLLs in C that have similarly many symbols to relocate.  It's
+even more possible in Java or C#.  Not that we shouldn't do what we
+can, but heck, GNOME apps written in C don't start up as fast as I'd
+like either.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Tue Aug 14 23:08:49 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 14 Aug 2001 16:08:49 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <20010814155911.A8583@redhat.com>
+Message-ID: <310480000.997830529@warlock.codesourcery.com>
+
+
+Comments about people complaining are valid.  Users trump theory.
+
+> And no, caching and prelinking don't help here since we're dealing
+> with weak symbols.  Those can't be prelinked and wind up on the
+> conflict list (which uses yet more runtime memory, btw) which gets
+> resolved after the rest of prelinking is complete.
+>
+
+I think I meant something more ambitious; you create a table of
+what values to relocate into what absolute memory locations,
+and squirrel them away (along with hashes/timestamps of the DSOs
+you were using).  Then, when you load the program, you check that
+all the hashes match and that your DSOs ended up at the addresses
+you expected and then just blast in your dynamic relocations
+using the saved values without bothering to parse the relocation
+sections or without looking up any symbols.
+
+Would that work, in theory?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From eboling at borland.com  Wed Aug 15 03:36:31 2001
+From: eboling at borland.com (Eli Boling)
+Date: Tue, 14 Aug 2001 22:36:31 -0500
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catchproblems)
+References: <306810000.997830099@warlock.codesourcery.com>
+Message-ID: <3B79EE3F.4529E2BB@borland.com>
+
+> >> Startup cost happens once per program, except for any excess memory
+> >> used that hangs around.  So, for a long-running application (anything
+> >> graphical definitely qualifies) this isn't *too* important, and there
+> >> are techniques (caching, prelinking) that can get around the problem.
+> >
+> > And yet it seems to be a significant problem for a significant number of
+> > people.  I was trying hard to avoid unnecessary dynamic relocations in the
+> > ABI; clearly I failed.  I think I wasn't paying close enough attention to
+> > the RTTI stuff.
+>
+> Certainly a laudable goal.  I do wonder though if a better solution
+> wouldn't be to improve the dynamic loader; it's certainly possible to
+> write DLLs in C that have similarly many symbols to relocate.  It's
+> even more possible in Java or C#.  Not that we shouldn't do what we
+> can, but heck, GNOME apps written in C don't start up as fast as I'd
+> like either.
+
+I really prefer that not to focus on a solution that relies on the performance
+of the dynamic loader to patch up pitfalls in the design of the implementation.
+That works fine for the unix community, but not so hot for the Windows
+community.  If I work on an ABI, I don't want to have to redo big pieces of it
+on another platform because the loader isn't tuned to deal with issues related
+to particular language implementations.
+
+-Eli Boling
+  Borland
+
+
+
+
+From mark at codesourcery.com  Wed Aug 15 04:27:54 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 14 Aug 2001 21:27:54 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catchproblems)
+In-Reply-To: <3B79EE3F.4529E2BB@borland.com>
+Message-ID: <33440000.997849674@warlock.codesourcery.com>
+
+
+
+--On Tuesday, August 14, 2001 10:36:31 PM -0500 Eli Boling 
+<eboling at borland.com> wrote:
+
+> I really prefer that not to focus on a solution that relies on the
+> performance of the dynamic loader to patch up pitfalls in the design of
+> the implementation. That works fine for the unix community, but not so
+> hot for the Windows community.  If I work on an ABI, I don't want to have
+> to redo big pieces of it on another platform because the loader isn't
+> tuned to deal with issues related to particular language implementations.
+
+The tradeoff is that if you don't focus on the dynamic loader, then
+you have to focus on each programming language separately.  The ideal,
+of course, is to do both -- make each ABI as efficient as possible
+*and* make the loader as efficient as possible.
+
+So, if we can do something to make the C++ ABI more efficient, we
+should definitely do that, by all means.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Wed Aug 15 06:24:34 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Tue, 14 Aug 2001 23:24:34 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch 
+ forthrow/catchproblems)
+References: <33440000.997849674@warlock.codesourcery.com>
+Message-ID: <3B7A15A2.A1DD3018@transmeta.com>
+
+Mark Mitchell wrote:
+> 
+> --On Tuesday, August 14, 2001 10:36:31 PM -0500 Eli Boling
+> <eboling at borland.com> wrote:
+> 
+> > I really prefer that not to focus on a solution that relies on the
+> > performance of the dynamic loader to patch up pitfalls in the design of
+> > the implementation. That works fine for the unix community, but not so
+> > hot for the Windows community.  If I work on an ABI, I don't want to have
+> > to redo big pieces of it on another platform because the loader isn't
+> > tuned to deal with issues related to particular language implementations.
+> 
+> The tradeoff is that if you don't focus on the dynamic loader, then
+> you have to focus on each programming language separately.  The ideal,
+> of course, is to do both -- make each ABI as efficient as possible
+> *and* make the loader as efficient as possible.
+> 
+> So, if we can do something to make the C++ ABI more efficient, we
+> should definitely do that, by all means.
+
+Let's keep in mind too that this ABI is definitely an ELF-based ABI, i.e.
+the external representation (file format, symbols, etc.) aspects assume
+an underlying ELF representation.  There's definitely benefit to choosing
+internal representations/interfaces to fit a variety of contexts, but if
+it's an optimization tradeoff between contexts, the mechanism that wins
+should be the one that works well with ELF and its associated tools.
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+From jakub at redhat.com  Wed Aug 15 08:05:14 2001
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Wed, 15 Aug 2001 04:05:14 -0400
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <20010814155911.A8583@redhat.com>; from rth@redhat.com on Tue, Aug 14, 2001 at 03:59:11PM -0700
+References: <67940000.997805228@warlock.codesourcery.com> <m3wv46tg1a.fsf@prospero.cambridge.redhat.com> <20010814155911.A8583@redhat.com>
+Message-ID: <20010815040514.E4385@devserv.devel.redhat.com>
+
+On Tue, Aug 14, 2001 at 03:59:11PM -0700, Richard Henderson wrote:
+> On Tue, Aug 14, 2001 at 11:47:45PM +0100, Jason Merrill wrote:
+> > >>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+> > > Startup cost happens once per program, except for any excess memory
+> > > used that hangs around.  So, for a long-running application (anything
+> > > graphical definitely qualifies) this isn't *too* important, and there
+> > > are techniques (caching, prelinking) that can get around the problem.
+> > 
+> > And yet it seems to be a significant problem for a significant number of
+> > people.
+> 
+> Indeed.  Mark, havn't you noticed that KDE, Gnome and Mozilla are
+> high on the list of projects that complain about startup time?
+> 
+> And no, caching and prelinking don't help here since we're dealing
+> with weak symbols.  Those can't be prelinked and wind up on the
+> conflict list (which uses yet more runtime memory, btw) which gets
+> resolved after the rest of prelinking is complete.
+
+Prelinking helps there some (as I tried to explain, it has special C++ mode
+in which it removes conflicts if they point into provably unused virtual
+tables or type_info structures), also conflict list does not use "yet more
+runtime memory", it just uses more memory than it could (the conflict list
+is always shorter than the sum of all reloc sections in all libraries, and
+although those reloc sections take virtual memory, they are not referenced
+during prelinking so with the exception of page boundaries at start and end
+they will not eat any real memory).
+
+	Jakub
+
+
+From jakub at redhat.com  Wed Aug 15 08:36:16 2001
+From: jakub at redhat.com (Jakub Jelinek)
+Date: Wed, 15 Aug 2001 04:36:16 -0400
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <310480000.997830529@warlock.codesourcery.com>; from mark@codesourcery.com on Tue, Aug 14, 2001 at 04:08:49PM -0700
+References: <20010814155911.A8583@redhat.com> <310480000.997830529@warlock.codesourcery.com>
+Message-ID: <20010815043616.F4385@devserv.devel.redhat.com>
+
+On Tue, Aug 14, 2001 at 04:08:49PM -0700, Mark Mitchell wrote:
+> 
+> Comments about people complaining are valid.  Users trump theory.
+> 
+> > And no, caching and prelinking don't help here since we're dealing
+> > with weak symbols.  Those can't be prelinked and wind up on the
+> > conflict list (which uses yet more runtime memory, btw) which gets
+> > resolved after the rest of prelinking is complete.
+> >
+> 
+> I think I meant something more ambitious; you create a table of
+> what values to relocate into what absolute memory locations,
+> and squirrel them away (along with hashes/timestamps of the DSOs
+> you were using).  Then, when you load the program, you check that
+> all the hashes match and that your DSOs ended up at the addresses
+> you expected and then just blast in your dynamic relocations
+> using the saved values without bothering to parse the relocation
+> sections or without looking up any symbols.
+> 
+> Would that work, in theory?
+
+That works in reality too, see
+http://sources.redhat.com/ml/binutils/2001-07/msg00057.html
+ftp://ftp.redhat.com/redhat/linux/beta/roswell/en/os/i386/SRPMS/prelink-0.1.3-2.src.rpm
+The issue is that for some C++ applications, the conflict list is
+unfortunately huge (say 30000 out of 100000 total relocations) because many
+classes are duplicated accross many shared libs. Conflicts are far cheaper than
+normal relocations, since they don't need to do any symbol lookup, but still
+have the drawback that they write into memory which if nothing on a page
+would be modified could be shared and also each one takes 12 resp. 24 bytes
+of shareable memory which is read upon startup.
+
+What could trim the conflict list down substantially would be some kind of
+lazy virtual methods if the ABI would allow that (something similar to PLTs
+for function calls), but with the difference that once resolved, it could be
+written back into virtual table, so further virtual method calls would see
+no performance slowdown. This way the relocation would be done only when
+some virtual table is actually used, thus classes which are never used would
+never need relocation of their virtual table. But the precondition for this
+would be that no C++ program can ever read method pointers from virtual
+tables and compare them for equality.
+
+	Jakub
+
+
+From jason_merrill at redhat.com  Wed Aug 15 10:01:31 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 15 Aug 2001 11:01:31 +0100
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <20010815043616.F4385@devserv.devel.redhat.com> (Jakub Jelinek's message of "Wed, 15 Aug 2001 04:36:16 -0400")
+References: <20010814155911.A8583@redhat.com>
+	<310480000.997830529@warlock.codesourcery.com>
+	<20010815043616.F4385@devserv.devel.redhat.com>
+Message-ID: <m3y9olskuc.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Jakub" == Jakub Jelinek <jakub at redhat.com> writes:
+
+> What could trim the conflict list down substantially would be some kind of
+> lazy virtual methods if the ABI would allow that (something similar to PLTs
+> for function calls), but with the difference that once resolved, it could be
+> written back into virtual table, so further virtual method calls would see
+> no performance slowdown. This way the relocation would be done only when
+> some virtual table is actually used, thus classes which are never used would
+> never need relocation of their virtual table. But the precondition for this
+> would be that no C++ program can ever read method pointers from virtual
+> tables and compare them for equality.
+
+That's OK; there is no way for a conformant C++ program to get a function
+pointer out of the vtable.  A pointer to virtual member function just gives
+the index in the vtable (so dynamic binding works).
+
+Jason
+
+
+From mark at codesourcery.com  Wed Aug 15 14:42:15 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Aug 2001 07:42:15 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <20010815043616.F4385@devserv.devel.redhat.com>
+Message-ID: <10950000.997886535@warlock.codesourcery.com>
+
+
+
+--On Wednesday, August 15, 2001 04:36:16 AM -0400 Jakub Jelinek 
+<jakub at redhat.com> wrote:
+
+> On Tue, Aug 14, 2001 at 04:08:49PM -0700, Mark Mitchell wrote:
+>>
+>> Comments about people complaining are valid.  Users trump theory.
+>>
+>> > And no, caching and prelinking don't help here since we're dealing
+>> > with weak symbols.  Those can't be prelinked and wind up on the
+>> > conflict list (which uses yet more runtime memory, btw) which gets
+>> > resolved after the rest of prelinking is complete.
+>> >
+>>
+>> I think I meant something more ambitious; you create a table of
+>> what values to relocate into what absolute memory locations,
+>> and squirrel them away (along with hashes/timestamps of the DSOs
+>> you were using).  Then, when you load the program, you check that
+>> all the hashes match and that your DSOs ended up at the addresses
+>> you expected and then just blast in your dynamic relocations
+>> using the saved values without bothering to parse the relocation
+>> sections or without looking up any symbols.
+>>
+>> Would that work, in theory?
+>
+> That works in reality too
+
+Good to know I've reinvented the wheel.
+
+> What could trim the conflict list down substantially would be some kind of
+> lazy virtual methods
+
+Interesting idea.  But, you've spotted the major issue; a
+pointer-to-member contains an implicit reference into the vtable; values
+are looked up without being called.  I assume that the dynamic linker
+smushes weak symbols together first and then does relocations only
+against the survivors.  If we had thought of this we could have put
+bits on the pointers-to-members to indicate whether they were resolved
+or not.  Rats.
+
+Nathan Meyers and I were discussing just this issue (Nathan, we're
+talking about how to reduce dynamic relocations at program start) a
+few days ago.  Nathan's belief (and this seems plausible) is that
+most of the relocations aren't ever doing you any good; you're building
+a KDE app to display a calendar and you're doing relocations that apply
+to a class that implements the entire FTP protocol in a single widget,
+say.  Does the prelinking stuff you refer to above try to analyze that?
+If you could prove (perhaps with additional compiler assistance) that lots
+of stuff in this DSO doesn't matter, and just not relocate it at all,
+that might be a big win.
+
+Also, do we take advantage of mapping the same DSOs at the same
+virtual addresses across processes?  If libkdecore.so is mapped
+at the same address in three processes, it's possible that all three
+could actually share the same instance; relocations would only have
+to be done the first time.  Even if in general you cannot prove this
+is safe, it might be that for some DSOs the DSO-builder could make
+that assertion.
+
+I am now wandering into la-la land, I know.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From mark at codesourcery.com  Wed Aug 15 14:43:29 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Aug 2001 07:43:29 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <m3y9olskuc.fsf@prospero.cambridge.redhat.com>
+Message-ID: <13010000.997886609@warlock.codesourcery.com>
+
+
+
+> That's OK; there is no way for a conformant C++ program to get a function
+> pointer out of the vtable.  A pointer to virtual member function just
+> gives the index in the vtable (so dynamic binding works).
+>
+
+Doh; I misremembered this.  Jason's right, so the PLT trick should
+work, I think.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jason_merrill at redhat.com  Wed Aug 15 14:46:42 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 15 Aug 2001 15:46:42 +0100
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <10950000.997886535@warlock.codesourcery.com> (Mark Mitchell's message of "Wed, 15 Aug 2001 07:42:15 -0700")
+References: <10950000.997886535@warlock.codesourcery.com>
+Message-ID: <m3u1z9pei5.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> Interesting idea.  But, you've spotted the major issue; a
+> pointer-to-member contains an implicit reference into the vtable; values
+> are looked up without being called.  I assume that the dynamic linker
+> smushes weak symbols together first and then does relocations only
+> against the survivors.  If we had thought of this we could have put
+> bits on the pointers-to-members to indicate whether they were resolved
+> or not.  Rats.
+
+Huh?  I don't understand.  The function pointers in vtables are never
+compared, so stubbing them out a la PLT should be fine.
+
+Jason
+
+
+From tromey at redhat.com  Wed Aug 15 15:32:26 2001
+From: tromey at redhat.com (Tom Tromey)
+Date: 15 Aug 2001 09:32:26 -0600
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: jason_merrill@redhat.com's message of "15 Aug 2001 03:02:15 -0700"
+References: <20010814155911.A8583@redhat.com> <m3y9olskuc.fsf.cygnus.g++.abi@prospero.cambridge.redhat.com>
+Message-ID: <87n151uynp.fsf@creche.redhat.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+>>>>> "Jakub" == Jakub Jelinek <jakub at redhat.com> writes:
+
+>> But the precondition for this would be that no C++ program can ever
+>> read method pointers from virtual tables and compare them for
+>> equality.
+
+Jason> That's OK; there is no way for a conformant C++ program to get
+Jason> a function pointer out of the vtable.
+
+libgcj reads the Object vtable.  That's because it has to create array
+classes at runtime, and so it has to make the newly created vtable as
+a copy of the Object vtable.  Maybe there's some other way to
+implement this though.
+
+Tom
+
+
+From mark at codesourcery.com  Wed Aug 15 15:29:44 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Aug 2001 08:29:44 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for
+ throw/catch problems)
+In-Reply-To: <87n151uynp.fsf@creche.redhat.com>
+Message-ID: <42700000.997889384@warlock.codesourcery.com>
+
+
+
+--On Wednesday, August 15, 2001 09:32:26 AM -0600 Tom Tromey 
+<tromey at redhat.com> wrote:
+
+> libgcj reads the Object vtable.  That's because it has to create array
+> classes at runtime, and so it has to make the newly created vtable as
+> a copy of the Object vtable.  Maybe there's some other way to
+> implement this though.
+>
+
+It could also call the methods once at startup to make sure that the PLT 
+entries are unwound, if copying the PLT entries isn't safe.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jason_merrill at redhat.com  Thu Aug 16 00:18:33 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 16 Aug 2001 01:18:33 +0100
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <20010814110531.O3862@devserv.devel.redhat.com> (Jakub Jelinek's message of "Tue, 14 Aug 2001 11:05:31 -0400")
+References: <10280000.997759781@warlock.codesourcery.com>
+	<m3ae12x0e9.fsf@prospero.cambridge.redhat.com>
+	<20010814093030.N3862@devserv.devel.redhat.com>
+	<m3sneuvhz8.fsf@prospero.cambridge.redhat.com>
+	<m3n152vh21.fsf_-_@prospero.cambridge.redhat.com>
+	<20010814110531.O3862@devserv.devel.redhat.com>
+Message-ID: <m33d6uvbvn.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Jakub" == Jakub Jelinek <jakub at redhat.com> writes:
+
+[ message delayed going out ]
+
+> This should be no problem if NTBS are private to each library and
+> type_infos unique accross the whole program, if NTBS' are only referenced
+> from type_infos with the same name (Jason, does your "only pointers to
+> incomplete types are represented differently" mean this condition is
+> always satisfied?).
+
+No; the symbol for the type_info for a pointer to incomplete class type is
+mangled differently from that for a pointer to complete class type, but the
+NTBS is shared.
+
+> I don't know how could we make _ZTI symbols GLOBAL/WEAK while making
+> relocations against them be resolved at static link time to that symbol,
+> unless we special cased this in the linker, which is not a good idea IMHO.
+
+Looking at the gas docs, it seems that .protected would do that.
+
+I notice that the old HP ia64 EH document specifies that entries in the
+type table should be GP-relative, which doesn't work if the type_info might
+be coming from some other object; rth dealt with this for gcc by adding a
+level of indirection.  I wonder what Intel and HP are doing; last we heard
+from Intel, they were trying to use gprel.
+
+Jason
+
+
+From rth at redhat.com  Thu Aug 16 01:01:52 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Wed, 15 Aug 2001 18:01:52 -0700
+Subject: [cxx-abi-dev] comparing type_infos (was Re: Patch for throw/catch problems)
+In-Reply-To: <m33d6uvbvn.fsf@prospero.cambridge.redhat.com>; from jason_merrill@redhat.com on Thu, Aug 16, 2001 at 01:18:33AM +0100
+References: <10280000.997759781@warlock.codesourcery.com> <m3ae12x0e9.fsf@prospero.cambridge.redhat.com> <20010814093030.N3862@devserv.devel.redhat.com> <m3sneuvhz8.fsf@prospero.cambridge.redhat.com> <m3n152vh21.fsf_-_@prospero.cambridge.redhat.com> <20010814110531.O3862@devserv.devel.redhat.com> <m33d6uvbvn.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010815180152.A11981@redhat.com>
+
+On Thu, Aug 16, 2001 at 01:18:33AM +0100, Jason Merrill wrote:
+> I notice that the old HP ia64 EH document specifies that entries in the
+> type table should be GP-relative, which doesn't work if the type_info might
+> be coming from some other object;
+
+Well, I suppose technically it could work -- for IA-64, ld.so knows
+the value of the GP (from DT_PLTGOT), so you _could_ have a dynamic
+relocation of type R_IA64_GPREL64.  
+
+But I don't think this is a spectacular idea, and no other system
+could do this.
+
+
+r~
+
+

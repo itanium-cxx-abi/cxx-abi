@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI for new inheriting constructor rules
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20for%20new%20inheriting%20constructor%20rules&In-Reply-To=%3CCAGL0aWfPHFUsG8XpuYPEdS5uCk5b7DqXkSg_ks3OkQ7TwK5RyQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002914.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI for new inheriting constructor rules</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20for%20new%20inheriting%20constructor%20rules&In-Reply-To=%3CCAGL0aWfPHFUsG8XpuYPEdS5uCk5b7DqXkSg_ks3OkQ7TwK5RyQ%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] ABI for new inheriting constructor rules">richardsmith at google.com
+       </A><BR>
+    <I>Fri May  6 21:29:51 UTC 2016</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002914.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2913">[ date ]</a>
+              <a href="thread.html#2913">[ thread ]</a>
+              <a href="subject.html#2913">[ subject ]</a>
+              <a href="author.html#2913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Per <A HREF="http://wg21.link/p0136r1">http://wg21.link/p0136r1</A> an inheriting constructor declaration no
+longer results in the implicit synthesis of derived class constructors, and
+instead the behavior of a call to an inherited constructor is that:
+
+ 1) the portion of a hypothetical defaulted default constructor prior to
+the base constructor invocation is executed, then
+ 2) the inherited constructor is invoked, then
+ 3) the portion of a hypothetical defaulted default constructor after the
+base constructor invocation is executed
+
+There are a couple of obvious ways we could avoid emitting the code for (1)
+and (3) in every inherited constructor call site:
+
+
+Approach A: synthesize a fake constructor of the derived class
+
+Strawman: add a new form of mangled name for a fake constructor that
+forwards to a base class constructor, whose &lt;encoding&gt; is that of the base
+class constructor, except that the &lt;nested name&gt; is that of the derived
+class and the &lt;unqualified-name&gt; is
+
+ &lt;ctor-dtor-name&gt; ::= CI &lt;base class type&gt;
+
+ This would give code largely similar to what we generate with the C++11
+inheriting constructor rules, except that the additional copy constructions
+and destructions for parameters would be removed. The downsides are that
+this only works if we can forward all the arguments (and in particular, we
+can't do this for varargs constructors), and generates one additional copy
+of the derived class default initialization code for each base class
+constructor.
+
+
+Approach B: factor out the duplicated portion of the construction
+
+Strawman: add three new forms of mangled name for these constructor
+fragments:
+
+  &lt;ctor-dtor-name&gt; ::= CP [&lt;seq-id&gt;] _  # default constructor prefix
+  &lt;ctor-dtor-name&gt; ::= CS [&lt;seq-id&gt;] _  # default constructor suffix
+  &lt;ctor-dtor-name&gt; ::= DP [&lt;seq-id&gt;] _  # default constructor cleanup prefix
+
+where in the first and third case the &lt;seq-id&gt; represents the position of
+the last virtual or direct base class that is constructed or destroyed by
+the function, and in the second case it represents the position of the last
+virtual or direct base class that is not constructed by the function (where
+in each case the base classes are enumerated in the order in which they
+would be constructed).
+
+The CS symbols would destroy the entire class object if an exception is
+thrown. (I think it'd be fine except in pathological cases to provide only
+the CS symbols; maybe we could drop the CP/DP ones.)
+
+
+Or perhaps a hybrid of these (it may be reasonable for the constructors
+from approach A to call the fragments from approach B, especially when
+optimizing for code size). In any case, use of these new symbols would be
+optional; implementations could instead choose to emit the code inline.
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160506/ecf47d97/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160506/ecf47d97/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002914.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2913">[ date ]</a>
+              <a href="thread.html#2913">[ thread ]</a>
+              <a href="subject.html#2913">[ subject ]</a>
+              <a href="author.html#2913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1073 @@
+From richardsmith at google.com  Mon Dec  9 21:46:26 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 9 Dec 2013 13:46:26 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions
+Message-ID: <CAGL0aWcKEUO8rZTfdvZH94+hbcgUzDuD7n5Ym7c3F4tECJrsqg@mail.gmail.com>
+
+Hi!
+
+5.1.2 says: "For the purposes of mangling, the name of an anonymous union
+is considered to be the name of the first named data member found by a
+pre-order, depth-first, declaration-order walk of the data members of the
+anonymous union."
+
+5.1.6 says: "In case of unnamed local types (excluding unnamed types that
+have acquired a "name for linkage purposes"), the "name" the unqualified
+name is encoded as an <unnamed-type-name>"
+
+Thus, given:
+
+struct A { union { int n; }; struct {} x; };
+template<int A::*> struct X {};
+void f(X<&A::n>, decltype(A::x)) {}
+
+... the mangling of 'f' is _Z1f1XIXadL_ZN1A1n1nEEEENS0_Ut_E
+
+However, I can't find any implementation that actually follows these rules.
+
+Clang and GCC give the anonymous union an unnamed type mangling instead of
+an anonymous union mangling, and give _Z1f1XIXadL_ZN1AUt_1nEEEENS0_Ut0_E
+
+EDG follows the 5.1.6 rule but doesn't seem to implement the 5.1.2 rule,
+and instead gives _Z1f1XIXadL_ZN1A4__C11nEEEENS0_Ut_E
+
+
+What's the purpose of the special case in 5.1.2 and 5.1.6? The rules would
+be simpler and more uniform if we adopted the Clang and GCC behavior, and
+we don't seem to lose much by doing so. Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131209/98cb8207/attachment.html>
+
+From richardsmith at google.com  Mon Dec  9 21:48:33 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 9 Dec 2013 13:48:33 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions
+In-Reply-To: <CAGL0aWcKEUO8rZTfdvZH94+hbcgUzDuD7n5Ym7c3F4tECJrsqg@mail.gmail.com>
+References: <CAGL0aWcKEUO8rZTfdvZH94+hbcgUzDuD7n5Ym7c3F4tECJrsqg@mail.gmail.com>
+Message-ID: <CAGL0aWdS4vORLBOQWjrJO+y3EaH2yx+pLqh_m0TtFdhma=85-A@mail.gmail.com>
+
+On Mon, Dec 9, 2013 at 1:46 PM, Richard Smith <richardsmith at google.com>wrote:
+
+> Hi!
+>
+> 5.1.2 says: "For the purposes of mangling, the name of an anonymous union
+> is considered to be the name of the first named data member found by a
+> pre-order, depth-first, declaration-order walk of the data members of the
+> anonymous union."
+>
+> 5.1.6 says: "In case of unnamed local types (excluding unnamed types that
+> have acquired a "name for linkage purposes"), the "name" the unqualified
+> name is encoded as an <unnamed-type-name>"
+>
+
+Sorry, I meant to quote this section of 5.1.5 here:
+
+"Unnamed class, union, and enum types that aren't closure types, that
+haven't acquired a "name for linkage purposes" (through a typedef), *and
+that aren't anonymous union types*, follow the same rule when they are
+defined in class scopes, with the underlying <unqualified-name> an
+<unnamed-type-name> of the form
+
+  <unnamed-type-name> ::= Ut [ <nonnegative number> ] _"
+
+
+> Thus, given:
+>
+> struct A { union { int n; }; struct {} x; };
+> template<int A::*> struct X {};
+> void f(X<&A::n>, decltype(A::x)) {}
+>
+> ... the mangling of 'f' is _Z1f1XIXadL_ZN1A1n1nEEEENS0_Ut_E
+>
+> However, I can't find any implementation that actually follows these rules.
+>
+> Clang and GCC give the anonymous union an unnamed type mangling instead of
+> an anonymous union mangling, and give _Z1f1XIXadL_ZN1AUt_1nEEEENS0_Ut0_E
+>
+> EDG follows the 5.1.6 rule but doesn't seem to implement the 5.1.2 rule,
+> and instead gives _Z1f1XIXadL_ZN1A4__C11nEEEENS0_Ut_E
+>
+>
+> What's the purpose of the special case in 5.1.2 and 5.1.6? The rules would
+> be simpler and more uniform if we adopted the Clang and GCC behavior, and
+> we don't seem to lose much by doing so. Thoughts?
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131209/f180a1e9/attachment.html>
+
+From richardsmith at google.com  Mon Dec  9 22:52:10 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 9 Dec 2013 14:52:10 -0800
+Subject: [cxx-abi-dev] Mangling of anonymous unions
+In-Reply-To: <CAGL0aWdS4vORLBOQWjrJO+y3EaH2yx+pLqh_m0TtFdhma=85-A@mail.gmail.com>
+References: <CAGL0aWcKEUO8rZTfdvZH94+hbcgUzDuD7n5Ym7c3F4tECJrsqg@mail.gmail.com>
+	<CAGL0aWdS4vORLBOQWjrJO+y3EaH2yx+pLqh_m0TtFdhma=85-A@mail.gmail.com>
+Message-ID: <CAGL0aWeS6a0DjfAP4xeab9WfiL8qZC9JF2-UFK1JEVPs==EXqw@mail.gmail.com>
+
+On Mon, Dec 9, 2013 at 1:48 PM, Richard Smith <richardsmith at google.com>wrote:
+
+> On Mon, Dec 9, 2013 at 1:46 PM, Richard Smith <richardsmith at google.com>wrote:
+>
+>> Hi!
+>>
+>> 5.1.2 says: "For the purposes of mangling, the name of an anonymous union
+>> is considered to be the name of the first named data member found by a
+>> pre-order, depth-first, declaration-order walk of the data members of the
+>> anonymous union."
+>>
+>
+Experimentation shows that Clang, GCC, and EDG interpret this as applying
+to the implicit object of anonymous union type, not to the anonymous union
+(type) itself. If that's the intent, we should probably update the document
+to say that.
+
+
+> 5.1.6 says: "In case of unnamed local types (excluding unnamed types that
+>> have acquired a "name for linkage purposes"), the "name" the unqualified
+>> name is encoded as an <unnamed-type-name>"
+>>
+>
+> Sorry, I meant to quote this section of 5.1.5 here:
+>
+> "Unnamed class, union, and enum types that aren't closure types, that
+> haven't acquired a "name for linkage purposes" (through a typedef), *and
+> that aren't anonymous union types*, follow the same rule when they are
+> defined in class scopes, with the underlying <unqualified-name> an
+> <unnamed-type-name> of the form
+>
+>   <unnamed-type-name> ::= Ut [ <nonnegative number> ] _"
+>
+>
+>> Thus, given:
+>>
+>> struct A { union { int n; }; struct {} x; };
+>> template<int A::*> struct X {};
+>> void f(X<&A::n>, decltype(A::x)) {}
+>>
+>> ... the mangling of 'f' is _Z1f1XIXadL_ZN1A1n1nEEEENS0_Ut_E
+>>
+>> However, I can't find any implementation that actually follows these
+>> rules.
+>>
+>> Clang and GCC give the anonymous union an unnamed type mangling instead
+>> of an anonymous union mangling, and give _Z1f1XIXadL_ZN1AUt_1nEEEENS0_Ut0_E
+>>
+>> EDG follows the 5.1.6 rule but doesn't seem to implement the 5.1.2 rule,
+>> and instead gives _Z1f1XIXadL_ZN1A4__C11nEEEENS0_Ut_E
+>>
+>>
+>> What's the purpose of the special case in 5.1.2 and 5.1.6? The rules
+>> would be simpler and more uniform if we adopted the Clang and GCC behavior,
+>> and we don't seem to lose much by doing so. Thoughts?
+>>
+>
+It seems that the current behavior is:
+
+Clang and GCC include anonymous unions in the unnamed type counting and
+mangling, ignoring the relevant part of 5.1.5. This happens both within
+classes (as demonstrated above) and within functions:
+
+  template<typename T> int f(T *);
+  void g() { union { int n = f(this); }; }
+
+EDG (and ICC) excludes anonymous unions from the unnamed type counting and
+mangling (per 5.1.5), and instead uses some internal name (__C1, ...) for
+the type.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131209/53162a40/attachment.html>
+
+From richardsmith at google.com  Tue Dec 17 01:10:07 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 16 Dec 2013 17:10:07 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic templates
+Message-ID: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+
+Hi,
+
+Consider:
+
+  void g(...);
+  template<int...N> inline const char *f() { g("foo" + N ...); return
+"bar"; }
+  const char *p = f();
+  const char *q = f<0>();
+  const char *r = f<0, 1>();
+
+In f<>, what is the mangling of the "bar" string literal? Is this the first
+string literal or the second?
+
+The ABI document says "In all cases the numbering order is strictly lexical
+order based on the original token sequence", but it's not obvious what that
+would mean for a template instantiation that discards tokens, as this one
+does. Now consider:
+
+  template<int...N> inline const char *h() { g([]{return "foo";}() + N
+...); return "bar"; }
+  const char *p = h();
+  const char *q = h<0>();
+  const char *r = h<0, 1>();
+
+What happens here? Does the string literal inside the lambda get a number
+in the context of the outer function as well as a number within the lambda?
+It appears within the original token sequence...
+
+
+EDG is the only vendor I can find that provides manglings for string
+literals at all, and its results here are surprising. It provides these
+manglings for "bar":
+
+  f<>: _ZZ1fIJEEPKcvEs_0
+  f<0>: _ZZ1fIJLi0EEEPKcvEs_0
+  f<0, 1>: _ZZ1fIJLi0ELi1EEEPKcvEs_0
+
+These suggest that EDG includes "foo" in the numbering, even though it is
+not actually part of f<>. But then:
+
+  h<>: _ZZ1hIJEEPKcvEs_0
+  h<0>: _ZZ1hIJLi0EEEPKcvEs
+  h<0, 1>: _ZZ1hIJLi0ELi1EEEPKcvEs
+
+These seem very surprising. "foo" is included in the numbering *only* in
+the case where it doesn't actually appear in the instantiated function body.
+
+
+Suggestion: change in 5.1.6:
+
+"In all cases the numbering order is strictly lexical order based on the
+original token sequence<ins>, excluding any tokens that are part of the
+body of a nested entity</ins>. All entities occurring in that sequence are
+to be numbered, even if subsequent optimization <ins>or (in the case of a
+string literal) expansion of an empty parameter pack</ins> makes some of
+them unnecessary."
+
+
+This would make EDG correct, except for the h<> case, where the mangling
+would be _ZZ1hIJEEPKcvEs
+
+
+Another related issue is with user-defined literals. If 123_x appears in an
+inline function, and implicitly calls operator""_x("123"), the implicit
+string literal should (presumably) be assigned a mangling number. If it
+calls operator"""_x(123ULL), a mangling number should presumably not be
+assigned.
+
+Suggestion: insert after previously-quoted text from 5.1.6:
+
+If a user-defined-literal implicitly passes a string literal to a literal
+operator, the user-defined-literal token is numbered as if it were a string
+literal token.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/df1b5471/attachment.html>
+
+From rjmccall at apple.com  Tue Dec 17 01:33:11 2013
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 16 Dec 2013 17:33:11 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+Message-ID: <B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+
+On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+> Consider:
+
+Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+
+John.
+
+From richardsmith at google.com  Tue Dec 17 02:07:44 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 16 Dec 2013 18:07:44 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+Message-ID: <CAGL0aWfAsv2m=45+awpfbr-bdiym3X6HO0XdJyA_eF+L_es-4g@mail.gmail.com>
+
+On Mon, Dec 16, 2013 at 5:33 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > Consider:
+>
+> Remind me why it?s impossible to go back to the committee and repeatedly
+> weaken any remaining guarantees about string literal addresses until none
+> of this is important?
+
+
+If you really want to go that way, how about striking this mangling from
+the Itanium ABI entirely and replacing it with a note saying that we
+believe this is a standard defect and aren't going to support it? Is a weak
+and defective spec here (only implemented by a single frontend, as far as I
+can tell) any better than no spec at all?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/4e7dbc2a/attachment.html>
+
+From rjmccall at apple.com  Tue Dec 17 02:32:13 2013
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 16 Dec 2013 18:32:13 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAGL0aWfAsv2m=45+awpfbr-bdiym3X6HO0XdJyA_eF+L_es-4g@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<CAGL0aWfAsv2m=45+awpfbr-bdiym3X6HO0XdJyA_eF+L_es-4g@mail.gmail.com>
+Message-ID: <A0A8F38E-5A54-4371-839C-FC7570FF13A3@apple.com>
+
+On Dec 16, 2013, at 6:07 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Mon, Dec 16, 2013 at 5:33 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+> > Consider:
+> 
+> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+> 
+> If you really want to go that way, how about striking this mangling from the Itanium ABI entirely and replacing it with a note saying that we believe this is a standard defect and aren't going to support it? Is a weak and defective spec here (only implemented by a single frontend, as far as I can tell) any better than no spec at all?
+
+I?d be happy to strike it from the spec in that case, or at least mark it as a footnote for implementations that choose to care, if there are any.
+
+If we left it as a footnote, I think your proposals seem sound, although I?d want the example to clarify that it?s also the same literal if multiply expanded by the pack expansion, which I?m not sure is guaranteed by the language.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/84d7e8d5/attachment-0001.html>
+
+From richardsmith at google.com  Tue Dec 17 02:39:37 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 16 Dec 2013 18:39:37 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <A0A8F38E-5A54-4371-839C-FC7570FF13A3@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<CAGL0aWfAsv2m=45+awpfbr-bdiym3X6HO0XdJyA_eF+L_es-4g@mail.gmail.com>
+	<A0A8F38E-5A54-4371-839C-FC7570FF13A3@apple.com>
+Message-ID: <CAGL0aWfS_87WtEEnUg-kfLkqBYT9dGmWMaW1MSZT3FQeZENN6A@mail.gmail.com>
+
+On Mon, Dec 16, 2013 at 6:32 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 16, 2013, at 6:07 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On Mon, Dec 16, 2013 at 5:33 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > Consider:
+>>
+>> Remind me why it?s impossible to go back to the committee and repeatedly
+>> weaken any remaining guarantees about string literal addresses until none
+>> of this is important?
+>
+>
+> If you really want to go that way, how about striking this mangling from
+> the Itanium ABI entirely and replacing it with a note saying that we
+> believe this is a standard defect and aren't going to support it? Is a weak
+> and defective spec here (only implemented by a single frontend, as far as I
+> can tell) any better than no spec at all?
+>
+>
+> I?d be happy to strike it from the spec in that case, or at least mark it
+> as a footnote for implementations that choose to care, if there are any.
+>
+> If we left it as a footnote, I think your proposals seem sound, although
+> I?d want the example to clarify that it?s also the same literal if multiply
+> expanded by the pack expansion, which I?m not sure is guaranteed by the
+> language.
+>
+
+Examples are always nice =) FWIW, we already say "nth distinct string
+literal", which seems to imply that string literals with identical contents
+get the same mangling.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/f28a3c4c/attachment.html>
+
+From daveed at edg.com  Tue Dec 17 19:10:50 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 17 Dec 2013 14:10:50 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+Message-ID: <27E97678-E75F-4C96-83BC-B177C43DFCD5@edg.com>
+
+
+On Dec 16, 2013, at 8:10 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> Hi,
+> 
+> Consider:
+> 
+>   void g(...);
+>   template<int...N> inline const char *f() { g("foo" + N ...); return "bar"; }
+>   const char *p = f();
+>   const char *q = f<0>();
+>   const char *r = f<0, 1>();
+> 
+> In f<>, what is the mangling of the "bar" string literal? Is this the first string literal or the second?
+
+I think it has to be the second.
+
+
+> The ABI document says "In all cases the numbering order is strictly lexical order based on the original token sequence", but it's not obvious what that would mean for a template instantiation that discards tokens, as this one does.
+
+Why would it mean something different if you discard tokens?  The internal representation probably still knows there was a string literal involved and could associate a discriminating sequence number with it, no?
+
+> Now consider:
+> 
+>   template<int...N> inline const char *h() { g([]{return "foo";}() + N ...); return "bar"; }
+>   const char *p = h();
+>   const char *q = h<0>();
+>   const char *r = h<0, 1>();
+> 
+> What happens here? Does the string literal inside the lambda get a number in the context of the outer function as well as a number within the lambda? It appears within the original token sequence...
+
+
+I agree the spec misses this, but I think numbering should not include literals (or other entities) that are in a nested body function.  I.e., "bar" would be the first string literal in all instances of h.
+
+
+> EDG is the only vendor I can find that provides manglings for string literals at all, and its results here are surprising. It provides these manglings for "bar":
+> 
+>   f<>: _ZZ1fIJEEPKcvEs_0
+>   f<0>: _ZZ1fIJLi0EEEPKcvEs_0
+>   f<0, 1>: _ZZ1fIJLi0ELi1EEEPKcvEs_0
+> 
+> These suggest that EDG includes "foo" in the numbering, even though it is not actually part of f<>. But then:
+> 
+>   h<>: _ZZ1hIJEEPKcvEs_0
+>   h<0>: _ZZ1hIJLi0EEEPKcvEs
+>   h<0, 1>: _ZZ1hIJLi0ELi1EEEPKcvEs
+> 
+> These seem very surprising. "foo" is included in the numbering *only* in the case where it doesn't actually appear in the instantiated function body.
+
+
+I suspect that's just a bug.
+
+> 
+> 
+> Suggestion: change in 5.1.6:
+> 
+> "In all cases the numbering order is strictly lexical order based on the original token sequence<ins>, excluding any tokens that are part of the body of a nested entity</ins>. All entities occurring in that sequence are to be numbered, even if subsequent optimization <ins>or (in the case of a string literal) expansion of an empty parameter pack</ins> makes some of them unnecessary."
+
+
+That sounds good.
+
+> 
+> This would make EDG correct, except for the h<> case, where the mangling would be _ZZ1hIJEEPKcvEs
+> 
+> Another related issue is with user-defined literals. If 123_x appears in an inline function, and implicitly calls operator""_x("123"), the implicit string literal should (presumably) be assigned a mangling number. If it calls operator"""_x(123ULL), a mangling number should presumably not be assigned.
+
+
+Ah yes, nice catch.
+
+> 
+> Suggestion: insert after previously-quoted text from 5.1.6:
+> 
+> If a user-defined-literal implicitly passes a string literal to a literal operator, the user-defined-literal token is numbered as if it were a string literal token.
+
+Hmmm, would it be better to number all user-defined literals without having to worry about how they'll be transformed?
+
+	Daveed
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/f09241f7/attachment.html>
+
+From daveed at edg.com  Tue Dec 17 19:12:07 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 17 Dec 2013 14:12:07 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+Message-ID: <A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+
+
+On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>> Consider:
+> 
+> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+
+
+I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+
+	Daveed
+
+
+From rjmccall at apple.com  Tue Dec 17 19:57:09 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 17 Dec 2013 11:57:09 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus
+	variadic	templates
+In-Reply-To: <A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+Message-ID: <5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+
+On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+> On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> Consider:
+>> 
+>> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+> 
+> I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+
+Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+
+John.
+
+From scshunt at csclub.uwaterloo.ca  Tue Dec 17 20:01:17 2013
+From: scshunt at csclub.uwaterloo.ca (Sean Hunt)
+Date: Tue, 17 Dec 2013 15:01:17 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+Message-ID: <CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+
+On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >>> Consider:
+> >>
+> >> Remind me why it?s impossible to go back to the committee and
+> repeatedly weaken any remaining guarantees about string literal addresses
+> until none of this is important?
+> >
+> > I don't know if it's impossible or not, but I suspect it would be
+> controversial.  (I, at least, would be opposed.)
+>
+> Really?  You feel that having really strong guarantees about the address
+> of a string literal is the right thing to do?  Like, it?s worth
+> significantly increasing build times, code size, and launch times over?
+>
+> John.
+
+
+I don't see a situation where baz() below returns false really being
+defensible:
+
+a.h:
+
+inline const char* foo() { return ""; }
+const char* bar();
+
+a.c:
+
+const char* bar() { return foo(); }
+
+b.c:
+
+const bool baz() { return foo() == bar(); }
+
+Sean
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/1ddc310c/attachment-0001.html>
+
+From jhs at edg.com  Tue Dec 17 20:33:50 2013
+From: jhs at edg.com (John Spicer)
+Date: Tue, 17 Dec 2013 15:33:50 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+Message-ID: <8679AD9C-284F-48C8-9299-A0BFAFFDC7EF@edg.com>
+
+
+On Dec 17, 2013, at 3:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+
+> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+> >>> Consider:
+> >>
+> >> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+> >
+> > I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+> 
+> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+> 
+> John.
+> 
+> I don't see a situation where baz() below returns false really being defensible:
+> 
+> a.h:
+> 
+> inline const char* foo() { return ""; }
+> const char* bar();
+> 
+> a.c:
+> 
+> const char* bar() { return foo(); }
+> 
+> b.c:
+> 
+> const bool baz() { return foo() == bar(); }
+
+I don't think that baz() is guaranteed to return true if foo() were not inline.   I admit it would be strange if the string literal in foo had a different address when called different times, but I think that is permitted by the language.
+
+Also, if you had two different functions that return the same string literal, they may or may not compare the same.
+
+John.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/2b6a630a/attachment.html>
+
+From rjmccall at apple.com  Tue Dec 17 22:22:13 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 17 Dec 2013 14:22:13 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+Message-ID: <3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+
+On Dec 17, 2013, at 12:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+> >>> Consider:
+> >>
+> >> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+> >
+> > I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+> 
+> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+> 
+> John.
+> 
+> I don't see a situation where baz() below returns false really being defensible:
+
+Why?  Who cares?  Why is ?don?t rely on string literal addresses being consistent? actually an unreasonable piece of advice?  Because I?m pretty sure that?s the advice that everybody?s been rolling with for over thirty years now.
+
+I mean, in practice this is going to work just fine in simple cases, because implementations do do some uniquing of string literals, within limits.  But to really make a *guarantee* here, you?re talking about taking a ubiquitously-used language feature and layering a ton of hidden and difficult-to-avoid costs onto it, and for what?  To make the semantics slightly prettier in a way that doesn?t really help anybody?
+
+It is extremely difficult to prove that a program does not rely on the address of a string literal, because the dominant use of string literals is to pass them off to a function, usually one that?s implemented in an external library.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/5b69cce0/attachment.html>
+
+From daveed at edg.com  Wed Dec 18 01:38:35 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 17 Dec 2013 20:38:35 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+Message-ID: <0CF82BBB-092C-4E7A-93B8-983BB31A86E2@edg.com>
+
+
+On Dec 17, 2013, at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>> On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>>> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>> Consider:
+>>> 
+>>> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>> 
+>> I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+> 
+> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+
+Yes.  I think it's worth a lot to make adding "inline" to a function definition have minimal impact on its semantics.
+
+	Daveed
+
+
+From daveed at edg.com  Wed Dec 18 01:47:09 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 17 Dec 2013 20:47:09 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+	<3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+Message-ID: <383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+
+
+On Dec 17, 2013, at 5:22 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 17, 2013, at 12:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+>> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>> >>> Consider:
+>> >>
+>> >> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>> >
+>> > I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+>> 
+>> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+>> 
+>> John.
+>> 
+>> I don't see a situation where baz() below returns false really being defensible:
+> 
+> Why?  Who cares?  Why is ?don?t rely on string literal addresses being consistent? actually an unreasonable piece of advice?  Because I?m pretty sure that?s the advice that everybody?s been rolling with for over thirty years now.
+
+
+We put in the C++ rules about 20 years ago because people wanted to have
+
+	inline char const* name() { return "SomeName"; }
+
+return the name pointer value in every TU (I think that's reasonable). There is certainly still plenty of code relying on that.
+
+	Daveed
+
+
+> 
+> I mean, in practice this is going to work just fine in simple cases, because implementations do do some uniquing of string literals, within limits.  But to really make a *guarantee* here, you?re talking about taking a ubiquitously-used language feature and layering a ton of hidden and difficult-to-avoid costs onto it, and for what?  To make the semantics slightly prettier in a way that doesn?t really help anybody?
+> 
+> It is extremely difficult to prove that a program does not rely on the address of a string literal, because the dominant use of string literals is to pass them off to a function, usually one that?s implemented in an external library.
+> 
+> John.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/a085b1ab/attachment-0001.html>
+
+From richardsmith at google.com  Wed Dec 18 02:34:16 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 17 Dec 2013 18:34:16 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+	<3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+	<383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+Message-ID: <CAGL0aWf3NHbgsL142aWM_KsRkwGLL0kXQ8JKBSJ92aUxkJ6FWg@mail.gmail.com>
+
+On Tue, Dec 17, 2013 at 5:47 PM, David Vandevoorde <daveed at edg.com> wrote:
+
+>
+> On Dec 17, 2013, at 5:22 PM, John McCall <rjmccall at apple.com> wrote:
+>
+> On Dec 17, 2013, at 12:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca>
+> wrote:
+>
+> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> >>> Consider:
+>> >>
+>> >> Remind me why it?s impossible to go back to the committee and
+>> repeatedly weaken any remaining guarantees about string literal addresses
+>> until none of this is important?
+>> >
+>> > I don't know if it's impossible or not, but I suspect it would be
+>> controversial.  (I, at least, would be opposed.)
+>>
+>> Really?  You feel that having really strong guarantees about the address
+>> of a string literal is the right thing to do?  Like, it?s worth
+>> significantly increasing build times, code size, and launch times over?
+>>
+>> John.
+>
+>
+> I don't see a situation where baz() below returns false really being
+> defensible:
+>
+>
+> Why?  Who cares?  Why is ?don?t rely on string literal addresses being
+> consistent? actually an unreasonable piece of advice?  Because I?m pretty
+> sure that?s the advice that everybody?s been rolling with for over thirty
+> years now.
+>
+>
+>
+> We put in the C++ rules about 20 years ago because people wanted to have
+>
+> inline char const* name() { return "SomeName"; }
+>
+> return the name pointer value in every TU (I think that's reasonable).
+> There is certainly still plenty of code relying on that.
+>
+
+I find that a little surprising, since GCC does not guarantee this, and it
+is the system compiler on a lot of platforms. (Likewise, Clang does not,
+and is the system compiler on some platforms). There's a GCC bug on this
+with only two duplicates, and no Clang bug has been filed, so I don't get
+the impression that this is a big deal for a lot of people on Linux or Mac.
+
+On the other hand, MSVC guarantees something much stronger: it appears to
+give *all* string literals a mangled name comprising their type, the first
+few (32?) characters of the string, and a checksum of the rest.
+
+It seems like there probably can't be much *portable* code relying on this,
+and non-portable code can rely on compiler-provided guarantees all it likes.
+
+
+> Daveed
+>
+>
+>
+> I mean, in practice this is going to work just fine in simple cases,
+> because implementations do do some uniquing of string literals, within
+> limits.  But to really make a *guarantee* here, you?re talking about taking
+> a ubiquitously-used language feature and layering a ton of hidden and
+> difficult-to-avoid costs onto it, and for what?  To make the semantics
+> slightly prettier in a way that doesn?t really help anybody?
+>
+> It is extremely difficult to prove that a program does not rely on the
+> address of a string literal, because the dominant use of string literals is
+> to pass them off to a function, usually one that?s implemented in an
+> external library.
+>
+> John.
+>
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/7916be81/attachment.html>
+
+From rjmccall at apple.com  Wed Dec 18 02:36:29 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 17 Dec 2013 18:36:29 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus
+	variadic	templates
+In-Reply-To: <383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+	<3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+	<383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+Message-ID: <58EAEDC2-849A-4856-95FE-C47393263DF4@apple.com>
+
+On Dec 17, 2013, at 5:47 PM, David Vandevoorde <daveed at edg.com> wrote:
+> On Dec 17, 2013, at 5:22 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 17, 2013, at 12:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+>>> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>>> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> >>> Consider:
+>>> >>
+>>> >> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>>> >
+>>> > I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+>>> 
+>>> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+>>> 
+>>> John.
+>>> 
+>>> I don't see a situation where baz() below returns false really being defensible:
+>> 
+>> Why?  Who cares?  Why is ?don?t rely on string literal addresses being consistent? actually an unreasonable piece of advice?  Because I?m pretty sure that?s the advice that everybody?s been rolling with for over thirty years now.
+> 
+> 
+> We put in the C++ rules about 20 years ago because people wanted to have
+> 
+> 	inline char const* name() { return "SomeName"; }
+> 
+> return the name pointer value in every TU (I think that's reasonable). There is certainly still plenty of code relying on that.
+
+In a world with pervasive dynamic linking, this is certainly not reasonable as the default language behavior; it simply promises *far* too much.  We shouldn?t have to emit thousands of new symbols that require dynamic coalescing just because a few templates contain some assertions.
+
+(While some strings can be shared between template instantiations, assertions usually use macros like __PRETTY_FUNCTION__ that make the message non-uniquable.)
+
+I am not sure how much code there could possibly be relying on this when only one compiler does what would really be required.  From what I can find in their documentation, Visual Studio apparently does not even pool strings across translation units by default.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/d045bc68/attachment.html>
+
+From rjmccall at apple.com  Wed Dec 18 02:39:28 2013
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 17 Dec 2013 18:39:28 -0800
+Subject: [cxx-abi-dev] Mangling of string literals versus
+	variadic	templates
+In-Reply-To: <CAGL0aWf3NHbgsL142aWM_KsRkwGLL0kXQ8JKBSJ92aUxkJ6FWg@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<CAMQXVwXYTCSm7RPCC50pRLi5pPhfB3Hty2sF9JFw4P3+ULpArw@mail.gmail.com>
+	<3AAC8009-56E1-40C4-BDD1-F27F1062A5F1@apple.com>
+	<383DB0C4-6CC9-46CC-AB7F-043D89CF6EA5@edg.com>
+	<CAGL0aWf3NHbgsL142aWM_KsRkwGLL0kXQ8JKBSJ92aUxkJ6FWg@mail.gmail.com>
+Message-ID: <518EB589-6ED9-4FFA-A7B9-AC9C4175A335@apple.com>
+
+On Dec 17, 2013, at 6:34 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Tue, Dec 17, 2013 at 5:47 PM, David Vandevoorde <daveed at edg.com> wrote:
+> 
+> On Dec 17, 2013, at 5:22 PM, John McCall <rjmccall at apple.com> wrote:
+> 
+>> On Dec 17, 2013, at 12:01 PM, Sean Hunt <scshunt at csclub.uwaterloo.ca> wrote:
+>>> On Tue, Dec 17, 2013 at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>> > On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>>> >> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> >>> Consider:
+>>> >>
+>>> >> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>>> >
+>>> > I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+>>> 
+>>> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+>>> 
+>>> John.
+>>> 
+>>> I don't see a situation where baz() below returns false really being defensible:
+>> 
+>> Why?  Who cares?  Why is ?don?t rely on string literal addresses being consistent? actually an unreasonable piece of advice?  Because I?m pretty sure that?s the advice that everybody?s been rolling with for over thirty years now.
+> 
+> 
+> We put in the C++ rules about 20 years ago because people wanted to have
+> 
+> 	inline char const* name() { return "SomeName"; }
+> 
+> return the name pointer value in every TU (I think that's reasonable). There is certainly still plenty of code relying on that.
+> 
+> I find that a little surprising, since GCC does not guarantee this, and it is the system compiler on a lot of platforms. (Likewise, Clang does not, and is the system compiler on some platforms). There's a GCC bug on this with only two duplicates, and no Clang bug has been filed, so I don't get the impression that this is a big deal for a lot of people on Linux or Mac.
+> 
+> On the other hand, MSVC guarantees something much stronger: it appears to give *all* string literals a mangled name comprising their type, the first few (32?) characters of the string, and a checksum of the rest.
+
+Hmm, that?s interesting.  I wonder how that interacts with their string-pooling option (/GF), which is what I was looking at before.
+
+I assume that the mangled name isn?t exported from the DLL, though.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131217/c2f6fd90/attachment-0001.html>
+
+From gdr at integrable-solutions.net  Wed Dec 18 03:55:28 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 17 Dec 2013 21:55:28 -0600
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <0CF82BBB-092C-4E7A-93B8-983BB31A86E2@edg.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<0CF82BBB-092C-4E7A-93B8-983BB31A86E2@edg.com>
+Message-ID: <CAAiZkiCFHqV1zSDDzsmNKmNs7PfX7-CkwkSh0PnNXpGZOeFPkw@mail.gmail.com>
+
+On Tue, Dec 17, 2013 at 7:38 PM, David Vandevoorde <daveed at edg.com> wrote:
+> On Dec 17, 2013, at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>> On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>>>> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>>> Consider:
+>>>>
+>>>> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>>>
+>>> I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+>>
+>> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+>
+> Yes.  I think it's worth a lot to make adding "inline" to a function definition have minimal impact on its semantics.
+
+Amen.
+
+-- Gaby
+
+From jhs at edg.com  Wed Dec 18 12:10:03 2013
+From: jhs at edg.com (John Spicer)
+Date: Wed, 18 Dec 2013 07:10:03 -0500
+Subject: [cxx-abi-dev] Mangling of string literals versus variadic
+	templates
+In-Reply-To: <CAAiZkiCFHqV1zSDDzsmNKmNs7PfX7-CkwkSh0PnNXpGZOeFPkw@mail.gmail.com>
+References: <CAGL0aWe3yj1gW1Sqno0VPeVqc+OB+ff8domwGzy3_WKBDmBoig@mail.gmail.com>
+	<B74A8E14-96C1-472C-A985-88B2505A901D@apple.com>
+	<A85BF1F3-1224-4236-A9E0-78AD6397ED36@edg.com>
+	<5A60D098-558F-4980-BADD-06BE0F3D12DA@apple.com>
+	<0CF82BBB-092C-4E7A-93B8-983BB31A86E2@edg.com>
+	<CAAiZkiCFHqV1zSDDzsmNKmNs7PfX7-CkwkSh0PnNXpGZOeFPkw@mail.gmail.com>
+Message-ID: <DE710E8E-C81F-4FF3-A8AD-076EB3EA4EB0@edg.com>
+
+
+On Dec 17, 2013, at 10:55 PM, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+
+> On Tue, Dec 17, 2013 at 7:38 PM, David Vandevoorde <daveed at edg.com> wrote:
+>> On Dec 17, 2013, at 2:57 PM, John McCall <rjmccall at apple.com> wrote:
+>> 
+>>> On Dec 17, 2013, at 11:12 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>>> On Dec 16, 2013, at 8:33 PM, John McCall <rjmccall at apple.com> wrote:
+>>>>> On Dec 16, 2013, at 5:10 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>>>> Consider:
+>>>>> 
+>>>>> Remind me why it?s impossible to go back to the committee and repeatedly weaken any remaining guarantees about string literal addresses until none of this is important?
+>>>> 
+>>>> I don't know if it's impossible or not, but I suspect it would be controversial.  (I, at least, would be opposed.)
+>>> 
+>>> Really?  You feel that having really strong guarantees about the address of a string literal is the right thing to do?  Like, it?s worth significantly increasing build times, code size, and launch times over?
+>> 
+>> Yes.  I think it's worth a lot to make adding "inline" to a function definition have minimal impact on its semantics.
+> 
+> Amen.
+
+As has been pointed out (here by me, and on the WG21 reflector by Richard Smith), string literals are not guaranteed to have the same address in multiple calls each time they are evaluated in non-inline contexts, so eliminating the guarantee would actually make inline functions more like other functions.
+
+John.
+
+> 
+> -- Gaby
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+

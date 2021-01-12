@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> substitutions
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20substitutions&In-Reply-To=%3C200004190108.SAA78400%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000949.html">
+   <LINK REL="Next"  HREF="000948.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>substitutions</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20substitutions&In-Reply-To=%3C200004190108.SAA78400%40baalbek.engr.sgi.com%3E"
+       TITLE="substitutions">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Apr 19 01:08:20 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000949.html">substitutions
+</A></li>
+        <LI>Next message: <A HREF="000948.html">substitutions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#947">[ date ]</a>
+              <a href="thread.html#947">[ thread ]</a>
+              <a href="subject.html#947">[ subject ]</a>
+              <a href="author.html#947">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">alainm at cup.hp.com</A>  Tue Apr 18 15:12:22 2000
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; Now, let's say that S&lt;n2&gt;_ is longuer than S&lt;n1&gt;_2C3, what should
+</I>&gt;<i> &gt; &gt; we do ?
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Ah, I think I see your problem.  The entity that we're considering for
+</I>&gt;<i> &gt; substitution is 2C12C3, _not_ S&lt;n1&gt;_2C3.  Earlier substitutions don't
+</I>&gt;<i> &gt; come into play.
+</I>&gt;<i> 
+</I>&gt;<i> But we don't have the string 2C12C3 in the encoding, if C1::C2 already
+</I>&gt;<i> appear before, we need to reuse (let say that C1 is a long enough name)
+</I>&gt;<i> the C1 preffix, so we only have S&lt;nc1&gt;2C2 appearing in the encoding.
+</I>&gt;<i> And probably some map indicating that C1::C3 is encoded with that
+</I>&gt;<i> string.
+</I>
+But you need to behave as though you did have the string 2C12C3.
+That's what you're substituting for.  As the document says:
+
+  ...the substitution occurs only if &quot;S&lt;seq-id&gt;_&quot; (or &quot;S_&quot;)
+  is strictly shorter than the unsubstituted encoding,
+
+to which I just added for more clarity:
+
+  i.e. the encoding obtained if no substitution of its parts were done.
+
+&gt;<i> &gt; &gt; Clearly, we can't write NS&lt;n1&gt;_2C3 instead of S&lt;n2&gt;_ because
+</I>&gt;<i> &gt; &gt; n1 does not reffers to the same entity at that point.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Right.  Our choices at this point are (with the above numbering)
+</I>&gt;<i> &gt; 2C12C3 (no substitution), S2_2C3 (substitute for C1), or S0_
+</I>&gt;<i> &gt; (substitute for C1::C3).  We wouldn't choose the second because it's
+</I>&gt;<i> &gt; not shorter, and would choose the third unless &lt;n&gt; were &gt; 3 digits.
+</I>&gt;<i> 
+</I>&gt;<i> Maybe my problem will be more clear with the following example:
+</I>&gt;<i> 
+</I>&gt;<i> struct C1xxxx {
+</I>&gt;<i>     struct C2 {};
+</I>&gt;<i>     struct C3 {
+</I>&gt;<i>         struct C4 {};
+</I>&gt;<i>     };
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> template &lt;class T12, class T13, class Tune, class T134&gt;
+</I>&gt;<i> struct Temp : virtual something{};
+</I>&gt;<i> 
+</I>&gt;<i> And we need to encode the name:
+</I>&gt;<i> 
+</I>&gt;<i> Temp&lt;C1xxxx::C2,C1xxxx::C3,int,C1xxxx::C3::C4&gt;
+</I>&gt;<i> 
+</I>&gt;<i> (to encode it's vptr for example)
+</I>&gt;<i> 
+</I>&gt;<i> We have:
+</I>&gt;<i> 
+</I>&gt;<i> 4Temp 
+</I>&gt;<i>   I
+</I>&gt;<i>     N 6C1xxxx 2C2 E 
+</I>&gt;<i>     N S1_ 2C3 ES
+</I>&gt;<i>     i
+</I>&gt;<i>     N S2_ 2C4 E // S2_ -&gt; S1_ 2C3, let's call S2_ S&lt;C13n&gt;_ instead.
+</I>&gt;<i>   E
+</I>&gt;<i> 
+</I>&gt;<i> Now imagine, instead of &quot;int&quot;, we have something very 
+</I>&gt;<i> big that generate a 5 digit (or more) C13n (sure, it's 
+</I>&gt;<i> a big number, it won't append very often) so that 
+</I>&gt;<i> strlen( &quot;S&lt;C13n&gt;_2C4&quot; ) &gt; strlen (&quot;S1_ 2C3&quot;)
+</I>
+But is strlen( &quot;S&lt;C13n&gt;_2C4&quot; ) &gt; strlen (&quot;6C1xxxx2C3&quot;)?
+That's the question that matters.
+
+&gt;<i> At that point, I don't see what to write instead of &quot;S&lt;C13n&gt;_2C4&quot;.
+</I>
+Is &quot;S&lt;C13n&gt;_&quot; shorter than &quot;6C1xxxx2C3&quot;?  If so, use it.
+Otherwise, is &quot;S&lt;C1n&gt;&quot; shorter than &quot;6C1xxxx&quot;?  If so, use S&lt;C1n&gt;2C3.
+Otherwise, use &quot;6C1xxxx&quot;.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000949.html">substitutions
+</A></li>
+	<LI>Next message: <A HREF="000948.html">substitutions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#947">[ date ]</a>
+              <a href="thread.html#947">[ thread ]</a>
+              <a href="subject.html#947">[ subject ]</a>
+              <a href="author.html#947">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1921 @@
+From nlewycky at google.com  Tue Jan 21 02:13:16 2014
+From: nlewycky at google.com (Nick Lewycky)
+Date: Mon, 20 Jan 2014 18:13:16 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+	expression on function (not function type)
+Message-ID: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+
+Hi,
+
+I'm trying to mangle a vendor extension that encodes an expression which
+applies to function overload candidates, with the goal that a user running
+the demangler would see their expression demangled. While there are various
+vendor extension points, none of them allow me to go into encoding an
+expression, unless I stick a stray "decltype" in there, or similar
+(expression in a template argument that doesn't actually exist, etc.).
+
+The vendor extension is described in full here:
+http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+
+I don't think I can do it without an extension to the mangling rules. As a
+strawman proposal, I suggest this:
+
+<type> ::= Ue <expression> E # vendor extended type qualifier
+
+This shouldn't be ambiguous to decode because the first byte of a
+<source-name> can't be an 'e', it has to be a <positive length number>, and
+there aren't other rules for manglings starting with 'U' in the position
+where a <type> can go. It will bust today's demanglers, but only for users
+of my new extension and we already have that problem.
+
+This has the slight bug that it gets placed as part of the <function-type>
+when it isn't actually part of the type of the function at the language
+level, but as far as I can tell it behaves exactly how I want.
+
+Nick
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140120/9ba44821/attachment.html>
+
+From rjmccall at apple.com  Tue Jan 21 17:36:39 2014
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 21 Jan 2014 09:36:39 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+Message-ID: <5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+
+On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+> 
+> The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+> 
+> I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+> 
+> <type> ::= Ue <expression> E # vendor extended type qualifier
+
+I think you mean
+
+  <type> ::= Ue <source-name> <expression> E <type>
+
+And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+
+However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+
+On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+
+John.
+
+From richardsmith at google.com  Tue Jan 21 22:01:16 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 21 Jan 2014 14:01:16 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+Message-ID: <CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+
+On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> > I'm trying to mangle a vendor extension that encodes an expression which
+> applies to function overload candidates, with the goal that a user running
+> the demangler would see their expression demangled. While there are various
+> vendor extension points, none of them allow me to go into encoding an
+> expression, unless I stick a stray "decltype" in there, or similar
+> (expression in a template argument that doesn't actually exist, etc.).
+> >
+> > The vendor extension is described in full here:
+> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+> >
+> > I don't think I can do it without an extension to the mangling rules. As
+> a strawman proposal, I suggest this:
+> >
+> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>
+> I think you mean
+>
+>   <type> ::= Ue <source-name> <expression> E <type>
+>
+> And this would be valuable for mangling e.g. dependent address space
+> qualifiers, if anybody ever wants to do those.
+>
+
+We could generalize this slightly to
+
+  <type> ::= U <source-name> <template-args> <type>
+
+to allow multiple arguments (as types or expressions), dependent pack
+expansions, and so on.
+
+However, it feels really forced to add your feature, specifically, to
+> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+> a <nested-name>, and you need to be able to do this on a top-level
+> function, so I suppose extending <type> in a known-useful direction and
+> then abusing <type> might be the best thing.
+>
+> On the other hand, isn?t this a proposed direction for standardization?  I
+> would have no problem with giving this a proper, non-vendor mangling just
+> in case.
+
+
+It's not proposed for standardization with this syntax, and it's likely
+that the final semantics will differ from the Clang extension in some ways
+(the proposed partial ordering rules for constraints are rather more
+complex, for instance), but it's close enough that it's an option worth
+considering.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140121/4a66f949/attachment.html>
+
+From rjmccall at apple.com  Thu Jan 23 19:52:04 2014
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 23 Jan 2014 11:52:04 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+Message-ID: <CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+
+On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+> >
+> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+> >
+> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+> >
+> > <type> ::= Ue <expression> E # vendor extended type qualifier
+> 
+> I think you mean
+> 
+>   <type> ::= Ue <source-name> <expression> E <type>
+> 
+> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+> 
+> We could generalize this slightly to
+> 
+>   <type> ::= U <source-name> <template-args> <type>
+> 
+> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+
+That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+
+> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+> 
+> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+> 
+> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+
+Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140123/86ed6330/attachment.html>
+
+From nlewycky at google.com  Sat Jan 25 01:36:54 2014
+From: nlewycky at google.com (Nick Lewycky)
+Date: Fri, 24 Jan 2014 17:36:54 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+Message-ID: <CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+
+On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>> > I'm trying to mangle a vendor extension that encodes an expression
+>> which applies to function overload candidates, with the goal that a user
+>> running the demangler would see their expression demangled. While there are
+>> various vendor extension points, none of them allow me to go into encoding
+>> an expression, unless I stick a stray "decltype" in there, or similar
+>> (expression in a template argument that doesn't actually exist, etc.).
+>> >
+>> > The vendor extension is described in full here:
+>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>> >
+>> > I don't think I can do it without an extension to the mangling rules.
+>> As a strawman proposal, I suggest this:
+>> >
+>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>
+>> I think you mean
+>>
+>>   <type> ::= Ue <source-name> <expression> E <type>
+>>
+>> And this would be valuable for mangling e.g. dependent address space
+>> qualifiers, if anybody ever wants to do those.
+>>
+> Yep, that's what I meant. Thanks!
+
+> We could generalize this slightly to
+>
+>   <type> ::= U <source-name> <template-args> <type>
+>
+> to allow multiple arguments (as types or expressions), dependent pack
+> expansions, and so on.
+>
+>
+> That?s a bit more future-proof, I suppose, although I think it might
+> stretch the definition of a type-qualifier to embed anything other than a
+> value, and value pack-expansions are already part of the <expression>
+> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+> be manufactured here? mangling.
+>
+> However, it feels really forced to add your feature, specifically, to
+>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>> a <nested-name>, and you need to be able to do this on a top-level
+>> function, so I suppose extending <type> in a known-useful direction and
+>> then abusing <type> might be the best thing.
+>>
+>> On the other hand, isn?t this a proposed direction for standardization?
+>>  I would have no problem with giving this a proper, non-vendor mangling
+>> just in case.
+>
+>
+> It's not proposed for standardization with this syntax, and it's likely
+> that the final semantics will differ from the Clang extension in some ways
+> (the proposed partial ordering rules for constraints are rather more
+> complex, for instance), but it's close enough that it's an option worth
+> considering.
+>
+>
+> Unless the feature is likely to diverge so much that it won?t even be an
+> expression anymore, I don?t think this poses any problem for the ABI.
+>
+
+Vendor hat on, I reserve the right to make my extension behave differently
+from anything that's been standardized. As long as I can slip a vendor
+extension particle into the mangled name I'll be happy to use otherwise
+normal mangling. If it turns out I don't have to, all the better, but I'm
+not banking on it.
+
+Do you want me to try to prepare a patch for template constraints? I think
+it would look similar to my strawman proposal, except that I'd pick some
+other available letter?
+
+Nick
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140124/5aed61ae/attachment.html>
+
+From rjmccall at apple.com  Sat Jan 25 01:54:28 2014
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 24 Jan 2014 17:54:28 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+Message-ID: <1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+
+
+On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+
+> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>> >
+>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>> >
+>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>> >
+>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>> 
+>> I think you mean
+>> 
+>>   <type> ::= Ue <source-name> <expression> E <type>
+>> 
+>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+> 
+> Yep, that's what I meant. Thanks!
+>> We could generalize this slightly to
+>> 
+>>   <type> ::= U <source-name> <template-args> <type>
+>> 
+>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+> 
+> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+> 
+>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>> 
+>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>> 
+>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+> 
+> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+> 
+> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+
+I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+
+> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+
+Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140124/8a67cfa6/attachment.html>
+
+From nlewycky at google.com  Sat Jan 25 03:30:12 2014
+From: nlewycky at google.com (Nick Lewycky)
+Date: Fri, 24 Jan 2014 19:30:12 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+Message-ID: <CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+
+On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+
+>
+> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>
+> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>> which applies to function overload candidates, with the goal that a user
+>>> running the demangler would see their expression demangled. While there are
+>>> various vendor extension points, none of them allow me to go into encoding
+>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>> (expression in a template argument that doesn't actually exist, etc.).
+>>> >
+>>> > The vendor extension is described in full here:
+>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>> >
+>>> > I don't think I can do it without an extension to the mangling rules.
+>>> As a strawman proposal, I suggest this:
+>>> >
+>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>
+>>> I think you mean
+>>>
+>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>
+>>> And this would be valuable for mangling e.g. dependent address space
+>>> qualifiers, if anybody ever wants to do those.
+>>>
+>> Yep, that's what I meant. Thanks!
+>
+>> We could generalize this slightly to
+>>
+>>   <type> ::= U <source-name> <template-args> <type>
+>>
+>> to allow multiple arguments (as types or expressions), dependent pack
+>> expansions, and so on.
+>>
+>>
+>> That?s a bit more future-proof, I suppose, although I think it might
+>> stretch the definition of a type-qualifier to embed anything other than a
+>> value, and value pack-expansions are already part of the <expression>
+>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>> be manufactured here? mangling.
+>>
+>> However, it feels really forced to add your feature, specifically, to
+>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>> a <nested-name>, and you need to be able to do this on a top-level
+>>> function, so I suppose extending <type> in a known-useful direction and
+>>> then abusing <type> might be the best thing.
+>>>
+>>> On the other hand, isn?t this a proposed direction for standardization?
+>>>  I would have no problem with giving this a proper, non-vendor mangling
+>>> just in case.
+>>
+>>
+>> It's not proposed for standardization with this syntax, and it's likely
+>> that the final semantics will differ from the Clang extension in some ways
+>> (the proposed partial ordering rules for constraints are rather more
+>> complex, for instance), but it's close enough that it's an option worth
+>> considering.
+>>
+>>
+>> Unless the feature is likely to diverge so much that it won?t even be an
+>> expression anymore, I don?t think this poses any problem for the ABI.
+>>
+>
+> Vendor hat on, I reserve the right to make my extension behave differently
+> from anything that's been standardized. As long as I can slip a vendor
+> extension particle into the mangled name I'll be happy to use otherwise
+> normal mangling. If it turns out I don't have to, all the better, but I'm
+> not banking on it.
+>
+>
+> I completely agree that this is acceptable vendor-hat behavior and that
+> the fake-qualifier idea isn?t a bad approach for it.
+>
+>  Do you want me to try to prepare a patch for template constraints? I
+> think it would look similar to my strawman proposal, except that I'd pick
+> some other available letter?
+>
+>
+> Yes, except that grammatically you should make it part of the function
+> <encoding> instead of adding it to <type>.  It works out to the same basic
+> position.
+>
+
+Okay, first attempt at a patch attached. Please review.
+
+A couple things. I chose 'Q', short for 'requires' to indicate a
+constraint. I put the new part on all encodings, not just functions,
+because you may need to mangle a static data member inside a class that has
+a concept applied, and similarly for its vtable and special members.
+
+Also, it's not clear to me whether constraints are ordered, and I make no
+attempt to specify this in the ABI.
+
+Nick
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140124/0ce2a57b/attachment-0001.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: requires-1.patch
+Type: text/x-patch
+Size: 2237 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140124/0ce2a57b/attachment-0001.bin>
+
+From rjmccall at apple.com  Mon Jan 27 19:57:02 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Jan 2014 11:57:02 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+Message-ID: <CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+
+On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>>> >
+>>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>>> >
+>>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>>> >
+>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>> 
+>>> I think you mean
+>>> 
+>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>> 
+>>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+>> 
+>> Yep, that's what I meant. Thanks!
+>>> We could generalize this slightly to
+>>> 
+>>>   <type> ::= U <source-name> <template-args> <type>
+>>> 
+>>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+>> 
+>> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+>> 
+>>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>>> 
+>>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>>> 
+>>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+>> 
+>> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+>> 
+>> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+> 
+> I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+> 
+>> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+> 
+> Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+> 
+> Okay, first attempt at a patch attached. Please review.
+> 
+> A couple things. I chose 'Q', short for 'requires' to indicate a constraint. I put the new part on all encodings, not just functions, because you may need to mangle a static data member inside a class that has a concept applied, and similarly for its vtable and special members.
+
+I?m confused about what you mean by ?concept? here.  If it's just jargon for the enable_if feature, it seems completely counterproductive.
+
+We do not need to mangle enable_if conditions on class template patterns because of the ODR (and related rules in the templates chapter).
+
+enable_if has to be mangled for a function template because it?s part of the template signature.  You can have two function template declarations in the scope scope with the same name and with identical template parameter signatures and type signatures, but if they have different enable_if conditions, then they?re considered different templates.  In typical use, this isn?t actually important: two overlapping function templates are probably defined in the same header file, and it?s likely that every call site will see both of them, and so any given list of template arguments that doesn?t lead to an ambiguity will probably pick the same template every time.  But that?s not actually *required*: it?s totally fine to have two different function templates in two different translation units that both accept the same template arguments, and we need to distinguish them.
+
+But two class temploids with the same name in the same scope always declare the same entity for the ODR?s purposes, and if a particular list of template arguments would pick an explicit specialization ([temp.expl.spec]p6) or partial specialization ([temp.class.spec]p1), that specialization is required to be defined in every translation unit that would use it.  So while you can guard a template pattern with an enable_if clause, it just controls whether that pattern is selected for instantiation, and the decision to select that pattern doesn?t need to be mangled in for the same basic reason that we don?t have to mangle in the partial-specialization signature we choose: ultimately, you can never legally simultaneously instantiate foo<int,char*> from two different patterns.
+
+Now, there are concepts proposals that interfere with this along multiple axes.  There are proposals which allow you to explicitly choose between ambiguous concept maps for a template argument, and there are proposals which allow you to define types in a concept map that would otherwise conflict in name with each other.  Both proposals affect mangling: the former suggests that we need to mangle a reference to the concept map as part of the template arguments, and the latter suggests that we need to mangle the concept map as part of the context.  But in neither case does a random expression in the <encoding> help.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/5fd63a9b/attachment.html>
+
+From richardsmith at google.com  Mon Jan 27 20:26:05 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 27 Jan 2014 12:26:05 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+Message-ID: <CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+
+On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>
+> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>
+>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>>
+>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>>> which applies to function overload candidates, with the goal that a user
+>>>> running the demangler would see their expression demangled. While there are
+>>>> various vendor extension points, none of them allow me to go into encoding
+>>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>>> (expression in a template argument that doesn't actually exist, etc.).
+>>>> >
+>>>> > The vendor extension is described in full here:
+>>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>>> >
+>>>> > I don't think I can do it without an extension to the mangling rules.
+>>>> As a strawman proposal, I suggest this:
+>>>> >
+>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>
+>>>> I think you mean
+>>>>
+>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>
+>>>> And this would be valuable for mangling e.g. dependent address space
+>>>> qualifiers, if anybody ever wants to do those.
+>>>>
+>>> Yep, that's what I meant. Thanks!
+>>
+>>> We could generalize this slightly to
+>>>
+>>>   <type> ::= U <source-name> <template-args> <type>
+>>>
+>>> to allow multiple arguments (as types or expressions), dependent pack
+>>> expansions, and so on.
+>>>
+>>>
+>>> That?s a bit more future-proof, I suppose, although I think it might
+>>> stretch the definition of a type-qualifier to embed anything other than a
+>>> value, and value pack-expansions are already part of the <expression>
+>>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>>> be manufactured here? mangling.
+>>>
+>>> However, it feels really forced to add your feature, specifically, to
+>>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>>> a <nested-name>, and you need to be able to do this on a top-level
+>>>> function, so I suppose extending <type> in a known-useful direction and
+>>>> then abusing <type> might be the best thing.
+>>>>
+>>>> On the other hand, isn?t this a proposed direction for standardization?
+>>>>  I would have no problem with giving this a proper, non-vendor mangling
+>>>> just in case.
+>>>
+>>>
+>>> It's not proposed for standardization with this syntax, and it's likely
+>>> that the final semantics will differ from the Clang extension in some ways
+>>> (the proposed partial ordering rules for constraints are rather more
+>>> complex, for instance), but it's close enough that it's an option worth
+>>> considering.
+>>>
+>>>
+>>> Unless the feature is likely to diverge so much that it won?t even be an
+>>> expression anymore, I don?t think this poses any problem for the ABI.
+>>>
+>>
+>> Vendor hat on, I reserve the right to make my extension behave
+>> differently from anything that's been standardized. As long as I can slip a
+>> vendor extension particle into the mangled name I'll be happy to use
+>> otherwise normal mangling. If it turns out I don't have to, all the better,
+>> but I'm not banking on it.
+>>
+>>
+>> I completely agree that this is acceptable vendor-hat behavior and that
+>> the fake-qualifier idea isn?t a bad approach for it.
+>>
+>>  Do you want me to try to prepare a patch for template constraints? I
+>> think it would look similar to my strawman proposal, except that I'd pick
+>> some other available letter?
+>>
+>>
+>> Yes, except that grammatically you should make it part of the function
+>> <encoding> instead of adding it to <type>.  It works out to the same basic
+>> position.
+>>
+>
+> Okay, first attempt at a patch attached. Please review.
+>
+> A couple things. I chose 'Q', short for 'requires' to indicate a
+> constraint. I put the new part on all encodings, not just functions,
+> because you may need to mangle a static data member inside a class that has
+> a concept applied, and similarly for its vtable and special members.
+>
+>
+> I?m confused about what you mean by ?concept? here.  If it's just jargon
+> for the enable_if feature, it seems completely counterproductive.
+>
+
+This is jargon for the proposed constraints feature, not for enable_if.
+
+We do not need to mangle enable_if conditions on class template patterns
+> because of the ODR (and related rules in the templates chapter).
+>
+
+We don't even support enable_if conditions on class templates (+
+specializations of them).
+
+
+> enable_if has to be mangled for a function template because it?s part of
+> the template signature.  You can have two function template declarations in
+> the scope scope with the same name and with identical template parameter
+> signatures and type signatures, but if they have different enable_if
+> conditions, then they?re considered different templates.  In typical use,
+> this isn?t actually important: two overlapping function templates are
+> probably defined in the same header file, and it?s likely that every call
+> site will see both of them, and so any given list of template arguments
+> that doesn?t lead to an ambiguity will probably pick the same template
+> every time.  But that?s not actually *required*: it?s totally fine to have
+> two different function templates in two different translation units that
+> both accept the same template arguments, and we need to distinguish them.
+>
+
+It's more complex than that. enable_if can look at the values of function
+arguments at a call site (if they are constant expressions), not just at
+template arguments, so we need to mangle it into the signature for all
+functions and function templates, even in the single-TU case.
+
+I think this is a solid reason not to muddle up the constraints mangling
+with the attribute enable_if mangling. Adding support for parameterized
+vendor extensions seems like a good general change that would also handle
+the enable_if attribute. I don't think we should try to add a mangling for
+constraints until the concepts SG figures out how they want them to work.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/96d1a92d/attachment-0001.html>
+
+From nlewycky at google.com  Mon Jan 27 21:15:59 2014
+From: nlewycky at google.com (Nick Lewycky)
+Date: Mon, 27 Jan 2014 13:15:59 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+Message-ID: <CADbEz-hKgUk5_27F2v1BPABceCKuoSFOOSg6N=EVbj4J=oWvbA@mail.gmail.com>
+
+On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>
+> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>
+>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>>
+>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>>> which applies to function overload candidates, with the goal that a user
+>>>> running the demangler would see their expression demangled. While there are
+>>>> various vendor extension points, none of them allow me to go into encoding
+>>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>>> (expression in a template argument that doesn't actually exist, etc.).
+>>>> >
+>>>> > The vendor extension is described in full here:
+>>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>>> >
+>>>> > I don't think I can do it without an extension to the mangling rules.
+>>>> As a strawman proposal, I suggest this:
+>>>> >
+>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>
+>>>> I think you mean
+>>>>
+>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>
+>>>> And this would be valuable for mangling e.g. dependent address space
+>>>> qualifiers, if anybody ever wants to do those.
+>>>>
+>>> Yep, that's what I meant. Thanks!
+>>
+>>>  We could generalize this slightly to
+>>>
+>>>   <type> ::= U <source-name> <template-args> <type>
+>>>
+>>> to allow multiple arguments (as types or expressions), dependent pack
+>>> expansions, and so on.
+>>>
+>>>
+>>> That?s a bit more future-proof, I suppose, although I think it might
+>>> stretch the definition of a type-qualifier to embed anything other than a
+>>> value, and value pack-expansions are already part of the <expression>
+>>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>>> be manufactured here? mangling.
+>>>
+>>> However, it feels really forced to add your feature, specifically, to
+>>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>>> a <nested-name>, and you need to be able to do this on a top-level
+>>>> function, so I suppose extending <type> in a known-useful direction and
+>>>> then abusing <type> might be the best thing.
+>>>>
+>>>> On the other hand, isn?t this a proposed direction for standardization?
+>>>>  I would have no problem with giving this a proper, non-vendor mangling
+>>>> just in case.
+>>>
+>>>
+>>> It's not proposed for standardization with this syntax, and it's likely
+>>> that the final semantics will differ from the Clang extension in some ways
+>>> (the proposed partial ordering rules for constraints are rather more
+>>> complex, for instance), but it's close enough that it's an option worth
+>>> considering.
+>>>
+>>>
+>>> Unless the feature is likely to diverge so much that it won?t even be an
+>>> expression anymore, I don?t think this poses any problem for the ABI.
+>>>
+>>
+>> Vendor hat on, I reserve the right to make my extension behave
+>> differently from anything that's been standardized. As long as I can slip a
+>> vendor extension particle into the mangled name I'll be happy to use
+>> otherwise normal mangling. If it turns out I don't have to, all the better,
+>> but I'm not banking on it.
+>>
+>>
+>> I completely agree that this is acceptable vendor-hat behavior and that
+>> the fake-qualifier idea isn?t a bad approach for it.
+>>
+>>  Do you want me to try to prepare a patch for template constraints? I
+>> think it would look similar to my strawman proposal, except that I'd pick
+>> some other available letter?
+>>
+>>
+>> Yes, except that grammatically you should make it part of the function
+>> <encoding> instead of adding it to <type>.  It works out to the same basic
+>> position.
+>>
+>
+> Okay, first attempt at a patch attached. Please review.
+>
+> A couple things. I chose 'Q', short for 'requires' to indicate a
+> constraint. I put the new part on all encodings, not just functions,
+> because you may need to mangle a static data member inside a class that has
+> a concept applied, and similarly for its vtable and special members.
+>
+>
+> I?m confused about what you mean by ?concept? here.  If it's just jargon
+> for the enable_if feature, it seems completely counterproductive.
+>
+
+Sorry, we had a miscommunication. I asked "Do you want me to try to prepare
+a patch for template constraints?" meaning template constraints as defined
+in N3701 (a.k.a, "concepts lite"), and you answered "Yes, except that
+grammatically you should make it part of the function <encoding> instead of
+adding it to <type>".
+
+I thought you had asked me to invent a mangling for concept lite, then I
+would use that plus a vendor extension node somewhere in the expression to
+indicate that what I really had was a vendor extension.
+
+What *did* you mean? Sorry for the protracted discussion.
+
+Nick
+
+We do not need to mangle enable_if conditions on class template patterns
+> because of the ODR (and related rules in the templates chapter).
+>
+
+enable_if has to be mangled for a function template because it?s part of
+> the template signature.  You can have two function template declarations in
+> the scope scope with the same name and with identical template parameter
+> signatures and type signatures, but if they have different enable_if
+> conditions, then they?re considered different templates.  In typical use,
+> this isn?t actually important: two overlapping function templates are
+> probably defined in the same header file, and it?s likely that every call
+> site will see both of them, and so any given list of template arguments
+> that doesn?t lead to an ambiguity will probably pick the same template
+> every time.  But that?s not actually *required*: it?s totally fine to have
+> two different function templates in two different translation units that
+> both accept the same template arguments, and we need to distinguish them.
+>
+> But two class temploids with the same name in the same scope always
+> declare the same entity for the ODR?s purposes, and if a particular list of
+> template arguments would pick an explicit specialization
+> ([temp.expl.spec]p6) or partial specialization ([temp.class.spec]p1), that
+> specialization is required to be defined in every translation unit that
+> would use it.  So while you can guard a template pattern with an enable_if
+> clause, it just controls whether that pattern is selected for
+> instantiation, and the decision to select that pattern doesn?t need to be
+> mangled in for the same basic reason that we don?t have to mangle in the
+> partial-specialization signature we choose: ultimately, you can never
+> legally simultaneously instantiate foo<int,char*> from two different
+> patterns.
+>
+> Now, there are concepts proposals that interfere with this along multiple
+> axes.  There are proposals which allow you to explicitly choose between
+> ambiguous concept maps for a template argument, and there are proposals
+> which allow you to define types in a concept map that would otherwise
+> conflict in name with each other.  Both proposals affect mangling: the
+> former suggests that we need to mangle a reference to the concept map as
+> part of the template arguments, and the latter suggests that we need to
+> mangle the concept map as part of the context.  But in neither case does a
+> random expression in the <encoding> help.
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/a049768b/attachment.html>
+
+From rjmccall at apple.com  Mon Jan 27 22:56:26 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Jan 2014 14:56:26 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CADbEz-hKgUk5_27F2v1BPABceCKuoSFOOSg6N=EVbj4J=oWvbA@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CADbEz-hKgUk5_27F2v1BPABceCKuoSFOOSg6N=EVbj4J=oWvbA@mail.gmail.com>
+Message-ID: <07FFD278-46BF-4B4D-8F58-7E02B142A310@apple.com>
+
+On Jan 27, 2014, at 1:15 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>>>> >
+>>>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>>>> >
+>>>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>>>> >
+>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>> 
+>>>> I think you mean
+>>>> 
+>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>> 
+>>>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+>>> 
+>>> Yep, that's what I meant. Thanks!
+>>>> We could generalize this slightly to
+>>>> 
+>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>> 
+>>>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+>>> 
+>>> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+>>> 
+>>>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>>>> 
+>>>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>>>> 
+>>>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+>>> 
+>>> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+>>> 
+>>> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+>> 
+>> I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+>> 
+>>> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+>> 
+>> Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+>> 
+>> Okay, first attempt at a patch attached. Please review.
+>> 
+>> A couple things. I chose 'Q', short for 'requires' to indicate a constraint. I put the new part on all encodings, not just functions, because you may need to mangle a static data member inside a class that has a concept applied, and similarly for its vtable and special members.
+> 
+> I?m confused about what you mean by ?concept? here.  If it's just jargon for the enable_if feature, it seems completely counterproductive.
+> 
+> Sorry, we had a miscommunication. I asked "Do you want me to try to prepare a patch for template constraints?" meaning template constraints as defined in N3701 (a.k.a, "concepts lite"), and you answered "Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>?.
+
+Ah.  Yes, I am not quite that embedded in committee minutiae.  I assumed you were talking about some proposal to standardize something closely pattern on this feature, which is, in fact, a way of declaring a constraint on a template.  It looks like N3701 is roughly similar but would require some additional work, e.g. to figure out the exact canonical way to turn the sugar forms (?Copyable T?) into requires clauses.
+
+I?m still not sure what in N3701 requires you to mangle constraints into class names.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/3eb037b6/attachment-0001.html>
+
+From richardsmith at google.com  Mon Jan 27 23:07:24 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 27 Jan 2014 15:07:24 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <07FFD278-46BF-4B4D-8F58-7E02B142A310@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CADbEz-hKgUk5_27F2v1BPABceCKuoSFOOSg6N=EVbj4J=oWvbA@mail.gmail.com>
+	<07FFD278-46BF-4B4D-8F58-7E02B142A310@apple.com>
+Message-ID: <CAGL0aWcDwF=y9QPRZoUpC4nJKig8_axPm+EFJxanMrrV1nzmwg@mail.gmail.com>
+
+On 27 January 2014 14:56, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 27, 2014, at 1:15 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>
+> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>
+>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>
+>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>
+>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>>
+>>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>>>> which applies to function overload candidates, with the goal that a user
+>>>>> running the demangler would see their expression demangled. While there are
+>>>>> various vendor extension points, none of them allow me to go into encoding
+>>>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>>>> (expression in a template argument that doesn't actually exist, etc.).
+>>>>> >
+>>>>> > The vendor extension is described in full here:
+>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>>>> >
+>>>>> > I don't think I can do it without an extension to the mangling
+>>>>> rules. As a strawman proposal, I suggest this:
+>>>>> >
+>>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>>
+>>>>> I think you mean
+>>>>>
+>>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>>
+>>>>> And this would be valuable for mangling e.g. dependent address space
+>>>>> qualifiers, if anybody ever wants to do those.
+>>>>>
+>>>> Yep, that's what I meant. Thanks!
+>>>
+>>>>  We could generalize this slightly to
+>>>>
+>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>>
+>>>> to allow multiple arguments (as types or expressions), dependent pack
+>>>> expansions, and so on.
+>>>>
+>>>>
+>>>> That?s a bit more future-proof, I suppose, although I think it might
+>>>> stretch the definition of a type-qualifier to embed anything other than a
+>>>> value, and value pack-expansions are already part of the <expression>
+>>>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>>>> be manufactured here? mangling.
+>>>>
+>>>> However, it feels really forced to add your feature, specifically, to
+>>>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>>>> a <nested-name>, and you need to be able to do this on a top-level
+>>>>> function, so I suppose extending <type> in a known-useful direction and
+>>>>> then abusing <type> might be the best thing.
+>>>>>
+>>>>> On the other hand, isn?t this a proposed direction for
+>>>>> standardization?  I would have no problem with giving this a proper,
+>>>>> non-vendor mangling just in case.
+>>>>
+>>>>
+>>>> It's not proposed for standardization with this syntax, and it's likely
+>>>> that the final semantics will differ from the Clang extension in some ways
+>>>> (the proposed partial ordering rules for constraints are rather more
+>>>> complex, for instance), but it's close enough that it's an option worth
+>>>> considering.
+>>>>
+>>>>
+>>>> Unless the feature is likely to diverge so much that it won?t even be
+>>>> an expression anymore, I don?t think this poses any problem for the ABI.
+>>>>
+>>>
+>>> Vendor hat on, I reserve the right to make my extension behave
+>>> differently from anything that's been standardized. As long as I can slip a
+>>> vendor extension particle into the mangled name I'll be happy to use
+>>> otherwise normal mangling. If it turns out I don't have to, all the better,
+>>> but I'm not banking on it.
+>>>
+>>>
+>>> I completely agree that this is acceptable vendor-hat behavior and that
+>>> the fake-qualifier idea isn?t a bad approach for it.
+>>>
+>>>  Do you want me to try to prepare a patch for template constraints? I
+>>> think it would look similar to my strawman proposal, except that I'd pick
+>>> some other available letter?
+>>>
+>>>
+>>> Yes, except that grammatically you should make it part of the function
+>>> <encoding> instead of adding it to <type>.  It works out to the same basic
+>>> position.
+>>>
+>>
+>> Okay, first attempt at a patch attached. Please review.
+>>
+>> A couple things. I chose 'Q', short for 'requires' to indicate a
+>> constraint. I put the new part on all encodings, not just functions,
+>> because you may need to mangle a static data member inside a class that has
+>> a concept applied, and similarly for its vtable and special members.
+>>
+>>
+>> I?m confused about what you mean by ?concept? here.  If it's just jargon
+>> for the enable_if feature, it seems completely counterproductive.
+>>
+>
+> Sorry, we had a miscommunication. I asked "Do you want me to try to
+> prepare a patch for template constraints?" meaning template constraints as
+> defined in N3701 (a.k.a, "concepts lite"), and you answered "Yes, except
+> that grammatically you should make it part of the function <encoding>
+> instead of adding it to <type>?.
+>
+>
+> Ah.  Yes, I am not quite that embedded in committee minutiae.  I assumed
+> you were talking about some proposal to standardize something closely
+> pattern on this feature, which is, in fact, a way of declaring a constraint
+> on a template.  It looks like N3701 is roughly similar but would require
+> some additional work, e.g. to figure out the exact canonical way to turn
+> the sugar forms (?Copyable T?) into requires clauses.
+>
+> I?m still not sure what in N3701 requires you to mangle constraints into
+> class names.
+>
+
+I think your prior assertion that we would only need this mangling for
+constraints on function templates is correct.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/fd0c4f38/attachment.html>
+
+From rjmccall at apple.com  Mon Jan 27 23:08:08 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Jan 2014 15:08:08 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+Message-ID: <01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+
+On Jan 27, 2014, at 12:26 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>>>> >
+>>>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>>>> >
+>>>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>>>> >
+>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>> 
+>>>> I think you mean
+>>>> 
+>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>> 
+>>>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+>>> 
+>>> Yep, that's what I meant. Thanks!
+>>>> We could generalize this slightly to
+>>>> 
+>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>> 
+>>>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+>>> 
+>>> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+>>> 
+>>>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>>>> 
+>>>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>>>> 
+>>>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+>>> 
+>>> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+>>> 
+>>> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+>> 
+>> I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+>> 
+>>> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+>> 
+>> Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+>> 
+>> Okay, first attempt at a patch attached. Please review.
+>> 
+>> A couple things. I chose 'Q', short for 'requires' to indicate a constraint. I put the new part on all encodings, not just functions, because you may need to mangle a static data member inside a class that has a concept applied, and similarly for its vtable and special members.
+> 
+> I?m confused about what you mean by ?concept? here.  If it's just jargon for the enable_if feature, it seems completely counterproductive.
+> 
+> This is jargon for the proposed constraints feature, not for enable_if.
+> 
+> We do not need to mangle enable_if conditions on class template patterns because of the ODR (and related rules in the templates chapter).
+> 
+> We don't even support enable_if conditions on class templates (+ specializations of them).
+
+Any particular reason?  If you?ve got partial-ordering rules already, it seems like a very nice way to significantly improve the expressiveness of class template partial specialization.  Right now, users who want to specialize a template on e.g. POD types have to factor that into the original template signature.
+
+> enable_if has to be mangled for a function template because it?s part of the template signature.  You can have two function template declarations in the scope scope with the same name and with identical template parameter signatures and type signatures, but if they have different enable_if conditions, then they?re considered different templates.  In typical use, this isn?t actually important: two overlapping function templates are probably defined in the same header file, and it?s likely that every call site will see both of them, and so any given list of template arguments that doesn?t lead to an ambiguity will probably pick the same template every time.  But that?s not actually *required*: it?s totally fine to have two different function templates in two different translation units that both accept the same template arguments, and we need to distinguish them.
+> 
+> It's more complex than that. enable_if can look at the values of function arguments at a call site (if they are constant expressions), not just at template arguments, so we need to mangle it into the signature for all functions and function templates, even in the single-TU case.
+
+What a majestic way of adding complexity without really making a significant improvement to expressiveness.  Why not instead add a feature to generally infer a non-type template parameter from a constant argument?
+
+Oh well, I am not designing your language feature.  I acknowledge that you also need to mangle this into non-template functions.  I don?t understand why you care about mangling it into class names.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/af6f7405/attachment-0001.html>
+
+From richardsmith at google.com  Mon Jan 27 23:22:47 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 27 Jan 2014 15:22:47 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+	<01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+Message-ID: <CAGL0aWejcK6-b9Np3LjDOJ+vg_G8NXN0Tz8LBzN9diojNoTSyg@mail.gmail.com>
+
+On 27 January 2014 15:08, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 27, 2014, at 12:26 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>
+>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>
+>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>
+>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>>
+>>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>>>> which applies to function overload candidates, with the goal that a user
+>>>>> running the demangler would see their expression demangled. While there are
+>>>>> various vendor extension points, none of them allow me to go into encoding
+>>>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>>>> (expression in a template argument that doesn't actually exist, etc.).
+>>>>> >
+>>>>> > The vendor extension is described in full here:
+>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>>>> >
+>>>>> > I don't think I can do it without an extension to the mangling
+>>>>> rules. As a strawman proposal, I suggest this:
+>>>>> >
+>>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>>
+>>>>> I think you mean
+>>>>>
+>>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>>
+>>>>> And this would be valuable for mangling e.g. dependent address space
+>>>>> qualifiers, if anybody ever wants to do those.
+>>>>>
+>>>> Yep, that's what I meant. Thanks!
+>>>
+>>>> We could generalize this slightly to
+>>>>
+>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>>
+>>>> to allow multiple arguments (as types or expressions), dependent pack
+>>>> expansions, and so on.
+>>>>
+>>>>
+>>>> That?s a bit more future-proof, I suppose, although I think it might
+>>>> stretch the definition of a type-qualifier to embed anything other than a
+>>>> value, and value pack-expansions are already part of the <expression>
+>>>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>>>> be manufactured here? mangling.
+>>>>
+>>>> However, it feels really forced to add your feature, specifically, to
+>>>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>>>> a <nested-name>, and you need to be able to do this on a top-level
+>>>>> function, so I suppose extending <type> in a known-useful direction and
+>>>>> then abusing <type> might be the best thing.
+>>>>>
+>>>>> On the other hand, isn?t this a proposed direction for
+>>>>> standardization?  I would have no problem with giving this a proper,
+>>>>> non-vendor mangling just in case.
+>>>>
+>>>>
+>>>> It's not proposed for standardization with this syntax, and it's likely
+>>>> that the final semantics will differ from the Clang extension in some ways
+>>>> (the proposed partial ordering rules for constraints are rather more
+>>>> complex, for instance), but it's close enough that it's an option worth
+>>>> considering.
+>>>>
+>>>>
+>>>> Unless the feature is likely to diverge so much that it won?t even be
+>>>> an expression anymore, I don?t think this poses any problem for the ABI.
+>>>>
+>>>
+>>> Vendor hat on, I reserve the right to make my extension behave
+>>> differently from anything that's been standardized. As long as I can slip a
+>>> vendor extension particle into the mangled name I'll be happy to use
+>>> otherwise normal mangling. If it turns out I don't have to, all the better,
+>>> but I'm not banking on it.
+>>>
+>>>
+>>> I completely agree that this is acceptable vendor-hat behavior and that
+>>> the fake-qualifier idea isn?t a bad approach for it.
+>>>
+>>>  Do you want me to try to prepare a patch for template constraints? I
+>>> think it would look similar to my strawman proposal, except that I'd pick
+>>> some other available letter?
+>>>
+>>>
+>>> Yes, except that grammatically you should make it part of the function
+>>> <encoding> instead of adding it to <type>.  It works out to the same basic
+>>> position.
+>>>
+>>
+>> Okay, first attempt at a patch attached. Please review.
+>>
+>> A couple things. I chose 'Q', short for 'requires' to indicate a
+>> constraint. I put the new part on all encodings, not just functions,
+>> because you may need to mangle a static data member inside a class that has
+>> a concept applied, and similarly for its vtable and special members.
+>>
+>>
+>> I?m confused about what you mean by ?concept? here.  If it's just jargon
+>> for the enable_if feature, it seems completely counterproductive.
+>>
+>
+> This is jargon for the proposed constraints feature, not for enable_if.
+>
+> We do not need to mangle enable_if conditions on class template patterns
+>> because of the ODR (and related rules in the templates chapter).
+>>
+>
+> We don't even support enable_if conditions on class templates (+
+> specializations of them).
+>
+>
+> Any particular reason?
+>
+
+This is a feature for guiding overload resolution, not for anything
+directly template-related. We'd need to invent different semantics for it
+if we wanted to support it on class templates and partial specializations.
+
+If you?ve got partial-ordering rules already, it seems like a very nice way
+> to significantly improve the expressiveness of class template partial
+> specialization.  Right now, users who want to specialize a template on e.g.
+> POD types have to factor that into the original template signature.
+>
+> enable_if has to be mangled for a function template because it?s part of
+>> the template signature.  You can have two function template declarations in
+>> the scope scope with the same name and with identical template parameter
+>> signatures and type signatures, but if they have different enable_if
+>> conditions, then they?re considered different templates.  In typical use,
+>> this isn?t actually important: two overlapping function templates are
+>> probably defined in the same header file, and it?s likely that every call
+>> site will see both of them, and so any given list of template arguments
+>> that doesn?t lead to an ambiguity will probably pick the same template
+>> every time.  But that?s not actually *required*: it?s totally fine to have
+>> two different function templates in two different translation units that
+>> both accept the same template arguments, and we need to distinguish them.
+>>
+>
+> It's more complex than that. enable_if can look at the values of function
+> arguments at a call site (if they are constant expressions), not just at
+> template arguments, so we need to mangle it into the signature for all
+> functions and function templates, even in the single-TU case.
+>
+>
+> What a majestic way of adding complexity without really making a
+> significant improvement to expressiveness.  Why not instead add a feature
+> to generally infer a non-type template parameter from a constant argument?
+>
+
+Primarily because it is intended to work in C as well as C++.
+
+Oh well, I am not designing your language feature.  I acknowledge that you
+> also need to mangle this into non-template functions.  I don?t understand
+> why you care about mangling it into class names.
+>
+
+We don't; that was suggested only to support the constraints proposal (and
+as far as I can tell, it's not necessary for that proposal).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/e8852efe/attachment.html>
+
+From rjmccall at apple.com  Mon Jan 27 23:27:14 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Jan 2014 15:27:14 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CAGL0aWejcK6-b9Np3LjDOJ+vg_G8NXN0Tz8LBzN9diojNoTSyg@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+	<01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+	<CAGL0aWejcK6-b9Np3LjDOJ+vg_G8NXN0Tz8LBzN9diojNoTSyg@mail.gmail.com>
+Message-ID: <6E8CE819-C48A-4DDC-BEE1-8881A529F8CD@apple.com>
+
+On Jan 27, 2014, at 3:22 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 27 January 2014 15:08, John McCall <rjmccall at apple.com> wrote:
+> On Jan 27, 2014, at 12:26 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>>>>> >
+>>>>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>>>>> >
+>>>>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>>>>> >
+>>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>> 
+>>>>> I think you mean
+>>>>> 
+>>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>> 
+>>>>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+>>>> 
+>>>> Yep, that's what I meant. Thanks!
+>>>>> We could generalize this slightly to
+>>>>> 
+>>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>>> 
+>>>>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+>>>> 
+>>>> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+>>>> 
+>>>>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>>>>> 
+>>>>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>>>>> 
+>>>>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+>>>> 
+>>>> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+>>>> 
+>>>> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+>>> 
+>>> I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+>>> 
+>>>> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+>>> 
+>>> Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+>>> 
+>>> Okay, first attempt at a patch attached. Please review.
+>>> 
+>>> A couple things. I chose 'Q', short for 'requires' to indicate a constraint. I put the new part on all encodings, not just functions, because you may need to mangle a static data member inside a class that has a concept applied, and similarly for its vtable and special members.
+>> 
+>> I?m confused about what you mean by ?concept? here.  If it's just jargon for the enable_if feature, it seems completely counterproductive.
+>> 
+>> This is jargon for the proposed constraints feature, not for enable_if.
+>> 
+>> We do not need to mangle enable_if conditions on class template patterns because of the ODR (and related rules in the templates chapter).
+>> 
+>> We don't even support enable_if conditions on class templates (+ specializations of them).
+> 
+> Any particular reason?
+> 
+> This is a feature for guiding overload resolution, not for anything directly template-related. We'd need to invent different semantics for it if we wanted to support it on class templates and partial specializations.
+
+Okay.
+
+> If you?ve got partial-ordering rules already, it seems like a very nice way to significantly improve the expressiveness of class template partial specialization.  Right now, users who want to specialize a template on e.g. POD types have to factor that into the original template signature.
+> 
+>> enable_if has to be mangled for a function template because it?s part of the template signature.  You can have two function template declarations in the scope scope with the same name and with identical template parameter signatures and type signatures, but if they have different enable_if conditions, then they?re considered different templates.  In typical use, this isn?t actually important: two overlapping function templates are probably defined in the same header file, and it?s likely that every call site will see both of them, and so any given list of template arguments that doesn?t lead to an ambiguity will probably pick the same template every time.  But that?s not actually *required*: it?s totally fine to have two different function templates in two different translation units that both accept the same template arguments, and we need to distinguish them.
+>> 
+>> It's more complex than that. enable_if can look at the values of function arguments at a call site (if they are constant expressions), not just at template arguments, so we need to mangle it into the signature for all functions and function templates, even in the single-TU case.
+> 
+> What a majestic way of adding complexity without really making a significant improvement to expressiveness.  Why not instead add a feature to generally infer a non-type template parameter from a constant argument?
+> 
+> Primarily because it is intended to work in C as well as C++.
+
+Ah, yes, I keep forgetting that, sorry.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/df420ba7/attachment-0001.html>
+
+From nlewycky at google.com  Mon Jan 27 23:41:27 2014
+From: nlewycky at google.com (Nick Lewycky)
+Date: Mon, 27 Jan 2014 15:41:27 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <6E8CE819-C48A-4DDC-BEE1-8881A529F8CD@apple.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+	<01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+	<CAGL0aWejcK6-b9Np3LjDOJ+vg_G8NXN0Tz8LBzN9diojNoTSyg@mail.gmail.com>
+	<6E8CE819-C48A-4DDC-BEE1-8881A529F8CD@apple.com>
+Message-ID: <CADbEz-j8Chup6VXQk-BM9Ypo0-tkVZs-Kawzew0vyyZ2RGS1DQ@mail.gmail.com>
+
+On 27 January 2014 15:27, John McCall <rjmccall at apple.com> wrote:
+
+> On Jan 27, 2014, at 3:22 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 27 January 2014 15:08, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Jan 27, 2014, at 12:26 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>
+>>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>
+>>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>>>
+>>>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com>
+>>>>> wrote:
+>>>>>
+>>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>>>
+>>>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com>
+>>>>>> wrote:
+>>>>>> > I'm trying to mangle a vendor extension that encodes an expression
+>>>>>> which applies to function overload candidates, with the goal that a user
+>>>>>> running the demangler would see their expression demangled. While there are
+>>>>>> various vendor extension points, none of them allow me to go into encoding
+>>>>>> an expression, unless I stick a stray "decltype" in there, or similar
+>>>>>> (expression in a template argument that doesn't actually exist, etc.).
+>>>>>> >
+>>>>>> > The vendor extension is described in full here:
+>>>>>> http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution.
+>>>>>> >
+>>>>>> > I don't think I can do it without an extension to the mangling
+>>>>>> rules. As a strawman proposal, I suggest this:
+>>>>>> >
+>>>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>>>
+>>>>>> I think you mean
+>>>>>>
+>>>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>>>
+>>>>>> And this would be valuable for mangling e.g. dependent address space
+>>>>>> qualifiers, if anybody ever wants to do those.
+>>>>>>
+>>>>> Yep, that's what I meant. Thanks!
+>>>>
+>>>>>  We could generalize this slightly to
+>>>>>
+>>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>>>
+>>>>> to allow multiple arguments (as types or expressions), dependent pack
+>>>>> expansions, and so on.
+>>>>>
+>>>>>
+>>>>> That?s a bit more future-proof, I suppose, although I think it might
+>>>>> stretch the definition of a type-qualifier to embed anything other than a
+>>>>> value, and value pack-expansions are already part of the <expression>
+>>>>> grammar.  You?re really asking for a ?allow an arbitrarily complex type to
+>>>>> be manufactured here? mangling.
+>>>>>
+>>>>> However, it feels really forced to add your feature, specifically, to
+>>>>>> <type>, since it can?t appear in an arbitrary position; it?s much closer to
+>>>>>> a qualified method name.  But the ref/cv-qualifiers area is only allowed in
+>>>>>> a <nested-name>, and you need to be able to do this on a top-level
+>>>>>> function, so I suppose extending <type> in a known-useful direction and
+>>>>>> then abusing <type> might be the best thing.
+>>>>>>
+>>>>>> On the other hand, isn?t this a proposed direction for
+>>>>>> standardization?  I would have no problem with giving this a proper,
+>>>>>> non-vendor mangling just in case.
+>>>>>
+>>>>>
+>>>>> It's not proposed for standardization with this syntax, and it's
+>>>>> likely that the final semantics will differ from the Clang extension in
+>>>>> some ways (the proposed partial ordering rules for constraints are rather
+>>>>> more complex, for instance), but it's close enough that it's an option
+>>>>> worth considering.
+>>>>>
+>>>>>
+>>>>> Unless the feature is likely to diverge so much that it won?t even be
+>>>>> an expression anymore, I don?t think this poses any problem for the ABI.
+>>>>>
+>>>>
+>>>> Vendor hat on, I reserve the right to make my extension behave
+>>>> differently from anything that's been standardized. As long as I can slip a
+>>>> vendor extension particle into the mangled name I'll be happy to use
+>>>> otherwise normal mangling. If it turns out I don't have to, all the better,
+>>>> but I'm not banking on it.
+>>>>
+>>>>
+>>>> I completely agree that this is acceptable vendor-hat behavior and that
+>>>> the fake-qualifier idea isn?t a bad approach for it.
+>>>>
+>>>>  Do you want me to try to prepare a patch for template constraints? I
+>>>> think it would look similar to my strawman proposal, except that I'd pick
+>>>> some other available letter?
+>>>>
+>>>>
+>>>> Yes, except that grammatically you should make it part of the function
+>>>> <encoding> instead of adding it to <type>.  It works out to the same basic
+>>>> position.
+>>>>
+>>>
+>>> Okay, first attempt at a patch attached. Please review.
+>>>
+>>> A couple things. I chose 'Q', short for 'requires' to indicate a
+>>> constraint. I put the new part on all encodings, not just functions,
+>>> because you may need to mangle a static data member inside a class that has
+>>> a concept applied, and similarly for its vtable and special members.
+>>>
+>>>
+>>> I?m confused about what you mean by ?concept? here.  If it's just jargon
+>>> for the enable_if feature, it seems completely counterproductive.
+>>>
+>>
+>> This is jargon for the proposed constraints feature, not for enable_if.
+>>
+>>  We do not need to mangle enable_if conditions on class template
+>>> patterns because of the ODR (and related rules in the templates chapter).
+>>>
+>>
+>> We don't even support enable_if conditions on class templates (+
+>> specializations of them).
+>>
+>>
+>> Any particular reason?
+>>
+>
+> This is a feature for guiding overload resolution, not for anything
+> directly template-related. We'd need to invent different semantics for it
+> if we wanted to support it on class templates and partial specializations.
+>
+>
+> Okay.
+>
+> If you?ve got partial-ordering rules already, it seems like a very nice
+>> way to significantly improve the expressiveness of class template partial
+>> specialization.  Right now, users who want to specialize a template on e.g.
+>> POD types have to factor that into the original template signature.
+>>
+>> enable_if has to be mangled for a function template because it?s part of
+>>> the template signature.  You can have two function template declarations in
+>>> the scope scope with the same name and with identical template parameter
+>>> signatures and type signatures, but if they have different enable_if
+>>> conditions, then they?re considered different templates.  In typical use,
+>>> this isn?t actually important: two overlapping function templates are
+>>> probably defined in the same header file, and it?s likely that every call
+>>> site will see both of them, and so any given list of template arguments
+>>> that doesn?t lead to an ambiguity will probably pick the same template
+>>> every time.  But that?s not actually *required*: it?s totally fine to have
+>>> two different function templates in two different translation units that
+>>> both accept the same template arguments, and we need to distinguish them.
+>>>
+>>
+>> It's more complex than that. enable_if can look at the values of function
+>> arguments at a call site (if they are constant expressions), not just at
+>> template arguments, so we need to mangle it into the signature for all
+>> functions and function templates, even in the single-TU case.
+>>
+>>
+>> What a majestic way of adding complexity without really making a
+>> significant improvement to expressiveness.  Why not instead add a feature
+>> to generally infer a non-type template parameter from a constant argument?
+>>
+>
+> Primarily because it is intended to work in C as well as C++.
+>
+>
+> Ah, yes, I keep forgetting that, sorry.
+>
+
+Going back to adding a proposal for mangling attribute enable_if without
+concerning ourselves with concepts, I initially proposed:
+
+<type> ::= Ue <expression> E # vendor extended type qualifier
+
+which you corrected to:
+
+<type> ::= Ue <source-name> <expression> E <type>
+
+Richard dislikes this because we may be painting ourselves into a corner --
+what about the next vendor expression that takes two expressions and a
+type? -- and suggests this:
+
+<type> ::= U <source-name> <template-args> <type>
+
+which captures the full generality of things we might want to mangle. I
+dislike the use of template-args to name something that isn't template
+arguments, but that's an issue of naming only, and I don't have a better
+name to offer.
+
+Finally, you suggested putting it on <encoding> which would make it one of:
+
+<encoding> ::= <function name> <bare-function-type> [Ue <template-args>]
+or
+<encoding> ::= <function name> <bare-function-type> [Ue <expression>]
+?
+
+I'm leaning towards the fully general form of:
+
+<type> ::= U <source-name> <template-args> <type>
+
+What do you think?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/c56bf18c/attachment-0001.html>
+
+From rjmccall at apple.com  Tue Jan 28 00:03:17 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 27 Jan 2014 16:03:17 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CADbEz-j8Chup6VXQk-BM9Ypo0-tkVZs-Kawzew0vyyZ2RGS1DQ@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+	<01FF9075-98AA-4A0F-A0E5-58CF84AA5FDD@apple.com>
+	<CAGL0aWejcK6-b9Np3LjDOJ+vg_G8NXN0Tz8LBzN9diojNoTSyg@mail.gmail.com>
+	<6E8CE819-C48A-4DDC-BEE1-8881A529F8CD@apple.com>
+	<CADbEz-j8Chup6VXQk-BM9Ypo0-tkVZs-Kawzew0vyyZ2RGS1DQ@mail.gmail.com>
+Message-ID: <172C7E9E-0526-4B7F-8696-CD8137583CD9@apple.com>
+
+On Jan 27, 2014, at 3:41 PM, Nick Lewycky <nlewycky at google.com> wrote:
+> On 27 January 2014 15:27, John McCall <rjmccall at apple.com> wrote:
+> On Jan 27, 2014, at 3:22 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 27 January 2014 15:08, John McCall <rjmccall at apple.com> wrote:
+>> On Jan 27, 2014, at 12:26 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> On 27 January 2014 11:57, John McCall <rjmccall at apple.com> wrote:
+>>> On Jan 24, 2014, at 7:30 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>> On 24 January 2014 17:54, John McCall <rjmccall at apple.com> wrote:
+>>>> On Jan 24, 2014, at 5:36 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>> On 23 January 2014 11:52, John McCall <rjmccall at apple.com> wrote:
+>>>>> On Jan 21, 2014, at 2:01 PM, Richard Smith <richardsmith at google.com> wrote:
+>>>>>> On 21 January 2014 09:36, John McCall <rjmccall at apple.com> wrote:
+>>>>>> On Jan 20, 2014, at 6:13 PM, Nick Lewycky <nlewycky at google.com> wrote:
+>>>>>> > I'm trying to mangle a vendor extension that encodes an expression which applies to function overload candidates, with the goal that a user running the demangler would see their expression demangled. While there are various vendor extension points, none of them allow me to go into encoding an expression, unless I stick a stray "decltype" in there, or similar (expression in a template argument that doesn't actually exist, etc.).
+>>>>>> >
+>>>>>> > The vendor extension is described in full here: http://clang.llvm.org/docs/LanguageExtensions.html#controlling-overload-resolution .
+>>>>>> >
+>>>>>> > I don't think I can do it without an extension to the mangling rules. As a strawman proposal, I suggest this:
+>>>>>> >
+>>>>>> > <type> ::= Ue <expression> E # vendor extended type qualifier
+>>>>>> 
+>>>>>> I think you mean
+>>>>>> 
+>>>>>>   <type> ::= Ue <source-name> <expression> E <type>
+>>>>>> 
+>>>>>> And this would be valuable for mangling e.g. dependent address space qualifiers, if anybody ever wants to do those.
+>>>>> 
+>>>>> Yep, that's what I meant. Thanks!
+>>>>>> We could generalize this slightly to
+>>>>>> 
+>>>>>>   <type> ::= U <source-name> <template-args> <type>
+>>>>>> 
+>>>>>> to allow multiple arguments (as types or expressions), dependent pack expansions, and so on.
+>>>>> 
+>>>>> That?s a bit more future-proof, I suppose, although I think it might stretch the definition of a type-qualifier to embed anything other than a value, and value pack-expansions are already part of the <expression> grammar.  You?re really asking for a ?allow an arbitrarily complex type to be manufactured here? mangling.
+>>>>> 
+>>>>>> However, it feels really forced to add your feature, specifically, to <type>, since it can?t appear in an arbitrary position; it?s much closer to a qualified method name.  But the ref/cv-qualifiers area is only allowed in a <nested-name>, and you need to be able to do this on a top-level function, so I suppose extending <type> in a known-useful direction and then abusing <type> might be the best thing.
+>>>>>> 
+>>>>>> On the other hand, isn?t this a proposed direction for standardization?  I would have no problem with giving this a proper, non-vendor mangling just in case.
+>>>>>> 
+>>>>>> It's not proposed for standardization with this syntax, and it's likely that the final semantics will differ from the Clang extension in some ways (the proposed partial ordering rules for constraints are rather more complex, for instance), but it's close enough that it's an option worth considering.
+>>>>> 
+>>>>> Unless the feature is likely to diverge so much that it won?t even be an expression anymore, I don?t think this poses any problem for the ABI.
+>>>>> 
+>>>>> Vendor hat on, I reserve the right to make my extension behave differently from anything that's been standardized. As long as I can slip a vendor extension particle into the mangled name I'll be happy to use otherwise normal mangling. If it turns out I don't have to, all the better, but I'm not banking on it.
+>>>> 
+>>>> I completely agree that this is acceptable vendor-hat behavior and that the fake-qualifier idea isn?t a bad approach for it.
+>>>> 
+>>>>> Do you want me to try to prepare a patch for template constraints? I think it would look similar to my strawman proposal, except that I'd pick some other available letter?
+>>>> 
+>>>> Yes, except that grammatically you should make it part of the function <encoding> instead of adding it to <type>.  It works out to the same basic position.
+>>>> 
+>>>> Okay, first attempt at a patch attached. Please review.
+>>>> 
+>>>> A couple things. I chose 'Q', short for 'requires' to indicate a constraint. I put the new part on all encodings, not just functions, because you may need to mangle a static data member inside a class that has a concept applied, and similarly for its vtable and special members.
+>>> 
+>>> I?m confused about what you mean by ?concept? here.  If it's just jargon for the enable_if feature, it seems completely counterproductive.
+>>> 
+>>> This is jargon for the proposed constraints feature, not for enable_if.
+>>> 
+>>> We do not need to mangle enable_if conditions on class template patterns because of the ODR (and related rules in the templates chapter).
+>>> 
+>>> We don't even support enable_if conditions on class templates (+ specializations of them).
+>> 
+>> Any particular reason?
+>> 
+>> This is a feature for guiding overload resolution, not for anything directly template-related. We'd need to invent different semantics for it if we wanted to support it on class templates and partial specializations.
+> 
+> Okay.
+> 
+>> If you?ve got partial-ordering rules already, it seems like a very nice way to significantly improve the expressiveness of class template partial specialization.  Right now, users who want to specialize a template on e.g. POD types have to factor that into the original template signature.
+>> 
+>>> enable_if has to be mangled for a function template because it?s part of the template signature.  You can have two function template declarations in the scope scope with the same name and with identical template parameter signatures and type signatures, but if they have different enable_if conditions, then they?re considered different templates.  In typical use, this isn?t actually important: two overlapping function templates are probably defined in the same header file, and it?s likely that every call site will see both of them, and so any given list of template arguments that doesn?t lead to an ambiguity will probably pick the same template every time.  But that?s not actually *required*: it?s totally fine to have two different function templates in two different translation units that both accept the same template arguments, and we need to distinguish them.
+>>> 
+>>> It's more complex than that. enable_if can look at the values of function arguments at a call site (if they are constant expressions), not just at template arguments, so we need to mangle it into the signature for all functions and function templates, even in the single-TU case.
+>> 
+>> What a majestic way of adding complexity without really making a significant improvement to expressiveness.  Why not instead add a feature to generally infer a non-type template parameter from a constant argument?
+>> 
+>> Primarily because it is intended to work in C as well as C++.
+> 
+> Ah, yes, I keep forgetting that, sorry.
+> 
+> Going back to adding a proposal for mangling attribute enable_if without concerning ourselves with concepts, I initially proposed:
+> 
+> <type> ::= Ue <expression> E # vendor extended type qualifier
+> 
+> which you corrected to:
+> 
+> <type> ::= Ue <source-name> <expression> E <type>
+> 
+> Richard dislikes this because we may be painting ourselves into a corner -- what about the next vendor expression that takes two expressions and a type? -- and suggests this:
+> 
+> <type> ::= U <source-name> <template-args> <type>
+> 
+> which captures the full generality of things we might want to mangle. I dislike the use of template-args to name something that isn't template arguments, but that's an issue of naming only, and I don't have a better name to offer.
+> 
+> Finally, you suggested putting it on <encoding> which would make it one of:
+> 
+> <encoding> ::= <function name> <bare-function-type> [Ue <template-args>]
+> or
+> <encoding> ::= <function name> <bare-function-type> [Ue <expression>]
+> ?
+
+It should be at least partially center-embedded; adding optional elements at the end of a mangling is a problem for demangling tools.  There are places where we do it already, but let?s avoid adding more.
+
+> I'm leaning towards the fully general form of:
+> 
+> <type> ::= U <source-name> <template-args> <type>
+> 
+> What do you think?
+
+Your <template-args> here can ? and, as I understand it, are expected to ? contain references to function parameters that are actually introduced in the nested <type>.  This is not as a general of a notion as you two seem to think; notably, no demangler is going to naturally handle your extension without special-casing it.  Just design something that works for your case.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140127/4ed2aac6/attachment-0001.html>
+
+From gdr at integrable-solutions.net  Wed Jan 29 02:09:01 2014
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 28 Jan 2014 18:09:01 -0800
+Subject: [cxx-abi-dev] mangling of vendor extension,
+ expression on function (not function type)
+In-Reply-To: <CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+References: <CADbEz-jg98epe7hTBwipop+KC_W7YV44Lg8PCvtk6LiC1FTEZA@mail.gmail.com>
+	<5138B3D1-0B00-43D6-B3B5-5B62546F0D18@apple.com>
+	<CAGL0aWdP2pkCbONzS3at3W5ZnW5RDmS1LK6vijXtT_0bWMrgjg@mail.gmail.com>
+	<CAA22C8F-689B-49CA-99B7-B50DB1EF4AC7@apple.com>
+	<CADbEz-haCzi_K01TViHUdJf+ZhT7iqXoxCEbTkXTtybGLjwaVw@mail.gmail.com>
+	<1BEB9B87-4734-4BCA-860B-C80BA4EDA86C@apple.com>
+	<CADbEz-j7iNq5iXpER-Dt3a4hZN0ZLu6tojTvXduEfhiPSHmo5A@mail.gmail.com>
+	<CD89A765-60AC-426F-97F0-A9F750FB41E4@apple.com>
+	<CAGL0aWd5bZrqs0oakhNkwBwpSAXK6_QSF5=GwkQxcjfik=hcBw@mail.gmail.com>
+Message-ID: <CAAiZkiB3ymLkF_9QsPtK4TgwTAZFE+fu7SezqsAwW9XnfEvx_A@mail.gmail.com>
+
+On Mon, Jan 27, 2014 at 12:26 PM, Richard Smith <richardsmith at google.com> wrote:
+> I don't think we should try to add a mangling for
+> constraints until the concepts SG figures out how they want them to work.
+
+Agreed.  It is too early for this group to go there at this point.
+
+-- Gaby
+

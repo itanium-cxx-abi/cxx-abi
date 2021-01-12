@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> C++ ABI for IA-64: Data Layout
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B%20ABI%20for%20IA-64%3A%20Data%20Layout&In-Reply-To=%3Cu9yafhsh13.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000190.html">
+   <LINK REL="Next"  HREF="000192.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>C++ ABI for IA-64: Data Layout</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B%20ABI%20for%20IA-64%3A%20Data%20Layout&In-Reply-To=%3Cu9yafhsh13.fsf%40yorick.cygnus.com%3E"
+       TITLE="C++ ABI for IA-64: Data Layout">jason at cygnus.com
+       </A><BR>
+    <I>Thu Aug 12 05:29:44 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000190.html">C++ ABI Summary
+</A></li>
+        <LI>Next message: <A HREF="000192.html">Sun's ABI on RTTI and dynamic casting algorithm
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#191">[ date ]</a>
+              <a href="thread.html#191">[ thread ]</a>
+              <a href="subject.html#191">[ subject ]</a>
+              <a href="author.html#191">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The offset to top field is required for dynamic_cast&lt;void*&gt;, which is
+supported for all polymorphic classes.  So yes, it's always needed.
+
+The only replicated entries which would be useful are ones from virtual
+bases; we can get to entries from secondary vtables in non-virtual base
+subobjects directly, since we're concatenating them.
+
+In Category 3, why do you say &quot;base classes are not empty or nearly empty&quot;?
+We still need offsets for empty virtual bases, since they might be at a
+different location in the complete object.  Why does it matter if the base
+classes have bases themselves?
+
+It seems to me that we don't have to duplicate base offset info that's
+already in one of our secondary vtables.
+
+----------------
+Further analysis:
+
+This description is pretty good, but it doesn't describe how it's used.
+I don't see how it can work without relying on concatenation.  Consider:
+
+  struct A {
+    virtual void f () = 0;
+  };
+
+  struct B {
+    virtual void g () = 0;
+  }
+
+  struct C: public A, public B {
+    void f () { ... }
+    void g () { ... }
+  };
+
+  int main () 
+  {
+    C c;
+    B* bp = &c;
+    bp-&gt;g();
+  }
+
+Here, in the call to g, we must adjust 'this' to point to the C object.
+But C is not a base of B, so B's vtable doesn't have the offset we want.
+The vtable that has the interesting offset is C's.  Fortunately, since
+we're concatenating, and in the callee we know what our dynamic type is
+(because the dynamic type determines the entry point), we can look down
+into C's vtable to find the offset.  So far, so good.
+
+Is this how Taligent does/did it?  If not, how?
+
+The situation gets more complicated with virtual inheritance.  Consider:
+
+  struct A {
+    virtual void* f () = 0;
+    virtual void* g () = 0;
+  };
+
+  struct B: virtual public A {
+    void* f () { return this; }
+    int i;
+  };
+
+  struct C: virtual public A {
+    void* g () { return this; }
+    int j;
+  };
+
+  struct D: public B, public C { };
+
+  int main ()
+  {
+    D d;
+    A* ap = &d;
+    B* bp = &d;
+    C* cp = &d;
+
+    return (ap-&gt;f() != bp || ap-&gt;g() != cp);
+  }
+
+The offset from A to B is different depending on whether the complete
+object is a B or a D.  Furthermore, the offset from the A vptr to the B
+vtable is different, so we can't just reuse the f entry in A's vtbl that we
+inherit from B; it would look for the offset in the wrong place.  So what
+do we do?  The only option I can see is to generate an adjustment thunk
+that looks in the right place, but that would have the same problems as the
+traditional thunking approach; namely, indirect jumps.
+
+Does anyone see a way to avoid the 3rd-party thunk in this case?
+
+One possibility would be to put derived, rather than base, class offsets in
+the vtable; perhaps that's what Taligent really does.  This would have the
+effect that A's vtable would be larger in a B than in an A.  Further
+derivation could cause it to grow still further.  As a result, we wouldn't
+be able to take advantage of concatenation to access secondary vtables
+through the primary vptr for a class, since we wouldn't know the size of
+the base vtables.
+
+Another possibility would be to fall back on ARM-style vtables, with the
+offset in the entry.  This option produces larger vtables, but does not
+impede optimization.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000190.html">C++ ABI Summary
+</A></li>
+	<LI>Next message: <A HREF="000192.html">Sun's ABI on RTTI and dynamic casting algorithm
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#191">[ date ]</a>
+              <a href="thread.html#191">[ thread ]</a>
+              <a href="subject.html#191">[ subject ]</a>
+              <a href="author.html#191">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

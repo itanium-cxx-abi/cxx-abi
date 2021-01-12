@@ -1,0 +1,170 @@
+From jason at redhat.com  Fri Feb 11 22:55:09 2005
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 11 Feb 2005 17:55:09 -0500
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+In-Reply-To: <41ECA69E.2050602@codesourcery.com> (Mark Mitchell's message of
+ "Mon, 17 Jan 2005 22:03:10 -0800")
+References: <xypmzvhjerr.fsf@miranda.boston.redhat.com>
+	<41ECA69E.2050602@codesourcery.com>
+Message-ID: <xypy8du7lma.fsf@miranda.boston.redhat.com>
+
+On Mon, 17 Jan 2005 22:03:10 -0800, Mark Mitchell <mark at codesourcery.com> wrote:
+
+> Jason Merrill wrote:
+>
+>> It seems to me that the specified behavior makes __cxa_demangle useless for
+>> type manglings, since most of them are also valid C++ identifiers, and
+>> therefore could be an extern "C" object name.  I think that the ambiguity
+>> should be resolved the other way by default, and that we should add another
+>> way to specify that the argument is an external name, probably via another
+>> entry point.
+>
+> I agree.  Would you like to propose a change to the ABI document?
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: text/x-patch
+Size: 1579 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20050211/bb4391ee/attachment.bin>
+
+From mark at codesourcery.com  Thu Feb 17 20:37:14 2005
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 17 Feb 2005 12:37:14 -0800
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+In-Reply-To: <xypy8du7lma.fsf@miranda.boston.redhat.com>
+References: <xypmzvhjerr.fsf@miranda.boston.redhat.com>	<41ECA69E.2050602@codesourcery.com> <xypy8du7lma.fsf@miranda.boston.redhat.com>
+Message-ID: <4215007A.2040104@codesourcery.com>
+
+Jason Merrill wrote:
+> On Mon, 17 Jan 2005 22:03:10 -0800, Mark Mitchell <mark at codesourcery.com> wrote:
+> 
+> 
+>>Jason Merrill wrote:
+>>
+>>
+>>>It seems to me that the specified behavior makes __cxa_demangle useless for
+>>>type manglings, since most of them are also valid C++ identifiers, and
+>>>therefore could be an extern "C" object name.  I think that the ambiguity
+>>>should be resolved the other way by default, and that we should add another
+>>>way to specify that the argument is an external name, probably via another
+>>>entry point.
+>>
+>>I agree.  Would you like to propose a change to the ABI document?
+
+I installed this change.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+(916) 791-8304
+
+
+From christian.bruel at st.com  Wed Feb 23 16:35:21 2005
+From: christian.bruel at st.com (Christian BRUEL)
+Date: Wed, 23 Feb 2005 17:35:21 +0100
+Subject: ABI limitation on the size of a class
+Message-ID: <421CB0C9.7070901@st.com>
+
+
+I'm trying to understand the rational for the 1.2 Limit section in the 
+itanium C++ ABI (http://www.codesourcery.com/cxx-abi/abi.html#limits)
+
+The section says that this limitation is due to RTTI implementation. Is 
+it because of the field to the beginning of the complete type in the 
+typeinfos ?
+in the libstdc++ sources (gcc 3.3.3) this field ("whole_object" field) 
+has type ptrdiff_t so the only limitation I can find in the size of an 
+object is 2**31 bytes for a 32 bit machine.
+
+The raisons should hide elsewhere, but I really don't see...
+
+thank you,
+
+  Christian
+
+
+
+
+
+From nathan at codesourcery.com  Wed Feb 23 16:44:03 2005
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 23 Feb 2005 16:44:03 +0000
+Subject: [cxx-abi-dev] ABI limitation on the size of a class
+In-Reply-To: <421CB0C9.7070901@st.com>
+References: <421CB0C9.7070901@st.com>
+Message-ID: <421CB2D3.8090003@codesourcery.com>
+
+Christian BRUEL wrote:
+> 
+> I'm trying to understand the rational for the 1.2 Limit section in the 
+> itanium C++ ABI (http://www.codesourcery.com/cxx-abi/abi.html#limits)
+> 
+> The section says that this limitation is due to RTTI implementation. Is 
+> it because of the field to the beginning of the complete type in the 
+> typeinfos ?
+> in the libstdc++ sources (gcc 3.3.3) this field ("whole_object" field) 
+> has type ptrdiff_t so the only limitation I can find in the size of an 
+> object is 2**31 bytes for a 32 bit machine.
+
+the __base_class_type_info contains an __offset_and_flags field of type
+long.  The first 8 bits are flags about the base
+     enum __offset_flags_masks
+       {
+	__virtual_mask = 0x1,
+	__public_mask = 0x2,
+	__hwm_bit = 2,
+	__offset_shift = 8          // Bits to shift offset.
+       };
+
+the remaining 56 (or 24 on 32bit systems) bits are the offset to the base
+(or offset in the vtable, for virtual bases).  As this includes a sign
+bit the base must be within 2^55 (2^23) bytes of the derived object.
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+From daveed at edg.com  Wed Feb 23 16:48:46 2005
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 23 Feb 2005 11:48:46 -0500
+Subject: [cxx-abi-dev] ABI limitation on the size of a class
+In-Reply-To: <421CB0C9.7070901@st.com>
+References: <421CB0C9.7070901@st.com>
+Message-ID: <907db44b77229a1030754e74b867eccd@edg.com>
+
+
+On Feb 23, 2005, at 11:35 AM, Christian BRUEL wrote:
+
+>
+> I'm trying to understand the rational for the 1.2 Limit section in the 
+> itanium C++ ABI (http://www.codesourcery.com/cxx-abi/abi.html#limits)
+>
+> The section says that this limitation is due to RTTI implementation. 
+> Is it because of the field to the beginning of the complete type in 
+> the typeinfos ?
+> in the libstdc++ sources (gcc 3.3.3) this field ("whole_object" field) 
+> has type ptrdiff_t so the only limitation I can find in the size of an 
+> object is 2**31 bytes for a 32 bit machine.
+>
+> The raisons should hide elsewhere, but I really don't see...
+
+The ABI-standard version of struct abi::__base_class_type_info
+has a 64-bit field "__offset_flags" that carries some flags in
+its lower 8 bits, and an offset in the remaining 56 bits.
+
+See 2.9.5/6a, third bullet.
+
+         Daveed Vandevoorde
+         Edison Design Group
+
+
+

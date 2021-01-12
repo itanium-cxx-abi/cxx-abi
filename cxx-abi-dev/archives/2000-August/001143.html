@@ -1,0 +1,113 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Unwind API for EH
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20API%20for%20EH&In-Reply-To=%3C200008242136.OAA14410%40adlmail.cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001142.html">
+   <LINK REL="Next"  HREF="001144.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Unwind API for EH</H1>
+    <B>Cary Coutant</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20API%20for%20EH&In-Reply-To=%3C200008242136.OAA14410%40adlmail.cup.hp.com%3E"
+       TITLE="Unwind API for EH">cary at cup.hp.com
+       </A><BR>
+    <I>Thu Aug 24 21:34:09 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001142.html">mangling of member template constructors
+</A></li>
+        <LI>Next message: <A HREF="001144.html">Unwind API for EH
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1143">[ date ]</a>
+              <a href="thread.html#1143">[ thread ]</a>
+              <a href="subject.html#1143">[ subject ]</a>
+              <a href="author.html#1143">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'd like to propose a small change to the Unwind API used for EH.
+
+&gt;<i>void _Unwind_SetGR
+</I>&gt;<i>   (struct _Unwind_Context *context,
+</I>&gt;<i>    int index,
+</I>&gt;<i>    uint64 new_value);
+</I>&gt;<i>
+</I>&gt;<i>This function sets the 64-bit value of the given register, identified by 
+</I>&gt;<i>its index as for _Unwind_GetGR. The NAT bit of the given register is reset.
+</I>&gt;<i>
+</I>&gt;<i>The behaviour is guaranteed only if the function is called during phase 2 
+</I>&gt;<i>of unwinding, and applied to an unwind context representing a handler 
+</I>&gt;<i>frame, for which the personality routine will return _URC_INSTALL_CONTEXT. 
+</I>&gt;<i>In that case, only registers GR15, GR16, GR17, GR18 should be used. These 
+</I>&gt;<i>scratch registers are reserved for passing arguments between the 
+</I>&gt;<i>personality routine and the landing pads.
+</I>
+The _Unwind_SetGR function is used to setup the landing pad arguments, 
+but I believe this interface is too general. If we don't restrict this 
+API to r15-r18, the unwind library needs to be prepared to deal with 
+requests to set arbitrary scratch registers in the unwind context record. 
+Ordinarily, the unwind context wouldn't need to have scratch registers at 
+all. By restricting this API to r15-r18, and to the specific uses 
+mentioned, however, we've ended up architecting the landing pad registers 
+after all -- which was what we were trying to avoid in defining the 
+general interface.
+
+Thus, I believe that the landing pad arguments should be communicated by 
+a more specific interface, something like this:
+
+void _Unwind_SetLPArgs
+   (struct _Unwind_Context *context,
+    int nargs,
+    uint64 *args);
+
+Registers 15-18 will be architected to be used for these registers, and 
+it will be the unwind library's responsibility to place the landing pad 
+arguments in the right registers when it installs the context.
+
+The interface is extensible in case we architect more than 4 registers 
+for landing pad arguments, but the implementation doesn't need to support 
+more than 4 until such time as the architecture is changed.
+
+I still believe that _Unwind_SetGR has its uses, though -- just not for 
+scratch registers, which shouldn't even be kept in the unwind context, 
+and not for EH. As such, it doesn't need to be in the C++ EH ABI paper. I 
+think this will allow us to provide a much cleaner definition of 
+_Unwind_SetGR, though, for debuggers and the like where it is useful as a 
+general-purpose routine.
+
+-cary
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001142.html">mangling of member template constructors
+</A></li>
+	<LI>Next message: <A HREF="001144.html">Unwind API for EH
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1143">[ date ]</a>
+              <a href="thread.html#1143">[ thread ]</a>
+              <a href="subject.html#1143">[ subject ]</a>
+              <a href="author.html#1143">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

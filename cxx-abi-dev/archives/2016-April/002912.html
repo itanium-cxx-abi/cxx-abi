@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Uncallable constructor variants
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Uncallable%20constructor%20variants&In-Reply-To=%3C98F8CF75-FDE2-4D4C-BC00-91FCAD998863%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002911.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Uncallable constructor variants</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Uncallable%20constructor%20variants&In-Reply-To=%3C98F8CF75-FDE2-4D4C-BC00-91FCAD998863%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Uncallable constructor variants">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Apr  1 18:27:04 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002911.html">[cxx-abi-dev] Uncallable constructor variants
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2912">[ date ]</a>
+              <a href="thread.html#2912">[ thread ]</a>
+              <a href="subject.html#2912">[ subject ]</a>
+              <a href="author.html#2912">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Apr 1, 2016, at 8:33 AM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;<i> On 04/01/2016 10:47 AM, Nathan Sidwell wrote:
+</I>&gt;&gt;<i> On 04/01/16 10:36, Jason Merrill wrote:
+</I>&gt;&gt;&gt;<i> On 04/01/2016 10:33 AM, Nathan Sidwell wrote:
+</I>&gt;&gt;&gt;&gt;<i> On 04/01/16 10:15, Jason Merrill wrote:
+</I>&gt;&gt;&gt;&gt;&gt;<i> The base object constructor can never be called for a final class,
+</I>&gt;&gt;&gt;&gt;&gt;<i> nor can the
+</I>&gt;&gt;&gt;&gt;&gt;<i> complete object constructor for an abstract one.  Does anyone see an
+</I>&gt;&gt;&gt;&gt;&gt;<i> ABI problem
+</I>&gt;&gt;&gt;&gt;&gt;<i> with omitting these variants?
+</I>&gt;&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;&gt;<i> Presumably the same applies to the corresponding destructors? (With any
+</I>&gt;&gt;&gt;&gt;<i> deleting-dtor behaving the same as the complete-dtor)
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Yes, except that virtual complete/deleting destructors always need to be
+</I>&gt;&gt;&gt;<i> emitted, to satisfy vtable references.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> They could behave as pure virtual, and have the vtable reference
+</I>&gt;&gt;<i> __cxa_pure_virtual.  Though that would be an ABI change, in that the
+</I>&gt;&gt;<i> vtable emission might be in a different TU to the virtual destructor
+</I>&gt;&gt;<i> (non)-emitter.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I suppose the destructors could simply be jumps to __cxa_pure_virtual,
+</I>&gt;&gt;<i> without perturbing the ABI.  If the destructors are emitted in the same
+</I>&gt;&gt;<i> TU as the vtable, an implementation would be free to reference
+</I>&gt;&gt;<i> __cxa_pure_virtual directly.
+</I>&gt;<i> 
+</I>&gt;<i> Right, the implementation just needs to define the symbol so as not to break existing references.
+</I>
+Right.  We should probably recommend a variant of this rule as mandatory
+for future targets that adopt the generic ABI:
+
+  - never emit a complete-object constructor or destructor for an abstract class
+  - never emit a base object constructor or destructor for a final class
+  - emit virtual destructor slots for abstract class v-tables as __cxa_pure_virtual
+
+ ***
+
+Related question that comes to mind:
+
+Mandating the existence of both a complete-object and a base-subobject variant
+is frequently wasteful.  At the very least, it inflates the symbol table, which in C++
+can represent a pretty significant portion of the binary size of a library.  It can also
+inflate code size if the compiler is unable to emit one as simply an alias to the other.
+
+We can classify classes into three interesting cases:
+
+1. Classes with virtual bases.  We obviously need both variants here, because (a)
+they can have semantic differences (although they don't necessarily) and (b) they
+have different signatures because of the VTT argument.
+
+There's also a potential &quot;devirtualization&quot; optimization for virtual base accesses
+within the ctor/dtor body, since the complete object variant can use a static offset
+to the virtual bases of &quot;this&quot;.  Note that there are no additional devirtualization
+opportunities for virtual calls because the C++ model resolves these to the final
+overriders within the current class in either case; that is, both variants should be
+able to fully devirtualize calls on &quot;this&quot; within the body.
+
+2. Non-polymorphic classes without virtual bases.  I cannot think of any way in
+which emitting symbols for both variants could ever be useful in this case.  It
+does nothing but inflate the symbol table.
+
+3. Polymorphic classes without virtual bases.  The two variants are equivalent in
+both semantics and signature.  Furthermore, as discussed above, there are no
+additional devirtualization opportunities in the complete-object variant because
+virtual dispatch resolves to the current class in either case, and there no virtual
+bases to adjust to.
+
+The only optimization opportunity I can see here is that the base variant can avoid
+initializing any v-table pointers if it can prove that they'll be unused before returning.
+Doing this could be an important optimization for deep class hierarchies with
+many opaquely-defined constructors.  However, it creates a problem for inline
+constructor definitions due to a mismatch in assumptions between translation units.
+
+For example, suppose that translation unit A emits a complete object constructor
+as either an alias or a tail-call of the base-subobject constructor, which it then
+emits in a way that always initializes the v-table pointer.  Translation unit B, on
+the other hand, recognizes that the base-subobject constructor can avoid initializing
+the v-table pointer and instead initializes it only in the complete-object constructor.
+If the linker might choose the implementation from B, it is necessary to somehow
+prevent translation unit A from acting on its &quot;knowledge&quot; that the base-subobject
+constructor always initializes the v-table pointer by emitting a complete-object
+construction as a direct call to the base-subobject constructor.  That seems... tricky
+to accomplish in general.
+
+ ***
+
+The problem in case #3 seems like something we need to settle even for current
+users of the ABI.  Maybe this is already solved by COMDATs on ELF, although
+I don't know how a compiler is expected to reason about them effectively.
+
+I would recommend that future targets adopt a rule that base-subobject variants
+aren't emitted for at least case #2.  (Note that there is no conflict between this
+and the recommended abstract-class rule because non-polymorphic classes
+cannot be abstract.)
+
+John.
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002911.html">[cxx-abi-dev] Uncallable constructor variants
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2912">[ date ]</a>
+              <a href="thread.html#2912">[ thread ]</a>
+              <a href="subject.html#2912">[ subject ]</a>
+              <a href="author.html#2912">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

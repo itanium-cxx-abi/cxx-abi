@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3CCAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT%2BR7k%2BxwmcXsQTsJfLvA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002786.html">
+   <LINK REL="Next"  HREF="002788.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] N4198 and mangling for member pointer template	arguments</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20N4198%20and%20mangling%20for%20member%20pointer%20template%0A%09arguments&In-Reply-To=%3CCAGL0aWe1rkQY-aV_HFbSpYyU_B6ORxT%2BR7k%2BxwmcXsQTsJfLvA%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] N4198 and mangling for member pointer template	arguments">richardsmith at google.com
+       </A><BR>
+    <I>Mon Dec  1 22:18:42 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002786.html">[cxx-abi-dev] N4198 and mangling for member pointer	template	arguments
+</A></li>
+        <LI>Next message: <A HREF="002788.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2787">[ date ]</a>
+              <a href="thread.html#2787">[ thread ]</a>
+              <a href="subject.html#2787">[ subject ]</a>
+              <a href="author.html#2787">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 1 December 2014 at 12:02, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+
+&gt;<i> &gt; On Nov 25, 2014, at 6:13 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; N4198 (accepted at Urbana) makes it possible for a template parameter of
+</I>&gt;<i> type T U::* to have a template argument of type T V::*, where V is a base
+</I>&gt;<i> class of U or vice versa. A naive attempt to apply the existing ABI rules
+</I>&gt;<i> leads to mangling collisions in cases like this:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; struct A { int n; };
+</I>&gt;<i> &gt; struct B : A {};
+</I>&gt;<i> &gt; template&lt;int A::*&gt; void f() {}
+</I>&gt;<i> &gt; template&lt;int B::*&gt; void f() {}
+</I>&gt;<i> &gt; void g() {
+</I>&gt;<i> &gt;   constexpr int A::*p = &amp;A::n;
+</I>&gt;<i> &gt;   constexpr int B::*q = p;
+</I>&gt;<i> &gt;   f&lt;p&gt;();
+</I>&gt;<i> &gt;   f&lt;q&gt;();
+</I>&gt;<i> &gt; }
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; (Here, a naive approach would use XadL_ZN1A1nEEE as the template
+</I>&gt;<i> argument value in both calls.)
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; In order to resolve this, I suggest we introduce a new mangling for the
+</I>&gt;<i> case of a member pointer template argument where the class containing the
+</I>&gt;<i> member is different from the class in the template parameter. The minimal
+</I>&gt;<i> information we'll need to include is the class in the template parameter
+</I>&gt;<i> and a designator if the base class is a repeated base class.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; One approach would be to use
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;   sc &lt;type&gt; ad L&lt;member&gt;E
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; and to explicitly include the final type plus those intermediate types
+</I>&gt;<i> that introduce multiple inheritance from the base class (that is, just
+</I>&gt;<i> enough to uniquely identify the path).
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Another would be to introduce a new mangling that incorporates the final
+</I>&gt;<i> type and an offset or discriminator.
+</I>&gt;<i>
+</I>&gt;<i> Do we have the same problem for references and pointers to base
+</I>&gt;<i> subobjects?  Okay, I see that the answer is &#8220;no&#8221;, but only because you kept
+</I>&gt;<i> that restriction in N4198.  I think we can assume that that&#8217;s not permanent.
+</I>&gt;<i>
+</I>
+I agree; I expect we'll eventually pare back the restrictions to something
+like &quot;no pointers/references to union members, and no one-past-the-end
+pointers&quot;, or even remove all restrictions altogether if no-one gets upset
+that different template arguments can compare equal. (We've actually
+already crossed this bridge by specifying that pointers to members of a
+union compare equal even if they point to different members, but no-one has
+got upset about it yet...)
+
+I like the idea of using (possibly invented) static_casts; it&#8217;s not
+&gt;<i> optimally compact, but it at least theoretically works with existing
+</I>&gt;<i> demanglers.  Have you checked to see if it actually works?
+</I>&gt;<i>
+</I>
+For _Z1fIXscM1BiadL_ZN1A1nEEEEvv (from my example above):
+
+GCC's c++filt gives void f&lt;static_cast&lt;int B::*&gt;(&amp;A::n)&gt;()
+libc++abi's demangler gives void f&lt;static_cast&lt;int B::*&gt;(&amp;(A::n))&gt;() ...
+which is wrong, but it's equally wrong without the static_cast.
+
+I agree with only including those intermediate steps necessary to uniquely
+&gt;<i> determine the path.
+</I>&gt;<i>
+</I>&gt;<i> We&#8217;d have to specify in what dependent situations we include the path.
+</I>&gt;<i> &#8220;Never&#8221; is the easiest answer, so that in
+</I>&gt;<i>   template &lt;class T, int T::*member&gt; void foo(decltype(T() +
+</I>&gt;<i> temp&lt;&amp;A::baz&gt;());
+</I>&gt;<i> we&#8217;d mangle &amp;A::baz without a path clarification even if we could
+</I>&gt;<i> type-check &quot;temp&lt;&amp;A::baz&gt;()&#8221; at template definition time.
+</I>
+
+That seems reasonable to me, but I'm not exactly sure what classifies as a
+&quot;dependent situation&quot;; do you mean that we should mangle the path only if
+the &lt;template-arg&gt; is not nested within an instantiation-dependent
+&lt;expression&gt;?
+
+
+There's another issue that we should probably fix at the same time:
+qualification conversions are permitted in template arguments, and we
+currently mangle a signature that performs a qualification conversion the
+same way as we mangle a signature that does not. We could either fold the
+qualification conversion into the last (synthetic) static_cast, or add an
+explicit synthetic const_cast to model it. I'm inclined to favour the
+latter, even though it will give longer manglings in the (hopefully rare)
+case where both conversions occur (because it also works if the user has
+cast away constness, and because it's simpler). Example:
+
+// tu1
+extern int n;
+template&lt;int*&gt; void f() {}
+void g() { f&lt;&amp;n&gt;(); }
+
+// tu2
+extern int n;
+template&lt;const int*&gt; void f() {}
+void h() { f&lt;&amp;n&gt;(); }
+
+Here:
+g calls _Z1fIXadL_Z1nEEEvv
+h calls _Z1fIXccPKiadL_Z1nEEEvv
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141201/ddbc1a7d/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141201/ddbc1a7d/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002786.html">[cxx-abi-dev] N4198 and mangling for member pointer	template	arguments
+</A></li>
+	<LI>Next message: <A HREF="002788.html">[cxx-abi-dev] N4198 and mangling for member pointer template	arguments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2787">[ date ]</a>
+              <a href="thread.html#2787">[ thread ]</a>
+              <a href="subject.html#2787">[ subject ]</a>
+              <a href="author.html#2787">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

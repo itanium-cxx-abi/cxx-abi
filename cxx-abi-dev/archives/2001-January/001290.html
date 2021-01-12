@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> construction vtables broken
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20construction%20vtables%20broken&In-Reply-To=%3C3A6D8376.B2B7F58C%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001291.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>construction vtables broken</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20construction%20vtables%20broken&In-Reply-To=%3C3A6D8376.B2B7F58C%40codesourcery.com%3E"
+       TITLE="construction vtables broken">nathan at codesourcery.com
+       </A><BR>
+    <I>Tue Jan 23 13:13:26 UTC 2001</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001291.html">construction vtables broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1290">[ date ]</a>
+              <a href="thread.html#1290">[ thread ]</a>
+              <a href="subject.html#1290">[ subject ]</a>
+              <a href="author.html#1290">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Sadly, the VTT algorithms in the C++ abi are broken, and fail on diamond
+shaped graphs.
+
+The VTT only contains secondary vtable pointers for bases with virtual bases
+or with virtual functions overridden along a virtual path from that base to the
+base for which the VTT belongs. Unfortunately, that means bases within a virtual
+heirarchy can have an undefined vtable. This breaks dynamic_cast and typeid
+within the base under construction. Consider
+
+struct A {virtual void f();} // nearly empty
+struct B1 : virtual A {};	// A will be primary base
+struct B2 : virtual A { B2 ();}; // A will be primary base
+struct C : B1, B2 {};    // B1 will be primary base, A in B1 will be active
+B2::B2 ()
+{
+   A *aptr = this;
+   
+   assert (typeid (*aptr) == typeid (*this));
+   assert (dynamic_cast &lt;void *&gt; (aptr) == this);
+}
+
+
+both those asserts will fail, as virtual base A's vtable will not be initialized
+inside B2's ctor, and will have information remaining from B1's constructing.
+
+We need to change 2.6.2 part 3 to include secondary virtual pointers for
+each subobject X with either (a) virtual bases or (b) reachable via a virtual path
+from D. All the stuff about overriding virtual functions along a virtual path
+is unneeded.
+
+I attach a patch to abi.html to this effect. I've also added a note about primary
+virtual bases. It reworks the example given at the end of 2.6.2.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A> : <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A> : <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>
+-------------- next part --------------
+--- abi.html	Tue Jan 16 09:39:53 2001
++++ abi-new.html	Tue Jan 23 11:53:37 2001
+@@ -1479,7 +1479,11 @@
+ as each base class subobject is constructed.
+ RTTI queries in the base class constructor will return  
+ the type of the base class, and virtual calls will resolve to member  
+-functions of the base class rather than the complete class.
++functions of the base class rather than the complete class. RTTI queries,
++dynamic casts and virtual calls of the object under construction statically
++converted to bases of the base under construction will dynamically
++resolve to the type of the base under construction.
++
+ Normally,  this behavior is accomplished by setting,
+ in the base class constructor,
+ the object's virtual table pointers to the addresses of the
+@@ -1560,8 +1564,7 @@
+ &lt;li&gt;
+ &lt;i&gt;Secondary virtual pointers&lt;/i&gt;:
+ For each subobject X with either (a) virtual bases
+-or (b) virtual function declarations overridden along a virtual path
+-between the declaration and D,
++or (b) reachable along a virtual path from D,
+ the address of the secondary virtual table for X-in-D.
+ These include virtual and non-virtual, direct and indirect subobjects,
+ with the exception of primary non-virtual bases.
+@@ -1573,22 +1576,24 @@
+ &lt;/i&gt;
+ 
+ &lt;p&gt;
+-When constructing a sub-VTT for a subclass B of D in part 2 above,
+-the relevant condition (b) for the inclusion of a secondary virtual
+-pointer in the sub-VTT for B is the existence of a virtual function
+-declaration overridden along a virtual path between the declaration and B,
+-since otherwise the complete object virtual table for B is used
+-to initialize the B subobject.
+-
+-&lt;p&gt;
+ &lt;img src=warning.gif alt=&quot;&lt;b&gt;NOTE&lt;/b&gt;:&quot;&gt;
+ &lt;i&gt;
+ &quot;Along a virtual path&quot; refers to the path in the inheritance graph
+-between the class that declares the overridden virtual function
+-and the class derived from it that declares the overriding virtual
+-function.
++between X and D.
+ This is considered a virtual path if one of the class derivations it
+-represents is from a virtual base.
++represents is a virtual base of D.
++&lt;/i&gt;
++
++&lt;p&gt;
++&lt;img src=warning.gif alt=&quot;&lt;b&gt;NOTE&lt;/b&gt;:&quot;&gt;
++&lt;i&gt;
++Primary virtual bases require a secondary virtual pointer in the VTT,
++as their placement is determined by the most derived object. If a primary
++virtual base is the active instance of that base within the most derived
++object, the VTT entry for it will be D-in-most derived's primary virtual
++table pointer. Should that primary virtual base not be the active
++instance within the most derived object, the secondary virtual pointer
++will be different.
+ &lt;/i&gt;
+ 
+ &lt;p&gt;
+@@ -1671,14 +1676,20 @@
+   class A1 { int i; };
+   class A2 { int i; virtual void f(); };
+   class V1 : public A1, public A2 { int i; };
++	// A2 is primary base of V1, A1 is non-polymorphic
+   class B1 { int i; };
+   class B2 { int i; };
+-  class V2 : public B1, public B2, public virtual V1 { int i; virtual void f(); };
++  class V2 : public B1, public B2, public virtual V1 { int i; };
++	// V2 has no primary base, V1 is secondary base
++  class V3 {virtual void g(); };
+   class C1 : public virtual V1 { int i; };
+-  class C2 : public virtual V2 { int i; };
++	// C1 has no primary base, V2 is secondary base
++  class C2 : public virtual V3, virtual V2 { int i; };
++	// C2 has V3 primary (nearly-empty virtual) base, V2 is secondary base
+   class X1 { int i; };
+   class C3 : public X1 { int i; };
+-  class D : public C1, public C2, public C3 { int i; virtual void f(); };
++  class D : public C1, public C2, public C3 { int i;  };
++	// C1 is primary base, C2 is secondary base, C3 is non-polymorphic
+ 
+ &lt;/pre&gt;&lt;/code&gt;
+ 
+@@ -1696,31 +1707,36 @@
+   [1]  C1 * (has virtual base)
+ 
+   [2]  C2 * (has virtual bases)
+-  [3]    V2-in-C2 in D (secondary vptr)
+-  [4]    V1-in-C2 in D (secondary vptr)
++  [3]    V3-in-C2 in D (primary vptr)
++  [4]    V2-in-C2 in D (secondary vptr)
++  [5]    V1-in-C2 in D (secondary vptr)
+ 
+   // 3. Secondary virtual pointers:
+     // (no C1-in-D -- primary base)
+-  [5]    V1-in-D (A2::f overridden in D)
+-  [6]  C2-in-D (preorder; has virtual bases)
+-  [7]    V2-in-D (V2::f overridden in D, has virtual base)
+-    // (For complete object D VTT, these can all point to the
+-    // secondary vtables in the D vtable.  In the sub-VTT for
++  [6]    V1-in-D (V1 is virtual)
++  [7]  C2-in-D (preorder; has virtual bases)
++  [8]    V3-in-D (V3 is virtual)
++  [9]    V2-in-D (V2 is virtual)
++    // (For complete object D VTT, these all can point to the
++    // secondary vtables in the D vtable, the V3-in-D entry
++    // will be the same as the C2-in-D entry, as that is the active
++    // V3 virtual base in the complete object D.  In the sub-VTT for
+     // D in a class derived from D, some might be construction
+     // virtual tables.)
+ 
+   // 4. Virtual VTTs:
+     // (V1 has no virtual bases).
+-  [8]  V2 * (V2::f overridden in D, has virtual base)
+-  [9]    V1-in-V2 in D * (secondary vptr, A2::f overridden in D)
++  [10] V2 * (V2 has virtual bases)
++  [11]   V1-in-V2 in D * (secondary vptr, V1 is virtual)
+ 	   (A2 is primary base of V1)
++    // (V3 has no virtual bases)
+ 
+ &lt;/pre&gt;&lt;/code&gt;
+ 
+ &lt;p&gt;
+ &lt;i&gt;
+ If A2 is a virtual base of V1,
+-the VTT will contain 14 elements
++the VTT will contain more elements
+ (exercise left to the astute reader).
+ &lt;/i&gt;
+ 
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001291.html">construction vtables broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1290">[ date ]</a>
+              <a href="thread.html#1290">[ thread ]</a>
+              <a href="subject.html#1290">[ subject ]</a>
+              <a href="author.html#1290">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

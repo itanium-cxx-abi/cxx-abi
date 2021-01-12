@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Notes from the 14 July meeting
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%2014%20July%20meeting&In-Reply-To=%3C9907161658.ZM163935%40isolde.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000161.html">
+   <LINK REL="Next"  HREF="000163.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Notes from the 14 July meeting</H1>
+    <B>Matt Austern</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Notes%20from%20the%2014%20July%20meeting&In-Reply-To=%3C9907161658.ZM163935%40isolde.engr.sgi.com%3E"
+       TITLE="Notes from the 14 July meeting">austern at isolde.engr.sgi.com
+       </A><BR>
+    <I>Fri Jul 16 23:58:33 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000161.html">Covariant polymorphic returns and when sharing B-D V-pointers
+</A></li>
+        <LI>Next message: <A HREF="000163.html">Notes from the 14 July meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#162">[ date ]</a>
+              <a href="thread.html#162">[ thread ]</a>
+              <a href="subject.html#162">[ subject ]</a>
+              <a href="author.html#162">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We discussed issues B5 (where to emit vtables), C2 (ordering of
+static constructors), and B2 (covariant return type).
+
+Action items: I agreed to write up a description of a priority
+scheme for C2, and Jason agreed to write up a description of a
+simple scheme for B2, including a proof that the simpler scheme
+would be correct (albeit slow) for some of the ghastly cases that
+Daveed has been considering.
+
+
+B5. WHERE ARE VTABLES EMITTED
+
+Consensus so far: use a heuristic for vtable and typeinfo emission,
+based on the definition of the key function.  (The first virtual
+function that is not declared inline in the class definition.)  The
+vtable must be emitted where the key function is defined, it may also
+be emitted in other translation units as well.  If there is no key
+function then the vtable must be emitted in any translation unit that
+refers to the vtable in any way.
+
+Implication: the linker must be prepared to discard duplicate vtables.
+We want to use COMDAT sections for this (and for other entities with
+vague linkage.)
+
+Open issue: the elf format allows only 16 bits for section identifiers,
+and typically two of those bits are already taken up for other things.
+So we've only got 16k sections available, which is unacceptable if we're
+creating lots of small sections.
+
+Jason - COMDATs disappear into text and data at link time, so the issue
+is really only serious if we've got more than 16k vtables (or template
+instantiations, etc.) in a single translation unit.
+
+Daveed - HP has gotten around this problem by hacking their ELF files
+to steal another 8 bits from somewhere else.
+
+Jack - a new kind of section table could be a viable solution.  However,
+it would break everything if we did it for ia32.  Is a solution that only
+works on ia64 acceptable?  Note also that the elf section table has its own
+string table, which we wouldn't be able to share with the new kind of
+section table.  Index and link fields often point into section table, we
+would have to figure out how to deal with this.  (Jack is not opposed to
+the idea of an alternate section table, he is just pointing out some of the
+issues we will have to resolve.)
+
+Status: issue is still open.
+
+C2. ORDER OF CTORS/DTORS
+
+Cygnus scheme: priorities are 16-bit unsigned integers, lower numbers are
+higher priority.  In each translation unit, there's a single initialization
+function for each priority.  Anything that's prioritized has a higher
+priority than anything that isn't explicitly assigned a priority.  IBM
+scheme: priorities are 32-bit signed integers, higher numbers are higher
+priority.  Something that isn't explicitly assigned a priority effectively
+gets a priority of 0.
+
+Consensus: nobody is sure that negative priorities are very important, but
+also nobody can think of a reason not to allow them.  We accept the idea
+that priorities are 32-bit signed integers.  On a source level Cygnus will
+keep lower numbers as higher priority, but that's a source issue, not an
+ABI issue.
+
+Status: No real technical issues, we have consensus on everything that
+matters.  We need to write up the finicky details.
+
+
+
+B2. COVARIANT RETURN TYPES
+
+Daveed presented his multiple-return-value scheme, including an example
+that involved virtual base classes, return values that are pointers to
+nonpolymorphic classes, and other equally horrible things.
+
+Consensus: we need to get the horrible cases correct, but speed only
+matters in the simple case.  The simple case: class B has a virtual
+function f returning a B1* and class D has a virtual function f
+returning a D1*, where all four classes are polymorphic, B is a primary
+base of D, and B1 is a primary base of D1.  (The really important case
+is where B1 is B and D1 is D, but that simplification doesn't make any
+difference.)
+
+Jason: Would the usual multiple-entry-point scheme work just as well?
+That is, would it be just as fast as Daveed's scheme in the simple
+case, and still preserve enough information for the more complicated
+cases?  It appears so, but we don't have a proof.  Jason will try to
+provide one.
+
+			--Matt
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000161.html">Covariant polymorphic returns and when sharing B-D V-pointers
+</A></li>
+	<LI>Next message: <A HREF="000163.html">Notes from the 14 July meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#162">[ date ]</a>
+              <a href="thread.html#162">[ thread ]</a>
+              <a href="subject.html#162">[ subject ]</a>
+              <a href="author.html#162">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

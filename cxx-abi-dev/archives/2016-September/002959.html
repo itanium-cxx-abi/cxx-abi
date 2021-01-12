@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] How to detect a forced unwind in a catch block?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20How%20to%20detect%20a%20forced%20unwind%20in%20a%20catch%20block%3F&In-Reply-To=%3CC5F4112F-9CC2-4D8E-80A3-53E34FE0735E%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002956.html">
+   <LINK REL="Next"  HREF="002960.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] How to detect a forced unwind in a catch block?</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20How%20to%20detect%20a%20forced%20unwind%20in%20a%20catch%20block%3F&In-Reply-To=%3CC5F4112F-9CC2-4D8E-80A3-53E34FE0735E%40apple.com%3E"
+       TITLE="[cxx-abi-dev] How to detect a forced unwind in a catch block?">rjmccall at apple.com
+       </A><BR>
+    <I>Tue Sep  6 18:38:43 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002956.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+        <LI>Next message: <A HREF="002960.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2959">[ date ]</a>
+              <a href="thread.html#2959">[ thread ]</a>
+              <a href="subject.html#2959">[ subject ]</a>
+              <a href="author.html#2959">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Sep 3, 2016, at 1:40 AM, Thiago Macieira &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">thiago at kde.org</A>&gt; wrote:
+</I>&gt;<i> Hello
+</I>&gt;<i> 
+</I>&gt;<i> Summary: abi::__foced_unwind is available when #include &lt;cxxabi.h&gt; from GCC 
+</I>&gt;<i> (libsupc++), but is not documented in <A HREF="https://mentorembedded.github.io/cxx-abi/abi-eh.html">https://mentorembedded.github.io/cxx-abi/abi-eh.html</A> nor is it available in other implementations. Should it be 
+</I>&gt;<i> adde to the spec so we can detect forced unwinds? Or is there another way to 
+</I>&gt;<i> detect the forced unwinding not caused by an exception?
+</I>&gt;<i> 
+</I>&gt;<i> Background:
+</I>&gt;<i> 
+</I>&gt;<i> 30.3.1.2 [thread.thread.constr] p5 says
+</I>&gt;<i> 
+</I>&gt;<i> &quot; If the invocation of INVOKE (DECAY_COPY ( std::forward&lt;F&gt;(f)), DECAY_COPY 
+</I>&gt;<i> (std::forward&lt;Args&gt;(args))...) terminates with an uncaught exception, 
+</I>&gt;<i> std::terminate shall be called.&quot;
+</I>&gt;<i> 
+</I>&gt;<i> When trying to implement this requirement for QThread, we've run into a snag: 
+</I>&gt;<i> with glibc's pthread implementation on Linux, pthread_exit() as well as all 
+</I>&gt;<i> POSIX asynchronous cancellations happen by way of a forced stack unwinding. 
+</I>&gt;<i> This means the obvious solution to implement the requirement from the standard 
+</I>&gt;<i> fails:
+</I>&gt;<i> 
+</I>&gt;<i> 	try {
+</I>&gt;<i> 		thr-&gt;run();
+</I>&gt;<i> 	} catch (...) {
+</I>&gt;<i> 		std::terminate();
+</I>&gt;<i> 	}
+</I>&gt;<i> 
+</I>&gt;<i> That catch (...) block is run by the forced stack unwinding started with 
+</I>&gt;<i> _Unwind_ForcedUnwind. Since it then calls std::terminate(), the whole 
+</I>&gt;<i> application terminates instead of just the thread.
+</I>&gt;<i> 
+</I>&gt;<i> Now, the libstdc++ implementation[1][2] handles this gracefully, but does so 
+</I>&gt;<i> by catching abi::__forced_unwind.
+</I>&gt;<i> 
+</I>&gt;<i> That brings me to my original question in the subject: how can code outside of 
+</I>&gt;<i> the compiler's own implementations detect a forced stack unwinding not caused 
+</I>&gt;<i> by a thrown exception in a portable fashion?
+</I>&gt;<i> 
+</I>&gt;<i> Option 1: make abi::__forced_unwind documented and have the other 
+</I>&gt;<i> implementations (besides GCC) implement it too.
+</I>
+This would be inappropriate; the appropriate solution would be to ask the committee
+for a new function in namespace std that could be implemented with
+abi::__forced_unwind.  I believe that's the chief purpose of that function, to allow that
+sort of functionality to be implemented in the future.
+
+If std::current_exception works, of course, all the better.
+
+John.
+
+&gt;<i> 
+</I>&gt;<i> Option 2: add a getter to either the Base ABI for unwinding (_Unwind_*) or the 
+</I>&gt;<i> C++ ABI to get a flag indicating whether the unwind is forced. In fact, this 
+</I>&gt;<i> information is already available in the actions parameter to the personality 
+</I>&gt;<i> routine: <A HREF="https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-personality">https://mentorembedded.github.io/cxx-abi/abi-eh.html#base-personality</A> 
+</I>&gt;<i> has:
+</I>&gt;<i>    static const _Unwind_Action _UA_FORCE_UNWIND = 8;
+</I>&gt;<i> 
+</I>&gt;<i> Option 3: change the way that GCC and glibc force unwinding from non-C++ 
+</I>&gt;<i> contexts.
+</I>&gt;<i> 
+</I>&gt;<i> [1] <A HREF="https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B">https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B</A>
+</I>&gt;<i> %2B11/thread.cc#L77
+</I>&gt;<i> [2] I don't see any code in libc++ for handling exceptions at all.
+</I>&gt;<i> 
+</I>&gt;<i> -- 
+</I>&gt;<i> Thiago Macieira - thiago (AT) macieira.info - thiago (AT) kde.org
+</I>&gt;<i>   Software Architect - Intel Open Source Technology Center
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002956.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+	<LI>Next message: <A HREF="002960.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2959">[ date ]</a>
+              <a href="thread.html#2959">[ thread ]</a>
+              <a href="subject.html#2959">[ subject ]</a>
+              <a href="author.html#2959">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

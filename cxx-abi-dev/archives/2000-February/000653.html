@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function calls
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20calls&In-Reply-To=%3C38B58E02.EC5806B8%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000651.html">
+   <LINK REL="Next"  HREF="000654.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function calls</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20calls&In-Reply-To=%3C38B58E02.EC5806B8%40cup.hp.com%3E"
+       TITLE="Virtual function calls">ddd at cup.hp.com
+       </A><BR>
+    <I>Thu Feb 24 20:01:06 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000651.html">Meeting agenda
+</A></li>
+        <LI>Next message: <A HREF="000654.html">vtable notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#653">[ date ]</a>
+              <a href="thread.html#653">[ thread ]</a>
+              <a href="subject.html#653">[ subject ]</a>
+              <a href="author.html#653">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Here were my notes...
+
+
+struct vtable_entry
+{
+#ifdef SHARED_LIBS
+	void (*fptr) ();
+	uint64 GP_value;
+#else
+	void (*fptr) ();
+#endif
+}
+
+
+CASE 1:
+
+struct A {
+	virtual f();
+}
+
+A* ptr;
+ptr-&gt;f();
+
+struct vtbl&lt;A&gt; {
+	ptrdiff_t	offset_to_top = 0;
+	typeinfo *	typeinfo = typeinfo&lt;A&gt;;
+VPTR-&gt;	vtable_entry	f = A::f;
+};
+
+
+
+CASE 2:
+
+struct B : A { }
+
+struct vtbl&lt;B&gt; {
+	ptrdiff_t	offset_to_top = 0;
+	typeinfo *	typeinfo = typeinfo&lt;B&gt;;
+VPTR-&gt;	vtable_entry	f = A::f;
+};
+
+
+CASE 3:
+
+struct C : A {
+	virtual f();
+}
+
+struct vtbl&lt;C&gt; {
+	ptrdiff_t	offset_to_top = 0;
+	typeinfo *	typeinfo = typeinfo&lt;C&gt;;
+VPTR-&gt;	vtable_entry	f = C::f;
+
+
+CASE 4:
+
+struct X { virtual unique(); };
+
+struct D : X, A { }
+
+struct vtbl&lt;D&gt; {
+	ptrdiff_t	offset_to_top&lt;X,D&gt; = 0
+	typeinfo *	typeinfo = typeinfo&lt;D&gt;
+VPTR&lt;D,X&gt;-&gt;vtable_entry	unique = X::unique;
+
+	ptrdiff_t	offset_to_top&lt;A&gt; = -sizeof(vptr);
+	typeinfo *	typeinfo = typeinfo&lt;D&gt;
+VPTR&lt;A&gt;-&gt; vtable_entry	f = A::f;
+}
+
+Calling A::f():
+	with an A*: No adjustment
+	with a D*: Adjustment to an A* at call-site.
+	A* -&gt; D* adjustmnent is known at compile time.
+
+
+CASE 5:
+
+struct E : X, A { virtual f(); }
+
+E::f receives an E* as the this pointer, not an A*.
+
+struct vtbl&lt;E&gt; {
+	ptrdiff_t	offset_to_top&lt;X,D&gt; = 0
+	typeinfo *	typeinfo = typeinfo&lt;E&gt;
+VPTR&lt;E,X&gt;-&gt;vtable_entry	unique = X::unique;
+	vtable_entry	f = E::f
+
+	ptrdiff_t	offset_to_top&lt;A&gt; = -sizeof(vptr);
+	typeinfo *	typeinfo = typeinfo&lt;E&gt;
+VPTR&lt;A&gt;-&gt; vtable_entry	f = E::f_thunk&lt;A, E&gt;;	// Thunk converting from A to E
+};
+
+
+Calling E::f():
+	With an A*: Call site: no adjustment.
+		Adjustment done by E::f_thunk&lt;A, E&gt;
+	With an E*: Call site: no adjustment, calls through the vptr&lt;E&gt;-&gt;f.
+
+
+CASE 6:
+
+struct G : virtual A { }
+
+struct vtbl&lt;G&gt; {
+	ptrdiff_t	G_to_A_offset = 0;
+
+	ptrdiff_t	offset_to_top&lt;X,D&gt; = 0
+	typeinfo *	typeinfo = typeinfo&lt;G&gt;
+VPTR&lt;G&gt;-&gt;
+
+	ptrdiff_t	offset_to_top&lt;A&gt; = -sizeof(vptr);
+	typeinfo *	typeinfo = typeinfo&lt;G&gt;
+VPTR&lt;A&gt;-&gt; vtable_entry	f = A::f
+};
+
+Calling G::f:
+	Through an A*: as case 1
+	Throught a G*: Magically convert G* to A* (by adding the G_to_A_offset),
+		then use the A* to call A::f.
+
+The &quot;magical&quot; conversion to be specified later, using a vbase offset.
+
+
+CASE 7:
+
+struct H : virtual A { virtual f(); }
+
+struct vtbl&lt;H&gt; {
+
+};
+
+
+CASE 8:
+
+struct I : H { }
+
+
+
+CASE 9:
+
+struct J : H { virtual f(); }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000651.html">Meeting agenda
+</A></li>
+	<LI>Next message: <A HREF="000654.html">vtable notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#653">[ date ]</a>
+              <a href="thread.html#653">[ thread ]</a>
+              <a href="subject.html#653">[ subject ]</a>
+              <a href="author.html#653">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>
