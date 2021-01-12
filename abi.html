@@ -707,11 +707,13 @@ from the address point of an object of the base type, as a
 
 <p>
 A null data member pointer is represented as an offset of <code>-1</code>.
-Unfortunately, it is possible to generate an data member pointer with an
+Unfortunately, it is possible to generate a data member pointer with an
 offset of <code>-1</code> using explicit derived-to-base conversions.
 If this is done, implementations following this ABI may misbehave.
 <span class="future-abi">Recommendation for new platforms: consider using
-<code>PTRDIFF_MIN</code> as the null data member pointer instead.</span>
+a different representation for data member pointers, such as left-shifting
+the offset by one and using a non-zero low bit to indicate a non-null
+value.</span>
 
 <p>
 Note that by <code>[dcl.init]</code>, "zero initialization" of a data
@@ -732,8 +734,17 @@ is always known.
 <h4><a href="#member-function-pointers"> 2.3.2 Member Function Pointers </a></h4>
 
 <p>
-The basic ABI properties of member function pointer types are those of
-the following class:
+Several different representions of member function pointers are in use.
+The standard representation relies on several assumptions about the
+platform, such as that the low bit of a function pointer to a non-virtual
+member function is always zero.  For platforms where this is not reasonable
+to guarantee, an alternate representation must be used.  One such
+representation, used on the 32-bit ARM architecture, is also described here.
+
+<p>
+In all representations, the basic ABI properties of member function
+pointer types are those of the following class, where <code>fnptr_t</code>
+is the appropriate function-pointer type for a member function of this type:
 
 <pre>
   struct {
@@ -742,61 +753,107 @@ the following class:
   };
 </pre>
 
-where <code>fnptr_t</code> is the appropriate function-pointer type
-for the member type.
+<p>
+A member function pointer for a non-virtual member function is represented
+with <code>ptr</code> set to a pointer to the function, using the base
+ABI's representation of function pointers.
 
 <p>
-A member function pointer for a non-virtual function is represented
-with <code>ptr</code> set to a function pointer to the function,
-using the base ABI's representation of function pointers.
-
-<p>
-A member function pointer for a virtual function is represented
-with <code>ptr</code> set to 1 plus the virtual table offset of
-the function (in bytes), converted to a function pointer as if by <code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(1 + offset))</code>,
+In the standard representation, a member function pointer for a virtual
+function is represented with <code>ptr</code> set to 1 plus the function's
+v-table entry offset (in bytes), converted to a function pointer as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(1 + offset))</code>,
 where <code>uintfnptr_t</code> is an unsigned integer of the same
 size as <code>fnptr_t</code>.
 
 <p>
-In both cases, <code>adj</code> stores the offset (in bytes) which
-must be added to a pointer to the base type before the call can be
-made.  For a virtual member function pointer, the v-table is loaded
-from the adjusted address.
+In both of these cases, <code>adj</code> stores the offset (in bytes)
+which must be added to the <code>this</code> pointer before the call.
 
 <p>
-The representation of virtual member function pointers requires the
-representation of a function pointer to a non-static member function
-to never have its lowest bit set.  On most platforms, this is either
-always true, or it can be made true at little cost.  (For example,
-on most platforms a function pointer is just the address of the
-first instruction in the function.  Many architectures align all
-instructions to at least 2 bytes; even on architectures where that's
-not true, or where functions aren't byte-addressed, the compiler can
-just increase the alignment of non-static member functions until the
-low bit of the address is always reliably zero.)  However, some platforms
-use the low bit of a function pointer for special purposes, such as to
-distinguish THUMB functions on ARM.  Such platforms must use a slightly
-different representation: the virtual/non-virtual bit is instead stored
-as the lowest bit of <code>adj</code>, and the adjustment value is
-stored left-shifted by 1.
+In the standard representation, a null member function pointer is
+represented with <code>ptr</code> set to a null pointer.  The value
+of <code>adj</code> is unspecified for null member function pointers.
 
 <p>
-A null member function pointer is represented by a null value for
-<code>ptr</code>.  (This assumes that the low bit of a null pointer
-is not 1; platforms with non-zero bit representations for null function
-pointers may need an adjusted rule.)  The value of <code>adj</code>
-is not specified unless the alternative virtual-bit representation
-is being used, in which case the lowest bit of <code>adj</code> must
-also be zero but the remaining bits are still unspecified.
+The standard representation relies on some assumptions which are
+true for most platforms:
+
+<ul compact>
+  <li>The low bit of a function pointer to a non-static member function
+    is never set.  On most platforms, this is either always true or
+    can be made true at little cost.  For example, on platforms where
+    a function pointer is just the address of the first instruction in the
+    function, the implementation can ensure that this addresss is always
+    sufficiently aligned to make the low bit zero for non-static member
+    functions; often this is required by the underlying architecture.</li>
+
+  <li>A null function pointer can be distinguished from a virtual
+    offset value.  On most platforms, this is always true because the
+    null function pointer is the zero value.</li>
+
+  <li>The offset to a v-table entry is never odd.  On most platforms,
+    the size of a v-table entry is even because the architecture is
+    byte-addressed and pointers are even-sized.</li>
+
+  <li>A virtual call can be performed knowing only the addresss of a
+    v-table entry and the type of the virtual function.  On most
+    platforms, a v-table entry is equivalent to a function pointer,
+    and the type of that function pointer can be determined from the
+    member pointer type.</li>
+</ul>
+
+<p>
+However, there are exceptions.  For example, on the 32-bit ARM
+architecture, the low bit of a function pointer determines whether
+the function begins in THUMB mode.  Such platforms must use an
+alternate representation.
+
+<p>
+In the 32-bit ARM representation, the <code>this</code>-adjustment
+stored in <code>adj</code> is left-shifted by one, and the low bit
+of <code>adj</code> indicates whether <code>ptr</code> is a function
+pointer (including null) or the offset of a v-table entry.  A virtual
+member function pointer sets <code>ptr</code> to the v-table entry
+offset as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(offset))</code>.
+A null member function pointer sets <code>ptr</code> to a null
+function pointer and must ensure that the low bit of <code>adj</code>
+is clear; the upper bits of <code>adj</code> remain unspecified.
+
+<p>A member function pointer is null if <code>ptr</code> is equal
+to a null function pointer and (only when using the 32-bit ARM
+representation) the low bit of <code>adj</code> is clear.
+
+<p>Two member function pointers are equal if they are both null or
+if their corresponding values of <code>ptr</code> and <code>adj</code>
+are equal.  Note that the C++ standard does not require member pointers
+to the same virtual member function to compare equal; implementations
+using this ABI will do so, but only if the member pointers are built
+using the same v-table offset, which they may not be in the presence
+of multiple inheritance or overrides with covariant return types.
 
 <p>
 Base-to-derived and derived-to-base conversions of a member function
 pointer can be performed by adding or subtracting (respectively) the
-static offset of the base within the derived class to the value of
-<code>adj</code>.  In the alternative virtual-bit representation,
-the addend must be shifted by one.  Because the adjustment does not
-factor into whether a member function pointer is null, this can be
-done unconditionally when performing a conversion.
+static offset of the base within the derived class to the stored
+<code>this</code>-adjustment value.  In the standard representation,
+this simply means adding it to <code>adj</code>; in the 32-bit ARM
+representation, the addend must be left-shifted by one.  Because the
+adjustment does not factor into whether a member function pointer is
+null, this addition can be done unconditionally when performing a
+conversion.
+
+<p>
+A call is performed as follows:
+
+<ol>
+  <li>Add the stored adjustment to the <code>this</code> address.</li>
+  <li>If the member pointer stores a v-table entry offset, load the
+    v-table from the adjusted <code>this</code> address and call
+    the v-table entry at the stored offset.</li>
+  <li>Otherwise, call the stored function pointer.</li>
+</ol>
 
 <p> <hr> <p>
 <a name="class-types">
@@ -4962,12 +5019,13 @@ Builtin types are represented by single-letter codes:
                  ::= Da # auto
                  ::= Dc # decltype(auto)
                  ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
-		 ::= u &lt;<a href="#mangle.source-name">source-name</a>&gt;	# vendor extended type
+		 ::= u &lt;<a href="#mangle.source-name">source-name</a>&gt; [&lt;<a href="#mangle.template-args">template-args</a>&gt;] # vendor extended type
 </pre></font></code>
 
 <p>
 Vendors who define builtin extended types shall encode them
-as a 'u' prefix followed by the name in &lt;length,ID> form.
+as a 'u' prefix followed by the name in &lt;length,I&gt; form,
+followed by any arguments to the extended type.
 
 <a name="mangle.function-type">
 <h5><a href="#mangle.function-type">5.1.5.3 Function types</a></h5>
@@ -5064,10 +5122,10 @@ substitution candidate.
 </p>
 
 <p>
-When a function parameter is a C++0x function parameter pack, its type
+When a function parameter is a C++11 function parameter pack, its type
 is mangled with <code>Dp &lt;<a href="#mangle.type">type</a>&gt;</code>, i.e., its type is a pack
 expansion:
-<pre><font color="blue"><code> &lt;<a name="mangle.type">type</a>&gt;  ::= Dp &lt;<a href="#mangle.type">type</a>&gt;          # pack expansion (C++0x)
+<pre><font color="blue"><code> &lt;<a name="mangle.type">type</a>&gt;  ::= Dp &lt;<a href="#mangle.type">type</a>&gt;          # pack expansion (C++11)
 </code></font></pre>
 </p>
 
@@ -5080,8 +5138,8 @@ either <code>Dt</code> or <code>DT</code>, depending on how
 the <code>decltype</code> type was parsed.  (See farther <a href=#expressions>below</a> for
 the encoding of expressions.)
 
-<pre><font color="blue"><code> &lt;decltype&gt;  ::= Dt &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an id-expression or class member access (C++0x)
-             ::= DT &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an expression (C++0x)
+<pre><font color="blue"><code> &lt;decltype&gt;  ::= Dt &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an id-expression or class member access (C++11)
+             ::= DT &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an expression (C++11)
 </code></font></pre>
 If the operand expression of <code>decltype</code> is not
 <a href=#instantiation-dependent>instantiation-dependent</a>
@@ -5250,6 +5308,7 @@ most common -- L can be zero).  For example:
 		   ::= fL &lt;L-1 non-negative <a href="#mangle.number">number</a>&gt; p &lt;<i>top-level</i> <a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt; _         # L > 0, first parameter
 		   ::= fL &lt;L-1 non-negative <a href="#mangle.number">number</a>&gt; p &lt;<i>top-level</i> <a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt;
                                                     &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _   # L > 0, second and later parameters
+		   ::= fpT                                                                # this
 </font></code></pre>
 Note that top-level cv-qualifiers specified on a parameter type do not
 affect the function type directly (i.e., <code>int(*)(T)</code> and
@@ -5544,7 +5603,7 @@ is used even if the indicated member is actually known.  Similarly,
 an <code>&lt;<a href="#mangle.unresolved-qualifier-level">unresolved-qualifier-level</a>&gt;</code> may encode a known
 class type.
 That production is also used for references to nonstatic members with no
-associated expression designating the enclosing object (a C++0x feature).
+associated expression designating the enclosing object (a C++11 feature).
 For example:
 <code><pre>          struct Q { int x; } q;
           template&lt;class T> auto f(T p)->decltype(p.x + q.x);
