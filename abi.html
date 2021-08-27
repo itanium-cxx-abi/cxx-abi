@@ -5367,31 +5367,67 @@ produces the mangled name "<code>_Z1fM1AKFvvRE</code>".
 <h5><a href="#mangle.template-param">5.1.5.8 Template parameters</a></h5>
 
 <p>
-When function and member function template instantiations reference
-the template parameters in their parameter or result types,
-the template parameter number is encoded,
-with the sequence T_, T0_, ...  For example:
-<pre><code>
-    template&lt;class T> void f(T) {}
-    template void f(int);
-      // Mangled as "_Z1fIiEvT_".
-</code></pre>
-
-Class template parameter references are mangled using the standard
-mangling for the actual parameter type,
-typically a substitution.
-Note that a template parameter reference is a substitution candidate,
-distinct from the type (or other substitutible entity)
-that is the actual parameter.
-</p>
+A reference to a template parameter is mangled using the index
+of the parameter, with a special mangling for the first parameter.
+The sequence of parameters is therefore <code class=mangle>T_</code>,
+<code class=mangle>T0_</code>, <code class=mangle>T1_</code>, and so on.
 
 <pre><code><font color=blue>
-  &lt;template-param&gt; ::= T_	# first template parameter
-		   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
+  &lt;template-param&gt; ::= T_ # first template parameter
+                   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
   &lt;<a name="mangle.template-template-param">template-template-param</a>&gt; ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
-			    ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
-
+                            ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 </font></code></pre>
+
+<p>
+For example:
+<pre><code>
+    template&lt;class T&gt; void f(T) {}
+
+    // Mangled as "_Z1fIiEvT_"
+    template void f(int);
+
+</code></pre>
+
+<p>
+Note that a template parameter reference is a
+<a href="#mangling-compression">substitution candidate</a>.
+As a substitution, it is treated as distinct from the actual
+template argument, including in recursive positions.
+For example, in the mangling of the following function template
+specialization, the first incidence of <code>T*</code> is not
+substituted despite being known (in this specialization) to be
+the same type as <code>int*</code>, and the second incidence
+is substituted with the substitution derived from the first
+incidence, not that from the incidence of <code>int*</code>.
+
+<pre><code>
+    template&lt;class T&gt; void f(int*, T*, T*) {}
+
+    // Mangled as "_Z1fIiEvPiPT_S2_"
+    template void f(int*, int*, int*);
+
+</code></pre>
+
+<p>
+Typically, only references to function template parameters occurring
+within the dependent signature of the template are mangled this way.
+In other contexts, template instantiation replaces references
+to template parameters with the actual template arguments, and mangling
+should mangle such references exactly as if they were that template
+argument.  For example:
+
+<pre><code>
+    template&lt;class T&gt; class A {
+      template&lt;class U&gt; void f(T, U) {}
+    };
+
+    // Mangled as "_ZN1AIiE1fIfEEviT_"
+    template void A&lt;int&gt;::f(int, float);
+
+</code></pre>
+
+</p>
 
 <a name="mangle.function-param">
 <h5><a href="#mangle.function-param">5.1.5.9 Function parameter references</a></h5>
