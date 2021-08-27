@@ -304,10 +304,12 @@ this has the effect of performing a trivial copy of the type.
 <dd>
 <p>
 In general, a type is considered a POD for the purposes of layout if
-it is a POD type (in the sense of ISO C++ [basic.types]). However, a
+it is a POD type (in the sense of ISO C++
+<span class=cxxref>[basic.types]</span>). However, a
 type is not considered to be a POD for the purpose of layout if it is:
 <ul>
-<li>a POD-struct or POD-union (in the sense of ISO C++ [class]) with a
+<li>a POD-struct or POD-union (in the sense of ISO C++
+<span class=cxxref>[class]</span>) with a
 bit-field whose declared width is wider than the declared type
 of the bit-field, or
 <li>an array type whose element type is not a POD for the purpose of layout, or
@@ -4319,22 +4321,34 @@ HP <a href="exceptions.pdf">exception handling</a> working paper,
 
 <p>
 This section specifies the <i>mangling</i>, i.e. encoding,
-of external names
-(external in the sense of being visible outside the object file where
-they occur).
-The encoding is formalized as a derivation grammar along with the
-explanatory text,
-in a modified BNF with the following conventions:
+of external names (external in the sense of being visible
+outside the object file where they occur).  The encoding is
+formalized as a derivation grammar along with the explanatory
+text, in a modified BNF with the following conventions:
 <ul>
-<li> Non-terminals are delimited by diamond braces: "&lt;>".
-<li> Italics in non-terminals are modifiers to be ignored,
-     e.g. &lt;<i>function</i> <a href="#mangle.name">name</a>&gt; is the same as &lt;<a href="#mangle.name">name</a>&gt;.
+<li> Alternatives are given on separate lines.
+<li> References to non-terminals are delimited by angle brackets
+     <code class=mangle>&lt;&gt;</code>.
+<li> Italicized text in references to non-terminals describes or
+     limits what is mangled by the reference, but it does not
+     affect the formal grammar.  For example,
+     <code class=mangle>&lt;<i>function</i> <a href="#mangle.name">name</a>&gt;</code> is the same as
+     <code class=mangle>&lt;<a href="#mangle.name">name</a>&gt;</code>,
+     but it means this derivation rule should be used only for
+     the names of functions.
 <li> Spaces are to be ignored.
-<li> Text beginning with '#' is comments, to be ignored.
-<li> Tokens in square brackets "[]" are optional.
-<li> Tokens are placed in parentheses "()" for grouping purposes.
-<li> '*' repeats the preceding item 0 or more times.
-<li> '+' repeats the preceding item 1 or more times.
+<li> Text beginning with <code class=mangle>#</code> is a comment,
+     to be ignored until the end of the line.  Comments are often
+     used to describe in what case an alternative should be used.
+<li> Sequences of items in square brackets
+     <code class=mangle>[]</code> are optional.
+<li> Sequences of items in parentheses
+     <code class=mangle>()</code> are groups for the purposes of
+     <code class=mangle>*</code> and <code class=mangle>+</code>.
+<li> An asterisk <code class=mangle>*</code> allows the preceding
+     item to repeat 0 or more times.
+<li> A plus sign <code class=mangle>+</code> allows the preceding
+     item to repeat 1 or more times.
 <li> All other characters are terminals, representing themselves.
 </ul>
 
@@ -4351,9 +4365,10 @@ we use <code>Ret?</code> for an unknown function return type
 or <code>Type?</code> for an unknown data type.
 
 <p>
-Mangled names containing '<tt>$</tt>' or '<tt>.</tt>' are reserved for
-private implementation use. Names produced using such extensions are
-inherently non-portable and should be given internal linkage where possible.
+Mangled names containing <code class=mangle>$</code> or
+<code class=mangle>.</code> are reserved for private implementation
+use. Names produced using such extensions are inherently non-portable
+and should be given internal linkage where possible.
 
 <p>
 <a name="mangling-structure">
@@ -4388,6 +4403,101 @@ containing a period represents a vendor-specific version or portion
 of the entity named by the <code>&lt;<a href="#mangle.encoding">encoding</a>&gt;</code>
 prior to the first period. There is no restriction on the characters
 that may be used in the suffix following the period.
+
+<p>
+ABI mangling is designed to ensure that entities receive the
+same mangling if and only if they are the same entity according
+to the C++ standard's one-definition rule (ODR) and the
+various rules for declaration matching (such as
+<span class=cxxref>[over.dcl]</span> and
+<span class=cxxref>[temp.over]</span>.  Those rules are quite
+complex, and they dictate the results of mangling, and so it
+should not be surprising that the mangling rules are also complex.
+The ABI must be closely involved with the evolution of those
+language rules to ensure that they remain implementable with
+mangling.  When the rules say that an ODR violation has
+undefined behavior, that is often because it is impractical to
+ensure that the entities involved will have different manglings.
+Similarly, when the rules forbid certain constructs from the
+signature of a declaration, that is often because that construct
+would create unreasonable problems for mangling.
+
+<p>
+Mangling must sometimes be able to distinguish entities that
+are not equivalent under the ODR and declaration-matching
+rules.  This is true even if the entities would not be
+distinguishable by C++ code because, say, every name lookup
+which included both of them would be ambiguous.  For example,
+different translation units might declare similar but not
+eqivalent function templates in the same namespace:
+
+<pre>// a.cpp:
+template &lt;int&rt; void foo() {}
+template &lt;&rt; void foo<0>();
+
+// b.cpp:
+template &lt;long&rt; void foo() {}
+template &lt;&rt; void foo<0>();</pre>
+
+<p>
+The C++ standard grants implementations broad flexibility to
+ignore certain kinds of differences.  For example, the rules
+in <span class=cxxref>[temp.over.link]</span> for
+functionally-equivalent function templates could be used to
+shorten manglings in certain cases where instantiation-dependence
+provably has no effect.  This ABI generally does not take
+advantage of that flexibility.
+
+<a name="mangling.dependent">
+<h5><a href="#mangling.dependent">Dependent constructs in templates</a></h5>
+
+<p>
+It is sometimes necessary to mangle unresolved and uninstantiated
+language constructs such as types and expressions that appear
+within templates.  This accounts for a lot of the complexity of
+entity mangling in this ABI.
+
+<p>
+In many places, the mangling grammar formally allows a single
+construct to be mangled in one of several different ways.
+Usually there is one production which allows a fully-resolved
+value or entity reference, and there is another production that
+allows an expression or unresolved entity reference.  As an
+example, this can be clearly seen in the mangling for
+<a href="#mangle.array-type">array types</a>, which gives
+one mangling for a constant bound and another for an expression.
+
+<p>
+There are two reasons for this.  First, manglings using the
+fully-resolved case are often significantly more compact.
+More importantly, though, the language often treat dependent
+and non-dependent constructs differently.  For example,
+<span class=cxxref>[temp.over.link]</span> gives rules for
+when two expressions that involve template parameters are
+considered equivalent, and those rules are reflected in
+this ABI's expression mangling rules.  Conversely, expressions
+that don't involve template parameters but are used in
+constant-evaluated contexts (such an array length) are
+considered to be equivalent if and only if they resolve
+to the same value.  Mangling a non-dependent expression using
+its expression structure could incorrectly produce different
+manglings for different expressions that resolve to the same
+value, and it could incorrectly produce the same mangling for
+xpressions that resolve to different values but happen to be
+spelled the same.
+
+<p>
+It is therefore important to use the right production given
+the dependence of the construct in question.  The standard
+defines several different kinds of dependence, such as
+<i>value dependence</i> and <i>type dependence</i>.  In
+general, the rule that should be used in mangling is
+<a href="#instantiation-dependent"><i>instantiation
+dependence</i></a>: if a construct in instantiation-dependent,
+it should use the general production, and otherwise it
+should use the narrow production.  The grammar below will
+state clearly when certain productions are only for
+instantiation-dependent cases.
 
 <a name="mangle.anonymous">
 <h5><a href="#mangling.anonymous">Anonymous entities</a></h5>
@@ -4966,18 +5076,20 @@ This ABI does not specify that choice.
 
 <ul compact>
 <li>
-The GNU <code>address_space(N)</code> qualifier is mangled using the
-name <code>AS</code>.  For historical reasons, if the argument expression
-is not instantiation-dependent, its value is incorporated directly into
-the &lt;<a href="#mangle.source-name">source-name</a>&gt; of the qualifier;
-otherwise it is encoded as a qualifier argument.
+The GNU <code>address_space(N)</code> qualifier is mangled
+using the name <code>AS</code>.  For historical reasons, if
+the argument expression is not
+<a href="#instantiation-dependent">instantiation-dependent</a>,
+its value is incorporated directly into the
+&lt;<a href="#mangle.source-name">source-name</a>&gt; of the
+qualifier; otherwise it is encoded as a qualifier argument.
 
 <p>
 For example, <code>int __attribute__((address_space(3))) *</code> is
 encoded as <code>PU3AS3i</code>, but
-<code>int __attribute__((address_space(K))) *</code> (given that
-<code>K</code> is a dependent reference to the first template parameter) is
-encoded as <code>PU2ASIT_Ei</code>.
+<code>int __attribute__((address_space(K))) *</code>
+(in which <code>K</code> is a reference to the first
+template parameter) is encoded as <code>PU2ASIT_Ei</code>.
 
 </ul>
 
@@ -5218,25 +5330,26 @@ For example:
 <h5><a href="#mangle.array-type">5.1.5.6 Array types</a></h5>
 
 <p>
-Array types encode the dimension (number of elements) and the element type.
-Note that "array" parameters to functions are encoded as pointer types.
-For variable length arrays (C99 VLAs),
-the dimension (but not the '_' separator) is omitted.
+Array types encode their array bound and element type.  Note that
+"array" parameters to functions are encoded as pointer types.
+The array bound (but not the <code class=mangle>_</code> separator)
+is omitted for incomplete array types (e.g. <code>int[]</code>)
+and C99 variable-length array types.
 
 <pre><font color=blue><code>
-  &lt;array-type&gt; ::= A &lt;<i>positive dimension</i> <a href="#mangle.number">number</a>&gt; _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
-	       ::= A [&lt;<i>dimension</i> <a href="#mangle.expression">expression</a>&gt;] _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
-
+  &lt;array-type&gt; ::= A [&lt;<i>array bound</i> <a href="#mangle.number">number</a>&gt;] _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
+	       ::= A &lt;<i>instantiation-dependent array bound</i> <a href="#mangle.expression">expression</a>&gt; _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
 </pre></font></code>
 
 <p>
-When the dimension is an expression involving template parameters,
-the second production is used.
-Thus, the declarations:
+The second rule is used when the array bound is an
+<a href="#instantiation-dependent">instantiation-dependent</a>
+expression.  For example:
 <pre><code>    template&lt;int I&gt; void foo (int (&amp;)[I + 1]) { }
+
+    // Mangled as _Z3fooILi2EEvRAplT_Li1E_i
     template void foo&lt;2&gt; (int (&amp;)[3]);
 </pre></code>
-produce the mangled name "<code>_Z3fooILi2EEvRAplT_Li1E_i</code>".
 
 <a name="mangle.pointer-to-member-type">
 <h5><a href="#mangle.pointer-to-member-type">5.1.5.7 Pointer-to-member types</a></h5>
@@ -5254,31 +5367,67 @@ produces the mangled name "<code>_Z1fM1AKFvvRE</code>".
 <h5><a href="#mangle.template-param">5.1.5.8 Template parameters</a></h5>
 
 <p>
-When function and member function template instantiations reference
-the template parameters in their parameter or result types,
-the template parameter number is encoded,
-with the sequence T_, T0_, ...  For example:
-<pre><code>
-    template&lt;class T> void f(T) {}
-    template void f(int);
-      // Mangled as "_Z1fIiEvT_".
-</code></pre>
-
-Class template parameter references are mangled using the standard
-mangling for the actual parameter type,
-typically a substitution.
-Note that a template parameter reference is a substitution candidate,
-distinct from the type (or other substitutible entity)
-that is the actual parameter.
-</p>
+A reference to a template parameter is mangled using the index
+of the parameter, with a special mangling for the first parameter.
+The sequence of parameters is therefore <code class=mangle>T_</code>,
+<code class=mangle>T0_</code>, <code class=mangle>T1_</code>, and so on.
 
 <pre><code><font color=blue>
-  &lt;template-param&gt; ::= T_	# first template parameter
-		   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
+  &lt;template-param&gt; ::= T_ # first template parameter
+                   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
   &lt;<a name="mangle.template-template-param">template-template-param</a>&gt; ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
-			    ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
-
+                            ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 </font></code></pre>
+
+<p>
+For example:
+<pre><code>
+    template&lt;class T&gt; void f(T) {}
+
+    // Mangled as "_Z1fIiEvT_"
+    template void f(int);
+
+</code></pre>
+
+<p>
+Note that a template parameter reference is a
+<a href="#mangling-compression">substitution candidate</a>.
+As a substitution, it is treated as distinct from the actual
+template argument, including in recursive positions.
+For example, in the mangling of the following function template
+specialization, the first incidence of <code>T*</code> is not
+substituted despite being known (in this specialization) to be
+the same type as <code>int*</code>, and the second incidence
+is substituted with the substitution derived from the first
+incidence, not that from the incidence of <code>int*</code>.
+
+<pre><code>
+    template&lt;class T&gt; void f(int*, T*, T*) {}
+
+    // Mangled as "_Z1fIiEvPiPT_S2_"
+    template void f(int*, int*, int*);
+
+</code></pre>
+
+<p>
+Typically, only references to function template parameters occurring
+within the dependent signature of the template are mangled this way.
+In other contexts, template instantiation replaces references
+to template parameters with the actual template arguments, and mangling
+should mangle such references exactly as if they were that template
+argument.  For example:
+
+<pre><code>
+    template&lt;class T&gt; class A {
+      template&lt;class U&gt; void f(T, U) {}
+    };
+
+    // Mangled as "_ZN1AIiE1fIfEEviT_"
+    template void A&lt;int&gt;::f(int, float);
+
+</code></pre>
+
+</p>
 
 <a name="mangle.function-param">
 <h5><a href="#mangle.function-param">5.1.5.9 Function parameter references</a></h5>
@@ -5358,18 +5507,29 @@ where the "N...E" construct is used to describe a qualified name.
 <h4><a href="#expressions">5.1.6 Expressions</a></h4>
 
 <p>
-Expressions must be mangled in several contexts.  When mangling the
-name of a specialized template, non-type template arguments are
-mangled as an expression; these expressions are typically very simple.
-However, when mangling the signature of a function template, any
-<a href="#instantiation-dependent">instantiation-dependent</a> expressions
-(e.g. in an array bound,
-<code>decltype</code> type, or template argument) must be mangled in
-order to properly distinguish templates that are different under the
-ODR and that can legally be differentiated by substitution failures.
-Therefore, nearly the entire expression grammar of C++ is subject
-to mangling, with only a few exceptions (like lambdas) that are
-explicitly disallowed in function signatures.
+Expressions must be mangled in several contexts.
+
+<p>
+When mangling the name of a specialized template, non-type
+template arguments are mangled as expressions.  These
+expressions are typically very simple, and they do not
+necessarily reflect any argument expression that was used
+in source.  See the section on mangling
+<a href="#mangle.template-args">template arguments</a> for
+more detail.
+
+<p>
+More generally, when mangling the signature of a function
+template, any
+<a href="#instantiation-dependent">instantiation-dependent</a>
+expressions (e.g. in an array bound, <code>decltype</code>,
+or template argument) must be mangled in order to properly
+distinguish templates that are different under the ODR.
+See the section on <a href="#mangling.dependent">dependent
+mangling</a>.  As a result, nearly the entire expression
+grammar of C++ is subject to mangling, with only a few
+exceptions (like lambdas) that are explicitly disallowed
+in function signatures.
 
 <p>
 In general, expression manglings reflect a prefix traversal of the
@@ -5380,8 +5540,7 @@ and typically do not affect semantics.  However, a parenthesized
 must be mangled differently because the parentheses act to suppress
 argument-dependent lookup.)  Unless explicitly stated otherwise, the
 expression is mangled without constant folding or other
-simplification.  Therefore this mangling is quite similar to the
-source token stream.  (C++ Standard reference 14.5.5.1p5.)
+simplification.
 
 <p>
 Each expression mangling begins with a code (typically two letters)
