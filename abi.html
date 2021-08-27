@@ -4404,6 +4404,101 @@ of the entity named by the <code>&lt;<a href="#mangle.encoding">encoding</a>&gt;
 prior to the first period. There is no restriction on the characters
 that may be used in the suffix following the period.
 
+<p>
+ABI mangling is designed to ensure that entities receive the
+same mangling if and only if they are the same entity according
+to the C++ standard's one-definition rule (ODR) and the
+various rules for declaration matching (such as
+<span class=cxxref>[over.dcl]</span> and
+<span class=cxxref>[temp.over]</span>.  Those rules are quite
+complex, and they dictate the results of mangling, and so it
+should not be surprising that the mangling rules are also complex.
+The ABI must be closely involved with the evolution of those
+language rules to ensure that they remain implementable with
+mangling.  When the rules say that an ODR violation has
+undefined behavior, that is often because it is impractical to
+ensure that the entities involved will have different manglings.
+Similarly, when the rules forbid certain constructs from the
+signature of a declaration, that is often because that construct
+would create unreasonable problems for mangling.
+
+<p>
+Mangling must sometimes be able to distinguish entities that
+are not equivalent under the ODR and declaration-matching
+rules.  This is true even if the entities would not be
+distinguishable by C++ code because, say, every name lookup
+which included both of them would be ambiguous.  For example,
+different translation units might declare similar but not
+eqivalent function templates in the same namespace:
+
+<pre>// a.cpp:
+template &lt;int&rt; void foo() {}
+template &lt;&rt; void foo<0>();
+
+// b.cpp:
+template &lt;long&rt; void foo() {}
+template &lt;&rt; void foo<0>();</pre>
+
+<p>
+The C++ standard grants implementations broad flexibility to
+ignore certain kinds of differences.  For example, the rules
+in <span class=cxxref>[temp.over.link]</span> for
+functionally-equivalent function templates could be used to
+shorten manglings in certain cases where instantiation-dependence
+provably has no effect.  This ABI generally does not take
+advantage of that flexibility.
+
+<a name="mangling.dependent">
+<h5><a href="#mangling.dependent">Dependent constructs in templates</a></h5>
+
+<p>
+It is sometimes necessary to mangle unresolved and uninstantiated
+language constructs such as types and expressions that appear
+within templates.  This accounts for a lot of the complexity of
+entity mangling in this ABI.
+
+<p>
+In many places, the mangling grammar formally allows a single
+construct to be mangled in one of several different ways.
+Usually there is one production which allows a fully-resolved
+value or entity reference, and there is another production that
+allows an expression or unresolved entity reference.  As an
+example, this can be clearly seen in the mangling for
+<a href="#mangle.array-type">array types</a>, which gives
+one mangling for a constant bound and another for an expression.
+
+<p>
+There are two reasons for this.  First, manglings using the
+fully-resolved case are often significantly more compact.
+More importantly, though, the language often treat dependent
+and non-dependent constructs differently.  For example,
+<span class=cxxref>[temp.over.link]</span> gives rules for
+when two expressions that involve template parameters are
+considered equivalent, and those rules are reflected in
+this ABI's expression mangling rules.  Conversely, expressions
+that don't involve template parameters but are used in
+constant-evaluated contexts (such an array length) are
+considered to be equivalent if and only if they resolve
+to the same value.  Mangling a non-dependent expression using
+its expression structure could incorrectly produce different
+manglings for different expressions that resolve to the same
+value, and it could incorrectly produce the same mangling for
+xpressions that resolve to different values but happen to be
+spelled the same.
+
+<p>
+It is therefore important to use the right production given
+the dependence of the construct in question.  The standard
+defines several different kinds of dependence, such as
+<i>value dependence</i> and <i>type dependence</i>.  In
+general, the rule that should be used in mangling is
+<a href="#instantiation-dependent"><i>instantiation
+dependence</i></a>: if a construct in instantiation-dependent,
+it should use the general production, and otherwise it
+should use the narrow production.  The grammar below will
+state clearly when certain productions are only for
+instantiation-dependent cases.
+
 <a name="mangle.anonymous">
 <h5><a href="#mangling.anonymous">Anonymous entities</a></h5>
 
@@ -5373,18 +5468,29 @@ where the "N...E" construct is used to describe a qualified name.
 <h4><a href="#expressions">5.1.6 Expressions</a></h4>
 
 <p>
-Expressions must be mangled in several contexts.  When mangling the
-name of a specialized template, non-type template arguments are
-mangled as an expression; these expressions are typically very simple.
-However, when mangling the signature of a function template, any
-<a href="#instantiation-dependent">instantiation-dependent</a> expressions
-(e.g. in an array bound,
-<code>decltype</code> type, or template argument) must be mangled in
-order to properly distinguish templates that are different under the
-ODR and that can legally be differentiated by substitution failures.
-Therefore, nearly the entire expression grammar of C++ is subject
-to mangling, with only a few exceptions (like lambdas) that are
-explicitly disallowed in function signatures.
+Expressions must be mangled in several contexts.
+
+<p>
+When mangling the name of a specialized template, non-type
+template arguments are mangled as expressions.  These
+expressions are typically very simple, and they do not
+necessarily reflect any argument expression that was used
+in source.  See the section on mangling
+<a href="#mangle.template-args">template arguments</a> for
+more detail.
+
+<p>
+More generally, when mangling the signature of a function
+template, any
+<a href="#instantiation-dependent">instantiation-dependent</a>
+expressions (e.g. in an array bound, <code>decltype</code>,
+or template argument) must be mangled in order to properly
+distinguish templates that are different under the ODR.
+See the section on <a href="#mangling.dependent">dependent
+mangling</a>.  As a result, nearly the entire expression
+grammar of C++ is subject to mangling, with only a few
+exceptions (like lambdas) that are explicitly disallowed
+in function signatures.
 
 <p>
 In general, expression manglings reflect a prefix traversal of the
