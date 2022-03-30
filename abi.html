@@ -4533,13 +4533,13 @@ instantiation-dependent cases.
 <h5><a href="#mangling.anonymous">Anonymous entities</a></h5>
 
 <p>
-For the purposes of mangling, the name of an anonymous union is
-considered to be the name of the first named data member found by a
+For the purposes of mangling, the name of an anonymous struct or union
+is considered to be the name of the first named data member found by a
 pre-order, depth-first, declaration-order walk of the data members of
-the anonymous union.  If there is no such data member (i.e., if all of
-the data members in the union are unnamed), then there is no way for a
-program to refer to the anonymous union, and there is therefore no
-need to mangle its name.
+the anonymous type.  If there is no such data member (i.e., if all of
+the data members in the struct or union are unnamed), then there is
+no way for a program to refer to the anonymous type, and there is
+therefore no need to mangle its name.
 </p>
 
 <p>
@@ -5529,13 +5529,188 @@ arguments.
 </code></font></pre>
 
 <p>
-Type arguments appear using their regular encoding.
-For example, the template class "A&lt;char, float&gt;" is encoded as "1AIcfE".
-A slightly more involved example is
-a dependent function parameter type "A&lt;T2&gt;::X"
-(T2 is the second template parameter)
-which is encoded as "N1AIT0_E1XE",
-where the "N...E" construct is used to describe a qualified name.
+Template arguments can be dependent when a template argument list
+is written in a context where dependent structures must be mangled.
+For example, if the parameter type of a function template is
+<code>A&lt;T2&gt;::X</code>, where <code>T2</code> is the second
+template parameter of the function template, this is mangled as
+<code class=mangle>N1AIT0_E1XE</code>.
+
+<p>
+Template type arguments and template template arguments are mangled
+using their regular encoding.  For example, the class template
+specialization <code>A&lt;char, float&gt;</code> is encoded as
+<code class=mangle>1AIcfE</code>.
+
+<p>
+A non-type template argument is considered dependent if either the
+argument expression is instantiation-dependent or it is not matched
+with a template parameter of non-dependent type.  (The latter can
+happen if, for example, the template name is dependent and not a
+template parameter.)  If so, it is mangled as an expression in the
+usual way for a <a href="#mangling.dependent">dependent mangling</a>.
+Otherwise, it is converted to the template parameter type,
+constant-evaluated, and then mangled as a value.  For example:
+
+<code><pre>
+template <class T, T value> class A;
+
+template &lt;class U, template &lt;class T, T N&gt; class Temp&gt; void f(Temp&lt;U, 4+5&gt;) {}
+
+f<unsigned, A>    // _Z1fIj1AEvT0_IT_XplLi4ELi5EEE
+// The template parameter type is dependent, and so the template
+// argument is mangled as a dependent expression without any
+// constant-folding.
+
+template &lt;template &lt;class T, T N&gt; class Temp&gt; void g(Temp&lt;unsigned, 4+5&gt;) {}
+g<A>    // _Z1gI1AEvT_IjLj9EE
+// The template parameter type is not dependent, and so the template
+// argument is converted to unsigned and constant-evaluated.
+</pre></code>
+
+<p>
+Non-type template argument values of integer, enumerated,
+floating-point, or complex type are mangled as
+<a href="#mangling.literal">literals</a> of the template parameter
+type.  Note that this can produce combinations which cannot normally
+be written in the source language, such as a literal of
+<code>short</code> type.
+
+<p>
+Non-type template argument values of pointer or member pointer type
+that are null are mangled as as a literal <code>0</code> of the
+template parameter type.  For example:
+
+<code><pre>
+struct A;
+template &lt;void (A::*)()&gt; void f();
+
+f&lt;nullptr&gt; // _Z1fILM1AFvvE0EEvv
+</pre></code>
+
+<p>
+Non-type template argument values of reference or pointer type
+are mangled using the <a href="#mangling.subobject-specifier">subobject
+specifier expression</a> for the argument.  If this is a simple
+declaration reference, it may be mangled as an
+<code>&lt;<a href="#mangle.expr-primary">expr-primary</a>&gt;</code>.
+
+<p>
+Non-type template argument values of member pointer type
+that are not null are mangled as expressions applying the
+operator <code>&</code> to the member function declaration
+as if it were a regular function.  (Note that this does not
+distinguish between member pointers that have been converted
+to different types.)  For example:
+
+<code><pre>
+struct A {
+    void foo();
+};
+template &lt;void (A::*)()&gt; void f();
+
+f&lt;&amp;A::foo&gt; // _Z1fIXadL_ZN1A3fooEvEEEvv
+</pre></code>
+
+<p>
+Non-type template argument values of class type are mangled as
+a direct initialization (<code>tl</code>) of the class type
+using the <a href="#mangling.member-initializer-sequence">member
+initiializer sequence</a> for the argument.
+
+<a name="mangling.subobject-specifier">
+<h5><a href="#mangling.subobject-specifier">5.1.5.11 Subobject specifier expressions</a></h5>
+</a>
+
+<p>
+Constant evaluation may result in a pointer or reference to a specific
+subobject of an object of static storage duration.  This subobject is
+identified in the mangling as if written with a specific expression,
+called its subobject specifier expression.
+
+<p>
+(To be specified.  See
+<a href="https://github.com/itanium-cxx-abi/cxx-abi/issues/47">for now</a>.)
+
+<a name="mangling.member-initializer-sequence">
+<h5><a href="#mangling.member-initializer-sequence">5.1.5.12 Member initializer sequences</a></h5>
+</a>
+
+<p>
+The constant evaluation of an expression of class type assigns
+a constant value to each non-static data member of the class or,
+if the class is a union, to at most one non-static data member,
+called the active union member.  Under the standard, this exact
+structure uniquely determines a value, including whether a union
+has an active union member member and (if so) which one.  As
+different values can produce different template specializations,
+this structure must be faithfully represented in the mangling of
+a value as a template argument.
+
+<p>
+A value is converted to a flattened sequence of values by applying
+the following expansions until no values of array or non-union class
+type remain:
+<ul compact>
+  <li>A value of array type is replaced by its element values in
+    index order.
+  <li>A value of non-union class type is replaced by the values
+    of its base subobjects, in order of declaration, followed
+    by the values of its non-static data members, in order of
+    declaration.
+</ul>
+Values satisfying the following conditions are then removed from
+the end of the sequence until the final value does not satisfy
+these conditions or the sequence is empty:
+<ul compact>
+  <li>The value is of union type, it has an active union member,
+    that member is the first member of the union, and the
+    expansion of the value of that member according to these rules
+    is an empty sequence.
+  <li>The value is not of union type and is the zero value
+    of its type.  (Note that because non-union values have all
+    been expanded, the value must not be of class type or contain
+    a value of class type.)
+</ul>
+
+<p>
+This sequence is then mangled as a sequence of
+<code>&lt;<a href="#mangle.braced-expression">braced-expression</a>&gt;</code>s
+as follows:
+<ul compact>
+  <li>If an element is a union that does not have an active member,
+    it is mangled as <code class=mangle>L &lt;type &gt; E</code>.
+  <li>If an element is a union that has an active member, it is
+    mangled using the name of the active member as a designator
+    for the value of the active member.  Note that if the active
+    member is an anonymous struct or union, its name for the purposes
+    of mangling is determined using the
+    <a href="#mangling.anonymous">usual rules</a>.)
+  <li>Otherwise the value of the element is mangled in the usual way.
+</ul>
+
+<p>
+Note that qualifiers on the type of a non-static data member are not
+part of the type of the value stored in that member.
+
+<p>
+For example:
+
+<code><pre>
+struct A {
+    int x, y;
+};
+struct B {
+    union { A a; };
+    constexpr B(int x, int y) { a.x = x; a.y = y; }
+};
+
+template &lt;B v&gt; struct C {};
+
+C&lt;0,0&gt; // 1CIXtl1BEEE
+C&lt;1,0&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1EEEEEE
+C&lt;1,1&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1ELi1EEEEEE
+</pre></code>
 
 <a name="expressions">
 <h4><a href="#expressions">5.1.6 Expressions</a></h4>
