@@ -4592,11 +4592,11 @@ qualifiers could be inferred from the substitution target.
                       ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;                      # template template parameter
                       ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 
-    &lt;<a name="mangle.unqualified-name">unqualified-name</a>&gt; ::= &lt;<a href="#mangle.operator-name">operator-name</a>&gt; [&lt;<a href="#mangle.abi-tags">abi-tags</a>&gt;]
+    &lt;<a name="mangle.unqualified-name">unqualified-name</a>&gt; ::= [&lt;<a href="#mangle.module-name">module-name</a>&gt;] &lt;<a href="#mangle.operator-name">operator-name</a>&gt; [&lt;<a href="#mangle.abi-tags">abi-tags</a>&gt;]
                        ::= &lt;<a href="#mangle.ctor-dtor-name">ctor-dtor-name</a>&gt;  
-                       ::= &lt;<a href="#mangle.source-name">source-name</a>&gt;   
-                       ::= &lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt;   
-                       ::= DC &lt;<a href="#mangle.source-name">source-name</a>&gt;+ E      # structured binding declaration
+                       ::= [&lt;<a href="#mangle.module-name">module-name</a>&gt;] &lt;<a href="#mangle.source-name">source-name</a>&gt;   
+                       ::= [&lt;<a href="#mangle.module-name">module-name</a>&gt;] &lt;<a href="#mangle.unnamed-type-name">unnamed-type-name</a>&gt;   
+                       ::= [&lt;<a href="#mangle.module-name">module-name</a>&gt;] DC &lt;<a href="#mangle.source-name">source-name</a>&gt;+ E      # structured binding declaration
 
     &lt;<a name="mangle.source-name">source-name</a>&gt; ::= &lt;<i>positive length</i> <a href="#mangle.number">number</a>&gt; &lt;<a href="#mangle.identifier">identifier</a>&gt;
     &lt;<a name="mangle.identifier">identifier</a>&gt; ::= &lt;<i>unqualified source code identifier</i>>
@@ -4610,6 +4610,45 @@ qualifiers could be inferred from the substitution target.
 Note that &lt;<a href="#mangle.source-name">source-name</a>&gt; in the productions for &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;
 may be either a function or data object name when derived from &lt;<a href="#mangle.name">name</a>&gt;,
 or a class or enum name when derived from &lt;<a href="#mangle.type">type</a>&gt;.
+
+<a name="mangle.module">
+<h5><a href="mangle.module">Modules</a></h5>
+
+<p>C++20 modules add a new linkage kind &mdash; module-linkage. This
+is implemented by extending the mangling scheme to encode module
+attachment. The symbols themselves will have the existing external
+and/or weak/comdat ELF linkage. The <em>strong-ownership</em> model is
+implemented &mdash; the symbols of exported entities with named-module
+attachment are mangled with a module-name component.
+
+<pre><code><font color=blue>
+    &lt;<a name="mangle.module-name">module-name</a>&gt; ::= &lt;<a href="#mangle.module-component">module-component</a>&gt;
+                  ::= &lt;<a href="#mangle.module-component">module-name</a>&gt; &lt;<a href="#mangle.module-component">module-component</a>&gt;
+                  ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
+    &lt;<a name="mangle.module-component">module-component</a>&gt; ::= W &lt;<a href="#mangle.source-name">source-name</a>&gt;
+                       ::= W P &lt;<a href="#mangle.source-name">source-name</a>&gt;  # First component of partition
+</font></code></pre>
+
+<p>The &lt;module-name&gt; component is prefixed to the
+namespace-scope entity with named-module attachment.  Module
+partitions are only applicable for global initializers.
+&lt;module-name&gt;s are substitutable, using the same sequence
+numbering as other substitutable components. However, the
+&lt;module-name&gt; substitutions are orthogonal, and attach
+independently to the
+&lt;<a href="#mangle.source-name">source-name</a>&gt; they prefix. If
+the &lt;<a href="#mangle.source-name">source-name</a>&gt; is
+subtitutable, its substitituion includes its module attachment.
+Notice this introduces an ambiguity in the grammar, which can be
+resolved by inspecting whether a substition refers to a
+&lt;module-name&gt; or another entity.
+
+For example:
+<pre>
+  export module Foo:part;
+  export struct Quux;
+  export void Foo (Quux *) {}; //  mangles as _ZW3Foo3FooPS_4Quux
+</pre>
 
 <a name="mangle.abi-tag">
 <h5><a href="#mangle.abi-tag">ABI tags</a></h5>
@@ -4979,6 +5018,33 @@ point used for calls during a transaction.  The mangled name of the transaction 
 <pre><font color=blue><code>
   &lt;special-name&gt; ::= GTt &lt;encoding&gt;
 </pre></font></code>
+
+<a name="mangling-module-initializer">
+<h5><a href="#mangling-module-initializer">5.1.4.7 Module Initializer
+Function</a></h5>
+
+<p>Namespace-scope static objects with dynamic-initializers that are
+defined in importable named-module translation units are initialized
+by an idempotent initializer function. These initializer functions are
+called by importing translation-units, prior to their own dynamic
+initialization of such objects. (Therefore the module-initializer
+function of an importable unit will call the module-initializer
+functions of its own imports.)  It is permitted to omit calls to
+module-initializer functions that are known to be indirectly called by
+another called module-initializer.  It is also permitted to omit calls
+to module-initializer functions known to have no dynamic
+initializations. It is unspecified how an implemntation aranges any
+indirect module-initializer functions of that module-initializer.
+
+<p>A module-initializer function must arrange to be called during the
+usual (non-modular) dynamic initialization process, for instance by
+adding a pointer to it in the <code>.init_array</code> section.
+
+<pre><code><font color=blue>
+  &lt;special-name&gt;:= GI &lt;module-name&gt;
+</font></code></pre>
+
+<p>The &lt;module-name&gt; includes any partition component.
 
 <a name="mangling-type">
 <h4><a href="#mangling-type">5.1.5 Type encodings</a></h4>
