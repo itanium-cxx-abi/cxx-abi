@@ -709,13 +709,6 @@ from the address point of an object of the base type, as a
 
 <p>
 A null data member pointer is represented as an offset of <code>-1</code>.
-Unfortunately, it is possible to generate a data member pointer with an
-offset of <code>-1</code> using explicit derived-to-base conversions.
-If this is done, implementations following this ABI may misbehave.
-<span class="future-abi">Recommendation for new platforms: consider using
-a different representation for data member pointers, such as left-shifting
-the offset by one and using a non-zero low bit to indicate a non-null
-value.</span>
 
 <p>
 Note that by <code>[dcl.init]</code>, "zero initialization" of a data
@@ -731,6 +724,45 @@ offset of the base within the derived class.  The C++ standard does not
 permit base-to-derived and derived-to-base conversions of member pointers
 to cross a <code>virtual</code> base relationship, and so a static offset
 is always known.
+
+<p>
+Data member pointers that identify members of their class will always
+store non-negative offsets.  Unfortunately, it is possible to apply
+conversions to a non-null data member pointer that will cause it to
+hold a negative offset.  If this value is <code>-1</code>, the member
+pointer will subsequently be treated as a null pointer.  This is
+considered an irreparable defect in this ABI.
+<span class="future-abi">Recommendation for new platforms: consider using
+a different representation for data member pointers, such as left-shifting
+the offset by one and using a non-zero low bit to indicate a non-null
+value.</span>
+	
+<p>
+It is relatively difficult to demonstrate this defect in well-defined
+code.  It is possible to convert a member pointer to a derived class
+and then cast it back it to a different base class; if the second base
+class is stored after the first, the resulting offset will be negative.
+However, this cast has undefined behavior because the member is no
+longer a member of a base or derived class of the member pointer's class.
+To demonstrate the defect, either an empty base class or an empty
+data member must be involved.  For example:
+
+<pre>
+    struct alignas(2) B1 {};
+
+    struct B2 : B1 {};
+    struct B3 : B1 {};
+
+    struct D : B2, B3 {
+        char a, b;
+    };
+
+    // The offset in D of the B3 base subobject is 2, but the
+    // offset of the data member b is 1.
+    auto mptr = static_cast<char B3::*>(&D::b);
+    
+    char B::*mptr = static_cast<char B::*>(static_cast<char C::*>(&A::a));
+</pre>
 
 <a name="member-function-pointers"></a>
 <h4><a href="#member-function-pointers"> 2.3.2 Member Function Pointers </a></h4>
