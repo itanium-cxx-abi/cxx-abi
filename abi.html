@@ -2131,10 +2131,11 @@ Whether a cookie is required is determined as follows:
   <ul>
     <li><code>T</code> has a non-trivial destructor, or else
 
-    <li>there is an unambiguous usual array deallocation function
-        for <code>T</code> (as would be found for the <code>delete[]</code>
-        operator on an operand of type <code>T*</code>), and that
-        function takes a <code>size_t</code> argument.
+    <li>there is an unambiguous usual class-specific array deallocation
+	function for <code>T</code> (as would be found for the
+	<code>delete[]</code> operator on an operand of type
+	<code>T*</code>), and that function takes a <code>size_t</code>
+	argument.
 
       <p>This operator must be looked up as if for a <code>delete[]</code>
         without a <code>::</code> prefix, even if the <code>new</code>
@@ -2162,14 +2163,16 @@ Whether a cookie is required is determined as follows:
     <code>new T[len][7][5]</code>, <code>count</code> is
     <code>len * 7 * 5</code>.
 
-  <li>Let <code>align</code> be <code>max(alignof(cookie_t), alignof(T))</code>.
-    This is the alignment of the allocation.  Note that this is
-    a new-extended alignment if and only if <code>T</code> has a
-    new-extended alignment, and so the presence of a cookie does not
-    affect the choice of allocation or deallocation function.
-    However, it does affect the value of type <code>std::align_val_t</code>
-    that must be passed when using an allocation or deallocation
-    function with such an argument.
+  <li>Let <code>align</code> be <code>alignof(T)</code>.
+    This is the alignment of the allocation.  Note that this does
+    not include the alignment of <code>cookie_t</code>.  The standard
+    permits array allocation to request a larger allocation to
+    accommodate cookies, but not a more-aligned allocation.  Adding a
+    cookie is also not permitted to change the choice of allocation or
+    deallocation function, which it otherwise could in uncommon situations
+    where <code>cookie_t</code> has a new-extended alignment.  As a
+    result, the implementation may be required to load and store the
+    cookie with less than its natural alignment.
 
   <li>Let <code>prefix_size</code> be <code>max(sizeof(cookie_t), align)</code>.
 
@@ -2182,8 +2185,12 @@ Whether a cookie is required is determined as follows:
     from the start of the allocation.  This pointer is the result of the
     <code>new</code> expression.
 
-  <li>The cookie is stored at offset <code>prefix_size - sizeof(cookie_t)</code>
-    from the start of the allocation.
+  <li>In the standard ABI, padding is added before the cookie, so the
+    cookie is stored at offset <code>prefix_size - sizeof(cookie_t)</code>
+    from the start of the allocation.  However, in some variant ABIs,
+    padding is added after the cookie, which is stored at the start of
+    the allocation.  In either case, the contents of any padding bytes
+    are undefined.
   </ul>
 </ul>
 
@@ -2212,7 +2219,8 @@ possible presence of an array cookie:
 <li>If a cookie is required, it is found at offset
   <code>-sizeof(cookie_t)</code> from <code>ptr</code>, and the
   original allocation is found at offset <code>-prefix_size</code>
-  from <code>ptr</code>.
+  from <code>ptr</code>.  In variant ABIs that pad after the cookie,
+  the cookie will be at offset <code>-prefix_size</code>.
 
 <li>If <code>T</code> has a non-trivial destructor, the value of
   <code>count</code> stored in the cookie is the number of
