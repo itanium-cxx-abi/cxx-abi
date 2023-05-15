@@ -5398,7 +5398,7 @@ Pointer-to-member types encode the class and member types:
 produces the mangled name "<code>_Z1fM1AKFvvRE</code>".
 
 <a name="mangle.template-param">
-<h5><a href="#mangle.template-param">5.1.5.8 Template parameters</a></h5>
+<h5><a href="#mangle.template-param">5.1.5.8 Template parameter references</a></h5>
 
 <p>
 A reference to a template parameter is mangled using the index
@@ -5515,9 +5515,7 @@ qualifier cannot affect the semantics of the expression).  For example:
 <p>
 Template argument lists appear after the unqualified template name,
 and are bracketed by I/E.  This is used in names for specializations
-in particular, but also in types and scope identification.  Template
-argument packs are bracketed by J/E to distinguish them from other
-arguments.
+in particular, but also in types and scope identification.
 
 <pre><font color=blue><code>
   &lt;template-args&gt; ::= I &lt;<a href="#mangle.template-arg">template-arg</a>&gt;+ E
@@ -5526,6 +5524,7 @@ arguments.
                  ::= X &lt;<a href="#mangle.expression">expression</a>&gt; E                                   # expression
                  ::= &lt;<a href="#mangle.expr-primary">expr-primary</a>&gt;                                     # simple expressions
                  ::= J &lt;<a href="#mangle.template-arg">template-arg</a>&gt;* E                                # argument pack
+                 ::= &lt;<a href="#mangle.template-param-decl">template-param-decl</a>&gt; &lt;<a href="#mangle.template-arg">template-arg</a>&gt;       # converted template argument
 </code></font></pre>
 
 <p>
@@ -5537,180 +5536,136 @@ template parameter of the function template, this is mangled as
 <code class=mangle>N1AIT0_E1XE</code>.
 
 <p>
-Template type arguments and template template arguments are mangled
-using their regular encoding.  For example, the class template
+The mangling of template arguments in dependent contexts depends on
+whether the template argument can be matched with a template parameter
+and, if so, whether the argument can be checked against the parameter.
+In general, mangling assumes that all possible matching and checking
+has been performed.  The conditions are not precisely laid out here,
+but matching is generally inhibited by an unresolved template name
+and in some situations with unexpanded pack expansions, while checking
+is generally inhibited by dependent arguments or parameters.
+In non-dependent contexts (in particular, in a top-level
+<code>&lt;encoding&gt;</code>), template arguments should always be
+fully matched and checked against the template parameters of the
+specialized template.
+
+<p>
+Under the ODR, function templates are distinguished by differences
+in their template head, such as a constraint on a template type
+parameter, the type of a non-type template parameter, or (recursively)
+the template head of a template template parameter.  The template
+parameter list is not directly included in the
+<code>&lt;encoding&gt;</code> of a function template specialization
+(except for the <code>operator()</code> of a generic lambda),
+but it is indirectly reflected in the mangling of the template
+arguments as follows.  A template parameter is said to be <i>natural</i>
+for a template argument that has been matched and checked against
+it if:
+<ul>
+<li>the argument is an empty pack and the parameter is an
+  unconstrained template type parameter pack;
+<li>the argument is a non-empty pack and a non-pack variant
+  of the parameter would be natural for the first element of
+  the pack;
+<li>the argument is a template and the parameter has the exact
+  same template head;
+<li>the argument is a type and the parameter is unconstrained; or
+<li>the argument is a non-type template argument and the declared
+  parameter type neither is instantiation dependent nor contains
+  deduced types.
+</ul>
+
+<p>
+The type of a non-type template parameter is said to contain deduced
+types if it is written with a placeholder type (<code>auto</code> or
+<code>decltype(auto)</code>) or a placeholder for a deduced class type
+(e.g. <code>container</code> when that is a template with deducible
+template parameters).
+
+<p>
+When mangling the template arguments of a function template that
+is not the <code>operator()</code> of a lambda, if a template
+argument has been matched and checked against a template parameter
+that is not natural for the template argument, a
+<code>&lt;<a href="#mangle.template-param-decl">template-param-decl</a>&gt;</code> must be prefixed to the
+template argument.  Earlier versions of this ABI did not call for this
+and so could fail to distinguish templates that must be distinguished
+under the ODR.  This is not done for class templates in order to
+reduce ABI incompatibility, and in particular to allow class templates
+to adopt constraints without breaking ABI.  It is not done for
+generic lambdas because the template parameter list is already
+encoded in the <code>&lt;lambda-sig&gt;</code>.
+
+<p>
+If a template parameter pack can be matched to a template argument
+pack, the pack is bracketed with <code class=mangle>J...E</code>
+to distinguish it from other arguments.  This is done even if some
+of the arguments in the pack cannot be checked against the parameter.
+If a <code>&lt;template-param-decl&gt;</code> is required for the
+parameter, it is mangled immediately prior to the entire pack
+(the <code class=mangle>J</code>), not before the individual
+arguments in the pack.
+
+<p>
+A template type argument or template template argument is mangled
+as a type in the usual way.  For example, the class template
 specialization <code>A&lt;char, float&gt;</code> is encoded as
 <code class=mangle>1AIcfE</code>.
 
 <p>
-A non-type template argument is considered dependent if either the
-argument expression is instantiation-dependent or it is not matched
-with a template parameter of non-dependent type.  (The latter can
-happen if, for example, the template name is dependent and not a
-template parameter.)  If so, it is mangled as an expression in the
-usual way for a <a href="#mangling.dependent">dependent mangling</a>.
-Otherwise, it is converted to the template parameter type,
-constant-evaluated, and then mangled as a value.  For example:
-
-<code><pre>
-template <class T, T value> class A;
-
-template &lt;class U, template &lt;class T, T N&gt; class Temp&gt; void f(Temp&lt;U, 4+5&gt;) {}
-
-f<unsigned, A>    // _Z1fIj1AEvT0_IT_XplLi4ELi5EEE
-// The template parameter type is dependent, and so the template
-// argument is mangled as a dependent expression without any
-// constant-folding.
-
-template &lt;template &lt;class T, T N&gt; class Temp&gt; void g(Temp&lt;unsigned, 4+5&gt;) {}
-g<A>    // _Z1gI1AEvT_IjLj9EE
-// The template parameter type is not dependent, and so the template
-// argument is converted to unsigned and constant-evaluated.
-</pre></code>
-
-<p>
-Non-type template argument values of integer, enumerated,
-floating-point, or complex type are mangled as
-<a href="#mangling.literal">literals</a> of the template parameter
-type.  Note that this can produce combinations which cannot normally
-be written in the source language, such as a literal of
-<code>short</code> type.
-
-<p>
-Non-type template argument values of pointer or member pointer type
-that are null are mangled as as a literal <code>0</code> of the
-template parameter type.  For example:
-
-<code><pre>
-struct A;
-template &lt;void (A::*)()&gt; void f();
-
-f&lt;nullptr&gt; // _Z1fILM1AFvvE0EEvv
-</pre></code>
-
-<p>
-Non-type template argument values of reference or pointer type
-are mangled using the <a href="#mangling.subobject-specifier">subobject
-specifier expression</a> for the argument.  If this is a simple
-declaration reference, it may be mangled as an
-<code>&lt;<a href="#mangle.expr-primary">expr-primary</a>&gt;</code>.
-
-<p>
-Non-type template argument values of member pointer type
-that are not null are mangled as expressions applying the
-operator <code>&</code> to the member function declaration
-as if it were a regular function.  (Note that this does not
-distinguish between member pointers that have been converted
-to different types.)  For example:
-
-<code><pre>
-struct A {
-    void foo();
-};
-template &lt;void (A::*)()&gt; void f();
-
-f&lt;&amp;A::foo&gt; // _Z1fIXadL_ZN1A3fooEvEEEvv
-</pre></code>
-
-<p>
-Non-type template argument values of class type are mangled as
-a direct initialization (<code>tl</code>) of the class type
-using the <a href="#mangling.member-initializer-sequence">member
-initiializer sequence</a> for the argument.
-
-<a name="mangling.subobject-specifier">
-<h5><a href="#mangling.subobject-specifier">5.1.5.11 Subobject specifier expressions</a></h5>
-</a>
-
-<p>
-Constant evaluation may result in a pointer or reference to a specific
-subobject of an object of static storage duration.  This subobject is
-identified in the mangling as if written with a specific expression,
-called its subobject specifier expression.
-
-<p>
-(To be specified.  See
-<a href="https://github.com/itanium-cxx-abi/cxx-abi/issues/47">for now</a>.)
-
-<a name="mangling.member-initializer-sequence">
-<h5><a href="#mangling.member-initializer-sequence">5.1.5.12 Member initializer sequences</a></h5>
-</a>
-
-<p>
-The constant evaluation of an expression of class type assigns
-a constant value to each non-static data member of the class or,
-if the class is a union, to at most one non-static data member,
-called the active union member.  Under the standard, this exact
-structure uniquely determines a value, including whether a union
-has an active union member member and (if so) which one.  As
-different values can produce different template specializations,
-this structure must be faithfully represented in the mangling of
-a value as a template argument.
-
-<p>
-A value is converted to a flattened sequence of values by applying
-the following expansions until no values of array or non-union class
-type remain:
-<ul compact>
-  <li>A value of array type is replaced by its element values in
-    index order.
-  <li>A value of non-union class type is replaced by the values
-    of its base subobjects, in order of declaration, followed
-    by the values of its non-static data members, in order of
-    declaration.
+If a non-type template argument cannot be matched with a parameter,
+or if it cannot be checked against that parameter, or if the
+argument expression is instantiation-dependent, it is mangled
+as an expression in the usual way for a
+<a href="#mangling.dependent">dependent mangling</a>.  Otherwise,
+the argument is converted to the parameter type, constant-evaluated,
+and then mangled as an <a href="#mangling.constant-values">expression representing that value</a>.  Precise typing is required when mangling
+this constant if:
+<ul>
+<li>the template parameter contains a deduced type or
+<li>the template argument is for a function template that is not
+  the <code>operator()</code> of a generic lambda and a
+  <code>&lt;template-param-decl&gt;</code> is not required.
 </ul>
-Values satisfying the following conditions are then removed from
-the end of the sequence until the final value does not satisfy
-these conditions or the sequence is empty:
-<ul compact>
-  <li>The value is of union type, it has an active union member,
-    that member is the first member of the union, and the
-    expansion of the value of that member according to these rules
-    is an empty sequence.
-  <li>The value is not of union type and is the zero value
-    of its type.  (Note that because non-union values have all
-    been expanded, the value must not be of class type or contain
-    a value of class type.)
-</ul>
-
-<p>
-This sequence is then mangled as a sequence of
-<code>&lt;<a href="#mangle.braced-expression">braced-expression</a>&gt;</code>s
-as follows:
-<ul compact>
-  <li>If an element is a union that does not have an active member,
-    it is mangled as <code class=mangle>L &lt;type &gt; E</code>.
-  <li>If an element is a union that has an active member, it is
-    mangled using the name of the active member as a designator
-    for the value of the active member.  Note that if the active
-    member is an anonymous struct or union, its name for the purposes
-    of mangling is determined using the
-    <a href="#mangling.anonymous">usual rules</a>.)
-  <li>Otherwise the value of the element is mangled in the usual way.
-</ul>
-
-<p>
-Note that qualifiers on the type of a non-static data member are not
-part of the type of the value stored in that member.
 
 <p>
 For example:
 
 <code><pre>
-struct A {
-    int x, y;
-};
-struct B {
-    union { A a; };
-    constexpr B(int x, int y) { a.x = x; a.y = y; }
-};
+template &lt;class T, T value&gt; class A;
 
-template &lt;B v&gt; struct C {};
+template &lt;class U, template &lt;class T, T N&gt; class Temp&gt; void f(Temp&lt;U, 4+5&gt;) {}
 
-C&lt;0,0&gt; // 1CIXtl1BEEE
-C&lt;1,0&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1EEEEEE
-C&lt;1,1&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1ELi1EEEEEE
+f&lt;unsigned, A&gt;    // _Z1fIj1AEvT0_IT_XplLi4ELi5EEE
+// The template parameter type is dependent, and so the template
+// argument is mangled as a dependent expression without any
+// constant-folding.
+
+template &lt;template &lt;class T, T N&gt; class Temp&gt; void g(Temp&lt;unsigned, 4+5&gt;) {}
+g&lt;A&gt;    // _Z1gI1AEvT_IjLj9EE
+// The template parameter type is not dependent, and so the template
+// argument is converted to unsigned and constant-evaluated.
 </pre></code>
+
+<a name="mangle.template-param-decl">
+<h5><a href="#mangle.template-param-decl">5.1.5.11 Template parameter declarations</a></h5>
+</a>
+
+<p>
+Template parameter declarations are usually not mangled.  To distinguish
+function templates with different template signatures, the ABI mostly
+relies on the mangling of template arguments to include enough
+information to determine which template is meant.  However, there are
+some cases where this is not sufficient, such as when the template
+parameter contains deduced types, or when mangling generic lambdas.
+In these cases, the template parameter must be mangled directly.
+
+<pre><font color=blue><code>
+  &lt;template-param-decl&gt; ::= Ty                                           # template type parameter
+                        ::= Tn &lt;<a href="#mangle.type">type</a>&gt;                                    # template non-type parameter
+                        ::= Tt &lt;<a href="#mangle.template-param-decl">template-param-decl</a>&gt;* E                  # template template parameter
+                        ::= Tp &lt;<i>non-pack</i> <a href="#mangle.template-param-decl">template-param-decl</a>&gt;            # template parameter pack
+</code></font></pre>
 
 <a name="expressions">
 <h4><a href="#expressions">5.1.6 Expressions</a></h4>
@@ -6001,6 +5956,298 @@ For example:
             // is encoded as "DTadsrT_onmiE".
 </pre></code>
 </p>
+
+
+<a name="mangling.constant-values">
+<h5><a href="#mangling.constant-values">5.1.6.3 Constant values</a></h5>
+
+<p>
+It is sometimes necessary to mangle a constant value resulting from
+constant evaluation.  Currently this is limited to several places
+in the mangling of a non-dependent <a href="#mangle.template-arg">non-type
+template argument</a>.  In general, this is done by mangling a notional
+expression with the value and type of the constant.  For various reasons,
+these mangled expressions do not always correspond to valid source
+expressions.
+
+<p>
+The mangling of constant values is sensitive to the converted type of
+the constant.  For example, the expression <code>5</code> has type
+<code>int</code>, but when it is used as the argument for a template
+parameter of type <code>unsigned short</code>, it is converted to that
+type and mangled as <code>Lt5E</code>.  Some contexts require
+<i>precise typing</i>, meaning that constants must be mangled in a way
+that includes the exact converted type.  In other contexts, some
+information not necessary to distinguish constants is omitted in
+order to reduce symbol sizes and preserve existing manglings.
+The places in this ABI that call for the mangling of a constant value
+all indicate whether precise typing is required for a particular
+constant.
+
+<p>
+Values of integer, enumerated, floating-point, or complex type are
+mangled as <a href="#mangling.literal">literals</a> of the approproiate
+type.  Note that this can produce combinations which cannot normally be
+written in the source language, such as a literal of <code>short</code>
+type.
+
+<p>
+Null pointers and member pointers are mangled as as a literal
+<code>0</code> of their type.  For example:
+
+<code><pre>
+struct A;
+template &lt;void (A::*)()&gt; void f();
+
+f&lt;nullptr&gt; // _Z1fILM1AFvvE0EEvv
+</pre></code>
+
+<p>
+Non-null values of reference or pointer type are mangled using the
+<a href="#mangling.constant-object-reference">constant object reference
+expression</a> for the argument.  Note that, if this is a simple
+declaration reference, it may end up being an
+<code>&lt;<a href="#mangle.expr-primary">expr-primary</a>&gt;</code>
+and must be mangled without <code class=mangle>X...E</code> when
+mangled as a <code>template-arg</code>.
+
+<p>
+Non-type template argument values of member pointer type
+that are not null are mangled using the
+<a href="#mangling.member-pointer-reference">member pointer
+reference expression</a> for the argument.
+
+<p>
+Non-type template argument values of class type are mangled as
+a direct initialization (<code>tl</code>) of the class type
+using the <a href="#mangling.member-initializer-sequence">member
+initiializer sequence</a> for the contents of the type.
+
+<a name="mangling.constant-object-reference">
+<h5><a href="#mangling.constant-object-reference">5.1.6.3 Constant object reference expressions</a></h5>
+</a>
+
+<p>
+Constant evaluation may result in a pointer or reference to a function
+or to a subobject of an object of static storage duration, possibly
+converted to a different type.  Under the standard, references to
+formally different subobjects are different template arguments even
+if they coincide in their type and address.  This entity is identified
+in the mangling as if it were written with a specific expression,
+called the reference expression.  The exact expression depends on
+whether <a href="#mangling.constant-values">precise typing</a> is
+required.
+
+<p>
+Let <code>ObjectType</code> be the unqualified type of the referenced
+function or subobject, and let <code>ConstantType</code> be the pointee
+type of the constant type.  These types can differ by more than just
+qualification if the constant has been converted to a type such as
+<code>void*</code>.
+
+<p>
+Initially, the reference expression is an expression referring
+to the function or top-level object, mangled with the <code>L_Z</code>
+production in
+<code>&lt;<a href="#mangle.expr-primary">expr-primary</a>&gt;</code>.
+The notional type of this expression is the declared type of the
+function or object, including any qualifiers.
+
+<p>
+Next, if the value refers to an object that is not a top-level object,
+the reference expression is wrapped in a special expression used only
+for this purpose, using the <code class=mangle>so</code> mangling
+below.  The notional type of this expression is the encoded referent
+type.
+<ul>
+<li>The offset is the offset of the address point of the subobject
+  from the address point of the top-level object.  An offset is used
+  instead of a semantic access path (e.g. a series of member accesses)
+  in order to avoid exposing implementation details such as private
+  field and class names into the ABI.  If the offset is zero, it can
+  be omitted.
+<li>The referent type reflects the type of the subobject and is required
+  in order to distinguish subobjects in case there are multiple subobjects
+  at the same offset.  If precise typing is not required, or if
+  <code>ConstantType</code> differs from <code>ObjectType</code> by
+  more than just qualification then the referent type for the mangling
+  is <code>ObjectType</code>.  Otherwise, the referent type for the
+  mangling is <code>ConstantType</code>.
+<li>The selected union members must be included because subobjects of
+  different union members are always different values.  Selected union
+  members are mangled in preorder order (that is, outside-in) using the
+  zero-based index of the selected member within the list of union
+  members.  The index can be omitted from each step if it is zero;
+  otherwise the index-1 is encoded.
+</ul>
+
+<pre><font color=blue><code>
+  &lt;expression&gt; ::= so &lt;<i>referent</i> <a href="#mangle.type">type</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt; [&lt;<i>offset</i> <a href="#mangle.number">number</a>&gt;] &lt;union-selector&gt;* E
+  &lt;union-selector&gt; ::= _ [&lt;<a href="#mangle.number">number</a>&gt;]
+</code></font></pre>
+
+<p>
+Next, if the constant is a pointer, the reference expression is
+wrapped in a unary <code>&</code> operator (that is, prefixed with
+<code class=mangle>ad</code>.  The notional type of this expression
+is a pointer to the notional type of the previous reference expression.
+
+<p>
+Finally, if precise typing is required and the notional type of the
+current reference expression doesn't match the type of the constant,
+the reference expression is wrapped in a C-style cast to the constant
+type (that is, prefixed with <code class=mangle>cv &lt;type&gt;</code>).
+
+<a name="mangling.member-pointer-reference">
+<h5><a href="#mangling.member-pointer-reference">5.1.6.4 Member pointer reference expressions</a></h5>
+</a>
+
+<p>
+Constant evaluation may result in a member pointer to a specific
+member, possibly converted to a different type.  As with other constant
+manglings, this value is identified in the mangling as if it were written
+with a certain expression, called the reference expression.  The exact expression depends on whether <a href="#mangling.constant-values">precise
+typing</a> is required.
+
+<p>
+The initial reference expression applies the prefix operator
+<code>&</code> to the member declaration as if it were a regular
+function or variable.  The notional type of this expression is a
+member pointer type using the declaring class and the declared type of
+the member. For example:
+
+<code><pre>
+struct A {
+    void foo();
+};
+template &lt;void (A::*)()&gt; void f();
+
+f&lt;&amp;A::foo&gt; // _Z1fIXadL_ZN1A3fooEvEEEvv
+</pre></code>
+
+<p>
+If the class type of the constant is not the declaring class of the
+member, the reference expression is wrapped in a special expression
+used only for this purpose, which encodes the <code>this</code>-adjustment
+that must be applied to a pointer to the class type of the constant
+in order to produce a pointer to the declaring class of the member.
+The offset is omitted if zero.  The notional type of this expression
+is a member pointer type using the class type of the constant and the
+declared type of the member.
+
+<pre><font color=blue><code>
+  &lt;expression&gt; ::= mc &lt;<i>class</i> <a href="#mangle.type">type</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt; [&lt;<i>offset</i> <a href="#mangle.number">number</a>&gt;] E
+</code></font></pre>
+
+<p>
+Finally, if precise typing is required and the notional type of the
+current reference expression is not the type of the constant, the
+reference expression is wrapped in a C-style cast to the constant
+type (that is, prefixed with <code class=mangle>cv &lt;type&gt;</code>).
+This can happen because <code>static_cast</code> may add qualifiers
+to the member type.
+
+<code><pre>
+struct A {
+  char x;
+  void foo();
+};
+struct B {
+  char y;
+};
+
+struct C : A, B {};
+template &lt;void (C::*)()&gt; void f();
+
+f&lt;&amp;A::foo&gt; // _Z1fIXmcM1CFvvEadL_ZN1A3fooEvE1EEEvv
+</pre></code>
+
+<p>
+The <code class=mangle>mc</code> mangling uses an offset instead of
+a base path to avoid exposing private details of the class into the ABI,
+such as the names of any intermediate base classes.
+
+<a name="mangling.member-initializer-sequence">
+<h5><a href="#mangling.member-initializer-sequence">5.1.6.5 Member initializer sequences</a></h5>
+</a>
+
+<p>
+The constant evaluation of an expression of class type assigns
+a constant value to each non-static data member of the class or,
+if the class is a union, to at most one non-static data member,
+called the active union member.  Under the standard, this exact
+structure uniquely determines a value, including whether a union
+has an active union member member and (if so) which one.  As
+different values can produce different template specializations,
+this structure must be faithfully represented in the mangling of
+a value as a template argument.
+
+<p>
+A value is converted to a flattened sequence of values by applying
+the following expansions until no values of array or non-union class
+type remain:
+<ul compact>
+  <li>A value of array type is replaced by its element values in
+    index order.
+  <li>A value of non-union class type is replaced by the values
+    of its base subobjects, in order of declaration, followed
+    by the values of its non-static data members, in order of
+    declaration.
+</ul>
+Values satisfying the following conditions are then removed from
+the end of the sequence until the final value does not satisfy
+these conditions or the sequence is empty:
+<ul compact>
+  <li>The value is of union type, it has an active union member,
+    that member is the first member of the union, and the
+    expansion of the value of that member according to these rules
+    is an empty sequence.
+  <li>The value is not of union type and is the zero value
+    of its type.  (Note that because non-union values have all
+    been expanded, the value must not be of class type or contain
+    a value of class type.)
+</ul>
+
+<p>
+This sequence is then mangled as a sequence of
+<code>&lt;<a href="#mangle.braced-expression">braced-expression</a>&gt;</code>s
+as follows:
+<ul compact>
+  <li>If an element is a union that does not have an active member,
+    it is mangled as <code class=mangle>L &lt;type &gt; E</code>.
+  <li>If an element is a union that has an active member, it is
+    mangled using the name of the active member as a designator
+    for the value of the active member.  Note that if the active
+    member is an anonymous struct or union, its name for the purposes
+    of mangling is determined using the
+    <a href="#mangling.anonymous">usual rules</a>.)
+  <li>Otherwise the value of the element is mangled in the usual way
+    for a constant value.
+</ul>
+
+<p>
+Precise typing is not required when mangling the constant member values.
+Note that qualifiers on the type of a non-static data member are not
+part of the type of the value stored in that member.
+
+<p>
+For example:
+
+<code><pre>
+struct A {
+    int x, y;
+};
+struct B {
+    union { A a; };
+    constexpr B(int x, int y) { a.x = x; a.y = y; }
+};
+
+template &lt;B v&gt; struct C {};
+
+C&lt;0,0&gt; // 1CIXtl1BEEE
+C&lt;1,0&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1EEEEEE
+C&lt;1,1&gt; // 1CIXtl1BtlNS0_Ut_Edi1atl1ALi1ELi1EEEEEE
+</pre></code>
 
 <a name="mangling-scope">
 <h4><a href="#mangling-scope">5.1.7 Scope Encoding</a></h4>
