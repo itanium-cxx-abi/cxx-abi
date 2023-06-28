@@ -1,0 +1,101 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Guaranteed copy elision and tail padding
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3CCAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw%3D-WCDjzF4mKXuVg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002938.html">
+   <LINK REL="Next"  HREF="002940.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Guaranteed copy elision and tail padding</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Guaranteed%20copy%20elision%20and%20tail%20padding&In-Reply-To=%3CCAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw%3D-WCDjzF4mKXuVg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Guaranteed copy elision and tail padding">richardsmith at googlers.com
+       </A><BR>
+    <I>Thu Jul 21 18:45:16 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002938.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+        <LI>Next message: <A HREF="002940.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2939">[ date ]</a>
+              <a href="thread.html#2939">[ thread ]</a>
+              <a href="subject.html#2939">[ subject ]</a>
+              <a href="author.html#2939">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 21 July 2016 at 11:02, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+
+&gt;<i> P0135 seems to require that we elide the copy when using the result of
+</I>&gt;<i> a function returning by value to initialize a base class subobject,
+</I>&gt;<i> but the ABI doesn't currently require that such a function avoid
+</I>&gt;<i> clobbering tail padding when initializing its return object.
+</I>&gt;<i> Thoughts?
+</I>
+
+If the function clobbers the tail padding of its return object, at least
+GCC and Clang will miscompile the program today, without P0135:
+
+#include &lt;string.h&gt;
+struct X { ~X() {} int n; char d; };
+struct Y { Y(); char c[3]; };
+struct Z : X, virtual Y { Z(); };
+
+X f() { X nrvo; memset(&amp;nrvo, 0, sizeof(X)); return nrvo; }
+Z::Z() : Y(), X(f()) {}
+Y::Y() : c{1, 2, 3} {}
+
+int main() {
+  Z z;
+  return z.c[0];
+}
+
+GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+optimization level, even with -fno-elide-constructors) returns 0.
+
+(It looks like Clang gets this &quot;wrong&quot; in two ways: first, NRVO is
+apprently never correct on a type whose tail padding could be reused, and
+second, we assume that we can memcpy a trivially-copyable base class at its
+full size -- effectively, we seem to assume that we won't initialize the
+tail padding of a base class before we initialize the base class itself.)
+
+At this point I'm questioning the wisdom of allowing a virtual base to be
+allocated into tail padding.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/3808b4bd/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/3808b4bd/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002938.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+	<LI>Next message: <A HREF="002940.html">[cxx-abi-dev] Guaranteed copy elision and tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2939">[ date ]</a>
+              <a href="thread.html#2939">[ thread ]</a>
+              <a href="subject.html#2939">[ subject ]</a>
+              <a href="author.html#2939">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

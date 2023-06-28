@@ -1,0 +1,409 @@
+*** ia64_abi_orig.html	Thu Jul 23 12:34:15 2009
+--- ia64_abi_lambdas-2.html	Thu Aug  6 15:37:21 2009
+***************
+*** 3945,3961 ****
+--- 3945,3963 ----
+      &lt;prefix> ::= &lt;prefix> &lt;unqualified-name>
+  	     ::= &lt;template-prefix> &lt;template-args>
+               ::= &lt;template-param>
+  	     ::= # empty
+  	     ::= &lt;substitution>
++              ::= &lt;prefix> &lt;data-member-prefix>
+  
+      &lt;template-prefix> ::= &lt;prefix> &lt;<i>template</i> unqualified-name>
+                        ::= &lt;template-param>
+                        ::= &lt;substitution>
+      &lt;unqualified-name> ::= &lt;operator-name>
+                         ::= &lt;ctor-dtor-name>  
+                         ::= &lt;source-name>   
++                        ::= &lt;unnamed-type-name>   
+  
+      &lt;source-name> ::= &lt;<i>positive length</i> number> &lt;identifier>
+      &lt;number> ::= [n] &lt;<i>non-negative decimal integer</i>>
+      &lt;identifier> ::= &lt;<i>unqualified source code identifier</i>>
+  
+***************
+*** 4372,4381 ****
+--- 4374,4413 ----
+  
+  <pre><code><font color=blue>
+    &lt;class-enum-type> ::= &lt;name>
+  </pre></font></code>
+  
++ Unnamed class, union, and enum types that aren't closure types, that
++ haven't acquired a "name for linkage purposes" (through a typedef), and
++ that aren't anonymous union types, follow
++ the same rule when they are defined in class scopes,
++ with the underlying &lt;unqualified-name> an &lt;unnamed-type-name> of
++ the form
++ <pre><code><font color=blue>  &lt;unnamed-type-name> ::= Ut [ &lt;<i>nonnegative</i> number> ] _ 
++ </pre></font></code>
++ 
++ The number is omitted for the first unnamed type in the class; it is
++ n-2 for the nth unnamed type (in lexical order) otherwise.
++ <p>
++ (The mangling of such unnamed types defined in namespace scope is
++ generally unspecified because they do not have to match across
++ translation units.  An implementation must only ensure that naming
++ collisions are avoided.  The mangling of such unnamed types in local
++ scopes is described in <a href=#mangling-scope>Scope Encoding</a>.
++ The encoding of closure types is described in a
++ <a href=#closure-types>Closure Types (Lambdas)</a>.)
++ 
++ <p>
++ For example:
++ <code><pre>
++ 	struct S { static struct {} x; };
++ 	typedef decltype(S::x) TX;  // Type mangled as N1SUt_E
++ 	TX S::x;                    // _ZN1S1xE
++ 	void f(TX) {}               // _Z1fN1SUt_E
++ </pre></code>
++ 
++ 
+  <p>
+  Array types encode the dimension (number of elements) and the element type.
+  Note that "array" parameters to functions are encoded as pointer types.
+  For variable length arrays (C99 VLAs),
+  the dimension (but not the '_' separator) is omitted.
+***************
+*** 4558,4587 ****
+  <p>
+  Occasionally entities in local scopes must be mangled too
+  (e.g. because inlining or template compilation causes
+  multiple translation units to require access to that entity).
+  The encoding for such entities is as follows:
+! <code><pre><font color=blue>
+!   &lt;local-name> := Z &lt;<i>function</i> encoding> E &lt;<i>entity</i> name> [&lt;discriminator>]
+                 := Z &lt;<i>function</i> encoding> E s [&lt;discriminator>]
+!   &lt;discriminator> := _ &lt;<i>non-negative</i> number> 
+  </font></pre></code>
+  
+  <p>
+  The first production is used for named local static objects and classes,
+! which are identified by their declared names.
+  The &lt;<i>entity</i> name> may itself be a compound name,
+  but it is relative to the closest enclosing function,
+! i.e. none of the components of the function encoding appear in the entity name.
+  It is possible to have nested function scopes,
+  e.g. when dealing with a member function in a local class.
+  In such cases, the function encoding will itself have &lt;local-name>
+  structure.
+  The discriminator is used only for the
+! second and later occurrences of the same name within a single function.
+  In this case &lt;number> is n - 2,
+  if this is the nth occurrence, in lexical order, of the given name.
+  
+  <p>
+  The second production is used for string literals.
+  The discriminator is used only if there is more than one,
+  for the second and subsequent ones.
+--- 4590,4661 ----
+  <p>
+  Occasionally entities in local scopes must be mangled too
+  (e.g. because inlining or template compilation causes
+  multiple translation units to require access to that entity).
+  The encoding for such entities is as follows:
+! <code><pre><font color=blue>  &lt;local-name> := Z &lt;<i>function</i> encoding> E &lt;<i>entity</i> name> [&lt;discriminator>]
+                 := Z &lt;<i>function</i> encoding> E s [&lt;discriminator>]
+! 
+!   &lt;discriminator> := _ &lt;<i>non-negative</i> number>      # when number < 10
+!                   := __ &lt;<i>non-negative</i> number> _   # when number >= 10
+  </font></pre></code>
+  
+  <p>
+  The first production is used for named local static objects and classes,
+! which are identified by their "names" as encoded relative to the closest
+! enclosing function.  In case of unnamed local types (excluding unnamed
+! types that have acquired a "name for linkage purposes"), the "name" the
+! unqualified name is encoded as an &lt;unnamed-type-name> of
+! the form
+! <pre><code><font color=blue>  &lt;unnamed-type-name> ::= Ut [ &lt;<i>nonnegative</i> number> ] _
+! </pre></font></code>
+! where the number is  is omitted for the first unnamed type in the
+! function, and n-2 for the nth unnamed type (in lexical order) otherwise.
+  The &lt;<i>entity</i> name> may itself be a compound name,
+  but it is relative to the closest enclosing function,
+! i.e. none of the components of the function encoding appear in the
+! entity name.
+  It is possible to have nested function scopes,
+  e.g. when dealing with a member function in a local class.
+  In such cases, the function encoding will itself have &lt;local-name>
+  structure.
++ <p>
+  The discriminator is used only for the
+! second and later occurrences of the same "top-level" name within a single
+! function (since "unnamed types" are distinctly numbered, they never
+! include a discriminator).
+  In this case &lt;number> is n - 2,
+  if this is the nth occurrence, in lexical order, of the given name.
++ "top-level" here means that if there are e.g. three classes
++ named X in a given function g, and only the third has a member function
++ f, the encoding of S::f in g will still include a discriminator of the
++ form "<code>_1</code>" (n-2 == 1).
++ 
++ <p>
++ For example:
++ <code><pre>
++ 	inline void g(int) {
++ 	  { struct S {}; }
++ 	  { struct S {}; }
++ 	  { struct S {}; }
++ 	  struct S {        // Fourth occurrence: _2
++ 	    void f(int) {   // _ZZ1giEN1S1fE_2i
++ 	      struct {} x1;
++ 	      struct {} x2;
++ 	      struct {      // Third occurrence: 1_, i.e.
++ 	                    // _ZZZ1giEN1S1fE_2iEUt1_
++ 	        int fx() {  // _ZZZ1giEN1S1fE_2iENUt1_2fxEv
++  	          return 3;
++                 }
++ 	      } x3;
++ 	      x3.fx();
++ 	    }
++ 	  } s;
++ 	  s.f(1);
++ 	}
++ </pre></code>
++ 
+  
+  <p>
+  The second production is used for string literals.
+  The discriminator is used only if there is more than one,
+  for the second and subsequent ones.
+***************
+*** 4596,4609 ****
+  i.e. has a unique address.
+  </i>
+  
+  <i>
+  <p>
+! For both named objects and string literals,
+  the numbering order is strictly lexical order based on the original
+  token sequence.
+! All objects occurring in that sequence are to be numbered,
+  even if subsequent optimization makes some of them unnecessary.
+  The ordering of literals appearing in a mem-initializer-list shall be
+  the order that the literals appear in the source, which may be
+  different from the order in which the initializers will be executed
+  when the program runs. 
+--- 4670,4683 ----
+  i.e. has a unique address.
+  </i>
+  
+  <i>
+  <p>
+! In all cases
+  the numbering order is strictly lexical order based on the original
+  token sequence.
+! All entities occurring in that sequence are to be numbered,
+  even if subsequent optimization makes some of them unnecessary.
+  The ordering of literals appearing in a mem-initializer-list shall be
+  the order that the literals appear in the source, which may be
+  different from the order in which the initializers will be executed
+  when the program runs. 
+***************
+*** 4612,4657 ****
+  including the same code were compiled by different compilers,
+  and multiple entities requiring mangling had the same name.
+  </i>
+  
+  <p>
+! For static objects in constructors and destructors,
+  the mangling of the complete object constructor or destructor is used
+  as the base function name, i.e. the C1 or D1 version.
+  This yields mangled names that are consistent across the versions.
+  
+  <p>
+  Example:
+  <code><pre>
+!    namespace N {
+!       inline char* f(int i) {
+!          static char *p = "Itanium C++ ABI";  // p = 1, "..." = 2
+!          {  struct X {                      // X = 3
+!                void g() {}
+!             };   }
+!          return p[i];
+!       }
+!    }
+  </pre></code>
+  
+- <ul>
+- <li> "<code>_ZZN1N1fEiE1p</code>":
+-     encoding of N::f::p (first local mangled entity)
+- <li> "<code>_ZZN1N1fEiEs</code>":
+-     encoding of N::f::"Itanium C++ ABI" (no discriminator)
+- <li> "<code>_ZNZN1N1fEiE1X1gE</code>":
+-     encoding of N::f::X::g()
+-     (third local mangled entity used as a class-qualifier)
+- </ul>
+  See additional examples in the
+  <a href=abi-examples.html#mangling-ex>ABI examples</a> document.
+  
+  
+  
+  <p>
+  <a name="mangling-compression">
+! <h4> 5.1.7 Compression </h4>
+  
+  <p>
+  To minimize the length of external names,
+  we use two mechanisms,
+  a substitution encoding to eliminate repetition of name components,
+--- 4686,4842 ----
+  including the same code were compiled by different compilers,
+  and multiple entities requiring mangling had the same name.
+  </i>
+  
+  <p>
+! For entities in constructors and destructors,
+  the mangling of the complete object constructor or destructor is used
+  as the base function name, i.e. the C1 or D1 version.
+  This yields mangled names that are consistent across the versions.
+  
+  <p>
+  Example:
+  <code><pre>
+! 	inline char const* g() {
+! 	  "str1";                   // First string in g()
+! 	  struct B {};
+! 	  struct S: B {
+! 	    S()                     // Complete object ctor: _ZZ1gvEN1SC1Ev
+! 	      : msg("str2") {}      // First string in g()::S::S():
+! 	                            //      _ZZZ1gvEN1SC1EvEs
+! 	    char const *msg;
+! 	  } s;
+! 	  "str3";                   // Second string in g()
+! 	  static char const *str4a  // _ZZ1gvE5str4a
+! 	     = "str4";              // Third string in g() (n-2 == 1):
+! 	                            //      _ZZ1gvEs_1
+! 	  static char const *str4b  // _ZZ1gvE5str4b
+! 	     = "str4";              // Still the third string (_ZZ1gvEs_1)
+! 	  return str4b;
+! 	}
+  </pre></code>
+  
+  See additional examples in the
+  <a href=abi-examples.html#mangling-ex>ABI examples</a> document.
+  
+  
+  
+  <p>
++ <a name="closure-types">
++ <h4> 5.1.7 Closure Types (Lambdas) </h4>
++ 
++ <p>
++ A C++0x lambda expression introduces a unique class type called
++ <i>closure type</i>.  In some contexts, such closure types are
++ unique to the translation unit: This ABI therefore does not specify an
++ encoding for such cases (but an implementation must ensure that any
++ internal encoding does not conflict with this ABI).
++ <p>
++ For example:
++ <code><pre>namespace N {
++   int n = []{ return 1; }();  // Closure type internal to
++ }                             // the translation unit.
++ </pre></code>
++ 
++ In the following contexts, however, the one-definition rule requires
++ closure types in different translation units to "correspond":
++ <ul>
++ <li>default arguments appearing in class definitions</li>
++ <li>the in-class initializers of class members (a C++0x feature)</li>
++ <li>the bodies of inline functions</li>
++ <li>the bodies of non-exported nonspecialized template functions</li>
++ <li>the initializers of nonspecialized static members of template classes</li> 
++ </ul>
++ 
++ In all these contexts, the encoding of the closure types builds on an
++ underlying &lt;unqualified-name> that is an &lt;unnamed-type-name> of
++ the form
++ <pre><code><font color=blue>  &lt;unnamed-type-name> ::= &lt;closure-type-name>
++ 
++   &lt;closure-type-name> ::= Ul &lt;lambda-sig> E [ &lt;<i>nonnegative</i> number> ] _ 
++ </pre></font></code>
++ with
++ <pre><code><font color=blue>  &lt;lambda-sig> ::= &lt;<i>parameter</i> type>+  # Parameter types or "v" if the lambda has no parameters
++ </pre></font></code>
++ The number is omitted for the first closure type with a given
++ &lt;lambda-sig> in a given context; it is n-2 for the nth closure
++ type (in lexical order) with that same &lt;lambda-sig> and context.
++ <p>
++ 
++ <p>
++ If the context is the body of a function (inline and/or template), the
++ closure type is encoded like any other local entity (see
++ <a href=#mangling-scope>Scope Encoding</a> above).  For example:
++ <code><pre>
++ 	template&lt;typename F> int algo(F fn) { return fn(); }
++ 	inline void g(int n) {
++ 	  int bef(int i = []{ return 1; }());
++ 	    // Default arguments of block-extern function declarations
++ 	    // remain in the context of the encloding function body.
++ 	    // The closure type is encoded as Z1giEUlvE_.
++ 	    // The call operator of that type is _ZZ1giENKUlvE_clEv.
++ 
++ 	  algo([=]{return n+bef();});
++ 	    // The captured entities do not participate in &lt;lambda-sig>
++ 	    // and so this closure type has the same &lt;lambda-sig> as
++ 	    // the previous one.  It encoding is therefore Z1giEUlvE0_
++ 	    // and the call operator is _ZZ1giENKUlvE0_clEv.  The
++ 	    // instance of "algo" being called is then
++ 	    // _Z4algoIZ1giEUlvE0_EiT_.
++ 	}
++ </pre></code>
++ 
++ <p>
++ If the context is a default argument (of a member function parameter)
++ appearing in a class definition, the closure class and its members are encoded as follows:
++ <code><pre><font color=blue>  &lt;local-name> := Z &lt;<i>function</i> encoding> Ed [ &lt;<i>parameter</i> number> ] _ &lt;<i>entity</i> name>
++ </font></pre></code>
++ The parameter number is omitted for the last parameter, 0 for the second-to-last parameter, 1 for the third-to-last parameter, etc. 
++ The <code>&lt;<i>entity</i> name></code> will of course contain a
++ <code>&lt;closure-type-name></code>: Its numbering will be local to the
++ particular argument in which it appears -- other default arguments do
++ not affect its encoding.
++  For example:
++ <code><pre>
++ 	struct S {
++ 	  void f(int = []{return 1;}()
++ 	           // Type: ZN1S1fEiiEd0_UlvE_
++ 	           // Operator: _ZZN1S1fEiiEd0_NKUlvE_clEv
++ 	             + []{return 2;}(),
++ 	           // Type: ZN1S1fEiiEd0_UlvE0_
++ 	           // Operator: _ZZN1S1fEiiEd0_NKUlvE0_clEv
++ 	         int = []{return 3;}());
++ 	           // Type: ZN1S1fEiiEd_UlvE_
++ 	           // Operator: _ZZN1S1fEiiEd_NKUlvE_clEv
++ 	} s;
++ </pre></code>
++ 
++ 
++ <p>
++ Finally, if the context of a closure type is an initializer for a class
++ member (static or nonstatic), it is encoded in a qualified name with a
++ final <code>&lt;prefix></code> of the form:
++ <code><pre><font color=blue>  &lt;data-member-prefix> := &lt;<i>member</i> source-name> M
++ </font></pre></code>
++ For example:
++ <code><pre>
++ 	template&lt;typename T> struct S {
++ 	  static int x;
++ 	};
++ 	template&lt;typename T> int S&lt;T>::x = []{return 1;}();
++ 	template int S&lt;int>::x;
++ 	  // Type of lambda in intializer of S&lt;int>::x: N1SIiE1xMUlvE_E
++ 	  // Corresponding operator(): _ZNK1SIiE1xMUlvE_clEv
++ </pre></code>
++ 
++ 
++ 
++ 
++ 
++ <p>
+  <a name="mangling-compression">
+! <h4> 5.1.8 Compression </h4>
+  
+  <p>
+  To minimize the length of external names,
+  we use two mechanisms,
+  a substitution encoding to eliminate repetition of name components,

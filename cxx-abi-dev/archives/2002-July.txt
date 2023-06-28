@@ -1,0 +1,621 @@
+From mark at codesourcery.com  Tue Jul  2 03:22:41 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 01 Jul 2002 20:22:41 -0700
+Subject: [cxx-abi-dev] Mangling of sizeof when applied to a type
+In-Reply-To: <81740000.1025215299@warlock.codesourcery.com>
+References: <81740000.1025215299@warlock.codesourcery.com>
+Message-ID: <23020000.1025580161@gandalf.codesourcery.com>
+
+
+
+--On Thursday, June 27, 2002 03:01:39 PM -0700 Mark Mitchell 
+<mark at codesourcery.com> wrote:
+
+> The ABI document does not currently specify the mangling of sizeof when
+> applied to a type.  For example:
+>
+>   template <typename X>
+>   void f(S<sizeof(X)>);
+>
+> When instantiating f, we need a mangling for the argument type in the
+> uninstantiated form.
+>
+> To that end, I suggest we introduce a new operator "st" which takes one
+> operand, but which is a type, rather than an expression.
+>
+> This changes the mangling grammar like so:
+>
+>   <expression> ::= st <type>
+>
+> It's better not to overload sz since that will make demangling harder.
+>
+> If I don't hear objections in the next few days, I'll make this change
+> to the ABI document.
+
+I didn't hear objections so I did make the change (and implemented said
+change in G++).
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Tue Jul  2 18:06:11 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 2 Jul 2002 11:06:11 -0700
+Subject: Problem with vcall offsets
+Message-ID: <200207021806.g62I6BL01545@localhost.localdomain>
+
+
+I believe that there is a major defect in the ABI specification with
+respect to virtual tables:
+
+In particular, consider:
+
+  struct V {
+    virtual void v();
+  };
+
+  struct P : virtual public V { 
+    virtual void p();
+  };
+
+  struct A : virtual public P {
+    virtual void a();
+  };
+
+Consider the case where A is being used a virtual base.
+
+V is primary in P and P is primary in A.
+
+Section 2.5.3 says:
+
+   If virtual base A has a primary virtual base class P sharing its
+   virtual table, P's vbase and vcall offsets come first in the
+   primary virtual table, in the same order they would appear if P
+   itself were the virtual base, and those from A that do not replicate
+   those from P precede them.
+
+In other words, the vtable for A, when used as a virtual base is:
+
+   A's vcall offset for A::a
+   A's vbase offset to P
+   P's vcall offset for P::p
+   P's vbase offset to V
+   V's vcall offset for V::v
+   Offset-to-top
+   Typeinfo 
+   Entry for V::v
+   Entry for P::p
+   Entry for A::a
+
+This cannot possibly be right.  If you want to be able to generate
+code to cast from an A* to a P*, then the index of A's vbase offset
+for P must be constant; it cannot depend on whether or not A itself is
+a virtual base in something else.  That implies that the vbase and
+vcall offsets cannot be interleaved; instead, the vbase offsets must
+always come nearest the address point.
+
+On the other hand, if the position of the vcall offsets are different
+when A is used as a virtual base than when P is used as a virtual
+base, then thunks generated for P::p are not going to work any more.
+
+I think that we need to always emit vcall offsets, even for bases that
+are not virtual.
+
+Thoughts?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Tue Jul  2 18:32:25 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 02 Jul 2002 19:32:25 +0100
+Subject: [cxx-abi-dev] Problem with vcall offsets
+In-Reply-To: <200207021806.g62I6BL01545@localhost.localdomain> (Mark
+ Mitchell's message of "Tue, 2 Jul 2002 11:06:11 -0700")
+References: <200207021806.g62I6BL01545@localhost.localdomain>
+Message-ID: <wvlr8im2d6u.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> In other words, the vtable for A, when used as a virtual base is:
+
+>    A's vcall offset for A::a
+>    A's vbase offset to P
+>    P's vcall offset for P::p
+>    P's vbase offset to V
+>    V's vcall offset for V::v
+>    Offset-to-top
+>    Typeinfo 
+>    Entry for V::v
+>    Entry for P::p
+>    Entry for A::a
+
+Looks right to me.
+
+> This cannot possibly be right.  If you want to be able to generate
+> code to cast from an A* to a P*, then the index of A's vbase offset
+> for P must be constant; it cannot depend on whether or not A itself is
+> a virtual base in something else.
+
+I don't follow.  The only difference I see is that if A isn't a virtual
+base, the vcall entry for A::a isn't there.  The vbase offset doesn't move.
+The vcall offset for P::p is always there because P is a virtual base.
+
+Jason
+
+
+From mark at codesourcery.com  Tue Jul  2 19:21:37 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 02 Jul 2002 12:21:37 -0700
+Subject: [cxx-abi-dev] Problem with vcall offsets
+In-Reply-To: <wvlr8im2d6u.fsf@prospero.cambridge.redhat.com>
+Message-ID: <38420000.1025637697@warlock.codesourcery.com>
+
+
+> The vcall offset for P::p is always there because P is a virtual base.
+
+Good.  That's what I was missing.
+
+I am much happier to be stupid than right, in this case.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From nathan at codesourcery.com  Tue Jul  2 19:27:47 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Tue, 02 Jul 2002 20:27:47 +0100
+Subject: [cxx-abi-dev] Problem with vcall offsets
+References: <200207021806.g62I6BL01545@localhost.localdomain>
+Message-ID: <3D21FEB2.25B01F98@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> Section 2.5.3 says:
+> 
+>    If virtual base A has a primary virtual base class P sharing its
+>    virtual table, P's vbase and vcall offsets come first in the
+>    primary virtual table, in the same order they would appear if P
+>    itself were the virtual base, and those from A that do not replicate
+>    those from P precede them.
+Every time I look at this stuff it makes my head spin. I think you're
+falling into the same trap I do, because you've reached the same
+(erroneous) conclusion. The wording about this is not good,
+unfortunately I've never found a more obvious simpler version.
+
+> 
+> In other words, the vtable for A, when used as a virtual base is:
+> 
+>    A's vcall offset for A::a
+>    A's vbase offset to P
+>    P's vcall offset for P::p
+>    P's vbase offset to V
+>    V's vcall offset for V::v
+>    Offset-to-top
+>    Typeinfo
+>    Entry for V::v
+>    Entry for P::p
+>    Entry for A::a
+not quite. you've mislabeled things. Think of the vcall offset as belonging
+to the derived clss. After all you only need the vcall offset when there's
+a virtual base involved.
+I.e. A's vtable is
+	A's vbase offset to P
+	A's vcall offset for P::p
+	P's vbase offset to V
+	P's vcall offset for V::v
+	Offset to top
+	typeinfo
+vptr points here:	V::v
+	P::p
+	A::a
+
+When A is a primary virtual (of say Z), the A-in-Z vtable is the same shape
+as A's vtable. It is prepended by
+	Z's vbase offset to A (which will be zero 'cos A is primary)
+	Z's vcall offset to A::a (also zero 'cos of A's primality)
+
+
+> This cannot possibly be right.  If you want to be able to generate
+> code to cast from an A* to a P*, then the index of A's vbase offset
+> for P must be constant; it cannot depend on whether or not A itself is
+> a virtual base in something else. 
+Huh? its always at aptr->vtable[-6]
+
+> That implies that the vbase and
+> vcall offsets cannot be interleaved; instead, the vbase offsets must
+> always come nearest the address point.
+Don't follow. When you have virtual polymorphic base first prepend a
+vcall offset for all inherited virtual functions which have now
+*just become* morally virtual, then prepend a vbase offset for the
+virtually inherited base.
+
+> I think that we need to always emit vcall offsets, even for bases that
+> are not virtual.
+No.
+
+> Thoughts?
+You are confused by a maze of twisty vcalls. I always find the output
+of -fdump-class-hierarchy enlightening.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From nathan at codesourcery.com  Mon Jul  8 09:35:11 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 08 Jul 2002 10:35:11 +0100
+Subject: underlying type of size_t
+Message-ID: <3D295CCF.80451766@codesourcery.com>
+
+Hi,
+The ABI document does not specify the underlying type of size_t.
+This affects the mangling of, for instance, operator new (size_t).
+The C++ std follows the C std.
+The C std says it is an implementation defined unsigned integral type.
+Some implementations have more than one suitable unsigned integral type.
+Which should be choosen?
+
+On i686-pc-linuxgnu, g++ has unsigned int, whereas
+AFAICT, intel has chosen unsigned long (from their test suite provided
+at http://www.intel.com/software/products/opensource/tools1/abi.htm)
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From jason at redhat.com  Mon Jul  8 10:35:23 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Jul 2002 11:35:23 +0100
+Subject: [cxx-abi-dev] underlying type of size_t
+In-Reply-To: <3D295CCF.80451766@codesourcery.com> (Nathan Sidwell's message
+ of "Mon, 08 Jul 2002 10:35:11 +0100")
+References: <3D295CCF.80451766@codesourcery.com>
+Message-ID: <wvlu1nabj84.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> The ABI document does not specify the underlying type of size_t.
+
+This is platform-specific.  Typically, it's unsigned int on 32-bit systems
+and unsigned long on 64-bit ones, though some 32-bit targets also use
+unsigned long.
+
+> On i686-pc-linuxgnu, g++ has unsigned int, whereas
+> AFAICT, intel has chosen unsigned long (from their test suite provided
+> at http://www.intel.com/software/products/opensource/tools1/abi.htm)
+
+On i686-pc-linux-gnu, size_t has always been unsigned int.
+
+But isn't the Intel testsuite ia64-specific, anyway?  Last I checked, the
+Intel ix86 compiler still used the EDG mangling.
+
+Jason
+
+
+From nathan at codesourcery.com  Mon Jul  8 10:43:11 2002
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 08 Jul 2002 11:43:11 +0100
+Subject: [cxx-abi-dev] underlying type of size_t
+References: <3D295CCF.80451766@codesourcery.com> <wvlu1nabj84.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3D296CBF.819F5326@codesourcery.com>
+
+Jason Merrill wrote:
+> This is platform-specific.  Typically, it's unsigned int on 32-bit systems
+> and unsigned long on 64-bit ones, though some 32-bit targets also use
+> unsigned long.
+So long as there's some standard per platform, we're ok.
+
+> But isn't the Intel testsuite ia64-specific, anyway?  Last I checked, the
+> Intel ix86 compiler still used the EDG mangling.
+I could find nothing in that testsuite which specified it was ia64 specific.
+The other tests seem to be parametized. Hence my concern.
+
+thanks,
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+From loewis at informatik.hu-berlin.de  Mon Jul  8 12:23:05 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 08 Jul 2002 14:23:05 +0200
+Subject: [cxx-abi-dev] underlying type of size_t
+In-Reply-To: <3D296CBF.819F5326@codesourcery.com>
+References: <3D295CCF.80451766@codesourcery.com>
+	<wvlu1nabj84.fsf@prospero.cambridge.redhat.com>
+	<3D296CBF.819F5326@codesourcery.com>
+Message-ID: <j4znx2l87q.fsf@informatik.hu-berlin.de>
+
+Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> So long as there's some standard per platform, we're ok.
+
+It is the psABI that specifies that type; the C++ ABI refers to the
+gABI/psABI, not (directly) to the C standard.
+
+Regards,
+Martin
+
+
+From clark.nelson at intel.com  Mon Jul  8 15:35:17 2002
+From: clark.nelson at intel.com (Nelson, Clark)
+Date: Mon, 8 Jul 2002 08:35:17 -0700 
+Subject: [cxx-abi] Re: [cxx-abi-dev] underlying type of size_t
+Message-ID: <0DCC27458EB5D51181840002A507069E0585CD68@orsmsx117.jf.intel.com>
+
+> But isn't the Intel testsuite ia64-specific, anyway?  Last I 
+> checked, the
+> Intel ix86 compiler still used the EDG mangling.
+
+Apparently Jason last checked using the 5.0 release of Intel's compiler for
+IA-32. As of the 6.0 release, we use the ABI for IA-32 as well as the
+Itanium architecture.
+
+--
+Clark Nelson
+Intel Corporation
+clark.nelson at intel.com
+ 
+
+
+From jason at redhat.com  Mon Jul  8 15:37:36 2002
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Jul 2002 16:37:36 +0100
+Subject: [cxx-abi] Re: [cxx-abi-dev] underlying type of size_t
+In-Reply-To: <0DCC27458EB5D51181840002A507069E0585CD68@orsmsx117.jf.intel.com> ("Nelson,
+ Clark"'s message of "Mon, 8 Jul 2002 08:35:17 -0700")
+References: <0DCC27458EB5D51181840002A507069E0585CD68@orsmsx117.jf.intel.com>
+Message-ID: <wvld6tyb58f.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Nelson," == Nelson, Clark <clark.nelson at intel.com> writes:
+
+> Apparently Jason last checked using the 5.0 release of Intel's compiler for
+> IA-32.
+
+5.0.1, yep.
+
+> As of the 6.0 release, we use the ABI for IA-32 as well as the Itanium
+> architecture.
+
+Good to know.
+
+Jason
+
+
+From JRESap6TE at netscape.com  Fri Jul 19 17:07:14 2002
+From: JRESap6TE at netscape.com (JRESap6TE at netscape.com)
+Date: Fri, 19 Jul 2002 10:47:14 -0580
+Subject: TONER SUPPLIES
+Message-ID: <02B6243F-9AFA-11D6-83F1-0040055FF51D@gYfUsvyt>
+
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020719/24f8560f/attachment.html>
+
+From jessica at cup.hp.com  Fri Jul 26 23:33:00 2002
+From: jessica at cup.hp.com (Jessica Han)
+Date: Fri, 26 Jul 2002 16:33:00 -0700
+Subject: vtables by different compilers
+Message-ID: <022001c234fc$c88d94c0$8b63f40f@JH761542>
+
+
+I am working on the interoperability issues on IA64 HPUX between g++ and
+aCC.
+I noticed that g++ put vtables into different sections with names like
+gnu.linkonce.d.VTABLENAME, but aCC puts all the vtables into .data sections.
+Is this going to cause any problems while mixing g++ objects and aCC
+objects? What if a vtable entry belongs to a COMDAT group and needs to be
+deleted?
+I am having a problem where g++ compiled code can't access aCC built vtable
+properly, any suggestions on what's might be different between the two
+compiler?
+I am using 32 bit mode, and my g++ vtable has 64-bit alignment as aCC does.
+Thanks.
+----
+Jessica Han
+Open Source Tools
+Hewlett-Packard
+(408) 447-6154
+
+
+
+From mark at codesourcery.com  Sun Jul 28 16:44:27 2002
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 28 Jul 2002 09:44:27 -0700
+Subject: [cxx-abi-dev] vtables by different compilers
+In-Reply-To: <022001c234fc$c88d94c0$8b63f40f@JH761542>
+References: <022001c234fc$c88d94c0$8b63f40f@JH761542>
+Message-ID: <49170000.1027874667@gandalf.codesourcery.com>
+
+
+
+--On Friday, July 26, 2002 04:33:00 PM -0700 Jessica Han 
+<jessica at cup.hp.com> wrote:
+
+>
+> I am working on the interoperability issues on IA64 HPUX between g++ and
+> aCC.
+> I noticed that g++ put vtables into different sections with names like
+> gnu.linkonce.d.VTABLENAME, but aCC puts all the vtables into .data
+> sections.
+
+Yes; this is because the GNU linker does not support COMDAT.
+
+We don't *think* this should could problems -- but we don't know that for
+sure.
+
+The two ways to make the compilers match are to a) have GCC emit things
+in COMDAT, or b) have aCC generate them in the linkonce sections, and
+then add support for that to the HP linker.
+
+But, if we can avoid that, it would be better.  If the aCC symbols are
+weak, I would think things would work OK.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Mon Jul 29 07:50:33 2002
+From: loewis at informatik.hu-berlin.de (Martin v. =?iso-8859-1?q?L=F6wis?=)
+Date: 29 Jul 2002 09:50:33 +0200
+Subject: [cxx-abi-dev] vtables by different compilers
+In-Reply-To: <022001c234fc$c88d94c0$8b63f40f@JH761542>
+References: <022001c234fc$c88d94c0$8b63f40f@JH761542>
+Message-ID: <j465yzrn06.fsf@informatik.hu-berlin.de>
+
+"Jessica Han" <jessica at cup.hp.com> writes:
+
+> I am having a problem where g++ compiled code can't access aCC built vtable
+> properly, any suggestions on what's might be different between the two
+> compiler?
+
+Can you please elaborate on the nature of this problem? Does it fail
+to link, or does the resulting binary not work correctly?
+
+Regards,
+Martin
+
+
+
+From jessica at cup.hp.com  Mon Jul 29 21:31:02 2002
+From: jessica at cup.hp.com (Jessica Han)
+Date: Mon, 29 Jul 2002 14:31:02 -0700
+Subject: [cxx-abi-dev] vtables by different compilers
+In-Reply-To: <49170000.1027874667@gandalf.codesourcery.com>
+Message-ID: <025e01c23747$3db0d540$8b63f40f@JH761542>
+
+
+
+
+>-----Original Message-----
+>From: Mark Mitchell [mailto:mark at codesourcery.com]
+>Sent: Sunday, July 28, 2002 9:44 AM
+>To: jessica at cup.hp.com; cxx-abi-dev at codesourcery.com
+>Subject: Re: [cxx-abi-dev] vtables by different compilers
+
+>Yes; this is because the GNU linker does not support COMDAT.
+>
+>We don't *think* this should could problems -- but we don't
+>know that for
+>sure.
+>
+>The two ways to make the compilers match are to a) have GCC emit things
+>in COMDAT, or b) have aCC generate them in the linkonce sections, and
+>then add support for that to the HP linker.
+>
+>But, if we can avoid that, it would be better.  If the aCC symbols are
+>weak, I would think things would work OK.
+>
+>--
+>Mark Mitchell                   mark at codesourcery.com
+>CodeSourcery, LLC               http://www.codesourcery.com
+>
+I do have a GNU compiler which generates COMDAT sections as the ABI
+specifies by putting linkonce sections to COMDAT groups. I am using a
+private HP linker which supports gABI COMDAT (aCC's COMDAT is a bit
+different from the standard).
+I hope this won't prohibit g++ and aCC working together. Thanks.
+----
+Jessica Han
+Open Source Tools
+Hewlett-Packard
+(408) 447-6154
+>
+
+
+
+From jessica at cup.hp.com  Mon Jul 29 21:43:08 2002
+From: jessica at cup.hp.com (Jessica Han)
+Date: Mon, 29 Jul 2002 14:43:08 -0700
+Subject: [cxx-abi-dev] vtables by different compilers
+In-Reply-To: <j465yzrn06.fsf@informatik.hu-berlin.de>
+Message-ID: <026101c23748$ef01f0d0$8b63f40f@JH761542>
+
+The problem I am having is an execution error. My test case is a simple C++
+helloworld, the application built and runs, but no output.
+The test case is:
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream.h>
+int main (){
+cout <<"hello1"<<endl;
+}
+
+Then I compiled it with aCC's header using g++ compiler and link with aCC
+run time. Attached is the test.i file and test.o file, build command is
+aCC test.o  on HPUX IPF.
+in function
+<std::basic_streambuf< char, std::char_traits< char > >::sputn( char
+const*, long )
+it should look up function pointer for <std::basic_filebuf< char,
+std::char_traits< char > >::xsputn( char  const*, long )
+but it gets function pointer of <std::basic_filebuf< char, std::char_traits<
+char > >::~std::basic_filebuf< char, std::char_traits< char > >() instead.
+The vtable comes from aCC run time library.
+
+Thanks.
+----
+Jessica Han
+Open Source Tools
+Hewlett-Packard
+(408) 447-6154
+
+>-----Original Message-----
+>From: Martin v. Lowis [mailto:loewis at informatik.hu-berlin.de]
+>Sent: Monday, July 29, 2002 12:51 AM
+>To: jessica at cup.hp.com
+>Cc: cxx-abi-dev at codesourcery.com
+>Subject: Re: [cxx-abi-dev] vtables by different compilers
+>
+>
+>"Jessica Han" <jessica at cup.hp.com> writes:
+>
+>> I am having a problem where g++ compiled code can't access
+>aCC built vtable
+>> properly, any suggestions on what's might be different
+>between the two
+>> compiler?
+>
+>Can you please elaborate on the nature of this problem? Does it fail
+>to link, or does the resulting binary not work correctly?
+>
+>Regards,
+>Martin
+>
+>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.i
+Type: application/octet-stream
+Size: 542269 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020729/4fa0f484/attachment.obj>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.o
+Type: application/octet-stream
+Size: 261724 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20020729/4fa0f484/attachment.o>
+

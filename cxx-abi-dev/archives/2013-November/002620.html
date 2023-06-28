@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] C++ ABI version 2
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B%20ABI%20version%202&In-Reply-To=%3C8378D80B-AF16-4786-BFCB-F102CC07D94D%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002619.html">
+   <LINK REL="Next"  HREF="002621.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] C++ ABI version 2</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20C%2B%2B%20ABI%20version%202&In-Reply-To=%3C8378D80B-AF16-4786-BFCB-F102CC07D94D%40apple.com%3E"
+       TITLE="[cxx-abi-dev] C++ ABI version 2">rjmccall at apple.com
+       </A><BR>
+    <I>Wed Nov 20 05:33:31 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002619.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+        <LI>Next message: <A HREF="002621.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2620">[ date ]</a>
+              <a href="thread.html#2620">[ thread ]</a>
+              <a href="subject.html#2620">[ subject ]</a>
+              <a href="author.html#2620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Nov 19, 2013, at 5:57 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+&gt;<i> There are a few things in the current ABI which are known to be suboptimal, but we cannot change because doing so would introduce an ABI break. However, vendors sometimes get an opportunity to break their ABI (or are defining a new ABI), and for some vendors, this is a very common occurrence. To this end, I think it would be valuable for the ABI document to describe what we might want to put in a 'Version 2' of the ABI; that is, a set of changes that we recommend be made whenever a vendor has a chance to introduce an ABI break.
+</I>&gt;<i> 
+</I>&gt;<i> (Or perhaps this should be viewed from the opposite perspective: we could make improvements to the ABI, with an annex listing changes that old platforms must make for compatibility.)
+</I>&gt;<i> 
+</I>&gt;<i> Would there be support for this idea?
+</I>
+Personally, I&#8217;m in favor of us generally documenting any vendor-specific deviations, as long as the vendor&#8217;s okay with it.  In principle, that list of deviations could get unmanageably long, but I doubt it&#8217;d be a real issue.
+
+&gt;<i> In off-line discussion with John McCall, we came up with the following list of potential changes that might be made (sorry if I forgot any):
+</I>&gt;<i> 
+</I>&gt;<i>  * Simplify case 2b in non-POD class layout.
+</I>
+&gt;<i>  * Make constructors and destructors return 'this' instead of returning 'void', in order to allow callers to avoid a reload in common cases and to allow more tail calls.
+</I>&gt;<i>  * Make virtual functions that are defined as 'inline' not be key functions
+</I>
+Credit the good folks at ARM for these two ideas.
+
+&gt;<i>  * Fix the bug that -1 is both the null pointer-to-data-member value and also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+</I>&gt;<i>  * Relax the definition of POD used in the ABI, in order to allow more class types to be passed in registers
+</I>
+POD-ness doesn't affect what can be passed in registers; that&#8217;s just about the copy constructor(s) and destructor.
+
+Making a type POD in the ABI means that we can&#8217;t allocate subobjects of subclasses into its tail-padding.  This is, at least, in theory, a tradeoff:
+  - The downside is that derived classes might get larger.
+  - The upside is that assignments into an opaque T&amp; can copy sizeof(T) bytes instead of dsize(T).  When those quantities differ, copying sizeof(T) is generally faster because a round number of words can be copied in fewer instructions; e.g. 24 bytes (8-byte aligned) can be done in three 64-bit stores, whereas 22 bytes (but still 8-byte aligned) requires two 64-bit stores, a 32-bit store, and a 16-bit store.
+
+I would argue that it&#8217;s abstractly more likely that trivially-copyable type will be assigned at some point than that it will be used as a base class, but I don&#8217;t have empirical evidence for that.
+
+&gt;<i> Are there any other things that it would make sense to change in a version 2 of the ABI?
+</I>
+We could consider giving standard substitutions to some of the newer library features, like std::shared_ptr and std::unique_ptr.  I don&#8217;t know if standard substitutions still matter to other people; Apple&#8217;s committed to libc++, which intentionally subverts them with inline namespaces.
+
+&gt;<i> Also, would there be any support for documenting common deviations from the ABI that platform vendors might want to consider when specifying their own ABIs? In addition to some of the above, this would also include:
+</I>&gt;<i> 
+</I>&gt;<i>  * Representation of pointers-to-member-functions (in particular, the current representation assumes that the lowest bit of a function pointer is unused, which isn't true in general)
+</I>
+&gt;<i>  * Representation of guard variables (some platforms use the native word size rather than forcing this to be 64 bits wide)
+</I>
+I would actually call this one a recommended change.  As far as I know, making them 64 bits on all platforms was just an Itanium assumption sneaking in.  I don&#8217;t know of any clever locking strategies that vitally require two pointers of data.
+
+John.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002619.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+	<LI>Next message: <A HREF="002621.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2620">[ date ]</a>
+              <a href="thread.html#2620">[ thread ]</a>
+              <a href="subject.html#2620">[ subject ]</a>
+              <a href="author.html#2620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

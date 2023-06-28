@@ -1,0 +1,385 @@
+From scott.douglass at arm.com  Wed Apr 16 09:34:40 2008
+From: scott.douglass at arm.com (scott douglass)
+Date: Wed, 16 Apr 2008 10:34:40 +0100
+Subject: non-public non-static members vs POD layout
+Message-ID: <1208338480.9706.334.camel@pc982.cambridge.arm.com>
+
+Hi,
+
+If a class or union has non-public non-static members it is non-POD
+(because it's not an 'aggregate' in 8.5.1).
+
+The C++ ABI (2.2) delegates layout of PODs to the base (C) ABI and
+specifies layout of of POD types itself.
+
+Does/should the C++ ABI guarantee than a class that is non-POD only
+because of non-public non-static members has the same layout as the
+corresponding POD class in cases where any tail-padding cannot be
+reused?  (Is base-class subobject the only case where tail-padding can
+be reused?)
+
+Also, a minor quibble:  since TC1 PODs can contain pointer-to-members
+and the base (C) ABI determines their layout, should it be mentioned
+more explicitly in 2.2 how they are layed out (as is done for 'bool').
+
+Thanks.
+
+
+-- 
+IMPORTANT NOTICE: The contents of this email and any attachments are confidential and may also be privileged. If you are not the intended recipient, please notify the sender immediately and do not disclose the contents to any other person, use it for any purpose, or store or copy the information in any medium.  Thank you.
+
+
+
+
+From mark at codesourcery.com  Mon Apr 28 22:59:54 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 28 Apr 2008 15:59:54 -0700
+Subject: [cxx-abi-dev] non-public non-static members vs POD layout
+In-Reply-To: <1208338480.9706.334.camel@pc982.cambridge.arm.com>
+References: <1208338480.9706.334.camel@pc982.cambridge.arm.com>
+Message-ID: <0172279D-60EB-42E8-A309-4EE3E388000C@codesourcery.com>
+
+Scott --
+
+My personal opinion is that the ABI does not guarantee that "almost"  
+PODs are laid out as PODs. In fact I think it says that such things  
+must be laid out using the rules in the C++ ABI -- surprising though  
+that might be.
+
+Also since the ABI predates TC1, the inclusion of pointers to members  
+on PODs should not apply. I suppose the spec would explicitly say  
+"PODs as defined prior to TC1"
+
+Does anyone object to making that change?
+
+--
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+On Apr 16, 2008, at 2:34 AM, scott douglass <scott.douglass at arm.com>  
+wrote:
+
+> Hi,
+>
+> If a class or union has non-public non-static members it is non-POD
+> (because it's not an 'aggregate' in 8.5.1).
+>
+> The C++ ABI (2.2) delegates layout of PODs to the base (C) ABI and
+> specifies layout of of POD types itself.
+>
+> Does/should the C++ ABI guarantee than a class that is non-POD only
+> because of non-public non-static members has the same layout as the
+> corresponding POD class in cases where any tail-padding cannot be
+> reused?  (Is base-class subobject the only case where tail-padding can
+> be reused?)
+>
+> Also, a minor quibble:  since TC1 PODs can contain pointer-to-members
+> and the base (C) ABI determines their layout, should it be mentioned
+> more explicitly in 2.2 how they are layed out (as is done for 'bool').
+>
+> Thanks.
+>
+>
+> -- 
+> IMPORTANT NOTICE: The contents of this email and any attachments are  
+> confidential and may also be privileged. If you are not the intended  
+> recipient, please notify the sender immediately and do not disclose  
+> the contents to any other person, use it for any purpose, or store  
+> or copy the information in any medium.  Thank you.
+>
+>
+
+
+From daveed at edg.com  Tue Apr 29 01:07:23 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 28 Apr 2008 21:07:23 -0400
+Subject: [cxx-abi-dev] non-public non-static members vs POD layout
+In-Reply-To: <0172279D-60EB-42E8-A309-4EE3E388000C@codesourcery.com>
+References: <1208338480.9706.334.camel@pc982.cambridge.arm.com> <0172279D-60EB-42E8-A309-4EE3E388000C@codesourcery.com>
+Message-ID: <FAAC1E57-4221-463D-972F-DC6582006823@edg.com>
+
+
+On Apr 28, 2008, at 6:59 PM, Mark Mitchell wrote:
+> Scott --
+>
+> My personal opinion is that the ABI does not guarantee that "almost"  
+> PODs are laid out as PODs. In fact I think it says that such things  
+> must be laid out using the rules in the C++ ABI -- surprising though  
+> that might be.
+>
+> Also since the ABI predates TC1, the inclusion of pointers to  
+> members on PODs should not apply. I suppose the spec would  
+> explicitly say "PODs as defined prior to TC1"
+>
+> Does anyone object to making that change?
+
+
+I think so.  Hereunder is an e-mail to this list (from a few years  
+ago) that seems to indicate we already agreed to use the TC1  
+definition of PODs.
+
+	Daveed
+
+
+
+Date: Mon, 25 Oct 2004 18:13:01 -0700
+From: Mark Mitchell <mark at codesourcery.com>
+Organization: CodeSourcery, LLC
+To: Mark Mitchell <mark at codesourcery.com>
+CC: Nathan Sidwell <nathan at codesourcery.com>,
+   Dennis Handly <dhandly at cup.hp.com>, cxx-abi-dev at codesourcery.com
+Subject: Re: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+
+
+Mark Mitchell wrote:
+
+ > Yes, you're correct, the standard does guarantee that you can do
+ > bitwise copies for PODs  using their size.
+ > In other words, your point is that unless we interpret the ABI as
+ > meaning "TC1 POD", it is not the ABI for a correct C++ compiler,
+ > because it will fall afoul of this rule.  This is [basic.types]/3,  
+for
+ > reference.
+ >
+ > I think that's a pretty compelling agument that we should clarify the
+ > ABI to indicate that POD means "POD as defined by TC1".  Any
+ > objections to that proposal?  Are there any compilers other than aCC
+ > implementing the pre-TC1 definition?
+
+Nobody objected, so I committed the following change, requiring the TC1
+definition.  The change will be reflected in the online copy shortly.  I
+also clarified the fact that an array that is a POD type, but whose
+elements are not a POD for the purpose of layout is not itself a POD for
+the purpose of layout.
+
+FYI,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+Index: abi.html
+===================================================================
+RCS file: /home/cvs/Repository/cxx-abi/abi.html,v
+retrieving revision 1.78
+diff -c -5 -p -r1.78 abi.html
+*** abi.html	24 Sep 2004 03:47:55 -0000	1.78
+--- abi.html	26 Oct 2004 01:09:26 -0000
+*************** sharing a virtual pointer with the deriv
+*** 228,242 ****
+
+  <p>
+  <a name="POD" />
+  <dt> <i>POD for the purpose of layout</i><dt>
+  <dd>
+! A type is considered a POD for the purposes of layout if it is a POD
+! type (in the sense of [basic.types]), and is not a POD-struct or
+! POD-union (in the sense of [class]) with a bitfield member whose  
+declared
+! width is wider than the declared type of the bitfield
+! </dd>
+  </p>
+
+  <p>
+  <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
+  unique base class (if any) with which it shares the virtual pointer at
+--- 228,258 ----
+
+  <p>
+  <a name="POD" />
+  <dt> <i>POD for the purpose of layout</i><dt>
+  <dd>
+! <p>
+! In general, a type is considered a POD for the purposes of layout if
+! it is a POD type (in the sense of ISO C++ [basic.types]).  However, a
+! POD-struct or POD-union (in the sense of ISO C++ [class]) with a
+! bitfield member whose declared width is wider than the declared type
+! of the bitfield is not a POD for the purpose of layout.  Similarly, an
+! array type is not a POD for the purpose of layout if the element type
+! of the array is not a POD for the purpose of layout.  Where references
+! to the ISO C++ are made in this paragraph, the Technical Corrigendum 1
+! version of the standard is intended.
+!
+! <p>
+! <img src=warning.gif alt="<b>NOTE</b>:">
+! The ISO C++ standard published in 1998 had a different definition of
+! POD types.  In particular, a class with a non-static data member of
+! pointer-to-member type was not considered a POD in C++98, but is
+! considered a POD in TC1.  Because the C++ standard requires that
+! compilers not overlay the tail padding in a POD, using the C++98
+! definition in this ABI would prevent a conforming compiler from
+! correctly implementing the TC1 version of the C++ standard.
+! Therefore, this ABI uses the TC1 definition of POD.</dd>
+  </p>
+
+  <p>
+  <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
+  unique base class (if any) with which it shares the virtual pointer at
+*************** unwind table location.
+*** 4939,4948 ****
+--- 4955,4972 ----
+  <p> <hr> <p>
+
+  <p>This version of this document is $Revision: 1.78 $.  No special
+  significance should be attached to the form of the revision number; it
+  is simply a identifying number.</p>
++
++ <p>
++ <font color=blue>[041025]</font>
++ Indicate that the TC1 definition of POD is intended in the section
++ defining a &quot;POD for the purpose of layout&quot;.  Clearly
++ indicate that an array whose elements are not PODs for the purpose of
++ layout is itself not a POD for the purpose of layout.
++ </p>
+
+  <p>
+  <font color=blue>[040923]</font>
+  Clarify behavior of <code>__cxa_vec_delete</code>.
+  </p>
+
+
+
+
+From dhandly at cup.hp.com  Tue Apr 29 01:03:58 2008
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 28 Apr 2008 18:03:58 -0700 (PDT)
+Subject: [cxx-abi-dev] non-public non-static members vs POD layout
+Message-ID: <200804290103.SAA28259@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>Also since the ABI predates TC1, the inclusion of pointers to members  
+>on PODs should not apply. I suppose the spec would explicitly say  
+>"PODs as defined prior to TC1"
+>Does anyone object to making that change?
+
+I thought I pointed out the TC1 change before and there was comments that
+the ABI should accept the change??
+
+Here are some words:
+! The ISO C++ standard published in 1998 had a different definition of
+! POD types.  In particular, a class with a non-static data member of
+! pointer-to-member type was not considered a POD in C++98, but is
+! considered a POD in TC1.  Because the C++ standard requires that
+! compilers not overlay the tail padding in a POD, using the C++98
+! definition in this ABI would prevent a conforming compiler from
+! correctly implementing the TC1 version of the C++ standard.
+! Therefore, this ABI uses the TC1 definition of POD.</dd>
+
+And before that:
+Mark Mitchell wrote:
+> Yes, you're correct, the standard does guarantee that you can do
+> bitwise copies for PODs  using their size.
+> In other words, your point is that unless we interpret the ABI as
+> meaning "TC1 POD", it is not the ABI for a correct C++ compiler,
+> because it will fall afoul of this rule.  This is [basic.types]/3, for
+> reference.
+>
+> I think that's a pretty compelling agument that we should clarify the
+> ABI to indicate that POD means "POD as defined by TC1".  Any
+> objections to that proposal?  Are there any compilers other than aCC
+> implementing the pre-TC1 definition?
+
+Nobody objected, so I committed the following change, requiring the TC1
+definition.  The change will be reflected in the online copy shortly.  I
+also clarified the fact that an array that is a POD type, but whose
+elements are not a POD for the purpose of layout is not itself a POD for
+the purpose of layout.
+
+
+From mark at codesourcery.com  Tue Apr 29 15:28:48 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 29 Apr 2008 08:28:48 -0700
+Subject: [cxx-abi-dev] non-public non-static members vs POD layout
+In-Reply-To: <FAAC1E57-4221-463D-972F-DC6582006823@edg.com>
+References: <1208338480.9706.334.camel@pc982.cambridge.arm.com> <0172279D-60EB-42E8-A309-4EE3E388000C@codesourcery.com> <FAAC1E57-4221-463D-972F-DC6582006823@edg.com>
+Message-ID: <48173EB0.1050604@codesourcery.com>
+
+David Vandevoorde wrote:
+
+>> Also since the ABI predates TC1, the inclusion of pointers to members 
+>> on PODs should not apply. I suppose the spec would explicitly say 
+>> "PODs as defined prior to TC1"
+>>
+>> Does anyone object to making that change?
+> 
+> I think so.  Hereunder is an e-mail to this list (from a few years ago) 
+> that seems to indicate we already agreed to use the TC1 definition of PODs.
+
+Well, that's embarassing; clearly my memory is pathetic.
+
+So, yes, we agreed to use TC1 PODs, and thus pointers-to-members are in. 
+  In that case, yes, I think we have to say how they are laid out -- but 
+I think we already do.
+
+For data members, we say that a pointer to data member is "represented 
+as a ptrdiff_t."
+
+And for pointers to function members; we say that they have "the size, 
+data size, and alignment of a class containing these two members", after 
+saying what members they are.  I think we could probably make that more 
+explicit by saying that they layout is as for the following class:
+
+   struct pointer_to_member {
+     void (*ptr)();
+     ptrdiff_t adj;
+   };
+
+That would eliminate ambiguities.  But, I think that's just an editorial 
+change.  (Anyone object to that change?  Or think it's a good idea?)
+
+Thoughts?
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+
+From daveed at edg.com  Tue Apr 29 17:51:29 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 29 Apr 2008 13:51:29 -0400
+Subject: [cxx-abi-dev] non-public non-static members vs POD layout
+In-Reply-To: <48173EB0.1050604@codesourcery.com>
+References: <1208338480.9706.334.camel@pc982.cambridge.arm.com> <0172279D-60EB-42E8-A309-4EE3E388000C@codesourcery.com> <FAAC1E57-4221-463D-972F-DC6582006823@edg.com> <48173EB0.1050604@codesourcery.com>
+Message-ID: <ACCFCF57-9093-4FF8-9E68-43741389506A@edg.com>
+
+
+On Apr 29, 2008, at 11:28 AM, Mark Mitchell wrote:
+[...]
+>
+> So, yes, we agreed to use TC1 PODs, and thus pointers-to-members are  
+> in.  In that case, yes, I think we have to say how they are laid out  
+> -- but I think we already do.
+>
+> For data members, we say that a pointer to data member is  
+> "represented as a ptrdiff_t."
+>
+> And for pointers to function members; we say that they have "the  
+> size, data size, and alignment of a class containing these two  
+> members", after saying what members they are.  I think we could  
+> probably make that more explicit by saying that they layout is as  
+> for the following class:
+>
+>  struct pointer_to_member {
+>    void (*ptr)();
+>    ptrdiff_t adj;
+>  };
+>
+> That would eliminate ambiguities.  But, I think that's just an  
+> editorial change.  (Anyone object to that change?  Or think it's a  
+> good idea?)
+
+No objection.  (I agree it's editorial, and I think clarification is a  
+good idea.)
+
+	Daveed
+
+
+

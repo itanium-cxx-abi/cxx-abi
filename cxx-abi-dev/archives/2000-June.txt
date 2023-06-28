@@ -1,0 +1,4284 @@
+From mark at codesourcery.com  Mon Jun 12 22:13:39 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 12 Jun 2000 15:13:39 -0700
+Subject: "virtual path"
+Message-ID: <20000612151339A.mitchell@codesourcery.com>
+
+
+The term `virtual path' is not defined in the ABI document.  In
+particular, `overriden along a virtual path' is not defined.  Would
+someone care to propose a concrete definition for this term?  I think
+I know what it means, but I found I couldn't write it down very
+effectively.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From nathan at codesourcery.com  Mon Jun 12 21:27:56 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 12 Jun 2000 22:27:56 +0100
+Subject: rtti
+Message-ID: <394555DC.913C980@codesourcery.com>
+
+Hi,
+Here's G++'s cxxabi.h and related files for comments, and my findings
+about action item 37. For those unfamiliar with gcc's runtime layout
+here's what the files contain
+
+typeinfo	class type_info declaration
+cxxabi.h	the abi's support type_info classes and prototypes
+vec.cc		the abi's vector new and delete helpers
+tinfo.h		runtime header for tinfo.cc & tinfo2.cc
+tinfo.cc	dynamic cast and catch matching routines
+tinfo2.cc	abi's non-class type_info definitions
+
+the latter 3 files contain a big #if for gcc's old and new abis. for the
+new abi __GXX_ABI_VERSION will be 100. Also, gcc doesn't provide <cstddef>
+(but it's part of the library), so std::size_t, std::ptrdiff_t aren't
+available in the header files, hence the use of __SIZE_TYPE__ and
+__PTRDIFF_TYPE__ in header files.
+
+1) The class definitions in cxxabi.h have inconsistent names for the data
+members. In some cases each field is prefixed with the shortened class
+name (for instance __vmi_class_type_info::vmi_offset_flags), in other
+cases the abi doc doesn't specify a name, and there is no prefix (eg
+__pbase_type_info:::quals). My preference is for non-prefixed names,
+as that is a more usual in C++ (after all, we've had structure scope
+for a long time). We should use a consistent naming scheme, and I'd
+prefer it to be the non-prefixed form.
+
+2) As to the usefulness of __vmi_class_type_info::non_public_base_mask
+and __vmi_class_type_info::public_base_mask. It transpired that neither
+were useful. there were two places where public_base_mask might be used,
+but I suspect that to be premature optimization. non_public_base_mask
+turned out to not be useful. In all cases of considering a non-public
+base, one already knew the base was non-public, and the
+non_diamond_repeat_mask and diamond_shaped_mask were useful. Therefore,
+in resolution of item 37 I propose removing both non_public_base_mask
+and public_base_mask from the vmi_flags.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+-------------- next part --------------
+/* new abi support -*- C++ -*-
+   Copyright (C) 2000
+   Free Software Foundation, Inc.
+   Written by Nathan Sidwell, Codesourcery LLC, <nathan at codesourcery.com>  */
+
+// This file is part of GNU CC.
+//
+// GNU CC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2, or (at your option)
+// any later version.
+// 
+// GNU CC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License
+// along with GNU CC; see the file COPYING.  If not, write to
+// the Free Software Foundation, 59 Temple Place - Suite 330,
+// Boston, MA 02111-1307, USA.
+
+// As a special exception, you may use this file as part of a free software
+// library without restriction.  Specifically, if other files instantiate
+// templates or use macros or inline functions from this file, or you compile
+// this file and link it with other files to produce an executable, this
+// file does not by itself cause the resulting executable to be covered by
+// the GNU General Public License.  This exception does not however
+// invalidate any other reasons why the executable file might be covered by
+// the GNU General Public License.
+
+/* This file declares the new abi entry points into the runtime. It is not
+   normally necessary for user programs to include this header, or use the
+   entry points directly. However, this header is available should that be
+   needed.
+   
+   Some of the entry points are intended for both C and C++, thus this header
+   is includable from both C and C++. Though the C++ specific parts are not
+   available in C, naturally enough.  */
+
+#ifndef __CXXABI_H
+#define __CXXABI_H 1
+
+#if defined(__cplusplus) && (!defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100)
+/* These structures only make sense when targeting the new abi, catch a
+   bonehead error early rather than let the user get very confused.  */
+#error "Not targetting the new abi, supply -fnew-abi"
+#endif
+
+#ifdef __cplusplus
+
+// We use the compiler builtins __SIZE_TYPE__ and __PTRDIFF_TYPE__ instead of
+// std::size_t and std::ptrdiff_t respectively. This makes us independant of
+// the conformance level of <cstddef> and whether -fhonor-std was supplied.
+// <cstddef> is not currently available during compiler building anyway.
+// Including <stddef.h> would be wrong, as that would rudely place size_t in
+// the global namespace.
+
+#include <typeinfo>
+
+namespace __cxxabiv1
+{
+
+/* type information for int, float etc */
+class __fundamental_type_info
+  : public std::type_info
+{
+public:
+  virtual ~__fundamental_type_info ();
+public:
+  explicit __fundamental_type_info (const char *__n)
+    : std::type_info (__n)
+    { }
+};
+
+/* type information for array objects */
+class __array_type_info
+  : public std::type_info
+{
+/* abi defined member functions */
+protected:
+  virtual ~__array_type_info ();
+public:
+  explicit __array_type_info (const char *__n)
+    : std::type_info (__n)
+    { }
+};
+
+/* type information for functions (both member and non-member) */
+class __function_type_info
+  : public std::type_info
+{
+/* abi defined member functions */
+public:
+  virtual ~__function_type_info ();
+public:
+  explicit __function_type_info (const char *__n)
+    : std::type_info (__n)
+    { }
+  
+/* implementation defined member functions */
+protected:
+  virtual bool __is_function_p () const;
+};
+
+/* type information for enumerations */
+class __enum_type_info
+  : public std::type_info
+{
+/* abi defined member functions */
+public:
+  virtual ~__enum_type_info ();
+public:
+  explicit __enum_type_info (const char *__n)
+    : std::type_info (__n)
+    { }
+};
+
+/* common type information for simple pointers and pointers to member */
+class __pbase_type_info
+  : public std::type_info
+{
+/* abi defined member variables */
+public:
+  int quals;                    /* qualification of the target object */
+  const std::type_info *type;   /* type of pointed to object */
+
+/* abi defined member functions */
+public:
+  virtual ~__pbase_type_info ();
+public:
+  explicit __pbase_type_info (const char *__n,
+                                int __quals,
+                                const std::type_info *__type)
+    : std::type_info (__n), quals (__quals), type (__type)
+    { }
+
+/* implementation defined types */
+public:
+  enum quals_masks {
+    const_mask = 0x1,
+    volatile_mask = 0x2,
+    restrict_mask = 0x4,
+    incomplete_mask = 0x8,
+    incomplete_class_mask = 0x10
+  };
+
+/* implementation defined member functions */
+protected:
+  virtual bool __do_catch (const std::type_info *__thr_type,
+                           void **__thr_obj,
+                           unsigned __outer) const;
+protected:
+  inline virtual bool __pointer_catch (const __pbase_type_info *__thr_type,
+                                       void **__thr_obj,
+                                       unsigned __outer) const;
+};
+
+/* type information for simple pointers */
+class __pointer_type_info
+  : public __pbase_type_info
+{
+/* abi defined member functions */
+public:
+  virtual ~__pointer_type_info ();
+public:
+  explicit __pointer_type_info (const char *__n,
+                                int __quals,
+                                const std::type_info *__type)
+    : __pbase_type_info (__n, __quals, __type)
+    { }
+
+/* implementation defined member functions */
+protected:
+  virtual bool __is_pointer_p () const;
+
+protected:
+  virtual bool __pointer_catch (const __pbase_type_info *__thr_type,
+                                void **__thr_obj,
+                                unsigned __outer) const;
+};
+
+/* type information for a pointer to member variable */
+class __pointer_to_member_type_info
+  : public __pbase_type_info
+{
+/* abi defined member variables */
+public:
+  const __class_type_info *klass;   /* class of the member */
+
+/* abi defined member functions */
+public:
+  virtual ~__pointer_to_member_type_info ();
+public:
+  explicit __pointer_to_member_type_info (const char *__n,
+                                          int __quals,
+                                          const std::type_info *__type,
+                                          const __class_type_info *__klass)
+    : __pbase_type_info (__n, __quals, __type), klass (__klass)
+    { }
+
+/* implementation defined member functions */
+protected:
+  virtual bool __pointer_catch (const __pbase_type_info *__thr_type,
+                                void **__thr_obj,
+                                unsigned __outer) const;
+};
+
+class __class_type_info;
+
+/* helper class for __vmi_class_type */
+class __base_class_info
+{
+/* abi defined member variables */
+public:
+  const __class_type_info *base;    /* base class type */
+  long vmi_offset_flags;            /* offset and info */
+
+/* implementation defined types */
+public:
+  enum vmi_masks {
+    virtual_mask = 0x1,
+    public_mask = 0x2,
+    hwm_bit = 2,
+    offset_shift = 8          /* bits to shift offset by */
+  };
+  
+/* implementation defined member functions */
+public:
+  bool __is_virtual_p () const
+    { return vmi_offset_flags & virtual_mask; }
+  bool __is_public_p () const
+    { return vmi_offset_flags & public_mask; }
+  __PTRDIFF_TYPE__ __offset () const
+    { 
+      // This shift, being of a signed type, is implementation defined. GCC
+      // implements such shifts as arithmetic, which is what we want.
+      return static_cast<__PTRDIFF_TYPE__> (vmi_offset_flags) >> offset_shift;
+    }
+};
+
+/* type information for a class */
+class __class_type_info
+  : public std::type_info
+{
+/* abi defined member functions */
+public:
+  virtual ~__class_type_info ();
+public:
+  explicit __class_type_info (const char *__n)
+    : type_info (__n)
+    { }
+
+/* implementation defined types */
+public:
+  /* sub_kind tells us about how a base object is contained within a derived
+     object. We often do this lazily, hence the UNKNOWN value. At other times
+     we may use NOT_CONTAINED to mean not publicly contained. */
+  enum __sub_kind
+  {
+    __unknown = 0,              /* we have no idea */
+    __not_contained,            /* not contained within us (in some */
+                                /* circumstances this might mean not contained */
+                                /* publicly) */
+    __contained_ambig,          /* contained ambiguously */
+    
+    __contained_virtual_mask = __base_class_info::virtual_mask, /* via a virtual path */
+    __contained_public_mask = __base_class_info::public_mask,   /* via a public path */
+    __contained_mask = 1 << __base_class_info::hwm_bit,         /* contained within us */
+    
+    __contained_private = __contained_mask,
+    __contained_public = __contained_mask | __contained_public_mask
+  };
+
+public:  
+  struct __upcast_result;
+  struct __dyncast_result;
+
+/* implementation defined member functions */
+protected:
+  virtual bool __do_upcast (const __class_type_info *__dst_type, void **__obj_ptr) const;
+
+protected:
+  virtual bool __do_catch (const type_info *__thr_type, void **__thr_obj,
+                           unsigned __outer) const;
+
+
+public:
+  /* Helper for upcast. See if DST is us, or one of our bases. */
+  /* Return false if not found, true if found. */
+  virtual bool __do_upcast (const __class_type_info *__dst,
+                            const void *__obj,
+                            __upcast_result &__restrict __result) const;
+
+public:
+  /* Indicate whether SRC_PTR of type SRC_TYPE is contained publicly within
+     OBJ_PTR. OBJ_PTR points to a base object of our type, which is the
+     destination type. SRC2DST indicates how SRC objects might be contained
+     within this type.  If SRC_PTR is one of our SRC_TYPE bases, indicate the
+     virtuality. Returns not_contained for non containment or private
+     containment. */
+  inline __sub_kind __find_public_src (__PTRDIFF_TYPE__ __src2dst,
+                                       const void *__obj_ptr,
+                                       const __class_type_info *__src_type,
+                                       const void *__src_ptr) const;
+
+public:
+  /* dynamic cast helper. ACCESS_PATH gives the access from the most derived
+     object to this base. DST_TYPE indicates the desired type we want. OBJ_PTR
+     points to a base of our type within the complete object. SRC_TYPE
+     indicates the static type started from and SRC_PTR points to that base
+     within the most derived object. Fill in RESULT with what we find. Return
+     true if we have located an ambiguous match. */
+  virtual bool __do_dyncast (__PTRDIFF_TYPE__ __src2dst,
+                             __sub_kind __access_path,
+                             const __class_type_info *__dst_type,
+                             const void *__obj_ptr,
+                             const __class_type_info *__src_type,
+                             const void *__src_ptr,
+                             __dyncast_result &__result) const;
+public:
+  /* Helper for find_public_subobj. SRC2DST indicates how SRC_TYPE bases are
+     inherited by the type started from -- which is not necessarily the
+     current type. The current type will be a base of the destination type.
+     OBJ_PTR points to the current base. */
+  virtual __sub_kind __do_find_public_src (__PTRDIFF_TYPE__ __src2dst,
+                                           const void *__obj_ptr,
+                                           const __class_type_info *__src_type,
+                                           const void *__src_ptr) const;
+};
+
+/* type information for a class with a single non-virtual base */
+class __si_class_type_info
+  : public __class_type_info
+{
+/* abi defined member variables */
+protected:
+  const __class_type_info *base;    /* base type */
+
+/* abi defined member functions */
+public:
+  virtual ~__si_class_type_info ();
+public:
+  explicit __si_class_type_info (const char *__n,
+                                 const __class_type_info *__base)
+    : __class_type_info (__n), base (__base)
+    { }
+
+/* implementation defined member functions */
+protected:
+  virtual bool __do_dyncast (__PTRDIFF_TYPE__ __src2dst,
+                             __sub_kind __access_path,
+                             const __class_type_info *__dst_type,
+                             const void *__obj_ptr,
+                             const __class_type_info *__src_type,
+                             const void *__src_ptr,
+                             __dyncast_result &__result) const;
+  virtual __sub_kind __do_find_public_src (__PTRDIFF_TYPE__ __src2dst,
+                                           const void *__obj_ptr,
+                                           const __class_type_info *__src_type,
+                                           const void *__sub_ptr) const;
+  virtual bool __do_upcast (const __class_type_info *__dst,
+                            const void *__obj,
+                            __upcast_result &__restrict __result) const;
+};
+
+/* type information for a class with multiple and/or virtual bases */
+class __vmi_class_type_info : public __class_type_info {
+/* abi defined member variables */
+public:
+  int vmi_flags;                  /* details about the class heirarchy */
+  int vmi_base_count;             /* number of direct bases */
+  __base_class_info vmi_bases[1]; /* array of bases */
+  /* The array of bases uses the trailing array struct hack
+     so this class is not constructable with a normal constructor. It is
+     internally generated by the compiler. */
+
+/* abi defined member functions */
+public:
+  virtual ~__vmi_class_type_info ();
+public:
+  explicit __vmi_class_type_info (const char *__n,
+                                  int __flags)
+    : __class_type_info (__n), vmi_flags (__flags), vmi_base_count (0)
+    { }
+
+/* implementation defined types */
+public:
+  enum vmi_flags_masks {
+    non_diamond_repeat_mask = 0x1,   /* distinct instance of repeated base */
+    diamond_shaped_mask = 0x2,       /* diamond shaped multiple inheritance */
+    non_public_base_mask = 0x4,      /* has non-public direct or indirect base */
+    public_base_mask = 0x8,          /* has public base (direct) */
+    
+    __flags_unknown_mask = 0x10
+  };
+
+/* implementation defined member functions */
+protected:
+  virtual bool __do_dyncast (__PTRDIFF_TYPE__ __src2dst,
+                             __sub_kind __access_path,
+                             const __class_type_info *__dst_type,
+                             const void *__obj_ptr,
+                             const __class_type_info *__src_type,
+                             const void *__src_ptr,
+                             __dyncast_result &__result) const;
+  virtual __sub_kind __do_find_public_src (__PTRDIFF_TYPE__ __src2dst,
+                                           const void *__obj_ptr,
+                                           const __class_type_info *__src_type,
+                                           const void *__src_ptr) const;
+  virtual bool __do_upcast (const __class_type_info *__dst,
+                            const void *__obj,
+                            __upcast_result &__restrict __result) const;
+};
+
+/* dynamic cast runtime */
+extern "C++"
+void *__dynamic_cast (const void *__src_ptr,    /* object started from */
+                      const __class_type_info *__src_type, /* static type of object */
+                      const __class_type_info *__dst_type, /* desired target type */
+                      __PTRDIFF_TYPE__ __src2dst); /* how src and dst are related */
+
+    /* src2dst has the following possible values
+       >= 0: src_type is a unique public non-virtual base of dst_type
+             dst_ptr + src2dst == src_ptr
+       -1: unspecified relationship
+       -2: src_type is not a public base of dst_type
+       -3: src_type is a multiple public non-virtual base of dst_type */
+
+/* array ctor/dtor routines */
+
+/* allocate and construct array */
+extern "C++"
+void *__cxa_vec_new (__SIZE_TYPE__ __element_count,
+                     __SIZE_TYPE__ __element_size,
+                     __SIZE_TYPE__ __padding_size,
+                     void (*__constructor) (void *),
+                     void (*__destructor) (void *));
+
+/* construct array */
+extern "C++"
+void __cxa_vec_ctor (void *__array_address,
+                     __SIZE_TYPE__ __element_count,
+                     __SIZE_TYPE__ __element_size,
+                     void (*__constructor) (void *),
+                     void (*__destructor) (void *));
+
+/* destruct array */
+extern "C++"
+void __cxa_vec_dtor (void *__array_address,
+                     __SIZE_TYPE__ __element_count,
+                     __SIZE_TYPE__ __element_size,
+                     void (*__destructor) (void *));
+
+/* destruct and release array */
+extern "C++"
+void __cxa_vec_delete (void *__array_address,
+                       __SIZE_TYPE__ __element_size,
+                       __SIZE_TYPE__ __padding_size,
+                       void (*__destructor) (void *));
+
+} /* namespace __cxxabiv1 */
+
+/* User programs should use the alias `abi'. */
+namespace abi = __cxxabiv1;
+
+#else
+#endif /* __cplusplus */
+
+
+#endif /* __CXXABI_H */
+-------------- next part --------------
+// new abi support -*- C++ -*-
+// Copyright (C) 2000
+// Free Software Foundation, Inc.
+// Written by Nathan Sidwell, Codesourcery LLC, <nathan at codesourcery.com>
+// 
+// GNU CC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2, or (at your option)
+// any later version.
+
+// GNU CC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with GNU CC; see the file COPYING.  If not, write to
+// the Free Software Foundation, 59 Temple Place - Suite 330,
+// Boston, MA 02111-1307, USA. 
+
+// As a special exception, you may use this file as part of a free software
+// library without restriction.  Specifically, if other files instantiate
+// templates or use macros or inline functions from this file, or you compile
+// this file and link it with other files to produce an executable, this
+// file does not by itself cause the resulting executable to be covered by
+// the GNU General Public License.  This exception does not however
+// invalidate any other reasons why the executable file might be covered by
+// the GNU General Public License.
+
+#if defined(__GXX_ABI_VERSION) && __GXX_ABI_VERSION >= 100
+#include <cxxabi.h>
+#include <new>
+#include <exception>
+
+// Exception handling hook, to mark current exception as not caught --
+// generally because we're about to rethrow it after some cleanup.
+extern "C" void __uncatch_exception (void);
+
+namespace __cxxabiv1
+{
+
+/* allocate and construct array */
+extern "C++" void *
+__cxa_vec_new (size_t element_count,
+               size_t element_size,
+               size_t padding_size,
+               void (*constructor) (void *),
+               void (*destructor) (void *))
+{
+  size_t size = element_count * element_size + padding_size;
+  char *base = static_cast <char *> (operator new[] (size));
+  
+  if (padding_size)
+    {
+      base += padding_size;
+      reinterpret_cast <size_t *> (base)[-1] = element_count;
+    }
+  try
+    {
+      __cxa_vec_ctor (base, element_count, element_size,
+                      constructor, destructor);
+    }
+  catch (...)
+    {
+      // operator delete [] cannot throw, so no need to protect it
+      operator delete[] (base - padding_size);
+      throw;
+    }
+  return base;
+}
+
+/* construct array */
+extern "C++" void
+__cxa_vec_ctor (void *array_address,
+                size_t element_count,
+                size_t element_size,
+                void (*constructor) (void *),
+                void (*destructor) (void *))
+{
+  size_t ix = 0;
+  char *ptr = static_cast <char *> (array_address);
+  
+  try
+    {
+      if (constructor)
+        for (; ix != element_count; ix++, ptr += element_size)
+          constructor (ptr);
+    }
+  catch (...)
+    {
+      __uncatch_exception ();
+      __cxa_vec_dtor (array_address, ix, element_size, destructor);
+      throw;
+    }
+}
+
+/* destruct array */
+extern "C++" void
+__cxa_vec_dtor (void *array_address,
+                size_t element_count,
+                size_t element_size,
+                void (*destructor) (void *))
+{
+  if (destructor)
+    {
+      char *ptr = static_cast <char *> (array_address);
+      size_t ix = element_count;
+      bool unwinding = std::uncaught_exception ();
+      
+      ptr += element_count * element_size;
+      
+      try
+        {
+          while (ix--)
+            {
+              ptr -= element_size;
+              destructor (ptr);
+            }
+        }
+      catch (...)
+        {
+          if (unwinding)
+            // [except.ctor]/3 If a destructor called during stack unwinding
+            // exists with an exception, terminate is called.
+            std::terminate ();
+          __uncatch_exception ();
+          __cxa_vec_dtor (array_address, ix, element_size, destructor);
+          throw;
+        }
+    }
+}
+
+/* destruct and release array */
+extern "C++" void
+__cxa_vec_delete (void *array_address,
+                  size_t element_size,
+                  size_t padding_size,
+                  void (*destructor) (void *))
+{
+  char *base = static_cast <char *> (array_address);
+  
+  if (padding_size)
+    {
+      size_t element_count = reinterpret_cast <size_t *> (base)[-1];
+      base -= padding_size;
+      try
+        {
+          __cxa_vec_dtor (array_address, element_count, element_size,
+                          destructor);
+        }
+      catch (...)
+        {
+          // operator delete [] cannot throw, so no need to protect it
+          operator delete[] (base);
+          throw;
+        }
+    }
+  operator delete[] (base);
+}
+
+} // namespace __cxxabiv1
+
+#endif // defined(__GXX_ABI_VERSION) && __GXX_ABI_VERSION >= 100
+-------------- next part --------------
+// Methods for type_info for -*- C++ -*- Run Time Type Identification.
+// Copyright (C) 1994, 1996, 1998, 1999, 2000 Free Software Foundation
+
+// This file is part of GNU CC.
+
+// GNU CC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2, or (at your option)
+// any later version.
+
+// GNU CC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with GNU CC; see the file COPYING.  If not, write to
+// the Free Software Foundation, 59 Temple Place - Suite 330,
+// Boston, MA 02111-1307, USA. 
+
+// As a special exception, you may use this file as part of a free software
+// library without restriction.  Specifically, if other files instantiate
+// templates or use macros or inline functions from this file, or you compile
+// this file and link it with other files to produce an executable, this
+// file does not by itself cause the resulting executable to be covered by
+// the GNU General Public License.  This exception does not however
+// invalidate any other reasons why the executable file might be covered by
+// the GNU General Public License.
+
+#pragma implementation "typeinfo"
+
+#include <stddef.h>
+#include "tinfo.h"
+#include "new"			// for placement new
+
+// This file contains the minimal working set necessary to link with code
+// that uses virtual functions and -frtti but does not actually use RTTI
+// functionality.
+
+std::type_info::
+~type_info ()
+{ }
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+// original (old) abi
+
+namespace
+{
+// ADDR is a pointer to an object.  Convert it to a pointer to a base,
+// using OFFSET.
+inline void*
+convert_to_base (void *addr, bool is_virtual, myint32 offset)
+{
+  if (!addr)
+    return NULL;
+
+  if (!is_virtual)
+    return (char *) addr + offset;
+
+  // Under the old ABI, the offset gives us the address of a pointer
+  // to the virtual base.
+  return *((void **) ((char *) addr + offset));
+}
+
+}
+
+// We can't rely on common symbols being shared between shared objects.
+bool std::type_info::
+operator== (const std::type_info& arg) const
+{
+  return (&arg == this) || (__builtin_strcmp (name (), arg.name ()) == 0);
+}
+
+extern "C" void
+__rtti_class (void *addr, const char *name,
+	      const __class_type_info::base_info *bl, size_t bn)
+{ new (addr) __class_type_info (name, bl, bn); }
+
+extern "C" void
+__rtti_si (void *addr, const char *n, const std::type_info *ti)
+{
+  new (addr) __si_type_info
+    (n, static_cast <const __user_type_info &> (*ti));
+}
+
+extern "C" void
+__rtti_user (void *addr, const char *name)
+{ new (addr) __user_type_info (name); }
+
+// Upcast for catch checking. OBJPTR points to the thrown object and might be
+// NULL. Return 0 on failure, non-zero on success. Set *ADJPTR to adjusted
+// object pointer.
+int __user_type_info::
+upcast (const type_info &target, void *objptr,
+        void **adjptr) const
+{
+  upcast_result result;
+  
+  if (do_upcast (contained_public, target, objptr, result))
+    return 0;
+  *adjptr = result.target_obj;
+  return contained_public_p (result.whole2target);
+}
+
+// Down or cross cast for dynamic_cast. OBJPTR points to the most derrived
+// object, SUBPTR points to the static base object. Both must not be NULL.
+// TARGET specifies the desired target type, SUBTYPE specifies the static
+// type. Both must be defined. Returns adjusted object pointer on success,
+// NULL on failure. [expr.dynamic.cast]/8 says 'unambiguous public base'. This
+// itself is an ambiguous statement. We choose it to mean the base must be
+// separately unambiguous and public, rather than unambiguous considering only
+// public bases.
+void *__user_type_info::
+dyncast (int boff,
+         const type_info &target, void *objptr,
+         const type_info &subtype, void *subptr) const
+{
+  dyncast_result result;
+  
+  do_dyncast (boff, contained_public,
+              target, objptr, subtype, subptr, result);
+  if (!result.target_obj)
+    return NULL;
+  if (contained_public_p (result.target2sub))
+    return result.target_obj;
+  if (contained_public_p (sub_kind (result.whole2sub & result.whole2target)))
+    // Found a valid cross cast
+    return result.target_obj;
+  if (contained_nonvirtual_p (result.whole2sub))
+    // Found an invalid cross cast, which cannot also be a down cast
+    return NULL;
+  if (result.target2sub == unknown)
+    result.target2sub = static_cast <const __user_type_info &> (target)
+                        .find_public_subobj (boff, subtype,
+                                             result.target_obj, subptr);
+  if (contained_public_p (result.target2sub))
+    // Found a valid down cast
+    return result.target_obj;
+  // Must be an invalid down cast, or the cross cast wasn't bettered
+  return NULL;
+}
+
+// Catch cast helper. ACCESS_PATH is the access from the complete thrown
+// object to this base. TARGET is the desired type we want to catch. OBJPTR
+// points to this base within the throw object, it might be NULL. Fill in
+// RESULT with what we find. Return true, should we determine catch must fail.
+bool __user_type_info::
+do_upcast (sub_kind access_path,
+           const type_info &target, void *objptr,
+           upcast_result &__restrict result) const
+{
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.base_type = nonvirtual_base_type;
+      result.whole2target = access_path;
+      return contained_nonpublic_p (access_path);
+    }
+  return false;
+}
+
+// dynamic cast helper. ACCESS_PATH gives the access from the most derived
+// object to this base. TARGET indicates the desired type we want. OBJPTR
+// points to this base within the object. SUBTYPE indicates the static type
+// started from and SUBPTR points to that base within the most derived object.
+// Fill in RESULT with what we find. Return true if we have located an
+// ambiguous match.
+bool __user_type_info::
+do_dyncast (int, sub_kind access_path,
+            const type_info &target, void *objptr,
+            const type_info &subtype, void *subptr,
+            dyncast_result &__restrict result) const
+{
+  if (objptr == subptr && *this == subtype)
+    {
+      // The subobject we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2sub = access_path;
+      return false;
+    }
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.whole2target = access_path;
+      result.target2sub = not_contained;
+      return false;
+    }
+  return false;
+}
+
+// find_public_subobj helper. Return contained_public if we are the desired
+// subtype. OBJPTR points to this base type, SUBPTR points to the desired base
+// object.
+__user_type_info::sub_kind __user_type_info::
+do_find_public_subobj (int, const type_info &, void *objptr, void *subptr) const
+{
+  if (subptr == objptr)
+    // Must be our type, as the pointers match.
+    return contained_public;
+  return not_contained;
+}
+
+// catch helper for single public inheritance types. See
+// __user_type_info::do_upcast for semantics.
+bool __si_type_info::
+do_upcast (sub_kind access_path,
+           const type_info &target, void *objptr,
+           upcast_result &__restrict result) const
+{
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.base_type = nonvirtual_base_type;
+      result.whole2target = access_path;
+      return contained_nonpublic_p (access_path);
+    }
+  return base.do_upcast (access_path, target, objptr, result);
+}
+
+// dynamic cast helper for single public inheritance types. See
+// __user_type_info::do_dyncast for semantics. BOFF indicates how SUBTYPE
+// types are inherited by TARGET types.
+bool __si_type_info::
+do_dyncast (int boff, sub_kind access_path,
+            const type_info &target, void *objptr,
+            const type_info &subtype, void *subptr,
+            dyncast_result &__restrict result) const
+{
+  if (objptr == subptr && *this == subtype)
+    {
+      // The subobject we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2sub = access_path;
+      return false;
+    }
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.whole2target = access_path;
+      if (boff >= 0)
+        result.target2sub = ((char *)subptr - (char *)objptr) == boff
+              ? contained_public : not_contained;
+      else if (boff == -2)
+        result.target2sub = not_contained;
+      return false;
+    }
+  return base.do_dyncast (boff, access_path,
+                          target, objptr, subtype, subptr, result);
+}
+
+// find_public_subobj helper. See __user_type_info::do_find_public_subobj or
+// semantics. BOFF indicates how SUBTYPE types are inherited by the original
+// target object.
+__user_type_info::sub_kind __si_type_info::
+do_find_public_subobj (int boff, const type_info &subtype, void *objptr, void *subptr) const
+{
+  if (subptr == objptr && subtype == *this)
+    return contained_public;
+  return base.do_find_public_subobj (boff, subtype, objptr, subptr);
+}
+
+// catch helper for multiple or non-public inheritance types. See
+// __user_type_info::do_upcast for semantics.
+bool __class_type_info::
+do_upcast (sub_kind access_path,
+           const type_info &target, void *objptr,
+           upcast_result &__restrict result) const
+{
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.base_type = nonvirtual_base_type;
+      result.whole2target = access_path;
+      return contained_nonpublic_p (access_path);
+    }
+  
+  for (size_t i = n_bases; i--;)
+    {
+      upcast_result result2;
+      void *p = objptr;
+      sub_kind sub_access = access_path;
+      p = convert_to_base (p, 
+			   base_list[i].is_virtual,
+			   base_list[i].offset);
+      if (base_list[i].is_virtual)
+	sub_access = sub_kind (sub_access | contained_virtual_mask);
+      if (base_list[i].access != PUBLIC)
+        sub_access = sub_kind (sub_access & ~contained_public_mask);
+      if (base_list[i].base->do_upcast (sub_access, target, p, result2)
+          && !contained_virtual_p (result2.whole2target))
+        return true; // must fail
+      if (result2.base_type)
+        {
+          if (result2.base_type == nonvirtual_base_type
+              && base_list[i].is_virtual)
+            result2.base_type = base_list[i].base;
+          if (!result.base_type)
+            result = result2;
+          else if (result.target_obj != result2.target_obj)
+            {
+              // Found an ambiguity.
+	      result.target_obj = NULL;
+	      result.whole2target = contained_ambig;
+	      return true;
+            }
+          else if (result.target_obj)
+            {
+              // Ok, found real object via a virtual path.
+              result.whole2target
+                  = sub_kind (result.whole2target | result2.whole2target);
+            }
+          else
+            {
+              // Dealing with a null pointer, need to check vbase
+              // containing each of the two choices.
+              if (result2.base_type == nonvirtual_base_type
+                  || result.base_type == nonvirtual_base_type
+                  || !(*result2.base_type == *result.base_type))
+                {
+                  // Already ambiguous, not virtual or via different virtuals.
+                  // Cannot match.
+                  result.whole2target = contained_ambig;
+                  return true;
+                }
+              result.whole2target
+                  = sub_kind (result.whole2target | result2.whole2target);
+            }
+        }
+    }
+  return false;
+}
+
+// dynamic cast helper for non-public or multiple inheritance types. See
+// __user_type_info::do_dyncast for overall semantics.
+// This is a big hairy function. Although the run-time behaviour of
+// dynamic_cast is simple to describe, it gives rise to some non-obvious
+// behaviour. We also desire to determine as early as possible any definite
+// answer we can get. Because it is unknown what the run-time ratio of
+// succeeding to failing dynamic casts is, we do not know in which direction
+// to bias any optimizations. To that end we make no particular effort towards
+// early fail answers or early success answers. Instead we try to minimize
+// work by filling in things lazily (when we know we need the information),
+// and opportunisticly take early success or failure results.
+bool __class_type_info::
+do_dyncast (int boff, sub_kind access_path,
+            const type_info &target, void *objptr,
+            const type_info &subtype, void *subptr,
+            dyncast_result &__restrict result) const
+{
+  if (objptr == subptr && *this == subtype)
+    {
+      // The subobject we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2sub = access_path;
+      return false;
+    }
+  if (*this == target)
+    {
+      result.target_obj = objptr;
+      result.whole2target = access_path;
+      if (boff >= 0)
+        result.target2sub = ((char *)subptr - (char *)objptr) == boff
+              ? contained_public : not_contained;
+      else if (boff == -2)
+        result.target2sub = not_contained;
+      return false;
+    }
+  bool result_ambig = false;
+  for (size_t i = n_bases; i--;)
+    {
+      dyncast_result result2;
+      void *p;
+      sub_kind sub_access = access_path;
+      p = convert_to_base (objptr, 
+			   base_list[i].is_virtual,
+			   base_list[i].offset);
+      if (base_list[i].is_virtual)
+	sub_access = sub_kind (sub_access | contained_virtual_mask);
+      if (base_list[i].access != PUBLIC)
+        sub_access = sub_kind (sub_access & ~contained_public_mask);
+      
+      bool result2_ambig
+          = base_list[i].base->do_dyncast (boff, sub_access,
+                                           target, p, subtype, subptr, result2);
+      result.whole2sub = sub_kind (result.whole2sub | result2.whole2sub);
+      if (result2.target2sub == contained_public
+          || result2.target2sub == contained_ambig)
+        {
+          result.target_obj = result2.target_obj;
+          result.whole2target = result2.whole2target;
+          result.target2sub = result2.target2sub;
+          // Found a downcast which can't be bettered or an ambiguous downcast
+          // which can't be disambiguated
+          return result2_ambig;
+        }
+      
+      if (!result_ambig && !result.target_obj)
+        {
+          // Not found anything yet.
+          result.target_obj = result2.target_obj;
+          result.whole2target = result2.whole2target;
+          result_ambig = result2_ambig;
+        }
+      else if (result.target_obj && result.target_obj == result2.target_obj)
+        {
+          // Found at same address, must be via virtual.  Pick the most
+          // accessible path.
+          result.whole2target =
+              sub_kind (result.whole2target | result2.whole2target);
+        }
+      else if ((result.target_obj && result2.target_obj)
+               || (result_ambig && result2.target_obj)
+               || (result2_ambig && result.target_obj))
+        {
+          // Found two different TARGET bases, or a valid one and a set of
+          // ambiguous ones, must disambiguate. See whether SUBOBJ is
+          // contained publicly within one of the non-ambiguous choices.
+          // If it is in only one, then that's the choice. If it is in
+          // both, then we're ambiguous and fail. If it is in neither,
+          // we're ambiguous, but don't yet fail as we might later find a
+          // third base which does contain SUBPTR.
+        
+          sub_kind new_sub_kind = result2.target2sub;
+          sub_kind old_sub_kind = result.target2sub;
+          
+          if (contained_nonvirtual_p (result.whole2sub))
+            {
+              // We already found SUBOBJ as a non-virtual base of most
+              // derived. Therefore if it is in either choice, it can only be
+              // in one of them, and we will already know.
+              if (old_sub_kind == unknown)
+                old_sub_kind = not_contained;
+              if (new_sub_kind == unknown)
+                new_sub_kind = not_contained;
+            }
+          else
+            {
+              const __user_type_info &t =
+                  static_cast <const __user_type_info &> (target);
+              
+              if (old_sub_kind >= not_contained)
+                ;// already calculated
+              else if (contained_nonvirtual_p (new_sub_kind))
+                // Already found non-virtually inside the other choice,
+                // cannot be in this.
+                old_sub_kind = not_contained;
+              else
+                old_sub_kind = t.find_public_subobj (boff, subtype,
+                                                     result.target_obj, subptr);
+          
+              if (new_sub_kind >= not_contained)
+                ;// already calculated
+              else if (contained_nonvirtual_p (old_sub_kind))
+                // Already found non-virtually inside the other choice,
+                // cannot be in this.
+                new_sub_kind = not_contained;
+              else
+                new_sub_kind = t.find_public_subobj (boff, subtype,
+                                                     result2.target_obj, subptr);
+            }
+          
+          // Neither sub_kind can be contained_ambig -- we bail out early
+          // when we find those.
+          if (contained_p (sub_kind (new_sub_kind ^ old_sub_kind)))
+            {
+              // Only on one choice, not ambiguous.
+              if (contained_p (new_sub_kind))
+                {
+                  // Only in new.
+                  result.target_obj = result2.target_obj;
+                  result.whole2target = result2.whole2target;
+                  result_ambig = false;
+                  old_sub_kind = new_sub_kind;
+                }
+              result.target2sub = old_sub_kind;
+              if (result.target2sub == contained_public)
+                return false; // Can't be an ambiguating downcast for later discovery.
+            }
+          else if (contained_p (sub_kind (new_sub_kind & old_sub_kind)))
+            {
+              // In both.
+              result.target_obj = NULL;
+              result.target2sub = contained_ambig;
+              return true;  // Fail.
+            }
+          else
+            {
+              // In neither publicly, ambiguous for the moment, but keep
+              // looking. It is possible that it was private in one or
+              // both and therefore we should fail, but that's just tough.
+              result.target_obj = NULL;
+              result.target2sub = not_contained;
+              result_ambig = true;
+            }
+        }
+      
+      if (result.whole2sub == contained_private)
+        // We found SUBOBJ as a private non-virtual base, therefore all
+        // cross casts will fail. We have already found a down cast, if
+        // there is one.
+        return result_ambig;
+    }
+
+  return result_ambig;
+}
+
+// find_public_subobj helper for non-public or multiple inheritance types. See
+// __user_type_info::do_find_public_subobj for semantics. We make use of BOFF
+// to prune the base class walk.
+__user_type_info::sub_kind __class_type_info::
+do_find_public_subobj (int boff, const type_info &subtype, void *objptr, void *subptr) const
+{
+  if (objptr == subptr && subtype == *this)
+    return contained_public;
+  
+  for (size_t i = n_bases; i--;)
+    {
+      if (base_list[i].access != PUBLIC)
+        continue; // Not public, can't be here.
+      void *p;
+
+      if (base_list[i].is_virtual && boff == -3)
+	// Not a virtual base, so can't be here.
+	continue;
+      
+      p = convert_to_base (objptr, 
+			   base_list[i].is_virtual,
+			   base_list[i].offset);
+
+      sub_kind base_kind = base_list[i].base->do_find_public_subobj
+                              (boff, subtype, p, subptr);
+      if (contained_p (base_kind))
+        {
+          if (base_list[i].is_virtual)
+            base_kind = sub_kind (base_kind | contained_virtual_mask);
+          return base_kind;
+        }
+    }
+  
+  return not_contained;
+}
+#else
+// new abi
+
+namespace std {
+
+// return true if this is a type_info for a pointer type
+bool type_info::
+__is_pointer_p () const
+{
+  return false;
+}
+
+// return true if this is a type_info for a function type
+bool type_info::
+__is_function_p () const
+{
+  return false;
+}
+
+// try and catch a thrown object.
+bool type_info::
+__do_catch (const type_info *thr_type, void **, unsigned) const
+{
+  return *this == *thr_type;
+}
+
+// upcast from this type to the target. __class_type_info will override
+bool type_info::
+__do_upcast (const abi::__class_type_info *, void **) const
+{
+  return false;
+}
+
+};
+
+namespace {
+
+using namespace std;
+using namespace abi;
+
+// initial part of a vtable, this structure is used with offsetof, so we don't
+// have to keep alignments consistent manually.
+struct vtable_prefix {
+  ptrdiff_t whole_object;           // offset to most derived object
+  const __class_type_info *whole_type;  // pointer to most derived type_info
+  const void *origin;               // what a class's vptr points to
+};
+
+template <typename T>
+inline const T *
+adjust_pointer (const void *base, ptrdiff_t offset)
+{
+  return reinterpret_cast <const T *>
+    (reinterpret_cast <const char *> (base) + offset);
+}
+
+// ADDR is a pointer to an object.  Convert it to a pointer to a base,
+// using OFFSET. IS_VIRTUAL is true, if we are getting a virtual base.
+inline void const *
+convert_to_base (void const *addr, bool is_virtual, ptrdiff_t offset)
+{
+  if (is_virtual)
+    {
+      const void *vtable = *static_cast <const void *const *> (addr);
+      
+      offset = *adjust_pointer<ptrdiff_t> (vtable, offset);
+    }
+
+  return adjust_pointer<void> (addr, offset);
+}
+
+// some predicate functions for __class_type_info::__sub_kind
+inline bool contained_p (__class_type_info::__sub_kind access_path)
+{
+  return access_path >= __class_type_info::__contained_mask;
+}
+inline bool public_p (__class_type_info::__sub_kind access_path)
+{
+  return access_path & __class_type_info::__contained_public_mask;
+}
+inline bool virtual_p (__class_type_info::__sub_kind access_path)
+{
+  return (access_path & __class_type_info::__contained_virtual_mask);
+}
+inline bool contained_public_p (__class_type_info::__sub_kind access_path)
+{
+  return ((access_path & __class_type_info::__contained_public)
+          == __class_type_info::__contained_public);
+}
+inline bool contained_nonpublic_p (__class_type_info::__sub_kind access_path)
+{
+  return ((access_path & __class_type_info::__contained_public)
+          == __class_type_info::__contained_mask);
+}
+inline bool contained_nonvirtual_p (__class_type_info::__sub_kind access_path)
+{
+  return ((access_path & (__class_type_info::__contained_mask
+                          | __class_type_info::__contained_virtual_mask))
+          == __class_type_info::__contained_mask);
+}
+
+static const __class_type_info *const nonvirtual_base_type =
+    static_cast <const __class_type_info *> (0) + 1;
+
+}; // namespace
+
+namespace __cxxabiv1
+{
+
+__class_type_info::
+~__class_type_info ()
+{}
+
+__si_class_type_info::
+~__si_class_type_info ()
+{}
+
+__vmi_class_type_info::
+~__vmi_class_type_info ()
+{}
+
+// __upcast_result is used to hold information during traversal of a class
+// heirarchy when catch matching.
+struct __class_type_info::__upcast_result
+{
+  const void *dst_ptr;        // pointer to caught object
+  __sub_kind part2dst;        // path from current base to target
+  int src_details;            // hints about the source type heirarchy
+  const __class_type_info *base_type; // where we found the target,
+                              // if in vbase the __class_type_info of vbase
+                              // if a non-virtual base then 1
+                              // else NULL
+  public:
+  __upcast_result (int d)
+    :dst_ptr (NULL), part2dst (__unknown), src_details (d), base_type (NULL)
+    {}
+};
+
+// __dyncast_result is used to hold information during traversal of a class
+// heirarchy when dynamic casting.
+struct __class_type_info::__dyncast_result
+{
+  const void *dst_ptr;        // pointer to target object or NULL
+  __sub_kind whole2dst;       // path from most derived object to target
+  __sub_kind whole2src;       // path from most derived object to sub object
+  __sub_kind dst2src;         // path from target to sub object
+  int whole_details;          // details of the whole class heirarchy
+  
+  public:
+  __dyncast_result (int details_ = __vmi_class_type_info::__flags_unknown_mask)
+    :dst_ptr (NULL), whole2dst (__unknown),
+     whole2src (__unknown), dst2src (__unknown),
+     whole_details (details_)
+    {}
+};
+
+bool __class_type_info::
+__do_catch (const type_info *thr_type,
+            void **thr_obj,
+            unsigned outer) const
+{
+  if (*this == *thr_type)
+    return true;
+  if (outer >= 4)
+    // Neither `A' nor `A *'.
+    return false;
+  return thr_type->__do_upcast (this, thr_obj);
+}
+
+bool __class_type_info::
+__do_upcast (const __class_type_info *dst_type,
+             void **obj_ptr) const
+{
+  __upcast_result result (__vmi_class_type_info::__flags_unknown_mask);
+  
+  __do_upcast (dst_type, *obj_ptr, result);
+  if (!contained_public_p (result.part2dst))
+    return false;
+  *obj_ptr = const_cast <void *> (result.dst_ptr);
+  return true;
+}
+
+inline __class_type_info::__sub_kind __class_type_info::
+__find_public_src (ptrdiff_t src2dst,
+                   const void *obj_ptr,
+                   const __class_type_info *src_type,
+                   const void *src_ptr) const
+{
+  if (src2dst >= 0)
+    return adjust_pointer <void> (obj_ptr, src2dst) == src_ptr
+            ? __contained_public : __not_contained;
+  if (src2dst == -2)
+    return __not_contained;
+  return __do_find_public_src (src2dst, obj_ptr, src_type, src_ptr);
+}
+
+__class_type_info::__sub_kind __class_type_info::
+__do_find_public_src (ptrdiff_t,
+                      const void *obj_ptr,
+                      const __class_type_info *,
+                      const void *src_ptr) const
+{
+  if (src_ptr == obj_ptr)
+    // Must be our type, as the pointers match.
+    return __contained_public;
+  return __not_contained;
+}
+
+__class_type_info::__sub_kind __si_class_type_info::
+__do_find_public_src (ptrdiff_t src2dst,
+                      const void *obj_ptr,
+                      const __class_type_info *src_type,
+                      const void *src_ptr) const
+{
+  if (src_ptr == obj_ptr && *this == *src_type)
+    return __contained_public;
+  return base->__do_find_public_src (src2dst, obj_ptr, src_type, src_ptr);
+}
+
+__class_type_info::__sub_kind __vmi_class_type_info::
+__do_find_public_src (ptrdiff_t src2dst,
+                      const void *obj_ptr,
+                      const __class_type_info *src_type,
+                      const void *src_ptr) const
+{
+  if (obj_ptr == src_ptr && *this == *src_type)
+    return __contained_public;
+  
+  for (size_t i = vmi_base_count; i--;)
+    {
+      if (!vmi_bases[i].__is_public_p ())
+        continue; // Not public, can't be here.
+      
+      const void *base = obj_ptr;
+      ptrdiff_t offset = vmi_bases[i].__offset ();
+      bool is_virtual = vmi_bases[i].__is_virtual_p ();
+      
+      if (is_virtual)
+        {
+          if (src2dst == -3)
+            continue; // Not a virtual base, so can't be here.
+        }
+      base = convert_to_base (base, is_virtual, offset);
+      
+      __sub_kind base_kind = vmi_bases[i].base->__do_find_public_src
+                              (src2dst, base, src_type, src_ptr);
+      if (contained_p (base_kind))
+        {
+          if (is_virtual)
+            base_kind = __sub_kind (base_kind | __contained_virtual_mask);
+          return base_kind;
+        }
+    }
+  
+  return __not_contained;
+}
+
+bool __class_type_info::
+__do_dyncast (ptrdiff_t,
+              __sub_kind access_path,
+              const __class_type_info *dst_type,
+              const void *obj_ptr,
+              const __class_type_info *src_type,
+              const void *src_ptr,
+              __dyncast_result &__restrict result) const
+{
+  if (obj_ptr == src_ptr && *this == *src_type)
+    {
+      // The src object we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2src = access_path;
+      return false;
+    }
+  if (*this == *dst_type)
+    {
+      result.dst_ptr = obj_ptr;
+      result.whole2dst = access_path;
+      result.dst2src = __not_contained;
+      return false;
+    }
+  return false;
+}
+
+bool __si_class_type_info::
+__do_dyncast (ptrdiff_t src2dst,
+              __sub_kind access_path,
+              const __class_type_info *dst_type,
+              const void *obj_ptr,
+              const __class_type_info *src_type,
+              const void *src_ptr,
+              __dyncast_result &__restrict result) const
+{
+  if (*this == *dst_type)
+    {
+      result.dst_ptr = obj_ptr;
+      result.whole2dst = access_path;
+      if (src2dst >= 0)
+        result.dst2src = adjust_pointer <void> (obj_ptr, src2dst) == src_ptr
+              ? __contained_public : __not_contained;
+      else if (src2dst == -2)
+        result.dst2src = __not_contained;
+      return false;
+    }
+  if (obj_ptr == src_ptr && *this == *src_type)
+    {
+      // The src object we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2src = access_path;
+      return false;
+    }
+  return base->__do_dyncast (src2dst, access_path, dst_type, obj_ptr,
+                             src_type, src_ptr, result);
+}
+
+// This is a big hairy function. Although the run-time behaviour of
+// dynamic_cast is simple to describe, it gives rise to some non-obvious
+// behaviour. We also desire to determine as early as possible any definite
+// answer we can get. Because it is unknown what the run-time ratio of
+// succeeding to failing dynamic casts is, we do not know in which direction
+// to bias any optimizations. To that end we make no particular effort towards
+// early fail answers or early success answers. Instead we try to minimize
+// work by filling in things lazily (when we know we need the information),
+// and opportunisticly take early success or failure results.
+bool __vmi_class_type_info::
+__do_dyncast (ptrdiff_t src2dst,
+              __sub_kind access_path,
+              const __class_type_info *dst_type,
+              const void *obj_ptr,
+              const __class_type_info *src_type,
+              const void *src_ptr,
+              __dyncast_result &__restrict result) const
+{
+  if (result.whole_details & __flags_unknown_mask)
+    result.whole_details = vmi_flags;
+  
+  if (obj_ptr == src_ptr && *this == *src_type)
+    {
+      // The src object we started from. Indicate how we are accessible from
+      // the most derived object.
+      result.whole2src = access_path;
+      return false;
+    }
+  if (*this == *dst_type)
+    {
+      result.dst_ptr = obj_ptr;
+      result.whole2dst = access_path;
+      if (src2dst >= 0)
+        result.dst2src = adjust_pointer <void> (obj_ptr, src2dst) == src_ptr
+              ? __contained_public : __not_contained;
+      else if (src2dst == -2)
+        result.dst2src = __not_contained;
+      return false;
+    }
+
+  bool result_ambig = false;
+  for (size_t i = vmi_base_count; i--;)
+    {
+      __dyncast_result result2 (result.whole_details);
+      void const *base = obj_ptr;
+      __sub_kind base_access = access_path;
+      ptrdiff_t offset = vmi_bases[i].__offset ();
+      bool is_virtual = vmi_bases[i].__is_virtual_p ();
+      
+      if (is_virtual)
+        base_access = __sub_kind (base_access | __contained_virtual_mask);
+      base = convert_to_base (base, is_virtual, offset);
+
+      if (!vmi_bases[i].__is_public_p ())
+        {
+          if (src2dst == -2 &&
+              !(result.whole_details
+                & (non_diamond_repeat_mask | diamond_shaped_mask)))
+            // The hierarchy has no duplicate bases (which might ambiguate
+            // things) and where we started is not a public base of what we
+            // want (so it cannot be a downcast). There is nothing of interest
+            // hiding in a non-public base.
+            continue;
+          base_access = __sub_kind (base_access & ~__contained_public_mask);
+        }
+      
+      bool result2_ambig
+          = vmi_bases[i].base->__do_dyncast (src2dst, base_access,
+                                             dst_type, base,
+                                             src_type, src_ptr, result2);
+      result.whole2src = __sub_kind (result.whole2src | result2.whole2src);
+      if (result2.dst2src == __contained_public
+          || result2.dst2src == __contained_ambig)
+        {
+          result.dst_ptr = result2.dst_ptr;
+          result.whole2dst = result2.whole2dst;
+          result.dst2src = result2.dst2src;
+          // Found a downcast which can't be bettered or an ambiguous downcast
+          // which can't be disambiguated
+          return result2_ambig;
+        }
+      
+      if (!result_ambig && !result.dst_ptr)
+        {
+          // Not found anything yet.
+          result.dst_ptr = result2.dst_ptr;
+          result.whole2dst = result2.whole2dst;
+          result_ambig = result2_ambig;
+          if (result.dst_ptr && result.whole2src != __unknown
+              && !(vmi_flags & non_diamond_repeat_mask))
+            // Found dst and src and we don't have repeated bases.
+            return result_ambig;
+        }
+      else if (result.dst_ptr && result.dst_ptr == result2.dst_ptr)
+        {
+          // Found at same address, must be via virtual.  Pick the most
+          // accessible path.
+          result.whole2dst =
+              __sub_kind (result.whole2dst | result2.whole2dst);
+        }
+      else if ((result.dst_ptr != 0 | result_ambig)
+               && (result2.dst_ptr != 0 | result2_ambig))
+        {
+          // Found two different DST_TYPE bases, or a valid one and a set of
+          // ambiguous ones, must disambiguate. See whether SRC_PTR is
+          // contained publicly within one of the non-ambiguous choices. If it
+          // is in only one, then that's the choice. If it is in both, then
+          // we're ambiguous and fail. If it is in neither, we're ambiguous,
+          // but don't yet fail as we might later find a third base which does
+          // contain SRC_PTR.
+        
+          __sub_kind new_sub_kind = result2.dst2src;
+          __sub_kind old_sub_kind = result.dst2src;
+          
+          if (contained_p (result.whole2src)
+              && (!virtual_p (result.whole2src)
+                  || !(result.whole_details & diamond_shaped_mask)))
+            {
+              // We already found SRC_PTR as a base of most derived, and
+              // either it was non-virtual, or the whole heirarchy is
+              // not-diamond shaped. Therefore if it is in either choice, it
+              // can only be in one of them, and we will already know.
+              if (old_sub_kind == __unknown)
+                old_sub_kind = __not_contained;
+              if (new_sub_kind == __unknown)
+                new_sub_kind = __not_contained;
+            }
+          else
+            {
+              if (old_sub_kind >= __not_contained)
+                ;// already calculated
+              else if (contained_p (new_sub_kind)
+                       && (!virtual_p (new_sub_kind)
+                           || !(vmi_flags & diamond_shaped_mask)))
+                // Already found inside the other choice, and it was
+                // non-virtual or we are not diamond shaped.
+                old_sub_kind = __not_contained;
+              else
+                old_sub_kind = dst_type->__find_public_src
+                                (src2dst, result.dst_ptr, src_type, src_ptr);
+          
+              if (new_sub_kind >= __not_contained)
+                ;// already calculated
+              else if (contained_p (old_sub_kind)
+                       && (!virtual_p (old_sub_kind)
+                           || !(vmi_flags & diamond_shaped_mask)))
+                // Already found inside the other choice, and it was
+                // non-virtual or we are not diamond shaped.
+                new_sub_kind = __not_contained;
+              else
+                new_sub_kind = dst_type->__find_public_src
+                                (src2dst, result2.dst_ptr, src_type, src_ptr);
+            }
+          
+          // Neither sub_kind can be contained_ambig -- we bail out early
+          // when we find those.
+          if (contained_p (__sub_kind (new_sub_kind ^ old_sub_kind)))
+            {
+              // Only on one choice, not ambiguous.
+              if (contained_p (new_sub_kind))
+                {
+                  // Only in new.
+                  result.dst_ptr = result2.dst_ptr;
+                  result.whole2dst = result2.whole2dst;
+                  result_ambig = false;
+                  old_sub_kind = new_sub_kind;
+                }
+              result.dst2src = old_sub_kind;
+              if (public_p (result.dst2src))
+                return false; // Can't be an ambiguating downcast for later discovery.
+              if (!virtual_p (result.dst2src))
+                return false; // Found non-virtually can't be bettered
+            }
+          else if (contained_p (__sub_kind (new_sub_kind & old_sub_kind)))
+            {
+              // In both.
+              result.dst_ptr = NULL;
+              result.dst2src = __contained_ambig;
+              return true;  // Fail.
+            }
+          else
+            {
+              // In neither publicly, ambiguous for the moment, but keep
+              // looking. It is possible that it was private in one or
+              // both and therefore we should fail, but that's just tough.
+              result.dst_ptr = NULL;
+              result.dst2src = __not_contained;
+              result_ambig = true;
+            }
+        }
+      
+      if (result.whole2src == __contained_private)
+        // We found SRC_PTR as a private non-virtual base, therefore all
+        // cross casts will fail. We have already found a down cast, if
+        // there is one.
+        return result_ambig;
+    }
+
+  return result_ambig;
+}
+
+bool __class_type_info::
+__do_upcast (const __class_type_info *dst, const void *obj,
+             __upcast_result &__restrict result) const
+{
+  if (*this == *dst)
+    {
+      result.dst_ptr = obj;
+      result.base_type = nonvirtual_base_type;
+      result.part2dst = __contained_public;
+      return true;
+    }
+  return false;
+}
+
+bool __si_class_type_info::
+__do_upcast (const __class_type_info *dst, const void *obj_ptr,
+             __upcast_result &__restrict result) const
+{
+  if (__class_type_info::__do_upcast (dst, obj_ptr, result))
+    return true;
+  
+  return base->__do_upcast (dst, obj_ptr, result);
+}
+
+bool __vmi_class_type_info::
+__do_upcast (const __class_type_info *dst, const void *obj_ptr,
+             __upcast_result &__restrict result) const
+{
+  if (__class_type_info::__do_upcast (dst, obj_ptr, result))
+    return true;
+  
+  int src_details = result.src_details;
+  if (src_details & __flags_unknown_mask)
+    src_details = vmi_flags;
+  
+  for (size_t i = vmi_base_count; i--;)
+    {
+      __upcast_result result2 (src_details);
+      const void *base = obj_ptr;
+      ptrdiff_t offset = vmi_bases[i].__offset ();
+      bool is_virtual = vmi_bases[i].__is_virtual_p ();
+      bool is_public = vmi_bases[i].__is_public_p ();
+      
+      if (!is_public && !(src_details & non_diamond_repeat_mask))
+        // original cannot have an ambiguous base, so skip private bases
+        continue;
+
+      if (base)
+        base = convert_to_base (base, is_virtual, offset);
+      
+      if (vmi_bases[i].base->__do_upcast (dst, base, result2))
+        {
+          if (result2.base_type == nonvirtual_base_type && is_virtual)
+            result2.base_type = vmi_bases[i].base;
+          if (contained_p (result2.part2dst) && !is_public)
+            result2.part2dst = __sub_kind (result2.part2dst & ~__contained_public_mask);
+          
+          if (!result.base_type)
+            {
+              result = result2;
+              if (!contained_p (result.part2dst))
+                return true; // found ambiguously
+              
+              if (result.part2dst & __contained_public_mask)
+                {
+                  if (!(vmi_flags & non_diamond_repeat_mask))
+                    return true;  // cannot have an ambiguous other base
+                }
+              else
+                {
+                  if (!virtual_p (result.part2dst))
+                    return true; // cannot have another path
+                  if (!(vmi_flags & diamond_shaped_mask))
+                    return true; // cannot have a more accessible path
+                }
+            }
+          else if (result.dst_ptr != result2.dst_ptr)
+            {
+              // Found an ambiguity.
+	      result.dst_ptr = NULL;
+	      result.part2dst = __contained_ambig;
+	      return true;
+            }
+          else if (result.dst_ptr)
+            {
+              // Ok, found real object via a virtual path.
+              result.part2dst
+                  = __sub_kind (result.part2dst | result2.part2dst);
+            }
+          else
+            {
+              // Dealing with a null pointer, need to check vbase
+              // containing each of the two choices.
+              if (result2.base_type == nonvirtual_base_type
+                  || result.base_type == nonvirtual_base_type
+                  || !(*result2.base_type == *result.base_type))
+                {
+                  // Already ambiguous, not virtual or via different virtuals.
+                  // Cannot match.
+                  result.part2dst = __contained_ambig;
+                  return true;
+                }
+              result.part2dst
+                  = __sub_kind (result.part2dst | result2.part2dst);
+            }
+        }
+    }
+  return result.part2dst != __unknown;
+}
+
+// this is the external interface to the dynamic cast machinery
+extern "C++" void *
+__dynamic_cast (const void *src_ptr,    // object started from
+                const __class_type_info *src_type, // type of the starting object
+                const __class_type_info *dst_type, // desired target type
+                ptrdiff_t src2dst) // how src and dst are related
+{
+  const void *vtable = *static_cast <const void *const *> (src_ptr);
+  const vtable_prefix *prefix =
+      adjust_pointer <vtable_prefix> (vtable, 
+				      -offsetof (vtable_prefix, origin));
+  const void *whole_ptr =
+      adjust_pointer <void> (src_ptr, prefix->whole_object);
+  const __class_type_info *whole_type = prefix->whole_type;
+  __class_type_info::__dyncast_result result;
+  
+  whole_type->__do_dyncast (src2dst, __class_type_info::__contained_public,
+                            dst_type, whole_ptr, src_type, src_ptr, result);
+  if (!result.dst_ptr)
+    return NULL;
+  if (contained_public_p (result.dst2src))
+    // Src is known to be a public base of dst.
+    return const_cast <void *> (result.dst_ptr);
+  if (contained_public_p (__class_type_info::__sub_kind (result.whole2src & result.whole2dst)))
+    // Both src and dst are known to be public bases of whole. Found a valid
+    // cross cast.
+    return const_cast <void *> (result.dst_ptr);
+  if (contained_nonvirtual_p (result.whole2src))
+    // Src is known to be a non-public nonvirtual base of whole, and not a
+    // base of dst. Found an invalid cross cast, which cannot also be a down
+    // cast
+    return NULL;
+  if (result.dst2src == __class_type_info::__unknown)
+    result.dst2src = dst_type->__find_public_src (src2dst, result.dst_ptr,
+                                                  src_type, src_ptr);
+  if (contained_public_p (result.dst2src))
+    // Found a valid down cast
+    return const_cast <void *> (result.dst_ptr);
+  // Must be an invalid down cast, or the cross cast wasn't bettered
+  return NULL;
+}
+
+}; // namespace __cxxabiv1
+#endif
+-------------- next part --------------
+// RTTI support internals for -*- C++ -*-
+// Copyright (C) 1994, 1995, 1996, 1998, 1999, 2000 Free Software Foundation
+
+#include "typeinfo"
+
+// Class declarations shared between the typeinfo implementation files.
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+// original (old) abi
+
+// type_info for a class with no base classes (or an enum).
+
+struct __user_type_info : public std::type_info {
+  __user_type_info (const char *n) : type_info (n) {}
+
+  // If our type can be upcast to a public and unambiguous base, then return
+  // non-zero and set RES to point to the base object. OBJ points to the throw
+  // object and can be NULL, if there is no object to adjust.
+  int upcast (const type_info &target, void *obj, void **res) const;
+  
+  // If our type can be dynamicly cast to the target type, then return
+  // pointer to the target object. OBJ is the pointer to the most derived
+  // type and cannot be NULL. SUBTYPE and SUBOBJ indicate the static type
+  // base object from whence we came, it cannot be NULL. SUBTYPE cannot be
+  // the same as TARGET. TARGET cannot be a base of SUBTYPE.
+  // BOFF indicates how SUBTYPE is related to TARGET.
+  // BOFF >= 0, there is only one public non-virtual SUBTYPE base at offset
+  //    BOFF, and there are no public virtual SUBTYPE bases.
+  //    Therefore check if SUBOBJ is at offset BOFF when we find a target
+  // BOFF == -1, SUBTYPE occurs as multiple public virtual or non-virtual bases.
+  //    Lazily search all the bases of TARGET.
+  // BOFF == -2, SUBTYPE is not a public base.
+  // BOFF == -3, SUBTYPE occurs as multiple public non-virtual bases.
+  //    Lazily search the non-virtual bases of TARGET.
+  // For backwards compatibility set BOFF to -1, that is the safe "unknown"
+  // value. We do not care about SUBTYPES as private bases of TARGET, as they
+  // can never succeed as downcasts, only as crosscasts -- and then only if
+  // they are virtual. This is more complicated that it might seem.
+  void *dyncast (int boff,
+                 const type_info &target, void *obj,
+                 const type_info &subtype, void *subobj) const;
+  
+  // non_virtual_base_type is used to indicate that a base class is via a
+  // non-virtual access path.
+  static const type_info *const nonvirtual_base_type
+      = static_cast <const type_info *> (0) + 1;
+  
+  // sub_kind tells us about how a base object is contained within a derived
+  // object. We often do this lazily, hence the UNKNOWN value. At other times
+  // we may use NOT_CONTAINED to mean not publicly contained.
+  enum sub_kind
+  {
+    unknown = 0,              // we have no idea
+    not_contained,            // not contained within us (in some
+                              // circumstances this might mean not contained
+                              // publicly)
+    contained_ambig,          // contained ambiguously
+    contained_mask = 4,       // contained within us
+    contained_virtual_mask = 1, // via a virtual path
+    contained_public_mask = 2,  // via a public path
+    contained_private = contained_mask,
+    contained_public = contained_mask | contained_public_mask
+  };
+  // some predicate functions for sub_kind
+  static inline bool contained_p (sub_kind access_path)
+  {
+    return access_path >= contained_mask;
+  }
+  static inline bool contained_public_p (sub_kind access_path)
+  {
+    return access_path >= contained_public;
+  }
+  static inline bool contained_nonpublic_p (sub_kind access_path)
+  {
+    return (access_path & contained_public) == contained_mask;
+  }
+  static inline bool contained_nonvirtual_p (sub_kind access_path)
+  {
+    return (access_path & (contained_mask | contained_virtual_mask))
+           == contained_mask;
+  }
+  static inline bool contained_virtual_p (sub_kind access_path)
+  {
+    return (access_path & (contained_mask | contained_virtual_mask))
+           == (contained_mask | contained_virtual_mask);
+  }
+  
+  struct upcast_result
+  {
+    void *target_obj;   // pointer to target object or NULL (init NULL)
+    sub_kind whole2target;      // path from most derived object to target
+    const type_info *base_type; // where we found the target, (init NULL)
+                                // if in vbase the __user_type_info of vbase)
+                                // if a non-virtual base then 1
+                                // else NULL
+    public:
+    upcast_result ()
+      :target_obj (NULL), whole2target (unknown), base_type (NULL)
+      {}
+  };
+  struct dyncast_result
+  {
+    void *target_obj;   // pointer to target object or NULL (init NULL)
+    sub_kind whole2target;      // path from most derived object to target
+    sub_kind whole2sub;         // path from most derived object to sub object
+    sub_kind target2sub;        // path from target to sub object
+    
+    public:
+    dyncast_result ()
+      :target_obj (NULL), whole2target (unknown),
+       whole2sub (unknown), target2sub (unknown)
+      {}
+  };
+  
+  public:
+  // Helper for upcast. See if TARGET is us, or one of our bases. ACCESS_PATH
+  // gives the access from the start object. Return TRUE if we know the catch
+  // fails.
+  virtual bool do_upcast (sub_kind access_path,
+                          const type_info &target, void *obj,
+                          upcast_result &__restrict result) const;
+  // Helper for dyncast. BOFF indicates how the SUBTYPE is related to TARGET.
+  // ACCESS_PATH indicates the access from the most derived object.  It is
+  // used to prune the DAG walk. All information about what we find is put
+  // into RESULT. Return true, if the match we have found is ambiguous.
+  virtual bool do_dyncast (int boff, sub_kind access_path,
+                           const type_info &target, void *obj,
+                           const type_info &subtype, void *subptr,
+                           dyncast_result &__restrict result) const;
+  public:
+  // Indicate whether SUBPTR of type SUBTYPE is contained publicly within
+  // OBJPTR. OBJPTR points to this base object. BOFF indicates how SUBTYPE
+  // objects might be contained within this type.  If SUBPTR is one of our
+  // SUBTYPE bases, indicate virtuality. Returns not_contained for non
+  // containment or private containment.
+  sub_kind find_public_subobj (int boff, const type_info &subtype,
+                               void *objptr, void *subptr) const
+  {
+    if (boff >= 0)
+      return ((char *)subptr - (char *)objptr) == boff
+              ? contained_public : not_contained;
+    if (boff == -2)
+      return not_contained;
+    return do_find_public_subobj (boff, subtype, objptr, subptr);
+  }
+  
+  public:
+  // Helper for find_subobj. BOFF indicates how SUBTYPE bases are inherited by
+  // the type started from -- which is not necessarily the current type.
+  // OBJPTR points to the current base.
+  virtual sub_kind do_find_public_subobj (int boff, const type_info &subtype,
+                                          void *objptr, void *subptr) const;
+};
+
+// type_info for a class with one public, nonvirtual base class.
+
+class __si_type_info : public __user_type_info {
+  const __user_type_info &base;
+
+public:
+  __si_type_info (const char *n, const __user_type_info &b)
+    : __user_type_info (n), base (b) { }
+
+  private:
+  virtual bool do_upcast (sub_kind access_path,
+                          const type_info &target, void *obj,
+                          upcast_result &__restrict result) const;
+  virtual bool do_dyncast (int boff, sub_kind access_path,
+                           const type_info &target, void *obj,
+                           const type_info &subtype, void *subptr,
+                           dyncast_result &__restrict result) const;
+  virtual sub_kind do_find_public_subobj (int boff, const type_info &subtype,
+                                          void *objptr, void *subptr) const;
+};
+
+// type_info for a general class.
+
+// Kludge, kludge, kludge.
+#include "tconfig.h"
+
+#if BITS_PER_UNIT == 8
+typedef int myint32 __attribute__ ((mode (SI)));
+#elif BITS_PER_UNIT == 16
+typedef int myint32 __attribute__ ((mode (HI)));
+#elif BITS_PER_UNIT == 32
+typedef int myint32 __attribute__ ((mode (QI)));
+#endif
+
+struct __class_type_info : public __user_type_info {
+  enum access { PUBLIC = 1, PROTECTED = 2, PRIVATE = 3 };
+
+  struct base_info {
+    const __user_type_info *base;
+    myint32 offset: 29;
+    bool is_virtual: 1;
+    enum access access: 2;
+  };
+
+  const base_info *base_list;
+  size_t n_bases;
+
+  __class_type_info (const char *name, const base_info *bl, size_t bn)
+    : __user_type_info (name), base_list (bl), n_bases (bn) {}
+
+  public:
+  virtual bool do_upcast (sub_kind access_path,
+                          const type_info &target, void *obj,
+                          upcast_result &__restrict result) const;
+  virtual bool do_dyncast (int boff, sub_kind access_path,
+                           const type_info &target, void *obj,
+                           const type_info &subtype, void *subptr,
+                           dyncast_result &__restrict result) const;
+  virtual sub_kind do_find_public_subobj (int boff, const type_info &subtype,
+                                          void *objptr, void *subptr) const;
+};
+#else
+// new abi
+#include <cxxabi.h>
+
+#endif
+-------------- next part --------------
+// Methods for type_info for -*- C++ -*- Run Time Type Identification.
+// Copyright (C) 1994, 1996, 1997, 1998, 1999, 2000 Free Software Foundation
+
+// This file is part of GNU CC.
+
+// GNU CC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2, or (at your option)
+// any later version.
+
+// GNU CC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with GNU CC; see the file COPYING.  If not, write to
+// the Free Software Foundation, 59 Temple Place - Suite 330,
+// Boston, MA 02111-1307, USA. 
+
+// As a special exception, you may use this file as part of a free software
+// library without restriction.  Specifically, if other files instantiate
+// templates or use macros or inline functions from this file, or you compile
+// this file and link it with other files to produce an executable, this
+// file does not by itself cause the resulting executable to be covered by
+// the GNU General Public License.  This exception does not however
+// invalidate any other reasons why the executable file might be covered by
+// the GNU General Public License.
+
+#include <stddef.h>
+#include "tinfo.h"
+#include "new"			// for placement new
+
+// We can't rely on having stdlib.h if we're freestanding.
+extern "C" void abort ();
+
+using std::type_info;
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+bool
+type_info::before (const type_info &arg) const
+{
+  return __builtin_strcmp (name (), arg.name ()) < 0;
+}
+
+// type info for pointer type.
+
+struct __pointer_type_info : public type_info {
+  const type_info& type;
+
+  __pointer_type_info (const char *n, const type_info& ti)
+    : type_info (n), type (ti) {}
+};
+
+// type info for attributes
+
+struct __attr_type_info : public type_info {
+  enum cv { NONE = 0, CONST = 1, VOLATILE = 2, CONSTVOL = 1 | 2 };
+
+  const type_info& type;
+  cv attr;
+
+  __attr_type_info (const char *n, cv a, const type_info& t)
+    : type_info (n), type (t), attr (a) {}
+};
+
+// type_info for builtin type
+
+struct __builtin_type_info : public type_info {
+  __builtin_type_info (const char *n): type_info (n) {}
+};
+
+// type info for function.
+
+struct __func_type_info : public type_info {
+  __func_type_info (const char *n) : type_info (n) {}
+};
+
+// type info for pointer to member function.
+
+struct __ptmf_type_info : public type_info {
+  __ptmf_type_info (const char *n) : type_info (n) {}
+};
+
+// type info for pointer to data member.
+
+struct __ptmd_type_info : public type_info {
+  __ptmd_type_info (const char *n): type_info (n) {}
+};
+
+// type info for array.
+
+struct __array_type_info : public type_info {
+  __array_type_info (const char *n): type_info (n) {}
+};
+
+#else
+
+#include <cxxabi.h>
+#endif
+
+#if defined(__GXX_ABI_VERSION) && __GXX_ABI_VERSION >= 100
+namespace __cxxabiv1 {
+
+using namespace std;
+
+// This has special meaning to the compiler, and will cause it
+// to emit the type_info structures for the fundamental types which are
+// mandated to exist in the runtime.
+__fundamental_type_info::
+~__fundamental_type_info ()
+{}
+
+__array_type_info::
+~__array_type_info ()
+{}
+
+__function_type_info::
+~__function_type_info ()
+{}
+
+__enum_type_info::
+~__enum_type_info ()
+{}
+
+__pbase_type_info::
+~__pbase_type_info ()
+{}
+
+__pointer_type_info::
+~__pointer_type_info ()
+{}
+
+__pointer_to_member_type_info::
+~__pointer_to_member_type_info ()
+{}
+
+bool __pointer_type_info::
+__is_pointer_p () const
+{
+  return true;
+}
+
+bool __function_type_info::
+__is_function_p () const
+{
+  return true;
+}
+
+bool __pbase_type_info::
+__do_catch (const type_info *thr_type,
+            void **thr_obj,
+            unsigned outer) const
+{
+  if (*this == *thr_type)
+    return true;      // same type
+  if (typeid (*this) != typeid (*thr_type))
+    return false;     // not both same kind of pointers
+  
+  if (!(outer & 1))
+    // We're not the same and our outer pointers are not all const qualified
+    // Therefore there must at least be a qualification conversion involved
+    // But for that to be valid, our outer pointers must be const qualified.
+    return false;
+  
+  const __pbase_type_info *thrown_type =
+    static_cast <const __pbase_type_info *> (thr_type);
+  
+  if (thrown_type->quals & ~quals)
+    // We're less qualified.
+    return false;
+  
+  if (!(quals & const_mask))
+    outer &= ~1;
+  
+  return __pointer_catch (thrown_type, thr_obj, outer);
+}
+
+inline bool __pbase_type_info::
+__pointer_catch (const __pbase_type_info *thrown_type,
+                 void **thr_obj,
+                 unsigned outer) const
+{
+  return type->__do_catch (thrown_type->type, thr_obj, outer + 2);
+}
+
+bool __pointer_type_info::
+__pointer_catch (const __pbase_type_info *thrown_type,
+                 void **thr_obj,
+                 unsigned outer) const
+{
+  if (outer < 2 && *type == typeid (void))
+    {
+      // conversion to void
+      return !thrown_type->type->__is_function_p ();
+    }
+  
+  return __pbase_type_info::__pointer_catch (thrown_type, thr_obj, outer);
+}
+
+bool __pointer_to_member_type_info::
+__pointer_catch (const __pbase_type_info *thr_type,
+                 void **thr_obj,
+                 unsigned outer) const
+{
+  // This static cast is always valid, as our caller will have determined that
+  // thr_type is really a __pointer_to_member_type_info.
+  const __pointer_to_member_type_info *thrown_type =
+    static_cast <const __pointer_to_member_type_info *> (thr_type);
+  
+  if (*klass != *thrown_type->klass)
+    return false;     // not pointers to member of same class
+  
+  return __pbase_type_info::__pointer_catch (thrown_type, thr_obj, outer);
+}
+
+} // namespace std
+#endif
+
+// Entry points for the compiler.
+
+/* Low level match routine used by compiler to match types of catch
+   variables and thrown objects.  */
+
+extern "C" int
+__throw_type_match_rtti_2 (const void *catch_type_r, const void *throw_type_r,
+			 void *objptr, void **valp)
+{
+  const type_info &catch_type = *(const type_info *)catch_type_r;
+  const type_info &throw_type = *(const type_info *)throw_type_r;
+
+  *valp = objptr;
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+// old abi
+  if (catch_type == throw_type)
+    return 1;
+  
+  if (const __user_type_info *p
+      = dynamic_cast <const __user_type_info *> (&throw_type))
+    {
+      return p->upcast (catch_type, objptr, valp);
+    }
+  else if (const __pointer_type_info *fr =
+	   dynamic_cast <const __pointer_type_info *> (&throw_type))
+    {
+      const __pointer_type_info *to =
+	   dynamic_cast <const __pointer_type_info *> (&catch_type);
+
+      if (! to)
+	return 0;
+
+      const type_info *subfr = &fr->type, *subto = &to->type;
+      __attr_type_info::cv cvfrom, cvto;
+
+      if (const __attr_type_info *at
+	  = dynamic_cast <const __attr_type_info *> (subfr))
+	{
+	  cvfrom = at->attr;
+	  subfr = &at->type;
+	}
+      else
+	cvfrom = __attr_type_info::NONE;
+      
+      if (const __attr_type_info *at
+	  = dynamic_cast <const __attr_type_info *> (subto))
+	{
+	  cvto = at->attr;
+	  subto = &at->type;
+	}
+      else
+	cvto = __attr_type_info::NONE;
+
+      if (((cvfrom & __attr_type_info::CONST)
+	   > (cvto & __attr_type_info::CONST))
+	  || ((cvfrom & __attr_type_info::VOLATILE)
+	      > (cvto & __attr_type_info::VOLATILE)))
+	return 0;
+
+      if (*subto == *subfr)
+	return 1;
+      else if (*subto == typeid (void)
+	       && dynamic_cast <const __func_type_info *> (subfr) == 0)
+	return 1;
+      else if (const __user_type_info *p
+	       = dynamic_cast <const __user_type_info *> (subfr))
+	return p->upcast (*subto, objptr, valp);
+      else if (const __pointer_type_info *pfr
+	       = dynamic_cast <const __pointer_type_info *> (subfr))
+	{
+	  // Multi-level pointer conversion.
+
+	  const __pointer_type_info *pto
+	    = dynamic_cast <const __pointer_type_info *> (subto);
+
+	  if (! pto)
+	    return 0;
+	    
+	  bool constp = (cvto & __attr_type_info::CONST);
+	  for (subto = &pto->type, subfr = &pfr->type; ;
+	       subto = &pto->type, subfr = &pfr->type)
+	    {
+	      if (const __attr_type_info *at
+		  = dynamic_cast <const __attr_type_info *> (subfr))
+		{
+		  cvfrom = at->attr;
+		  subfr = &at->type;
+		}
+	      else
+		cvfrom = __attr_type_info::NONE;
+      
+	      if (const __attr_type_info *at
+		  = dynamic_cast <const __attr_type_info *> (subto))
+		{
+		  cvto = at->attr;
+		  subto = &at->type;
+		}
+	      else
+		cvto = __attr_type_info::NONE;
+
+	      if (((cvfrom & __attr_type_info::CONST)
+		   > (cvto & __attr_type_info::CONST))
+		  || ((cvfrom & __attr_type_info::VOLATILE)
+		      > (cvto & __attr_type_info::VOLATILE)))
+		return 0;
+
+	      if (! constp
+		  && (((cvfrom & __attr_type_info::CONST)
+		       < (cvto & __attr_type_info::CONST))
+		      || ((cvfrom & __attr_type_info::VOLATILE)
+			  < (cvto & __attr_type_info::VOLATILE))))
+		return 0;
+
+	      if (*subto == *subfr)
+		return 1;
+
+	      pto = dynamic_cast <const __pointer_type_info *> (subto);
+	      pfr = dynamic_cast <const __pointer_type_info *> (subfr);
+	      if (! pto || ! pfr)
+		return 0;		
+
+	      if (! (cvto & __attr_type_info::CONST))
+		constp = false;
+	    }
+	}
+    }
+#else
+// new abi
+  
+  return catch_type.__do_catch (&throw_type, valp, 1);
+#endif
+  return 0;
+}
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+/* Backward compatibility wrapper.  */
+
+extern "C" void*
+__throw_type_match_rtti (const void *catch_type_r, const void *throw_type_r,
+			 void *objptr)
+{
+  void *ret;
+  if (__throw_type_match_rtti_2 (catch_type_r, throw_type_r, objptr, &ret))
+    return ret;
+  return NULL;
+}
+#endif
+
+/* Called from __cp_pop_exception.  Is P the type_info node for a pointer
+   of some kind?  */
+
+bool
+__is_pointer (void *p)
+{
+  const type_info *t = reinterpret_cast <const type_info *>(p);
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+// old abi
+  const __pointer_type_info *pt =
+    dynamic_cast <const __pointer_type_info *> (t);
+  return pt != 0;
+#else
+// new abi
+  return t->__is_pointer_p ();
+#endif
+}
+
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+// old abi
+
+extern "C" void
+__rtti_ptr (void *addr, const char *n, const type_info *ti)
+{ new (addr) __pointer_type_info (n, *ti); }
+
+extern "C" void
+__rtti_attr (void *addr, const char *n, int attrval, const type_info *ti)
+{
+  new (addr) __attr_type_info
+    (n, static_cast <__attr_type_info::cv> (attrval), *ti);
+}
+
+extern "C" void
+__rtti_func (void *addr, const char *name)
+{ new (addr) __func_type_info (name); }
+
+extern "C" void
+__rtti_ptmf (void *addr, const char *name)
+{ new (addr) __ptmf_type_info (name); }
+
+extern "C" void
+__rtti_ptmd (void *addr, const char *name)
+{ new (addr) __ptmd_type_info (name); }
+
+extern "C" void
+__rtti_array (void *addr, const char *name)
+{ new (addr) __array_type_info (name); }
+
+extern "C" void *
+__dynamic_cast (const type_info& (*from)(void), const type_info& (*to)(void),
+		int require_public, void *address, const type_info & (*sub)(void), void *subptr)
+{
+  if (!require_public) abort();
+  return static_cast <__user_type_info const &> (from ()).dyncast
+      (/*boff=*/-1, to (), address, sub (), subptr);
+}
+
+extern "C" void *
+__dynamic_cast_2 (const type_info& (*from)(void), const type_info& (*to)(void),
+                  int boff,
+		  void *address, const type_info & (*sub)(void), void *subptr)
+{
+  return static_cast <__user_type_info const &> (from ()).dyncast
+      (boff, to (), address, sub (), subptr);
+}
+
+// type_info nodes and functions for the builtin types.  The mangling here
+// must match the mangling in gcc/cp/rtti.c.
+
+#define BUILTIN(mangled)					\
+unsigned char __ti##mangled [sizeof (__builtin_type_info)]	\
+  __attribute__ ((aligned (__alignof__ (void *))));		\
+extern "C" const type_info &__tf##mangled (void) {		\
+  if ((*(void **) __ti##mangled) == 0)				\
+    new (__ti##mangled) __builtin_type_info (#mangled);		\
+  return *(type_info *)__ti##mangled;				\
+}
+
+BUILTIN (v); BUILTIN (x); BUILTIN (l); BUILTIN (i); BUILTIN (s); BUILTIN (b);
+BUILTIN (c); BUILTIN (w); BUILTIN (r); BUILTIN (d); BUILTIN (f);
+BUILTIN (Ui); BUILTIN (Ul); BUILTIN (Ux); BUILTIN (Us); BUILTIN (Uc);
+BUILTIN (Sc);
+
+#endif
+-------------- next part --------------
+// RTTI support for -*- C++ -*-
+// Copyright (C) 1994, 1995, 1996, 1997, 1998, 2000 Free Software Foundation
+
+// This file is part of GNU CC.
+//
+// GNU CC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2, or (at your option)
+// any later version.
+// 
+// GNU CC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License
+// along with GNU CC; see the file COPYING.  If not, write to
+// the Free Software Foundation, 59 Temple Place - Suite 330,
+// Boston, MA 02111-1307, USA.
+
+// As a special exception, you may use this file as part of a free software
+// library without restriction.  Specifically, if other files instantiate
+// templates or use macros or inline functions from this file, or you compile
+// this file and link it with other files to produce an executable, this
+// file does not by itself cause the resulting executable to be covered by
+// the GNU General Public License.  This exception does not however
+// invalidate any other reasons why the executable file might be covered by
+// the GNU General Public License.
+
+// __GXX_ABI_VERSION distinguishes the ABI that is being used. Values <100
+// indicate the `old' abi, which grew as C++ was defined. Values >=100
+// indicate the `new' abi, which is a cross vendor C++ abi, documented at
+// `http://reality.sgi.com/dehnert_engr/cxx/'.
+
+#ifndef __TYPEINFO__
+#define __TYPEINFO__
+
+#pragma interface "typeinfo"
+
+#include <exception>
+
+extern "C++" {
+
+#if defined(__GXX_ABI_VERSION) && __GXX_ABI_VERSION >= 100
+namespace __cxxabiv1
+{
+  class __class_type_info;
+} // namespace __cxxabiv1
+#endif
+
+namespace std {
+
+class type_info {
+public:
+  // Destructor. Being the first non-inline virtual function, this controls in
+  // which translation unit the vtable is emitted. The compiler makes use of
+  // that information to know where to emit the runtime-mandated type_info
+  // structures in the new-abi.
+  virtual ~type_info ();
+
+private:
+  // Assigning type_info is not supported.  made private.
+  type_info& operator= (const type_info&);
+  type_info (const type_info&);
+
+protected:
+  const char *__name;
+
+protected:
+  explicit type_info (const char *__n): __name (__n) { }
+
+public:
+  // the public interface
+#if !defined(__GXX_ABI_VERSION) || __GXX_ABI_VERSION < 100
+  // In old abi, there can be multiple instances of a type_info object for one
+  // type. Uniqueness must use the _name value, not object address.
+  bool before (const type_info& arg) const;
+  const char* name () const
+    { return __name; }
+  bool operator== (const type_info& __arg) const;
+  bool operator!= (const type_info& __arg) const
+    { return !operator== (__arg); }
+
+#else
+  // In new abi we can rely on type_info's NTBS being unique,
+  // and therefore address comparisons are sufficient.
+  bool before (const type_info& __arg) const
+    { return __name < __arg.__name; }
+  const char* name () const
+    { return __name; }
+  bool operator== (const type_info& __arg) const
+    { return __name == __arg.__name; }
+  bool operator!= (const type_info& __arg) const
+    { return !operator== (__arg); }
+#endif
+
+  // the internal interface
+#if defined(__GXX_ABI_VERSION) && __GXX_ABI_VERSION >= 100
+public:
+  // return true if this is a pointer type of some kind
+  virtual bool __is_pointer_p () const;
+  // return true if this is a function type
+  virtual bool __is_function_p () const;
+
+  // Try and catch a thrown type. Store an adjusted pointer to the caught type
+  // in THR_OBJ. If THR_TYPE is not a pointer type, then THR_OBJ points to the
+  // thrown object. If THR_TYPE is a pointer type, then THR_OBJ is the pointer
+  // itself. OUTER indicates the number of outer pointers, and whether they
+  // were const qualified.
+  virtual bool __do_catch (const type_info *__thr_type, void **__thr_obj,
+                         unsigned __outer) const;
+
+  // internally used during catch matching
+  virtual bool __do_upcast (const __cxxabiv1::__class_type_info *__target,
+			    void **__obj_ptr) const;
+#endif
+};
+
+class bad_cast : public exception {
+public:
+  bad_cast() { }
+  virtual ~bad_cast() { }
+};
+
+class bad_typeid : public exception {
+ public:
+  bad_typeid () { }
+  virtual ~bad_typeid () { }
+};
+
+} // namespace std
+
+} // extern "C++"
+#endif
+
+From coleen at zko.dec.com  Mon Jun 19 20:02:29 2000
+From: coleen at zko.dec.com (Coleen Phillimore)
+Date: Mon, 19 Jun 2000 16:02:29 -0400
+Subject: Restrict mangling.
+Message-ID: <394E7C55.A1C5AB4D@zko.dec.com>
+
+
+There's a CV-qualifier mangling for 'restrict', but restrict doesn't mean
+anything unless it applies to the pointer itself (not what is pointed to).
+MS and g++ from what I can tell do not overload on the basis of restrict.
+Does it make sense to add to the mangling?
+
+  <CV-qualifiers> ::= [r] [V] [K]       # restrict (C99), volatile, const
+
+Thanks,
+Coleen
+-- 
+-----------------------------------------------------------------------
+Coleen Phillimore                  | mailto:coleen at zko.dec.com
+Compaq Computer Corp.   Nashua, NH | COMPAQ C++ Compiler Development
+-----------------------------------------------------------------------
+
+
+
+From mark at codesourcery.com  Mon Jun 19 23:41:29 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 19 Jun 2000 16:41:29 -0700
+Subject: Restrict mangling.
+In-Reply-To: <394E7C55.A1C5AB4D@zko.dec.com>
+References: <394E7C55.A1C5AB4D@zko.dec.com>
+Message-ID: <20000619164129M.mitchell@codesourcery.com>
+
+>>>>> "Coleen" == Coleen Phillimore <coleen at zko.dec.com> writes:
+
+    Coleen> There's a CV-qualifier mangling for 'restrict', but
+    Coleen> restrict doesn't mean anything unless it applies to the
+    Coleen> pointer itself (not what is pointed to).  MS and g++ from
+    Coleen> what I can tell do not overload on the basis of restrict.
+    Coleen> Does it make sense to add to the mangling?
+
+Can't you have:
+
+  void f (int *restrict*);
+
+I.e., a pointer to a restricted pointer?  And isn't that different
+than:
+
+  void f (int **);
+
+just as
+
+  void f (int *const*);
+
+is different?
+ 
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jun 21 01:00:46 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jun 2000 18:00:46 -0700 (PDT)
+Subject: VTTs, yet again
+References: <200005210811.BAA23351@baalbek.engr.sgi.com>
+Message-ID: <200006210100.SAA87919@baalbek.engr.sgi.com>
+
+> From mitchell at codesourcery.com  Sun May 21 09:37:09 2000
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+> 
+>     >> From: Mark Mitchell <mark at codesourcery.com>
+>     >> 
+>     >> The description of the VTT (in VTT order) doesn't specify which
+>     >> vptrs point into the main vtable group and which into
+>     >> construction vtable groups.  It should.
+> 
+>     Jim> I don't think it needs to.  The VTT is the interface, and we
+>     Jim> describe how it is used.  You are free to make a construction
+>     Jim> vtable for every subobject if you like -- it will just be
+>     Jim> often suboptimal.
+> 
+> Fair enough.  
+> 
+> But, I think we should add the rule I gave in a non-normative note;
+> it's good to have concrete suggestions for implementors.
+
+I've added verbiage with this intent towards the end of 2.6.2.  See
+what you think.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jun 21 01:12:09 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jun 2000 18:12:09 -0700 (PDT)
+Subject: "virtual path"
+Message-ID: <200006210112.SAA87828@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> The term `virtual path' is not defined in the ABI document.  In
+> particular, `overriden along a virtual path' is not defined.  Would
+> someone care to propose a concrete definition for this term?  I think
+> I know what it means, but I found I couldn't write it down very
+> effectively.
+
+I also added this to section 2.6.2.  See what you think.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jun 21 01:42:47 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 20 Jun 2000 18:42:47 -0700 (PDT)
+Subject: Restrict mangling.
+Message-ID: <200006210142.SAA87714@baalbek.engr.sgi.com>
+
+> Date: Mon, 19 Jun 2000 16:02:29 -0400
+> From: Coleen Phillimore <coleen at zko.dec.com>
+> 
+> There's a CV-qualifier mangling for 'restrict', but restrict doesn't mean
+> anything unless it applies to the pointer itself (not what is pointed to).
+> MS and g++ from what I can tell do not overload on the basis of restrict.
+> Does it make sense to add to the mangling?
+> 
+>   <CV-qualifiers> ::= [r] [V] [K]       # restrict (C99), volatile, const
+
+Well, it seems to me that it should be part of the mangling if and only
+if it is also a factor in overloading.  Since C++ doesn't yet support
+restrict, we don't have a definitive resolution of the latter.  So, unless
+we want to specify it ourselves, and I think that would be very premature,
+the answer is up in the air.
+
+Perhaps we should just clarify in the document that it is specified for
+use IF restrict enters into overloading decisions, and should be
+omitted otherwise, without specifying the choice.  In effect, its use
+becomes implementation-specific, as is the overloading effect of the
+non-standard restrict qualifier.
+
+Comments?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Wed Jun 21 01:59:00 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 20 Jun 2000 18:59:00 -0700
+Subject: "virtual path"
+In-Reply-To: <200006210112.SAA87828@baalbek.engr.sgi.com>
+References: <200006210112.SAA87828@baalbek.engr.sgi.com>
+Message-ID: <20000620185900I.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    >> From: Mark Mitchell <mark at codesourcery.com>
+    >> 
+    >> The term `virtual path' is not defined in the ABI document.  In
+    >> particular, `overriden along a virtual path' is not defined.
+    >> Would someone care to propose a concrete definition for this
+    >> term?  I think I know what it means, but I found I couldn't
+    >> write it down very effectively.
+
+    Jim> I also added this to section 2.6.2.  See what you think.
+
+Thanks!
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Jun 21 01:58:51 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 20 Jun 2000 18:58:51 -0700
+Subject: VTTs, yet again
+In-Reply-To: <200006210100.SAA87919@baalbek.engr.sgi.com>
+References: <200005210811.BAA23351@baalbek.engr.sgi.com>
+	<200006210100.SAA87919@baalbek.engr.sgi.com>
+Message-ID: <20000620185851H.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+    Jim> I've added verbiage with this intent towards the end of
+    Jim> 2.6.2.  See what you think.
+
+Thanks!
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jun 21 21:07:45 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 21 Jun 2000 14:07:45 -0700 (PDT)
+Subject: Meeting
+Message-ID: <200006212107.OAA91074@baalbek.engr.sgi.com>
+
+A reminder -- we'll meet tomorrow at 10 PDT in the usual place.
+The call-in number is (650) 933-7952 (from the contact web page).
+I'll get an agenda out in a bit, and try to respond to the mail
+from my absence in the process of updating pages.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Jun 21 22:08:30 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 21 Jun 2000 15:08:30 -0700 (PDT)
+Subject: Agenda for 22 June
+Message-ID: <200006212208.PAA91259@baalbek.engr.sgi.com>
+
+Following is an updated agenda.  The status pages are updated and on
+the web (HTML now, PDF later) at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+Note that it doesn't usually work to try to contact me by email
+or phone the morning of the meeting, as I come directly from home.  If
+you come in physically to the meeting, and the receptionist won't let
+you come back to the conference room on your own, have her call the
+conference room (it has a phone other than the one we use for the
+meeting).
+
+As usual, most of the updates are in the ABI layout document, in red.
+The significant changes from last meeting are:
+
+ - A scope section (1.4).
+ - Clarification of vcall offsets (2.5.3, category 3).
+ - Clarification of VTT (2.6.2).
+ - Guard variable specification (2.8).
+ - Specification of vmi_bases for 32-bit ABIs.
+ - Clarify mangling compression rules (5.1.7).
+ - Fix mangling examples.
+ - Modify vague linkage of static data (5.2.2).
+ - Specify vague linkage of instantiated templates (5.2.4).
+
+Please take a careful look at the colored text, and raise any issues
+you observe.
+
+Take a look at the material associated with the following issues.
+If you see something, please send it by email.
+
+  1) C-2:  Priority for constructors.  I think the base ABI group has
+     agreed to assign us a section type for this.  I'll try to get it
+     pinned down in the next meeting (Monday).
+
+  2) F-3:  Mangling instantiation/specialization.
+     F-4:  Empty throw specifications.
+     F-10: Mangling return types.
+
+We have an ancient action item for Jason to provide dynamic cast
+pseudocode.  Did I miss it?
+
+Please also give some thought to what else (not on our lists) ought to
+be considered at this point.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Wed Jun 21 23:35:19 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Jun 2000 16:35:19 -0700
+Subject: Vcall offsets and mangling
+Message-ID: <20000621163519E.mitchell@codesourcery.com>
+
+
+Folks --
+
+We learned some interesting things about what worked and what didn't
+when we implemented the ABI mangling in G++.  Alex has a rewritten
+specification that is very complete.  He'll post it shortly.  There
+were a lot of things unspecified, and some things specified in ways
+that were notably inconvenient for the implementation.
+  
+Also, I noticed this today, trying to finish up the vcall offset
+implementation in g++:
+
+  struct A {
+    virtual void f {};
+  };
+
+  struct B : virtual public A {
+    int i;
+  };
+
+  struct C : virtual public A {
+    int j;
+  };
+
+  struct D: public B, public C {};
+
+The basic idea of the thunk thing is that all thunks are knowable
+statically, allowing the fall-through implementation of thunks.  So,
+the ABI actually mandates where you emit thunks, and says that you
+emit them with the overriding virtual function.
+
+Consider the graph above.  Here, we need a thunk for the C-in-D
+vtable.  (Why?  A is a primary base of C.  So, C's vtable contains an
+entry for f.  But, in D, A is also a primary base of B, and therefore
+located at a non-zero offset from C.  So, C's vtable must contain a
+thunk adjusting from C* to A* before calling f.)
+
+We have a vcall offset for A::f in the C-in-D vtable.  We don't have a
+thunk for A::f, though.  When A was emitted (without knowledge of C,
+let alone D), there was no reason to expect any thunks to A::f.  We
+could have emitted an A-as-a-virtual-base thunk with A::f, just in
+case, but that's wasteful if A never is a virtual base.  Doing so
+would violate the you-don't-pay-for-what-you-don't-use principle.
+
+(This can only happen because A is a primary base.  If A were not
+primary, then C's vtable wouldn't contain a reference to A::f.)
+
+I think the right solution is, in this situation, to fall back on
+generating thunks, in COMDAT groups, where you need them to define
+vtables, just like the good old days.  These thunks will pay the
+double-jump penalty.
+
+On thinking about this further, I actually think a better solution
+would have been to handle thunk emission in the linker.  The linker
+could insert the thunks that are needed at link-time.  You could have
+COMDAT thunks defined in case the linker didn't want to do that; an
+optimizing linker would ignore the COMDAT thunks and put in the right
+instructions in front of the virtual functions so that the
+fall-through thing worked right.  
+
+Can we fall back to making thunks weak, and generating them when you
+need them for the vtable?  This doesn't stop an implementation from
+emitting strong definitions right in front of the virtual functions,
+as we'd planned, as an optimization.  And it doesn't stop the linker
+from playing the games mentioned above.  All it means is that
+implementation is easier -- and that object files (not executables)
+will be a little bigger since they will contain extra copies of the
+thunks.
+
+Unfortunately, neither I nor Alex can be at the meeting tomorrow.
+But, I will call in at 10:00 AM.  I have to be off by 10:55 AM, or so,
+for an 11:00 conference call; Alex is unavailable at 11:00 as well.
+He may or may not be able to join me on the phone some of the time.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Jun 22 00:02:18 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 21 Jun 2000 17:02:18 -0700 (PDT)
+Subject: mangling type_info for local related types
+Message-ID: <200006220002.RAA91898@baalbek.engr.sgi.com>
+
+> Date: Fri, 26 May 2000 10:54:36 -0700
+> From: Alain Miniussi <alainm at cup.hp.com>
+> 
+> By reading the spec, I'am not sure to understand how 
+> local types and type_info mangling interfere. It seems that,
+> with the current mangling, we have:
+> 
+> struct a_class {};
+> 
+> typeid(a_class) -> _ZN6a_classTIE
+
+yes, except	     _ZN7a_classTIE
+
+> void a_func() {
+>   struct a_class {};
+>   typeid(a_class);   -> _ZZ5a_funcvEN6a_classTIE // local name
+>   typeid(a_class*);  -> _ZNPZ5a_funcvE6a_classTIE // non local
+> };
+> 
+> Is that the intended mangling ?
+
+Similarly, those names have the length wrong (5 instead of correct 6,
+6 instead of correct 7).
+
+
+> Date: Fri, 26 May 2000 14:48:14 -0700
+> From: Alain Miniussi <alainm at cup.hp.com>
+> 
+> By the way, I am not sure the current mangling allow to
+> form a pointer to a local struct, only <name> can be local,
+> not <type>, maybe we need a <local-class-enum> production ?
+> 
+> <class-enum> ::= <local-class-enum>
+>              ::= ...
+> <local-class-enum> :: Z<function encoding>E<class-enum>[<discriminator>]
+> 
+> Also, pointer type are not mentionned in <component-name>.
+
+Well, it looks to me as if there are a number of issues here.  First,
+just <class-enum-type> is not enough -- couldn't we end up with other
+types as well (e.g. arrays)?
+
+One possible rule is the following:  Treat all local names as nested
+names, where the first component is the local-name mangling of the
+enclosing function name.  Then typeid(a_func::a_class) becomes:
+	
+	_ZN Z5a_funcvE 6a_class TI E
+
+This doesn't resolve the question of where to put the P for a pointer
+as in the typeid(a_func::a_class *) example.  Let's talk about the
+issue tomorrow, and likely in two weeks once Alex Samuels has
+distributed the updated description Mark mentioned.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From ddd at cup.hp.com  Wed Jun 21 22:58:39 2000
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Wed, 21 Jun 2000 22:58:39 +0000
+Subject: Vcall offsets and mangling
+References: <20000621163519E.mitchell@codesourcery.com>
+Message-ID: <3951489F.C8A25FC0@cup.hp.com>
+
+Mark,
+
+
+If memory serves me right, the problem with virtual base thunks had been
+identified (by Jason?), and the intent was indeed to use COMDAT thunks for this.
+I did not check my mail nor the web page to find a reference, though. Someone
+else may confirm if they have the same recollection.
+
+
+Christophe
+
+Mark Mitchell wrote:
+> 
+> Folks --
+> 
+> We learned some interesting things about what worked and what didn't
+> when we implemented the ABI mangling in G++.  Alex has a rewritten
+> specification that is very complete.  He'll post it shortly.  There
+> were a lot of things unspecified, and some things specified in ways
+> that were notably inconvenient for the implementation.
+> 
+> Also, I noticed this today, trying to finish up the vcall offset
+> implementation in g++:
+> 
+>   struct A {
+>     virtual void f {};
+>   };
+> 
+>   struct B : virtual public A {
+>     int i;
+>   };
+> 
+>   struct C : virtual public A {
+>     int j;
+>   };
+> 
+>   struct D: public B, public C {};
+> 
+> The basic idea of the thunk thing is that all thunks are knowable
+> statically, allowing the fall-through implementation of thunks.  So,
+> the ABI actually mandates where you emit thunks, and says that you
+> emit them with the overriding virtual function.
+> 
+> Consider the graph above.  Here, we need a thunk for the C-in-D
+> vtable.  (Why?  A is a primary base of C.  So, C's vtable contains an
+> entry for f.  But, in D, A is also a primary base of B, and therefore
+> located at a non-zero offset from C.  So, C's vtable must contain a
+> thunk adjusting from C* to A* before calling f.)
+> 
+> We have a vcall offset for A::f in the C-in-D vtable.  We don't have a
+> thunk for A::f, though.  When A was emitted (without knowledge of C,
+> let alone D), there was no reason to expect any thunks to A::f.  We
+> could have emitted an A-as-a-virtual-base thunk with A::f, just in
+> case, but that's wasteful if A never is a virtual base.  Doing so
+> would violate the you-don't-pay-for-what-you-don't-use principle.
+> 
+> (This can only happen because A is a primary base.  If A were not
+> primary, then C's vtable wouldn't contain a reference to A::f.)
+> 
+> I think the right solution is, in this situation, to fall back on
+> generating thunks, in COMDAT groups, where you need them to define
+> vtables, just like the good old days.  These thunks will pay the
+> double-jump penalty.
+> 
+> On thinking about this further, I actually think a better solution
+> would have been to handle thunk emission in the linker.  The linker
+> could insert the thunks that are needed at link-time.  You could have
+> COMDAT thunks defined in case the linker didn't want to do that; an
+> optimizing linker would ignore the COMDAT thunks and put in the right
+> instructions in front of the virtual functions so that the
+> fall-through thing worked right.
+> 
+> Can we fall back to making thunks weak, and generating them when you
+> need them for the vtable?  This doesn't stop an implementation from
+> emitting strong definitions right in front of the virtual functions,
+> as we'd planned, as an optimization.  And it doesn't stop the linker
+> from playing the games mentioned above.  All it means is that
+> implementation is easier -- and that object files (not executables)
+> will be a little bigger since they will contain extra copies of the
+> thunks.
+> 
+> Unfortunately, neither I nor Alex can be at the meeting tomorrow.
+> But, I will call in at 10:00 AM.  I have to be off by 10:55 AM, or so,
+> for an 11:00 conference call; Alex is unavailable at 11:00 as well.
+> He may or may not be able to join me on the phone some of the time.
+> 
+> --
+> Mark Mitchell                   mark at codesourcery.com
+> CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From alainm at cup.hp.com  Thu Jun 22 00:16:02 2000
+From: alainm at cup.hp.com (Alain Miniussi)
+Date: Thu, 22 Jun 2000 00:16:02 +0000
+Subject: mangling type_info for local related types
+References: <200006220002.RAA91898@baalbek.engr.sgi.com>
+Message-ID: <39515AC2.B828042E@cup.hp.com>
+
+Jim Dehnert wrote:
+> 
+> > Date: Fri, 26 May 2000 10:54:36 -0700
+> > From: Alain Miniussi <alainm at cup.hp.com>
+> >
+> > By reading the spec, I'am not sure to understand how
+> > local types and type_info mangling interfere. It seems that,
+> > with the current mangling, we have:
+> >
+> > struct a_class {};
+> >
+> > typeid(a_class) -> _ZN6a_classTIE
+> 
+> yes, except          _ZN7a_classTIE
+> 
+> > void a_func() {
+> >   struct a_class {};
+> >   typeid(a_class);   -> _ZZ5a_funcvEN6a_classTIE // local name
+> >   typeid(a_class*);  -> _ZNPZ5a_funcvE6a_classTIE // non local
+> > };
+> >
+> > Is that the intended mangling ?
+> 
+> Similarly, those names have the length wrong (5 instead of correct 6,
+> 6 instead of correct 7).
+> 
+> > Date: Fri, 26 May 2000 14:48:14 -0700
+> > From: Alain Miniussi <alainm at cup.hp.com>
+> >
+> > By the way, I am not sure the current mangling allow to
+> > form a pointer to a local struct, only <name> can be local,
+> > not <type>, maybe we need a <local-class-enum> production ?
+> >
+> > <class-enum> ::= <local-class-enum>
+> >              ::= ...
+> > <local-class-enum> :: Z<function encoding>E<class-enum>[<discriminator>]
+> >
+> > Also, pointer type are not mentionned in <component-name>.
+> 
+> Well, it looks to me as if there are a number of issues here.  First,
+> just <class-enum-type> is not enough -- couldn't we end up with other
+> types as well (e.g. arrays)?
+
+These type (array, pointer etc..) can be considered as modified type
+built upon local types. I don't think we need to make the modified
+type local.
+ 
+> One possible rule is the following:  Treat all local names as nested
+> names, where the first component is the local-name mangling of the
+> enclosing function name.  Then typeid(a_func::a_class) becomes:
+> 
+>         _ZN Z5a_funcvE 6a_class TI E
+> 
+> This doesn't resolve the question of where to put the P for a pointer
+> as in the typeid(a_func::a_class *) example.  Let's talk about the
+> issue tomorrow, and likely in two weeks once Alex Samuels has
+> distributed the updated description Mark mentioned.
+> 
+> Jim
+> 
+> -           Jim Dehnert         dehnert at sgi.com
+>                                 (650)933-4272
+
+
+
+From samuel at codesourcery.com  Thu Jun 22 10:06:34 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Thu, 22 Jun 2000 03:06:34 -0700 (PDT)
+Subject: demangling issues
+Message-ID: <14673.58666.416969.170482@coriander.indetermi.net>
+
+Hi,
+
+Here are some issues we've run across while implementing the ABI
+mangling scheme (and a demangler) in gcc over recent months, and how
+we addressed them.  I apologize that this description isn't too
+detailed; I've been rushing to tie up some loose ends in the
+implementation in the last few days.  I'll supply more details as
+necessary.
+
+Our mangling implementation is checked into the gcc's CVS trunk, in
+case anyone wants to experiment with it.  A particularly easy way to
+try out mangling on a particular case is with this online compilation
+web form, which uses a recent snapshot build of gcc:
+
+    http://www.codesourcery.com/gcc-compile.shtml
+
+Enter your code into the form, and enter `-fnew-abi' as an additional
+compiler flag.  Compile to assembly or object and check out your
+mangled names.  I'm happy to help anyone who'se interested build the
+standalone demangler too.
+
+Regards
+Alex Samuel
+CodeSourcery LLC
+
+
+---
+
+First, shortly before the hiatus in ABI committee meetings, I sent out
+a proposed modification of the mangling grammar.  The modifications
+correct some errors and brought the substitution rules in line with
+the committee's intent, I think.  They've also proven easier to
+implement.  We've implemented this grammar, with slight modifications.
+Here are the relevant productions:
+
+    <mangled-name>      ::= _Z <encoding>
+
+    <encoding>		::= <function name> <bare-function-type>
+			::= <data name>
+			::= <special-name>   # see below
+			::= <substitution>
+
+    <name>              ::= <unscoped-name>
+                        ::= <unscoped-template-name> <template-args>
+			::= <nested-name>
+                        ::= <local-name>
+
+    <unscoped-name>     ::= <unqualified-name>
+			::= St <unqualified-name>   # ::std::
+
+    <unscoped-template-name>    
+                        ::= <unscoped-name>
+                        ::= <substitution>
+
+    <nested-name>       ::= N [<CV-qualifiers>] <prefix> <component> E
+			::= N [<CV-qualifiers>] <template-prefix> 
+			    <template-args> E
+
+    <prefix>            ::= <prefix> <component>
+                        ::= <template-prefix> <template-args>
+			::= # empty
+			::= <substitution>
+
+    <template-prefix>   ::= <prefix> <template component>
+                        ::= <substitution>
+
+    <component>         ::= <unqualified-name>
+                        ::= <local-name>
+
+    <unqualified-name>  ::= <operator-name>
+			::= <ctor-dtor-name>  
+			::= <source-name>   
+
+    <class-enum-type>   ::= <name>
+
+---
+
+We also clarified the mangling of numbers using
+
+    <number> ::= [n] <positive-number>
+
+    <positive-number> ::= <decimal integer>
+
+The `n' is for negative numbers.
+
+Then
+
+    <source-name> ::= <length positive-number> <identifier>
+
+---
+
+There's no operator code for for unary plus.  We used `pl'.  An
+operator code for conversions is also needed.  We used this:
+
+    <operator-name>     ::= cv <type>
+
+
+---
+
+The mangling for unions was not mentioned.  We used <class-enum-name>.
+
+---
+
+Template template args and parameters were not explicitly mentioned,
+except in examples.  We used these productions:
+
+    <template-arg>      ::= <template-template-arg>
+
+    <template-template-arg>
+			::= <name>
+			::= <substitution>
+
+    <type>              ::= <template-template-param> <template-args>
+
+    <template-template-param>
+                        ::= <template-param> 
+			::= <substitution>
+
+---
+
+We ran into trouble mangling some of the special objects like thunks
+and guard variables, and concluded that these would make more sense if
+the mangling didn't make them look like they were scoped in some
+enclosing scope.  It doesn't really make sense to think of a typeinfo
+variable, for instance, as scoped inside the type it describes --
+especially if that type is a built-in type.  Instead, it would make
+more sense to think of it as a global object, since it's fully
+specified by the type it describes.  
+
+So, we used these manglings:
+
+    <special-name> ::= TV <type>    # virtual table
+                   ::= TT <type>    # VTT
+                   ::= TI <type>    # typeinfo structure
+		   ::= TS <type>    # typeinfo name
+                   ::= GV <name>    # guard variable
+                   ::= Th <offset number> _ <base encoding>
+                        # non-virtual base override thunk
+                        # base is the nominal target function of thunk
+                   ::= Tv <offset number> _ <vcall offset number> _ 
+                         <base encoding>
+                        # virtual base override thunk
+                        # base is the nominal target function of thunk
+
+That's why <special-name> is a production for <encoding>, above.  
+
+The only special names left are ctors and dtors, so we used
+
+    <unqualified-name> ::= <ctor-dtor-name>
+
+where
+
+    <ctor-dtor-name> ::= C1 # complete object (in-charge) ctor
+		     ::= C2 # base object (not-in-charge) ctor
+		     ::= C3 # complete object (in-charge) allocating ctor
+		     ::= C4 # base object (not-in-charge) allocating ctor
+		     ::= D0 # deleting (in-charge) dtor
+		     ::= D1 # complete object (in-charge) dtor
+		     ::= D2 # base object (not-in-charge) dtor
+
+So, for instance given
+
+    namespace NS { class C { virtual void foo (); }; }
+
+the virtual table for C would be mangled
+
+    _ZTVN2NS1CE
+
+and the typeinfo struct for C would be mangled
+
+    _ZTIN2NS1CE
+
+
+The typeinfo struct for int is mangled
+
+    _ZTIi
+
+and in the function
+
+    int C::foo (int i) 
+    {
+      static int j = 0;
+      return ++j + i;
+    }
+
+the guard variable for j is mangled
+
+    _ZGVZN1C3fooEiE1j
+
+---
+
+We need a way of talking about classes declared in function scopes, so
+add this production:
+
+    <class-enum-type> ::= <local-name>
+
+---
+
+The <local-name> production should be
+
+    <local-name> := Z <function encoding> E <entity unqualified-name> 
+                      [<discriminator>]
+
+If <name> is used instead of <unqualified-name>, it's infinitely recursive.
+
+---
+
+Literals in template parameters that are pointer-to-member constants
+cause problems.  It is in fact not always possible to tell whether
+they are pointer-to-member literals at all.  Given the template
+instantiation
+
+    template void f (C<S, &S::j>);
+
+of
+
+    template <class T> void f (C<T, &T::j>) {}
+
+the second template parameter could be a pointer-to-member, or a
+pointer to a static member function or data member.  You can't know if
+you're mangling it without substituting S for T.
+
+So, we added a new operator that denotes scope resolution (the ::
+token), represented by the code `sr'.  The template instantiation
+given above mangles to 
+
+    _Z1fI1SEv1CIT_XadsrS2_1jEE
+
+
+
+
+From coleen at zko.dec.com  Thu Jun 22 15:00:30 2000
+From: coleen at zko.dec.com (Coleen Phillimore)
+Date: Thu, 22 Jun 2000 11:00:30 -0400
+Subject: Restrict mangling.
+References: <200006210142.SAA87714@baalbek.engr.sgi.com>
+Message-ID: <39522A0E.6E11FE14@zko.dec.com>
+
+Jim Dehnert wrote:
+> 
+> > Date: Mon, 19 Jun 2000 16:02:29 -0400
+> > From: Coleen Phillimore <coleen at zko.dec.com>
+> >
+> > There's a CV-qualifier mangling for 'restrict', but restrict doesn't mean
+> > anything unless it applies to the pointer itself (not what is pointed to).
+> > MS and g++ from what I can tell do not overload on the basis of restrict.
+> > Does it make sense to add to the mangling?
+> >
+> >   <CV-qualifiers> ::= [r] [V] [K]       # restrict (C99), volatile, const
+> 
+> Well, it seems to me that it should be part of the mangling if and only
+> if it is also a factor in overloading.  Since C++ doesn't yet support
+> restrict, we don't have a definitive resolution of the latter.  So, unless
+> we want to specify it ourselves, and I think that would be very premature,
+> the answer is up in the air.
+> 
+> Perhaps we should just clarify in the document that it is specified for
+> use IF restrict enters into overloading decisions, and should be
+> omitted otherwise, without specifying the choice.  In effect, its use
+> becomes implementation-specific, as is the overloading effect of the
+> non-standard restrict qualifier.
+> 
+> Comments?
+
+Yes that sounds like a good resolution.  I was wondering if it should
+be overloadable, actually, but that question is for the ANSI C++ committee
+if they add the qualifier.  It makes sense to keep it in the ABI mangling.
+
+Thanks,
+Coleen
+> 
+> Jim
+> 
+> -           Jim Dehnert         dehnert at sgi.com
+>                                 (650)933-4272
+
+-- 
+-----------------------------------------------------------------------
+Coleen Phillimore                  | mailto:coleen at zko.dec.com
+Compaq Computer Corp.   Nashua, NH | COMPAQ C++ Compiler Development
+-----------------------------------------------------------------------
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Jun 23 00:06:01 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 22 Jun 2000 17:06:01 -0700 (PDT)
+Subject: "Minutes" of today's meeting
+Message-ID: <200006230006.RAA94436@baalbek.engr.sgi.com>
+
+The meeting today had low attendance, so we did not do anything
+momentous.  I apologize for the rather late reminder.  To make up
+for it, I'm giving you a reminder now that we will meet in two weeks,
+on 6 July.  I expect the primary subject of discussion to be the
+mangling suggestions Alex sent today -- since both he and HP, at least,
+are well into implementation, we should be able to resolve the issues
+with some substantial implementation experience to guide us.
+
+Today, we discussed Mark's example of a virtual function in a primary
+virtual base class A, which therefore does not need a thunk, where A
+then becomes non-primary in a more-derived class D, requiring the thunk,
+even though D does not override the function.  We concluded that the
+thunk must be associated with the D definition (the need is not known
+with the A definition), and since that may occur in multiple files, as
+well as occurring for multiple possible D's, it must have vague linkage
+(COMDAT).  I will update the draft accordingly.
+
+Otherwise, we went through the draft ABI changes from last time.  We
+identified no significant problems, so if you haven't looked it over,
+please do so and comment if necessary.  The red highlighting will
+disappear early next week (to be replaced by the next set, of course).
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Wed Jun 28 00:02:32 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 Jun 2000 17:02:32 -0700
+Subject: VTT example
+Message-ID: <20000627170232F.mitchell@codesourcery.com>
+
+
+Folks --
+
+  Alex and I have concluded that the VTT example in the ABI document
+is wrong.  It claims that V1 is a primary base, but since V1 is
+virtual and not nearly-empty, this is not true.  We think the correct
+VTT layout is:
+
+VTT for D:		D
+  VTT for C1-in-D:	C1-in-D 
+  VTT for C2-in-D: 	C2-in-D
+    Seccondary vptrs:	V2-in-D
+	                V1-in-D 
+  Secondary vptrs:	C2-in-D
+		        V1-in-D 
+			V2-in-D 
+  Virtual VTT for V1:   V1-in-D 
+  Virtual VTT for V2:   V2-in-D 
+    Secondary vptrs:    V1-in-D 
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Jun 28 00:16:33 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 Jun 2000 17:16:33 -0700
+Subject: VTT example
+In-Reply-To: <20000627170232F.mitchell@codesourcery.com>
+References: <20000627170232F.mitchell@codesourcery.com>
+Message-ID: <20000627171633Y.mitchell@codesourcery.com>
+
+
+  Folks --
+
+    Alex and I have concluded that the VTT example in the ABI document
+  is wrong.  It claims that V1 is a primary base, but since V1 is
+  virtual and not nearly-empty, this is not true.  We think the correct
+  VTT layout is:
+
+  VTT for D:		D
+    VTT for C1-in-D:	C1-in-D 
+    VTT for C2-in-D: 	C2-in-D
+      Seccondary vptrs:	V2-in-D
+			  V1-in-D 
+    Secondary vptrs:	C2-in-D
+			  V1-in-D 
+			  V2-in-D 
+    Virtual VTT for V1:   V1-in-D 
+    Virtual VTT for V2:   V2-in-D 
+      Secondary vptrs:    V1-in-D 
+
+Actually, I take it back.  It looks like the example is correct; there
+is no virtual VTT for V1.  However, the reason is not that V1 is
+primary; the reason is that V! has no virtual bases.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Jun 28 01:38:38 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 Jun 2000 18:38:38 -0700
+Subject: Construction vtables
+Message-ID: <20000627183838H.mitchell@codesourcery.com>
+
+
+Folks --
+
+  The construction vtable group does not contain unncessary secondary
+vtables:
+
+  The construction vtable group for a proper base class subobject B (of
+  derived class D) does not have the same entries in the same order as
+  the main vtable group for a complete object B, as described in Virtual
+  Table Layout above. Some of the base class subobjects may not need
+  construction vtables, which will therefore not be present in the
+  construction vtable group, even though the subobject vtables are
+  present in the main vtable group for the complete object.
+
+I thought that one of the advantages to forming vtable groups (rather
+than having separate secondary vtables) was so that give a pointer to
+a derived class vtable you could find a non-virtual base class vtable
+without actually converting to the base.  You just look at a fixed
+offset from the derived class vtable.  For example, given:
+  
+  struct B1 { virtual void f(); };
+  struct B2 { virtual void g(); };
+  struct D : public B1, B2 {};
+
+  D* d = new D;
+  d->f ();
+  d->g ();
+
+You can generate code like:
+
+  b1_in_d_vptr = *((ptrdiff_t**) d);
+  (*b1_in_d_vptr[0]) ();
+  (*b1_in_d_vptr[<constant>]) ();
+
+But, that means this trick doesn't work during object construction,
+which seems bad.
+
+What am I missing?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From coleen at zko.dec.com  Wed Jun 28 15:40:33 2000
+From: coleen at zko.dec.com (Coleen Phillimore)
+Date: Wed, 28 Jun 2000 11:40:33 -0400
+Subject: Construction vtables
+References: <20000627183838H.mitchell@codesourcery.com>
+Message-ID: <395A1C71.30B6EF67@zko.dec.com>
+
+> But, that means this trick doesn't work during object construction,
+> which seems bad.
+> 
+> What am I missing?
+
+Nothing, you are correct.  One of the tradeoffs in not including
+secondary vtables that did not need construction vtables in the
+construction vtables and VTT, was that you cannot reference secondary
+vtables from the address of the primary vtable.  That's why the VTT
+contains secondary vptrs, not just construction vtable ptrs.
+
+There were two ways to do construction vtables: include the entire primary/
+secondary vtable group in the construction vtable, or only include the ones
+that needed construction vtables.  I wrote up (and implemented) both.
+We chose the latter to save static space over the optimization you
+describe.  We believed that the "boring" virtual tables would be large
+enough to merit this space savings.
+
+Coleen
+-- 
+-----------------------------------------------------------------------
+Coleen Phillimore                  | mailto:coleen at zko.dec.com
+Compaq Computer Corp.   Nashua, NH | COMPAQ C++ Compiler Development
+-----------------------------------------------------------------------
+
+
+
+From mark at codesourcery.com  Wed Jun 28 15:55:33 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 08:55:33 -0700
+Subject: Construction vtables
+In-Reply-To: <395A1C71.30B6EF67@zko.dec.com>
+References: <20000627183838H.mitchell@codesourcery.com>
+	<395A1C71.30B6EF67@zko.dec.com>
+Message-ID: <20000628085533F.mitchell@codesourcery.com>
+
+>>>>> "Coleen" == Coleen Phillimore <coleen at zko.dec.com> writes:
+
+    >> But, that means this trick doesn't work during object
+    >> construction, which seems bad.
+    >> 
+    >> What am I missing?
+
+    Coleen> Nothing, you are correct. 
+
+OK -- I'm not losing it completely, then.
+
+I think some of these rationales would be very valuable in the ABI
+document.  Otherwise, nobody else will ever be able to figure out why
+we did what we did.  Jim, would you mind adding Colleen's explanation
+as a note somewhere in the document?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Jun 28 23:02:37 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 16:02:37 -0700
+Subject: Minor confusion in array new language
+Message-ID: <20000628160237Z.mitchell@codesourcery.com>
+
+
+	When operator new is used to create a new dynamic-length
+	array, a cookie is usually stored to remember the allocated
+	length (number of array elements) so that it can be
+	deallocated correctly.
+
+It doesn't matter whether or not the number of array elements is known
+at compile-time; the choice of whether or not you need a cookie is
+independent of this fact.  So, that should just be "used to create a
+new array".
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 29 00:46:39 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 17:46:39 -0700
+Subject: vector new and delete
+Message-ID: <20000628174639N.mitchell@codesourcery.com>
+
+
+Folks --
+
+  __cxa_vec_new and __cxa_vec_delete would be a lot more useful if
+they accepted pointers to the allocation and deallocation functions as
+well.  As it is, they are hard-wired to use the `::operator new[]' and
+`::operator delete[]'.  Since the whole purpose of these functions is
+to provide compilers a convenient way to manage construction and
+destruction, I think we should either add allocation/deallocation
+routine pointers to these functions, or add additional entry points.
+This additional flexibility would also be useful for C++-compatible
+allocations from other languages, etc.
+
+  Jim, would you add this to the open issues list?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Jun 29 01:17:34 2000
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 28 Jun 2000 18:17:34 -0700 (PDT)
+Subject: vector new and delete
+Message-ID: <200006290117.SAA08885@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+>   __cxa_vec_new and __cxa_vec_delete would be a lot more useful if
+> they accepted pointers to the allocation and deallocation functions as
+> well.  As it is, they are hard-wired to use the `::operator new[]' and
+> `::operator delete[]'.  Since the whole purpose of these functions is
+> to provide compilers a convenient way to manage construction and
+> destruction, I think we should either add allocation/deallocation
+> routine pointers to these functions, or add additional entry points.
+> This additional flexibility would also be useful for C++-compatible
+> allocations from other languages, etc.
+> 
+>   Jim, would you add this to the open issues list?
+
+Done, as issue C-15.
+
+On looking at the current routines, it strikes me that, since they
+only do construction and destruction, it makes no sense for the
+__cxx_vec_ctor to have a NULL constructor, nor for __cxx_vec_dtor to
+have a NULL destructor, as suggested by the comments.  Am I missing
+something?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Thu Jun 29 01:26:12 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 18:26:12 -0700
+Subject: vector new and delete
+In-Reply-To: <200006290117.SAA08885@baalbek.engr.sgi.com>
+References: <200006290117.SAA08885@baalbek.engr.sgi.com>
+Message-ID: <20000628182612N.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> On looking at the current routines, it strikes me that, since
+    Jim> they only do construction and destruction, it makes no sense
+    Jim> for the __cxx_vec_ctor to have a NULL constructor, nor for
+    Jim> __cxx_vec_dtor to have a NULL destructor, as suggested by the
+    Jim> comments.  Am I missing something?
+
+Well, the __cxa_vec_ctor routine will fill in the padding, even if
+there is no constructor.  That's useful.
+
+I think we should try to make these routines easy/safe to call --
+rather than trying to make them efficient.  Efficient compilers will
+inline the body of these routines, effectively.  The point of these
+routines is to easily generate code, and to generate code that is
+optimized for space.  In those cases, it may be convenient not to have
+to test for NULL outside of the routines -- so I think the current
+approach is good.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 29 01:30:01 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 18:30:01 -0700
+Subject: vector new and delete
+In-Reply-To: <200006290117.SAA08885@baalbek.engr.sgi.com>
+References: <200006290117.SAA08885@baalbek.engr.sgi.com>
+Message-ID: <20000628183001T.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    >> From: Mark Mitchell <mark at codesourcery.com>
+    >> 
+    >> __cxa_vec_new and __cxa_vec_delete would be a lot more useful
+    >> if they accepted pointers to the allocation and deallocation
+    >> functions as well.  As it is, they are hard-wired to use the
+    >> `::operator new[]' and `::operator delete[]'.  Since the whole
+    >> purpose of these functions is to provide compilers a convenient
+    >> way to manage construction and destruction, I think we should
+    >> either add allocation/deallocation routine pointers to these
+    >> functions, or add additional entry points.  This additional
+    >> flexibility would also be useful for C++-compatible allocations
+    >> from other languages, etc.
+    >> 
+    >> Jim, would you add this to the open issues list?
+
+    Jim> Done, as issue C-15.
+
+Also on this topic -- shouldn't we make these routines have C linkage?
+Is there any reason to give these kind of runtime support routines C++
+linkage?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 29 06:12:30 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Jun 2000 23:12:30 -0700
+Subject: More on vector new/delete
+Message-ID: <20000628231230Q.mitchell@codesourcery.com>
+
+
+I think we should also add a runtime support routine for copy
+constructors.  Here's a sample definition:
+
+  extern "C" void
+  __cxa_vec_cctor (void *dest_array,
+                   void *src_array,
+		   size_t element_count,
+		   size_t element_size,
+		   void (*constructor) (void *, void *),
+		   void (*destructor) (void *))
+  {
+    size_t ix = 0;
+    char *dest_ptr = static_cast <char *> (dest_array);
+    char *src_ptr = static_cast <char *> (src_array);
+
+    try
+      {
+	if (constructor)
+	  for (; ix != element_count; 
+	       ix++, src_ptr += element_size, dest_ptr += element_size)
+	    constructor (dest_ptr, src_ptr);
+      }
+    catch (...)
+      {
+	__uncatch_exception ();
+	__cxa_vec_dtor (dest_array, ix, element_size, destructor);
+	throw;
+      }
+  }
+
+This routine will be useful to compilers when copying a structure
+containing an array.  The EDG front-end uses this method.
+
+Jim, I'm sorry to keep adding things to your list of issues...
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 29 08:27:11 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 29 Jun 2000 01:27:11 -0700
+Subject: More questions about C++ linkage for ABI routines
+Message-ID: <20000629012711K.mitchell@codesourcery.com>
+
+
+Folks --
+
+Giving C++ linkage to __dynamic_cast means that its name, too, cannot
+be determined independent of the target platform; its signature
+depends on ptrdiff_t.  I think that `extern "C" __cxa_dynamic_cast'
+would be better.  Otherwise, for example, a multi-platform debugger
+must somehow have ugly platform-specific conditions in order to know
+what function to call when the user types `dynamic_cast<S*> (&t)' at
+the debugger's prompt.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun 29 08:40:26 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 29 Jun 2000 01:40:26 -0700
+Subject: Run-time support routines for throwing bad_cast and
+ bad_typeid
+Message-ID: <20000629014026J.mitchell@codesourcery.com>
+
+
+Both EDG and G++ call run-time library routines to throw the bad_cast
+and bad_typeid exceptions, rather than trying to expand the throws
+inline.  This is much more convenient since those exceptions can be
+thrown without the headers declaring bad_cast being included.  I think
+we should follow this exisitng practice and provide appropriate entry
+points.  How about:
+
+  extern "C" void __cxa_bad_cast ();
+  extern "C" void __cxa_bad_typeid ();
+
+?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From nathan at codesourcery.com  Thu Jun 29 10:47:25 2000
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Thu, 29 Jun 2000 11:47:25 +0100
+Subject: Run-time support routines for throwing bad_cast and bad_typeid
+References: <20000629014026J.mitchell@codesourcery.com>
+Message-ID: <395B293D.78D374A2@codesourcery.com>
+
+Mark Mitchell wrote:
+> 
+> Both EDG and G++ call run-time library routines to throw the bad_cast
+> and bad_typeid exceptions, rather than trying to expand the throws
+> inline.  This is much more convenient since those exceptions can be
+> thrown without the headers declaring bad_cast being included.  I think
+> we should follow this exisitng practice and provide appropriate entry
+> points.  How about:
+> 
+>   extern "C" void __cxa_bad_cast ();
+>   extern "C" void __cxa_bad_typeid ();
+FYI, the G++ declarations are
+	extern "C" void *__throw_bad_cast ();
+	extern "C" std::type_info const &__throw_bad_typeid ();
+of course these never actually return, but it causes least
+confusion at the calling point by keeping the type system consistent.
+These are called with something like the following pseudo C++
+for dynamic_cast <T &> (lvalue)
+	(void *tmp = __dynamic_cast (...),
+		*(T*)(tmp ? tmp : __throw_bad_cast ()))
+for typeid (*ptr)
+	(ptr ? *(type_info const *)ptr->vtable[-1] : __throw_bad_typeid ())
+One side of a conditional expr can be void, but only if it is a throw
+expression, wrapping up the throws in function calls hides that, and
+in g++'s case caused problems. The easiest solution was the above
+declarations.
+
+I suggest the following
+	extern "C" void *__cxa_bad_cast ();
+	extern "C" const void *__cxa_bad_typeid ();
+That typeid signature will mean a little reworking of the typeid operator
+implementation for G++, but not too much. For implementations where Mark's
+suggestion is valid, these will be too, but not vice-versa.
+
+nathan
+
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From mark at codesourcery.com  Thu Jun 29 17:32:47 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 29 Jun 2000 10:32:47 -0700
+Subject: Run-time support routines for throwing bad_cast and
+ bad_typeid
+In-Reply-To: <395B293D.78D374A2@codesourcery.com>
+References: <20000629014026J.mitchell@codesourcery.com>
+	<395B293D.78D374A2@codesourcery.com>
+Message-ID: <20000629103247X.mitchell@codesourcery.com>
+
+
+  I suggest the following
+
+	extern "C" void *__cxa_bad_cast ();
+	extern "C" const void *__cxa_bad_typeid ();
+
+That's a reasonable suggestion, too.  With a `void' return, you can
+always do: 
+
+  (__cxa_bad_cast (), (void*) NULL)
+
+or whatever, in the compiler, to make the arms of the conditional have
+the right type.
+
+I have no preference -- but I do think we need such functions.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From samuel at codesourcery.com  Thu Jun 29 18:05:03 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Thu, 29 Jun 2000 11:05:03 -0700 (PDT)
+Subject: problem in the mangling grammar
+Message-ID: <14683.36815.933108.243792@coriander.indetermi.net>
+
+I've found an amibiguity in the mangling grammar I submitted a while
+back.  To correct it, use this production for <encoding>:
+
+    <encoding>		::= <function name> <bare-function-type>
+			::= <data name>
+			::= <special-name>   # see below
+
+Note that an <encoding> is not a <substitution>.
+
+Regards
+Alex Samuel
+CodeSourcery LLC
+
+
+
+From samuel at codesourcery.com  Thu Jun 29 18:11:11 2000
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Thu, 29 Jun 2000 11:11:11 -0700 (PDT)
+Subject: error in VTT example
+Message-ID: <14683.37183.248920.583180@coriander.indetermi.net>
+
+There is I believe an error in the VTT example presented in section
+2.6.2.  
+
+The order of secondary virtual pointers is stated as inheritance graph
+preorder.  Primary non-virtual bases are omitted.  Therefore I believe
+the order of the secondary vptrs in the in example VTT should be V1,
+C2, V2 (as opposed to C2, V2, V1 as shown in entries [5], [6], and
+[7]).  Though C1 is skipped because it's a primary base, the preorder
+traversal has to continue to its children (or else in other
+inheritance graphs some base classes will be missed completely).
+Therefore you get to V1 via C1 before hitting C2.
+
+It might make sense to clarify this in 2.6.2, item 3, with language
+something like,
+
+    The order of the virtual pointers is inheritance graph preorder.
+    Though primary non-virtual bases do not get secondary virtual
+    pointers, they do not otherwise affect the ordering.
+
+Regards
+Alex Samuel
+CodeSourcery LLC
+
+
+
+From mark at codesourcery.com  Thu Jun 29 23:13:38 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 29 Jun 2000 16:13:38 -0700
+Subject: Pure virtual functions
+Message-ID: <20000629161338Q.mitchell@codesourcery.com>
+
+
+I remember raising this issue before, but it did not make it to the
+issues list, or I am an idiot.  Either is possible.
+
+We need to have a standard entry point to put in vtables to indicate a
+pure virtual function.  (Some compilers use __pure_virtual, for
+example.)  I think we want:
+
+  extern "C" void __cxa_pure_virtual ();
+
+Assuming there's no objection, let's just add this to the document for
+review at the next meeting.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Fri Jun 30 19:20:10 2000
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 30 Jun 2000 12:20:10 -0700
+Subject: Subobject constructors
+Message-ID: <20000630122010I.mitchell@codesourcery.com>
+
+
+The wording in 3.3 about subobject constructors is misleading:
+
+  If the not-in-charge constructor calls constructors for base class
+  subobjects that do not need construction vtables, the construction
+  vtable parameter is not passed to the base class subobject
+  constructor, and the base class subobject constructors use their
+  complete object vtables for initialization.
+
+This is also true when an in-charge constructor is making the call.
+There is never a need to pass a VTT to a base class subobject that
+doesn't have virtual bases.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+

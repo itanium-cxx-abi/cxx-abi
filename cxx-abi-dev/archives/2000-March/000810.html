@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Unwind Table Location
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20Table%20Location&In-Reply-To=%3C38DA4E80.A69B807B%40inprise.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000804.html">
+   <LINK REL="Next"  HREF="000813.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Unwind Table Location</H1>
+    <B>Eli Boling</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20Table%20Location&In-Reply-To=%3C38DA4E80.A69B807B%40inprise.com%3E"
+       TITLE="Unwind Table Location">eboling at inprise.com
+       </A><BR>
+    <I>Thu Mar 23 17:04:00 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000804.html">Agenda for Thursday
+</A></li>
+        <LI>Next message: <A HREF="000813.html">Unwind Table Location
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#810">[ date ]</a>
+              <a href="thread.html#810">[ thread ]</a>
+              <a href="subject.html#810">[ subject ]</a>
+              <a href="author.html#810">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>   7) D-12:  Unwind table location.
+</I>
+No one has oppined on this one so far, so I'd like to chip in.  I'd like it
+if we could avoid imposing data structures on the language implementations
+where possible.  I'd particularly like to avoid this in the area of
+exception handling, as this is a place where different languages need to
+cohabitate in the process space.  That's partly why I was happy to see the
+functional interface in the C++ exception handling doc that you folks did.
+My problems with the existing gcc mechanism revolve around the total
+commitment requirement to the gcc data format, which prevents me from even
+throwing exceptions past gcc frames without dying unless I fully conform to
+their data format.
+
+The updated proposal seems to handle most of my concerns, but I'd still
+like to see the PC map hidden, so that language implementors can do as they
+see fit with this.  To that end, I'd like to toss out the following
+additions.  Note that these are tentative, based on my fiddling with it
+just a bit for the past day or so.  I'm going to do a prototype to see how
+it holds together.
+
+I would like to see the unwind tables registered with the _Unwind library,
+and referenced only through callbacks, like this:
+
+typedef __personality_routine (*_Unwind_IPLookupFn)(uint64 IP,
+void **pImplementationData);
+
+int _Unwind_RegisterIPLookup(_Unwind_IPLookupFn LookupFn,
+uint64 StartAddr, uint64 EndAddr);
+
+void _Unwind_UnregisterIPLookup(_Unwind_IPLookupFn LookupFn);
+
+The first function takes the address of a lookup function which returns a
+personality and pointer to implementation specific data based on an IP.
+Start and end addresses are made available so that the _Unwind library can
+optimize calls to these routines.  When an exception is raised, the _Unwind
+library looks up the current IP by calling these registered procedures.
+The need for something like this was implied in the Intel Software
+Conventions and Runtime Architecture Guide, Chap 11 (SCRAG is what I'll
+call it.  What do you call it?).  Section 11.1.2 says that the dynamic
+loader needs to provide an API for finding the unwind table.  I've just
+changed the 'ownership' of the data a bit.
+
+The second function lets you uninstall a lookup function.  That's for when
+you're unloading, and you don't want to leave bad fn pointers floating.
+Yes, the RTL for the language does have to cooperate, or things can go
+south a considerable time after a module unloads.
+
+The personality routine as it is stated in the C++ ABI doesn't have the
+implementation specific data passed to it.  I'd like to add that:
+
+typedef _Unwind_Reason_Code(*__personality_routine)(
+ int version,
+ _Unwind_Action actions,
+ uint64 exceptionClass,
+ _Unwind_Exception *exceptionObject,
+ _Unwind_Context *context,
+ void *ImplementationData);
+
+The ImplementationData parameter is the item that is returned by the lookup
+function that resolves the personality for a given IP.
+
+Given these changes, the format of most of the unwind data in chapter 11 of
+the SCRAG becomes mostly advisory (the frame info was already made so by
+the current document).  Chapter 11 could essentially become an appendix
+implementation that could be used by implementors if they chose, but not
+forced on them.  The other thing that I like about the lookup registering
+is that it allows implementors to innovate with respect to fast lookup
+schemes within a loadable module.  The current scheme allows for no
+innovation whatever.  I'd prefer that the implementors be left with the
+option to build as fancy or as simple a scheme for lookups and frame
+decomposition as possible, depending on the needs of the language.
+
+Hope I wasn't too wordy.
+
+-Eli
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000804.html">Agenda for Thursday
+</A></li>
+	<LI>Next message: <A HREF="000813.html">Unwind Table Location
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#810">[ date ]</a>
+              <a href="thread.html#810">[ thread ]</a>
+              <a href="subject.html#810">[ subject ]</a>
+              <a href="author.html#810">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

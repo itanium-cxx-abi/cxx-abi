@@ -1,0 +1,617 @@
+From daveed at edg.com  Fri Mar  6 17:35:46 2015
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 6 Mar 2015 12:35:46 -0500
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+Message-ID: <513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+
+At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+
+Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+
+1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+   for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+
+AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.  For example:
+
+ typedef struct { int value; } TypeA;
+ typedef struct { TypeA volatile value; } TypeB;
+ typedef struct { TypeA value; } TypeC;
+
+ int foo(TypeB p) { return p.value.value; }
+ int foo(TypeC p) { return p.value.value; }
+
+Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+
+If that is right, should the 3.1.1/1 words above be edited to read:
+
+1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+   nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+   and pass the resulting copy by reference (below).  Specifically, ...
+
+?
+
+	Daveed
+
+P.S.: I sent this e-mail from a different account a few days ago.  Sorry if anyone sees it twice.
+
+
+From richardsmith at googlers.com  Fri Mar  6 19:52:14 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Fri, 6 Mar 2015 11:52:14 -0800
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+Message-ID: <CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+
+On 6 March 2015 at 09:35, David Vandevoorde <daveed at edg.com> wrote:
+
+> At some point, the C++ standard changed to cause volatile nonstatic data
+> members to make a generated copy/move constructor nontrivial.
+>
+
+To save anyone else looking, this was
+http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496
+
+Unfortunately, that would change the parameter passing mechanism if we
+> stuck to letter of the ABI; see 3.1.1/1:
+>
+> 1. In the special case where the parameter type has a non-trivial copy
+> constructor or destructor, the caller must allocate space
+>    for a temporary copy, and pass the resulting copy by reference (below).
+> Specifically, ...
+>
+> AFAICT, recent versions of GCC and Clang do implement the language aspects
+> of nontriviality of copy/move constructors in such cases (e.g., causing
+> union constructors to become deleted), but not this ABI aspect of it.
+
+
+Clang does not implement this (http://clang.llvm.org/cxx_dr_status.html#496);
+I'm not sure about GCC trunk. We still accept
+
+  struct A { volatile int v; };
+  union U { A a; };
+  extern U u1;
+  U u2(u1);
+
+(for example).
+
+For example:
+>
+>  typedef struct { int value; } TypeA;
+>  typedef struct { TypeA volatile value; } TypeB;
+>  typedef struct { TypeA value; } TypeC;
+>
+>  int foo(TypeB p) { return p.value.value; }
+>  int foo(TypeC p) { return p.value.value; }
+>
+> Identical code is being generated for these two definitions of foo, even
+> though TypeB has a nontrivial copy constructor and TypeC has a trivial copy
+> constructor.
+>
+> If that is right, should the 3.1.1/1 words above be edited to read:
+>
+> 1. In the special case where the parameter type has a non-trivial copy
+> constructor (with the exception of a generated copy constructor that is
+>    nontrivial only because one or more nonstatic data member are trivial)
+> or destructor, the caller must allocate space for a temporary copy,
+>    and pass the resulting copy by reference (below).  Specifically, ...
+>
+> ?
+>
+
+No strong preference here, but...
+
+Do you have any feeling about how much code would be broken if we don't do
+this? If we were starting from a clean sheet, I think I'd prefer the rule
+as it is (volatile subobjects prevent a class from being passed in
+registers), so if this doesn't actually happen in practice, I'd prefer for
+us to leave the ABI alone.
+
+        Daveed
+>
+> P.S.: I sent this e-mail from a different account a few days ago.  Sorry
+> if anyone sees it twice.
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/fc1a4fd4/attachment.html>
+
+From rjmccall at apple.com  Fri Mar  6 20:25:14 2015
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 6 Mar 2015 12:25:14 -0800
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+	<CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+Message-ID: <A730C482-AB20-44A9-B3D6-38A29C43ABB8@apple.com>
+
+> On Mar 6, 2015, at 11:52 AM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 6 March 2015 at 09:35, David Vandevoorde <daveed at edg.com <mailto:daveed at edg.com>> wrote:
+> At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+> 
+> To save anyone else looking, this was http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496 <http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496>
+> 
+> Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+>    for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+> 
+> AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.
+> 
+> Clang does not implement this (http://clang.llvm.org/cxx_dr_status.html#496 <http://clang.llvm.org/cxx_dr_status.html#496>); I'm not sure about GCC trunk. We still accept
+> 
+>   struct A { volatile int v; };
+>   union U { A a; };
+>   extern U u1;
+>   U u2(u1);
+> 
+> (for example).
+> 
+> For example:
+> 
+>  typedef struct { int value; } TypeA;
+>  typedef struct { TypeA volatile value; } TypeB;
+>  typedef struct { TypeA value; } TypeC;
+> 
+>  int foo(TypeB p) { return p.value.value; }
+>  int foo(TypeC p) { return p.value.value; }
+> 
+> Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+> 
+> If that is right, should the 3.1.1/1 words above be edited to read:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+>    nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+>    and pass the resulting copy by reference (below).  Specifically, ...
+> 
+> ?
+> 
+> No strong preference here, but...
+> 
+> Do you have any feeling about how much code would be broken if we don't do this? If we were starting from a clean sheet, I think I'd prefer the rule as it is (volatile subobjects prevent a class from being passed in registers), so if this doesn't actually happen in practice, I'd prefer for us to leave the ABI alone.
+
+I agree with your abstract preference, but not only is this sheet not clean, it is actually vellum.  This is a C/C++ ABI incompatibility; I don?t remotely see how we can accept it.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/41c0ba4e/attachment-0001.html>
+
+From daveed at edg.com  Fri Mar  6 20:40:07 2015
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 6 Mar 2015 15:40:07 -0500
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+	<CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+Message-ID: <33EDAF44-D0C7-45F4-89E9-0585AD2F0040@edg.com>
+
+
+> On Mar 6, 2015, at 2:52 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 6 March 2015 at 09:35, David Vandevoorde <daveed at edg.com <mailto:daveed at edg.com>> wrote:
+> At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+> 
+> To save anyone else looking, this was http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496 <http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496>
+> 
+> Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+>    for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+> 
+> AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.
+> 
+> Clang does not implement this (http://clang.llvm.org/cxx_dr_status.html#496 <http://clang.llvm.org/cxx_dr_status.html#496>); I'm not sure about GCC trunk. We still accept
+> 
+>   struct A { volatile int v; };
+>   union U { A a; };
+>   extern U u1;
+>   U u2(u1);
+> 
+> (for example).
+
+
+Ah yes, I misinterpreted Clang/GCC behavior because I was using a volatile _class_ type.  Even there, though (as illustrated by the example below), there is an ABI breakage lurking, I think.
+
+
+> 
+> For example:
+> 
+>  typedef struct { int value; } TypeA;
+>  typedef struct { TypeA volatile value; } TypeB;
+>  typedef struct { TypeA value; } TypeC;
+> 
+>  int foo(TypeB p) { return p.value.value; }
+>  int foo(TypeC p) { return p.value.value; }
+> 
+> Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+> 
+> If that is right, should the 3.1.1/1 words above be edited to read:
+> 
+> 1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+>    nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+>    and pass the resulting copy by reference (below).  Specifically, ...
+> 
+> ?
+> 
+> No strong preference here, but...
+> 
+> Do you have any feeling about how much code would be broken if we don't do this? If we were starting from a clean sheet, I think I'd prefer the rule as it is (volatile subobjects prevent a class from being passed in registers), so if this doesn't actually happen in practice, I'd prefer for us to leave the ABI alone.
+
+I don?t have a strong sense, but we have one customer that ran into this (and that?s only for the class type case, we don?t implement 496 either yet).
+
+And it?s also a C-ABI compatibility issue?
+
+	Daveed
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/31578dfd/attachment.html>
+
+From richardsmith at googlers.com  Fri Mar  6 21:32:29 2015
+From: richardsmith at googlers.com (Richard Smith)
+Date: Fri, 6 Mar 2015 13:32:29 -0800
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <33EDAF44-D0C7-45F4-89E9-0585AD2F0040@edg.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+	<CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+	<33EDAF44-D0C7-45F4-89E9-0585AD2F0040@edg.com>
+Message-ID: <CAGL0aWfRDWnDPXuaKNd+cK7iZtaTd=5Wj8aoMxno3-3S7xBD8A@mail.gmail.com>
+
+On 6 March 2015 at 12:40, David Vandevoorde <daveed at edg.com> wrote:
+
+> On Mar 6, 2015, at 2:52 PM, Richard Smith <richardsmith at googlers.com>
+> wrote:
+>
+> On 6 March 2015 at 09:35, David Vandevoorde <daveed at edg.com> wrote:
+>
+>> At some point, the C++ standard changed to cause volatile nonstatic data
+>> members to make a generated copy/move constructor nontrivial.
+>>
+>
+> To save anyone else looking, this was
+> http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496
+>
+> Unfortunately, that would change the parameter passing mechanism if we
+>> stuck to letter of the ABI; see 3.1.1/1:
+>>
+>> 1. In the special case where the parameter type has a non-trivial copy
+>> constructor or destructor, the caller must allocate space
+>>    for a temporary copy, and pass the resulting copy by reference
+>> (below). Specifically, ...
+>>
+>> AFAICT, recent versions of GCC and Clang do implement the language
+>> aspects of nontriviality of copy/move constructors in such cases (e.g.,
+>> causing union constructors to become deleted), but not this ABI aspect of
+>> it.
+>
+>
+> Clang does not implement this (
+> http://clang.llvm.org/cxx_dr_status.html#496); I'm not sure about GCC
+> trunk. We still accept
+>
+>   struct A { volatile int v; };
+>   union U { A a; };
+>   extern U u1;
+>   U u2(u1);
+>
+> (for example).
+>
+>
+>
+> Ah yes, I misinterpreted Clang/GCC behavior because I was using a volatile
+> _class_ type.  Even there, though (as illustrated by the example below),
+> there is an ABI breakage lurking, I think.
+>
+>
+>
+> For example:
+>>
+>>  typedef struct { int value; } TypeA;
+>>  typedef struct { TypeA volatile value; } TypeB;
+>>  typedef struct { TypeA value; } TypeC;
+>>
+>>  int foo(TypeB p) { return p.value.value; }
+>>  int foo(TypeC p) { return p.value.value; }
+>>
+>> Identical code is being generated for these two definitions of foo, even
+>> though TypeB has a nontrivial copy constructor and TypeC has a trivial copy
+>> constructor.
+>>
+>> If that is right, should the 3.1.1/1 words above be edited to read:
+>>
+>> 1. In the special case where the parameter type has a non-trivial copy
+>> constructor (with the exception of a generated copy constructor that is
+>>    nontrivial only because one or more nonstatic data member are trivial)
+>> or destructor, the caller must allocate space for a temporary copy,
+>>    and pass the resulting copy by reference (below).  Specifically, ...
+>>
+>> ?
+>>
+>
+> No strong preference here, but...
+>
+> Do you have any feeling about how much code would be broken if we don't do
+> this? If we were starting from a clean sheet, I think I'd prefer the rule
+> as it is (volatile subobjects prevent a class from being passed in
+> registers), so if this doesn't actually happen in practice, I'd prefer for
+> us to leave the ABI alone.
+>
+>
+> I don?t have a strong sense, but we have one customer that ran into this
+> (and that?s only for the class type case, we don?t implement 496 either
+> yet).
+>
+> And it?s also a C-ABI compatibility issue?
+>
+
+The proposed ABI change would be non-conforming even under the proposed
+resolution of
+http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#1590, because
+we are not permitted to make additional technical copies of a parameter
+unless it has a trivial copy/move constructor. Consider:
+
+  struct A { A *volatile p = this; };
+  void f(A a) { assert(&a == a.p); }
+  int main() { f({}); }
+
+We are not permitted to fabricate an extra copy of the A object here
+because its constructor is non-trivial. Thus the assertion must not fail,
+and we cannot pass the object in registers.
+
+I see three ways out: extend 1590 to also include this "volatile members
+don't count" clause, or allow a constructor to make an additional copy of a
+parameter object in all cases of copy-initialization, or revert the
+resolution of 496.
+
+Reverting 496 seems most palatable to me right now, but in any case this
+seems like something for CWG to decide rather than something for us to work
+around in the ABI.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/b7358093/attachment.html>
+
+From daveed at edg.com  Fri Mar  6 21:49:56 2015
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 6 Mar 2015 16:49:56 -0500
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <CAGL0aWfRDWnDPXuaKNd+cK7iZtaTd=5Wj8aoMxno3-3S7xBD8A@mail.gmail.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+	<CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+	<33EDAF44-D0C7-45F4-89E9-0585AD2F0040@edg.com>
+	<CAGL0aWfRDWnDPXuaKNd+cK7iZtaTd=5Wj8aoMxno3-3S7xBD8A@mail.gmail.com>
+Message-ID: <68C01D33-E063-4775-B9DD-5A2AC5D0EFB7@edg.com>
+
+
+> On Mar 6, 2015, at 4:32 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> 
+> On 6 March 2015 at 12:40, David Vandevoorde <daveed at edg.com <mailto:daveed at edg.com>> wrote:
+>> On Mar 6, 2015, at 2:52 PM, Richard Smith <richardsmith at googlers.com <mailto:richardsmith at googlers.com>> wrote:
+>> 
+>> On 6 March 2015 at 09:35, David Vandevoorde <daveed at edg.com <mailto:daveed at edg.com>> wrote:
+>> At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+>> 
+>> To save anyone else looking, this was http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496 <http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#496>
+>> 
+>> Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+>> 
+>> 1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+>>    for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+>> 
+>> AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.
+>> 
+>> Clang does not implement this (http://clang.llvm.org/cxx_dr_status.html#496 <http://clang.llvm.org/cxx_dr_status.html#496>); I'm not sure about GCC trunk. We still accept
+>> 
+>>   struct A { volatile int v; };
+>>   union U { A a; };
+>>   extern U u1;
+>>   U u2(u1);
+>> 
+>> (for example).
+> 
+> 
+> Ah yes, I misinterpreted Clang/GCC behavior because I was using a volatile _class_ type.  Even there, though (as illustrated by the example below), there is an ABI breakage lurking, I think.
+> 
+> 
+>> 
+>> For example:
+>> 
+>>  typedef struct { int value; } TypeA;
+>>  typedef struct { TypeA volatile value; } TypeB;
+>>  typedef struct { TypeA value; } TypeC;
+>> 
+>>  int foo(TypeB p) { return p.value.value; }
+>>  int foo(TypeC p) { return p.value.value; }
+>> 
+>> Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+>> 
+>> If that is right, should the 3.1.1/1 words above be edited to read:
+>> 
+>> 1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+>>    nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+>>    and pass the resulting copy by reference (below).  Specifically, ...
+>> 
+>> ?
+>> 
+>> No strong preference here, but...
+>> 
+>> Do you have any feeling about how much code would be broken if we don't do this? If we were starting from a clean sheet, I think I'd prefer the rule as it is (volatile subobjects prevent a class from being passed in registers), so if this doesn't actually happen in practice, I'd prefer for us to leave the ABI alone.
+> 
+> I don?t have a strong sense, but we have one customer that ran into this (and that?s only for the class type case, we don?t implement 496 either yet).
+> 
+> And it?s also a C-ABI compatibility issue?
+> 
+> The proposed ABI change would be non-conforming even under the proposed resolution of http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#1590 <http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#1590>, because we are not permitted to make additional technical copies of a parameter unless it has a trivial copy/move constructor. Consider:
+> 
+>   struct A { A *volatile p = this; };
+>   void f(A a) { assert(&a == a.p); }
+>   int main() { f({}); }
+> 
+
+Ow!
+
+> We are not permitted to fabricate an extra copy of the A object here because its constructor is non-trivial. Thus the assertion must not fail, and we cannot pass the object in registers.
+> 
+> I see three ways out: extend 1590 to also include this "volatile members don't count" clause, or allow a constructor to make an additional copy of a parameter object in all cases of copy-initialization, or revert the resolution of 496.
+> 
+> Reverting 496 seems most palatable to me right now, but in any case this seems like something for CWG to decide rather than something for us to work around in the ABI.
+
+
+Agreed.
+
+	Daveed
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/5c97adca/attachment-0001.html>
+
+From daveed at edg.com  Sat Mar  7 00:51:06 2015
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 6 Mar 2015 19:51:06 -0500
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+In-Reply-To: <68C01D33-E063-4775-B9DD-5A2AC5D0EFB7@edg.com>
+References: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+	<513504C8-11BC-47E0-8CF2-85B6A64849D1@edg.com>
+	<CAGL0aWdBkbhaeN3ik_iMPMyyTMQsGEy7Unk+XBi5=MBHZJeHEA@mail.gmail.com>
+	<33EDAF44-D0C7-45F4-89E9-0585AD2F0040@edg.com>
+	<CAGL0aWfRDWnDPXuaKNd+cK7iZtaTd=5Wj8aoMxno3-3S7xBD8A@mail.gmail.com>
+	<68C01D33-E063-4775-B9DD-5A2AC5D0EFB7@edg.com>
+Message-ID: <BEB0E54E-00F1-4C69-AC31-A72F2C2BC89D@edg.com>
+
+
+> On Mar 6, 2015, at 4:49 PM, David Vandevoorde <daveed at edg.com> wrote:
+> 
+> 
+>> On Mar 6, 2015, at 4:32 PM, Richard Smith <richardsmith at googlers.com <mailto:richardsmith at googlers.com>> wrote:
+[?]
+>> 
+>> I see three ways out: extend 1590 to also include this "volatile members don't count" clause, or allow a constructor to make an additional copy of a parameter object in all cases of copy-initialization, or revert the resolution of 496.
+>> 
+>> Reverting 496 seems most palatable to me right now, but in any case this seems like something for CWG to decide rather than something for us to work around in the ABI.
+> 
+> 
+> Agreed.
+
+I've asked Mike Miller (CWG chair) to open an issue about that.
+
+	Daveed
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150306/d7ff0e8f/attachment.html>
+
+From richardsmith at google.com  Wed Mar 11 00:29:18 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 10 Mar 2015 17:29:18 -0700
+Subject: [cxx-abi-dev] mangling for aggregate initialization designators
+Message-ID: <CAGL0aWe6mVfe5qfrP0c6ZOxB7SBQVn2inPW3eg1gMjkO21SuvQ@mail.gmail.com>
+
+We have no mangling for C's designated initialization extension, but this
+extension is supported in C++ mode by several of our implementations.
+
+Clang and EDG reject designated initialization in an
+instantiation-dependent expression in a signature (due to the lack of a
+mangling, at least in Clang's case). GCC acts as if the designators aren't
+there (which sort of matches its semantic model for them, but is incorrect
+because GCC *does* support overloading on the chosen designator and using
+it for SFINAE).
+
+This wouldn't be the first extension for which we give a mangling; would it
+be reasonable to add one here?
+
+And how about adding ones for _Atomic types, and for C's _Generic
+expression?
+
+I have no good suggestion for an _Atomic mangling; every letter in
+[ATOMICatomic] is already in use in a type context. (The prefix table is
+missing an entry for C, FWIW.) Clang uses U7_Atomic, but that doesn't seem
+ideal.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150310/fb90c1ff/attachment.html>
+
+From jason at redhat.com  Tue Mar 24 17:54:29 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 24 Mar 2015 13:54:29 -0400
+Subject: [cxx-abi-dev] Substitutions for nested template parameters
+In-Reply-To: <8A5D71C3-2542-429F-8B98-5D41C03C4E3B@edg.com>
+References: <8A5D71C3-2542-429F-8B98-5D41C03C4E3B@edg.com>
+Message-ID: <5511A4D5.3060203@redhat.com>
+
+A related example:
+
+template <class T, void (*P)(T)>
+void f(T) {}
+
+template <class T>
+void g(T) {}
+
+int main()
+{
+   f<int, g<int> >(42);
+}
+
+Here EDG uses T_ in the parameters of both f and g, i.e.
+
+_Z1fIiXadL_Z1gIiEvT_EEEvT_
+
+whereas gcc and clang use a substitution for the parameter of f,
+
+_Z1fIiXadL_Z1gIiEvT_EEEvS1_
+
+Jason
+
+
+From daveed at vandevoorde.com  Tue Mar  3 21:12:17 2015
+From: daveed at vandevoorde.com (David Vandevoorde)
+Date: Tue, 03 Mar 2015 21:12:17 -0000
+Subject: [cxx-abi-dev] Volatile nonstatic data members
+Message-ID: <48E5B25C-A100-42A6-9804-5786BA09BCFF@vandevoorde.com>
+
+At some point, the C++ standard changed to cause volatile nonstatic data members to make a generated copy/move constructor nontrivial.
+
+Unfortunately, that would change the parameter passing mechanism if we stuck to letter of the ABI; see 3.1.1/1:
+
+ 1. In the special case where the parameter type has a non-trivial copy constructor or destructor, the caller must allocate space
+    for a temporary copy, and pass the resulting copy by reference (below). Specifically, ...
+
+AFAICT, recent versions of GCC and Clang do implement the language aspects of nontriviality of copy/move constructors in such cases (e.g., causing union constructors to become deleted), but not this ABI aspect of it.  For example:
+
+  typedef struct { int value; } TypeA;
+  typedef struct { TypeA volatile value; } TypeB;
+  typedef struct { TypeA value; } TypeC;
+
+  int foo(TypeB p) { return p.value.value; }
+  int foo(TypeC p) { return p.value.value; }
+
+Identical code is being generated for these two definitions of foo, even though TypeB has a nontrivial copy constructor and TypeC has a trivial copy constructor.
+
+If that is right, should the 3.1.1/1 words above be edited to read:
+
+ 1. In the special case where the parameter type has a non-trivial copy constructor (with the exception of a generated copy constructor that is
+    nontrivial only because one or more nonstatic data member are trivial) or destructor, the caller must allocate space for a temporary copy,
+    and pass the resulting copy by reference (below).  Specifically, ...
+
+?
+
+	Daveed
+
+
+
+

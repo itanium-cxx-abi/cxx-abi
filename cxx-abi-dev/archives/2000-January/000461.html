@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> array new-expressions: proposal
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20array%20new-expressions%3A%20proposal&In-Reply-To=%3C3888B474.B69CAEB6%40engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000460.html">
+   <LINK REL="Next"  HREF="000462.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>array new-expressions: proposal</H1>
+    <B>John Wilkinson</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20array%20new-expressions%3A%20proposal&In-Reply-To=%3C3888B474.B69CAEB6%40engr.sgi.com%3E"
+       TITLE="array new-expressions: proposal">jfw at cthulhu.engr.sgi.com
+       </A><BR>
+    <I>Fri Jan 21 19:33:08 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000460.html">array new-expressions: proposal
+</A></li>
+        <LI>Next message: <A HREF="000462.html">array new-expressions: proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Matt Austern wrote:
+&gt;<i> 
+</I>&gt;<i> WHAT THE STANDARD SAYS. (3.7.3.1, 5.3.4, and 18.4.1.3)
+</I>&gt;<i> 
+</I>&gt;<i> Array new has the form &quot;new(ARGS) T[n]&quot;.  The &quot;(ARGS)&quot;
+</I>&gt;<i> part is optional.  If it's present then this is a placement
+</I>&gt;<i> new-expression, and we use a version of operator new[] with
+</I>&gt;<i> two or more arguments, otherwise it's an ordinary new-
+</I>&gt;<i> expression, and we use a version of operator new[] with one
+</I>&gt;<i> argument.  For the purposes of this proposal the distinction
+</I>&gt;<i> isn't all that important.
+</I>&gt;<i> 
+</I>&gt;<i> After finding the appropriate operator new, a new-expression
+</I>&gt;<i> obtains storage with
+</I>&gt;<i>     void* p = operator new[](n1, ARGS),
+</I>&gt;<i> where n1 &gt;= n * sizeof(T).  It then constructs n objects of type
+</I>&gt;<i> T starting at position p1, where p1 = p + delta.  The return
+</I>&gt;<i> value is p1.
+</I>&gt;<i> 
+</I>&gt;<i> It is required (3.7.3.1/2) that the return value of any operator
+</I>&gt;<i> new[], whether it's built-in or provided by the user, must be
+</I>&gt;<i> suitably aligned for objects of any type.
+</I>&gt;<i> 
+</I>&gt;<i> If T is &quot;char&quot; or &quot;unsigned char&quot; the standard requires that
+</I>&gt;<i> delta is a nonnegative multiple of the most stringent alignment
+</I>&gt;<i> constraint for objects of size less than or equal to n
+</I>&gt;<i> (5.3.4/10).  Otherwise the only restriction is that delta is
+</I>&gt;<i> nonnegative.
+</I>&gt;<i> 
+</I>&gt;<i> Some implementations store the number of elements in the array at
+</I>&gt;<i> a negative offset from p1.  The standard neither requires nor
+</I>&gt;<i> forbids it.
+</I>&gt;<i> 
+</I>&gt;<i> There's a predefined placement version of array operator new,
+</I>&gt;<i>     ::operator new[](size_t n1, void* p),
+</I>&gt;<i> that does nothing but return p.  p must be a pointer to the
+</I>&gt;<i> beginning of some array of size at least n1.  The standard
+</I>&gt;<i> doesn't tell users how large an array they need.  Many users
+</I>&gt;<i> probably assume that it's sufficient for the array to be of size
+</I>&gt;<i> n * sizeof(T), but there's no basis in the standard for that
+</I>&gt;<i> assumption.
+</I>&gt;<i> 
+</I>&gt;<i> IA-64 SPECIFICS
+</I>&gt;<i> 
+</I>&gt;<i> On IA-64 long double is 80 bits.  long double has 128-bit alignment,
+</I>&gt;<i> as do classes and unions containing long double, so sizeof(long double)
+</I>&gt;<i> is 16.  All other types have 64-bit alignment.
+</I>&gt;<i> 
+</I>&gt;<i> WHAT THE ABI NEEDS TO SPECIFY
+</I>&gt;<i> 
+</I>&gt;<i> (1) Given n, and T, what are n1 and delta?
+</I>&gt;<i>     (a) Are T=char and T=unsigned char special cases?  (Or,
+</I>&gt;<i>         perhaps, is sizeof(T)=1 a special case?)
+</I>&gt;<i>     (b) Is ::operator new[](size_t, void*) a special case?
+</I>&gt;<i>     (c) Is ::operator new[](size_t), which is used for
+</I>&gt;<i>         non-placement new, a special case?
+</I>&gt;<i>     (d) Is ::operator new[](size_t, const nothrow_t&amp;) a
+</I>&gt;<i>         special case?  I can't find anything in the standard
+</I>&gt;<i>         guaranteeing that you can delete an array allocated
+</I>&gt;<i>         with nothrow array new using an ordinary array delete-
+</I>&gt;<i>         expression, but users probably expect it, and
+</I>&gt;<i>         legitimately so.
+</I>&gt;<i> (2) Do we store n at a negative offset from p1?  (This affects
+</I>&gt;<i>     the answer to question 1.)  If so, we need to specify
+</I>&gt;<i>     precisely what that offset is.
+</I>&gt;<i> 
+</I>&gt;<i> PROPOSAL A.
+</I>&gt;<i> 
+</I>&gt;<i> No version of operator new[] is a special case.  For any array
+</I>&gt;<i> new-expression we store the number of elements in the array,
+</I>&gt;<i> as a size_t, at an offset of -sizeof(size_t) from the pointer
+</I>&gt;<i> returned by the new-expression.  For any type T other than char,
+</I>&gt;<i> unsigned char, long double, or a type containing a long double,
+</I>&gt;<i> n1 = n * sizeof(T) + sizeof(size_t).   For those three types,
+</I>&gt;<i> since we need to preserve long double alignment, n1 = n * sizeof(T) +
+</I>&gt;<i> sizeof(long double).
+</I>&gt;<i> 
+</I>&gt;<i> Pseudocode for new(ARGS) T[n] under this proposal:
+</I>&gt;<i> 
+</I>&gt;<i>     if T = char or unsigned char, or if it has long double alignment,
+</I>&gt;<i>       padding = sizeof(long double)
+</I>&gt;<i>     else
+</I>&gt;<i>       padding = sizeof(size_t)
+</I>&gt;<i> 
+</I>&gt;<i>     p = operator new[](n * sizeof(T) + padding, ARGS)
+</I>&gt;<i> 
+</I>&gt;<i>     p1 = (T*) (p + padding)
+</I>&gt;<i>     ((unsigned long*) p1 - 1) = n
+</I>&gt;<i> 
+</I>&gt;<i>     for i = [0, n)
+</I>&gt;<i>       create a T, using the default constructor, at p1[i]
+</I>&gt;<i> 
+</I>&gt;<i>     return p1
+</I>&gt;<i> 
+</I>&gt;<i> PROPOSAL B.
+</I>&gt;<i> 
+</I>&gt;<i> ::operator new[](size_t, void*) is a special case.  For that
+</I>&gt;<i> version of operator new[] only, n1 = n * sizeof(T).  We do not
+</I>&gt;<i> store the number of elements in such an array anywhere.
+</I>&gt;<i> 
+</I>&gt;<i> Pseudocode for new(ARGS) T[n] under this proposal:
+</I>&gt;<i> 
+</I>&gt;<i>     If the expression is new(p) T[n], and if overload resolution
+</I>&gt;<i>     determines we're using ::operator new[](size_t, void*), then
+</I>&gt;<i>       p1 = (T*) p
+</I>&gt;<i> 
+</I>&gt;<i>       for i = [0, n)
+</I>&gt;<i>         create a T, using the default constructor, at p1[i]
+</I>&gt;<i> 
+</I>&gt;<i>       return p1
+</I>&gt;<i> 
+</I>&gt;<i>     For all other cases, same as proposal A.
+</I>&gt;<i> 
+</I>&gt;<i> Proposal A is simpler, but proposal B probably conforms more
+</I>&gt;<i> closely to user expectations.
+</I>
+After thinking about this for most of the morning, I have concluded that
+placement array new is too clumsy to be really useful anyway;  my vote
+is for Proposal A.
+
+-- 
+John Wilkinson
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000460.html">array new-expressions: proposal
+</A></li>
+	<LI>Next message: <A HREF="000462.html">array new-expressions: proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

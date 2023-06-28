@@ -1,0 +1,237 @@
+From mark at codesourcery.com  Tue Mar  1 23:39:27 2011
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 01 Mar 2011 15:39:27 -0800
+Subject: Fwd: Mangling ambiguity with argument packs in template argument
+ lists
+In-Reply-To: <20352EC6-D10E-44E0-8600-01B729E20D38@edg.com>
+References: <EC9B15D9-7580-47BF-93A8-68879CBC488A@edg.com> <20352EC6-D10E-44E0-8600-01B729E20D38@edg.com>
+Message-ID: <4D6D83AF.8030907@codesourcery.com>
+
+On 2/28/2011 8:04 AM, Mike Herrick wrote:
+
+> Actually, the patch associated with this message is the patch that should be applied (it includes fixes for both variadic template issues I brought up).
+
+Mike, I've applied the patch.  Thank you!
+
+> Thanks,
+> 
+> Mike.
+> 
+> Begin forwarded message:
+> 
+>> From: Mike Herrick <mjh at edg.com>
+>> Date: December 20, 2010 12:41:17 PM EST
+>> To: cxx-abi-dev at codesourcery.com
+>> Subject: Mangling ambiguity with argument packs in template argument lists
+>>
+>> We ran into a mangling ambiguity with argument packs in template argument lists (where both use the letter "I"):
+>>
+>>  <template-args> ::= I <template-arg>+ E
+>>  <template-arg> ::= <type>                         # type or template
+>>                 ::= X <expression> E               # expression
+>>                 ::= <expr-primary>                 # simple expressions
+>>                 ::= I <template-arg>* E            # argument pack
+>>                 ::= sp <expression>                # pack expansion (C++0x)
+>>
+>> Here's an example where two different source constructs generate the same mangled name (_Z1fI1BI1AIiEEEDTcmfp_fp_ET_):
+>>
+>> $ cat foo.cpp
+>>  template <class T> auto f(T p1) -> decltype(p1, p1);
+>>  template <class T> struct A {};
+>> #if FOO
+>>  template <class T> struct B {};
+>>  B<A<int>> b;
+>> #else
+>>  template <template <class TT> class T, class ... U> struct B {};
+>>  B<A,int> b;
+>> #endif
+>>  int main() {
+>>    f(b);
+>>  }
+>> $ g++451 -DFOO -std=c++0x foo.cpp
+>> /tmp/ccOqFYBI.o(.text+0xc): In function `main':
+>> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+>> collect2: ld returned 1 exit status
+>> $ g++451 -UFOO -std=c++0x foo.cpp
+>> /tmp/cc448n5U.o(.text+0xc): In function `main':
+>> : undefined reference to `decltype ({parm#1},{parm#1}) f<B<A<int> > >(B<A<int> >)'
+>> collect2: ld returned 1 exit status
+>> $ 
+>>
+>> When the demangler gets to the "I" after "1A", it's ambiguous whether the "I" represents an argument pack or a template argument (as noted by g++ 4.5.1 issuing the same demangled name for both cases).
+>>
+>> To address this, we propose changing the mangling for argument packs to use "J" rather than "I":
+>>
+>>  <template-arg> ::= J <template-arg>* E              # argument pack
+>>
+>> This change is not backward compatible.
+>>
+>> I'm attaching a patch that includes this change with the others that I've proposed.
+>>
+>> Thanks,
+>>
+>> Mike.
+
+
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From jason at redhat.com  Fri Mar  4 17:17:24 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 04 Mar 2011 12:17:24 -0500
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <4C1A7A61.9060708@redhat.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com> <4C1A7A61.9060708@redhat.com>
+Message-ID: <4D711EA4.1070203@redhat.com>
+
+A related case:
+
+template<typename T> int cmp1(T a, T b);
+template<typename T> int cmp2(T a, T b);
+template<typename T, int (*cmp)(T, T)> struct A { };
+template <typename T> void f (A<T,cmp1> &);
+void g()
+{
+   A<char,cmp1> a;
+   f(a);
+}
+
+How do we mangle 'cmp1' in the signature of f?  The ABI doesn't say 
+anything specific about how to mangle unresolved overloading.
+
+G++ currently crashes on this testcase, but some obvious fixes lead it 
+to generate "4cmp1", i.e. <unresolved-name>, which seems consistent with 
+the mangling in a dependent call.
+
+EDG 4.2 mangles it as adL_Z4cmp1, which doesn't seem to match anything 
+in the spec; it seems to be treating the cmp1 template as an extern "C" 
+function.  I tried to create an analogous dependent call to see what it 
+would do in that case:
+
+template <class T, int I> struct B { };
+template <class T> void h(B<T,sizeof(cmp1(T(),T()))>);
+
+void i()
+{
+   B<int,sizeof(int)> b;
+   h(b);
+}
+
+but EDG 4.2 rejects this testcase.
+
+Jason
+
+
+From jason at redhat.com  Tue Mar  8 16:43:44 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 08 Mar 2011 11:43:44 -0500
+Subject: string constant mangling
+In-Reply-To: <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+Message-ID: <4D765CC0.5060904@redhat.com>
+
+On 07/14/2010 10:56 AM, David Vandevoorde wrote:
+> On Jul 13, 2010, at 10:08 PM, John McCall wrote:
+>> On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+>>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where<character type>  is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+>>
+>> Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+>>   template<class T>  auto foo(T x) ->  decltype(bar(x, "abc"));
+>>   template<class T>  auto foo(T x) ->  decltype(bar(x, "abcd"));
+>
+> Good catch!
+>
+> How about using:
+>
+> 	L<string type>  E
+>
+> ?
+>
+> That matches the (new) nullptr approach.  In addition to the string size, it also encodes the cv-qualifier, which ensures that we get distinct encodings for compilations with a mode where string literals are non-const.
+
+It occurs to me that now with constexpr, string constants can appear in 
+a constant expression:
+
+template <typename T> constexpr T f(const T* p) { return p[0]; }
+template<int> struct N { };
+template <typename T> N<f((const T*)"1")> g(T);
+template <typename T> N<f((const T*)"2")> g(T);
+
+Here the two 'g's are different templates.
+
+Jason
+
+
+From jason at redhat.com  Tue Mar  8 17:02:09 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 08 Mar 2011 12:02:09 -0500
+Subject: [cxx-abi-dev] string constant mangling
+In-Reply-To: <4D765CC0.5060904@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <4D765CC0.5060904@redhat.com>
+Message-ID: <4D766111.6040705@redhat.com>
+
+...and after adding the proposed mangling to G++, I get a multiply 
+defined symbol on
+
+template <typename T> constexpr T f(const T* p) { return p[0]; }
+template<int> struct N { };
+template <typename T> void g(T, N<f((const T*)"1")>) { }
+template <typename T> void g(T, N<f((const T*)"2")>) { }
+
+int main()
+{
+   g('1', N<'1'>());
+   g('2', N<'2'>());
+}
+
+
+From daveed at edg.com  Tue Mar  8 21:12:49 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 8 Mar 2011 16:12:49 -0500
+Subject: string constant mangling
+In-Reply-To: <4D765CC0.5060904@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <4D765CC0.5060904@redhat.com>
+Message-ID: <0FC1F25E-C588-41FB-850E-5DBE7F4631B4@edg.com>
+
+
+On Mar 8, 2011, at 11:43 AM, Jason Merrill wrote:
+
+> On 07/14/2010 10:56 AM, David Vandevoorde wrote:
+>> On Jul 13, 2010, at 10:08 PM, John McCall wrote:
+>>> On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+>>>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where<character type>  is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+>>> 
+>>> Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+>>>  template<class T>  auto foo(T x) ->  decltype(bar(x, "abc"));
+>>>  template<class T>  auto foo(T x) ->  decltype(bar(x, "abcd"));
+>> 
+>> Good catch!
+>> 
+>> How about using:
+>> 
+>> 	L<string type>  E
+>> 
+>> ?
+>> 
+>> That matches the (new) nullptr approach.  In addition to the string size, it also encodes the cv-qualifier, which ensures that we get distinct encodings for compilations with a mode where string literals are non-const.
+> 
+> It occurs to me that now with constexpr, string constants can appear in a constant expression:
+> 
+> template <typename T> constexpr T f(const T* p) { return p[0]; }
+> template<int> struct N { };
+> template <typename T> N<f((const T*)"1")> g(T);
+> template <typename T> N<f((const T*)"2")> g(T);
+> 
+> Here the two 'g's are different templates.
+
+Ouch :-(  I guess another tweak is needed then.
+
+	Daveed
+
+
+

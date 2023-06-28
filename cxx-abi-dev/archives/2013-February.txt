@@ -1,0 +1,546 @@
+From rjmccall at apple.com  Sat Feb 16 01:38:39 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 15 Feb 2013 17:38:39 -0800
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+Message-ID: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+
+Richard Smith has pointed out to me that the ABI document currently states, right at the beginning of section 2.5:
+
+  A virtual table (vtable) is a table of information used to dispatch virtual functions, to access virtual base class subobjects, and to access information for runtime type identification (RTTI). Each class that has virtual member functions or virtual bases has an associated set of virtual tables. There may be multiple virtual tables for a particular class, if it is used as a base class for other classes. However, the virtual table pointers within all the objects (instances) of a particular most-derived class point to the same set of virtual tables.
+
+This last sentence could be interpreted as a strict requirement that all objects of a most-derived class use the same v-table, as opposed to potentially a private copy of that v-table.
+
+While it is obviously good to avoid redundant copies of a v-table in memory, an unconditional requirement to do so seems excessive.  Uniquing a symbol with vague linkage across dynamic-library boundaries may require a significant amount of work, probably at load time but at best at the first use of the symbol (a sort of laziness which would carry its own disadvantages).  This work is required for the RTTI symbol name (_ZTS*) in order to make RTTI comparison work, but it is not otherwise mandatory for the RTTI object (_ZTI*) or v-tables (_ZTV*) or VTT (_ZTT*).
+
+In practice, it is quite common for compilers to implement optimizations that decrease the visibility of symbols when the uses of them are not address-sensitive, or as requested by users.  I would hate for this to be a violation of the ABI.
+
+I propose changing (clarifying?) this paragraph to conclude as follows:
+  However, the virtual table pointers within all the objects (instances) of a particular most-derived class point to the same **logical** set of virtual tables, **although they need not in fact have pointer-equivalent addresses or contents**.
+
+I say "contents" because referencing a function in a v-table is not an address-sensitive use of it.  In fact, it is impossible to construct an address-sensitive use of a virtual function in standard C++, since pointer-to-members for virtual functions refer to the virtual "slot", not the concrete implementation.
+
+John.
+
+From richardsmith at google.com  Sat Feb 16 02:19:17 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 15 Feb 2013 18:19:17 -0800
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+Message-ID: <CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+
+On Fri, Feb 15, 2013 at 5:38 PM, John McCall <rjmccall at apple.com> wrote:
+
+> Richard Smith has pointed out to me that the ABI document currently
+> states, right at the beginning of section 2.5:
+>
+>   A virtual table (vtable) is a table of information used to dispatch
+> virtual functions, to access virtual base class subobjects, and to access
+> information for runtime type identification (RTTI). Each class that has
+> virtual member functions or virtual bases has an associated set of virtual
+> tables. There may be multiple virtual tables for a particular class, if it
+> is used as a base class for other classes. However, the virtual table
+> pointers within all the objects (instances) of a particular most-derived
+> class point to the same set of virtual tables.
+>
+> This last sentence could be interpreted as a strict requirement that all
+> objects of a most-derived class use the same v-table, as opposed to
+> potentially a private copy of that v-table.
+>
+> While it is obviously good to avoid redundant copies of a v-table in
+> memory, an unconditional requirement to do so seems excessive.  Uniquing a
+> symbol with vague linkage across dynamic-library boundaries may require a
+> significant amount of work, probably at load time but at best at the first
+> use of the symbol (a sort of laziness which would carry its own
+> disadvantages).  This work is required for the RTTI symbol name (_ZTS*) in
+> order to make RTTI comparison work, but it is not otherwise mandatory for
+> the RTTI object (_ZTI*) or v-tables (_ZTV*) or VTT (_ZTT*).
+>
+
+It is currently mandatory for the _ZTI, per 2.9.1:
+
+"It is intended that two type_info pointers point to equivalent type
+descriptions if and only if the pointers are equal. An implementation must
+satisfy this constraint, e.g. by using symbol preemption, COMDAT sections,
+or other mechanisms."
+
+
+> In practice, it is quite common for compilers to implement optimizations
+> that decrease the visibility of symbols when the uses of them are not
+> address-sensitive, or as requested by users.  I would hate for this to be a
+> violation of the ABI.
+>
+> I propose changing (clarifying?) this paragraph to conclude as follows:
+>   However, the virtual table pointers within all the objects (instances)
+> of a particular most-derived class point to the same **logical** set of
+> virtual tables, **although they need not in fact have pointer-equivalent
+> addresses or contents**.
+>
+> I say "contents" because referencing a function in a v-table is not an
+> address-sensitive use of it.  In fact, it is impossible to construct an
+> address-sensitive use of a virtual function in standard C++, since
+> pointer-to-members for virtual functions refer to the virtual "slot", not
+> the concrete implementation.
+>
+> John.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130215/111a199d/attachment.html>
+
+From gdr at integrable-solutions.net  Sat Feb 16 02:45:15 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Fri, 15 Feb 2013 20:45:15 -0600
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+Message-ID: <CAAiZkiAQKPQKtYBYsrjq6tLG_Bw9XUhnH5b0g=3WQy3F7o-_HQ@mail.gmail.com>
+
+On Fri, Feb 15, 2013 at 8:19 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Fri, Feb 15, 2013 at 5:38 PM, John McCall <rjmccall at apple.com> wrote:
+>>
+>> Richard Smith has pointed out to me that the ABI document currently
+>> states, right at the beginning of section 2.5:
+>>
+>>   A virtual table (vtable) is a table of information used to dispatch
+>> virtual functions, to access virtual base class subobjects, and to access
+>> information for runtime type identification (RTTI). Each class that has
+>> virtual member functions or virtual bases has an associated set of virtual
+>> tables. There may be multiple virtual tables for a particular class, if it
+>> is used as a base class for other classes. However, the virtual table
+>> pointers within all the objects (instances) of a particular most-derived
+>> class point to the same set of virtual tables.
+>>
+>> This last sentence could be interpreted as a strict requirement that all
+>> objects of a most-derived class use the same v-table, as opposed to
+>> potentially a private copy of that v-table.
+>>
+>> While it is obviously good to avoid redundant copies of a v-table in
+>> memory, an unconditional requirement to do so seems excessive.  Uniquing a
+>> symbol with vague linkage across dynamic-library boundaries may require a
+>> significant amount of work, probably at load time but at best at the first
+>> use of the symbol (a sort of laziness which would carry its own
+>> disadvantages).  This work is required for the RTTI symbol name (_ZTS*) in
+>> order to make RTTI comparison work, but it is not otherwise mandatory for
+>> the RTTI object (_ZTI*) or v-tables (_ZTV*) or VTT (_ZTT*).
+>
+>
+> It is currently mandatory for the _ZTI, per 2.9.1:
+>
+> "It is intended that two type_info pointers point to equivalent type
+> descriptions if and only if the pointers are equal. An implementation must
+> satisfy this constraint, e.g. by using symbol preemption, COMDAT sections,
+> or other mechanisms."
+
+Indeed, this appears to be more than a decade old issue
+
+     http://gcc.gnu.org/ml/gcc/2002-05/msg01970.html
+
+Beware: the discussion was very long; the details can be found in the archive.
+
+-- Gaby
+
+
+>
+>>
+>> In practice, it is quite common for compilers to implement optimizations
+>> that decrease the visibility of symbols when the uses of them are not
+>> address-sensitive, or as requested by users.  I would hate for this to be a
+>> violation of the ABI.
+>>
+>> I propose changing (clarifying?) this paragraph to conclude as follows:
+>>   However, the virtual table pointers within all the objects (instances)
+>> of a particular most-derived class point to the same **logical** set of
+>> virtual tables, **although they need not in fact have pointer-equivalent
+>> addresses or contents**.
+>>
+>> I say "contents" because referencing a function in a v-table is not an
+>> address-sensitive use of it.  In fact, it is impossible to construct an
+>> address-sensitive use of a virtual function in standard C++, since
+>> pointer-to-members for virtual functions refer to the virtual "slot", not
+>> the concrete implementation.
+>>
+>> John.
+>> _______________________________________________
+>> cxx-abi-dev mailing list
+>> cxx-abi-dev at codesourcery.com
+>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+
+From rjmccall at apple.com  Sun Feb 17 01:58:33 2013
+From: rjmccall at apple.com (John McCall)
+Date: Sat, 16 Feb 2013 17:58:33 -0800
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+Message-ID: <CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+
+
+On Feb 15, 2013, at 6:19 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> On Fri, Feb 15, 2013 at 5:38 PM, John McCall <rjmccall at apple.com> wrote:
+> Richard Smith has pointed out to me that the ABI document currently states, right at the beginning of section 2.5:
+> 
+>   A virtual table (vtable) is a table of information used to dispatch virtual functions, to access virtual base class subobjects, and to access information for runtime type identification (RTTI). Each class that has virtual member functions or virtual bases has an associated set of virtual tables. There may be multiple virtual tables for a particular class, if it is used as a base class for other classes. However, the virtual table pointers within all the objects (instances) of a particular most-derived class point to the same set of virtual tables.
+> 
+> This last sentence could be interpreted as a strict requirement that all objects of a most-derived class use the same v-table, as opposed to potentially a private copy of that v-table.
+> 
+> While it is obviously good to avoid redundant copies of a v-table in memory, an unconditional requirement to do so seems excessive.  Uniquing a symbol with vague linkage across dynamic-library boundaries may require a significant amount of work, probably at load time but at best at the first use of the symbol (a sort of laziness which would carry its own disadvantages).  This work is required for the RTTI symbol name (_ZTS*) in order to make RTTI comparison work, but it is not otherwise mandatory for the RTTI object (_ZTI*) or v-tables (_ZTV*) or VTT (_ZTT*).
+> 
+> It is currently mandatory for the _ZTI, per 2.9.1:
+> 
+> "It is intended that two type_info pointers point to equivalent type descriptions if and only if the pointers are equal. An implementation must satisfy this constraint, e.g. by using symbol preemption, COMDAT sections, or other mechanisms."
+
+I didn't really mean to open that debate.  The question of what exactly is merged about RTTI is very complicated, with widespread divergence from the plain rule in the ABI;  in particular, neither GCC nor clang guarantees uniquing of _ZTI's, and GCC stopped even uniquing _ZTS's by default as of GCC 4.5, using a new comparison scheme on all platforms (which, incidentally, I think would be worth documenting as an official alternative, if anyone from GCC would mind describing the rules they use).
+
+My point is just that AFAIK *nobody* has ever relied upon v-tables or VTTs being uniqued, and I would like to clean up a bit of the ABI spec which seems to imply that they need to be.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130216/fbc9505b/attachment.html>
+
+From jason at redhat.com  Sun Feb 17 21:58:18 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Sun, 17 Feb 2013 16:58:18 -0500
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+Message-ID: <5121527A.5040103@redhat.com>
+
+On 02/16/2013 08:58 PM, John McCall wrote:
+> GCC stopped even uniquing _ZTS's by
+> default as of GCC 4.5, using a new comparison scheme on all platforms
+> (which, incidentally, I think would be worth documenting as an official
+> alternative, if anyone from GCC would mind describing the rules they use).
+
+_ZTSs are no less unique now than they were before; we just accepted 
+that RTLD_LOCAL prevents reliably uniquing symbols.  For data that 
+really needs to be unique such as template static data members, we 
+introduced STB_GNU_UNIQUE, but we decided that it was too expensive to 
+use for _ZTSs, so we left them only mostly unique, and started doing 
+string comparison instead of pointer comparison.  For types local to a 
+translation unit we still do pointer comparison.
+
+Jason
+
+
+From gdr at integrable-solutions.net  Mon Feb 18 00:38:56 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Sun, 17 Feb 2013 18:38:56 -0600
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <5121527A.5040103@redhat.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+Message-ID: <CAAiZkiC46ZTV-LRfjzC2OSheenO+nNUzBVY-LM0BLPJ-QwcFaA@mail.gmail.com>
+
+On Sun, Feb 17, 2013 at 3:58 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 02/16/2013 08:58 PM, John McCall wrote:
+>>
+>> GCC stopped even uniquing _ZTS's by
+>> default as of GCC 4.5, using a new comparison scheme on all platforms
+>> (which, incidentally, I think would be worth documenting as an official
+>> alternative, if anyone from GCC would mind describing the rules they use).
+>
+>
+> _ZTSs are no less unique now than they were before; we just accepted that
+> RTLD_LOCAL prevents reliably uniquing symbols.  For data that really needs
+> to be unique such as template static data members, we introduced
+> STB_GNU_UNIQUE, but we decided that it was too expensive to use for _ZTSs,
+> so we left them only mostly unique, and started doing string comparison
+> instead of pointer comparison.  For types local to a translation unit we
+> still do pointer comparison.
+>
+> Jason
+
+John, I believe it is a reasonable thing to ask for *amendment* to the
+ABI to get
+the leeway you would like to get -- though I suspect the wording would be more
+involved than what I've seen so far.
+
+However, we can't pretend that the ABI never asked for uniqueness of these
+artefacts or that nobody depended on them.
+
+-- Gaby
+
+From rjmccall at apple.com  Mon Feb 18 18:12:07 2013
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 18 Feb 2013 10:12:07 -0800
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <5121527A.5040103@redhat.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+Message-ID: <7C706302-340F-4011-A7C8-F0453E66020F@apple.com>
+
+On Feb 17, 2013, at 1:58 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 02/16/2013 08:58 PM, John McCall wrote:
+>> GCC stopped even uniquing _ZTS's by
+>> default as of GCC 4.5, using a new comparison scheme on all platforms
+>> (which, incidentally, I think would be worth documenting as an official
+>> alternative, if anyone from GCC would mind describing the rules they use).
+> 
+> _ZTSs are no less unique now than they were before
+
+> we decided that it was too expensive to use for _ZTSs, so we left them only mostly unique
+
+So... _ZTSs are less unique now than they were before. :)
+
+> For types local to a translation unit we still do pointer comparison.
+
+Out of curiosity, do you try to use pointer comparison for types with hidden visibility, or is it just internal vs. at-any-visibility external?
+
+John.
+
+From rjmccall at apple.com  Mon Feb 18 18:47:58 2013
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 18 Feb 2013 10:47:58 -0800
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <CAAiZkiC46ZTV-LRfjzC2OSheenO+nNUzBVY-LM0BLPJ-QwcFaA@mail.gmail.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+	<CAAiZkiC46ZTV-LRfjzC2OSheenO+nNUzBVY-LM0BLPJ-QwcFaA@mail.gmail.com>
+Message-ID: <DA22006E-D33E-47E3-94C7-B863AECC7664@apple.com>
+
+
+On Feb 17, 2013, at 4:38 PM, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+
+> On Sun, Feb 17, 2013 at 3:58 PM, Jason Merrill <jason at redhat.com> wrote:
+>> On 02/16/2013 08:58 PM, John McCall wrote:
+>>> 
+>>> GCC stopped even uniquing _ZTS's by
+>>> default as of GCC 4.5, using a new comparison scheme on all platforms
+>>> (which, incidentally, I think would be worth documenting as an official
+>>> alternative, if anyone from GCC would mind describing the rules they use).
+>> 
+>> 
+>> _ZTSs are no less unique now than they were before; we just accepted that
+>> RTLD_LOCAL prevents reliably uniquing symbols.  For data that really needs
+>> to be unique such as template static data members, we introduced
+>> STB_GNU_UNIQUE, but we decided that it was too expensive to use for _ZTSs,
+>> so we left them only mostly unique, and started doing string comparison
+>> instead of pointer comparison.  For types local to a translation unit we
+>> still do pointer comparison.
+>> 
+>> Jason
+> 
+> John, I believe it is a reasonable thing to ask for *amendment* to the
+> ABI to get
+> the leeway you would like to get -- though I suspect the wording would be more
+> involved than what I've seen so far.
+> 
+> However, we can't pretend that the ABI never asked for uniqueness of these
+> artefacts or that nobody depended on them.
+
+Gaby, I'd to clarify again that I am not actually proposing that we do
+anything about the uniqueness of RTTI objects (_ZTSs and _ZTIs),
+despite the widespread divergence.  The widespread divergence is a
+problem that we need to address eventually, because it does seriously
+affect the interoperation of compilers, but it's not why I'm posting now.
+
+I am currently seeking consensus that we never meant to guarantee
+uniqueness of *v-tables* (_ZTVs and _ZTTs).  I thought this would be
+uncontroversial.  If it isn't, then I agree that I should come back with a
+more formalized proposal.
+
+I do know that there's code out there which loads and compares v-table
+pointers ? for example, WebKit's JavaScript engine used to do that,
+although IIRC those types had key functions.  Of course, that code has
+to either perform undefined behavior (by accessing the byte representation
+of a polymorphic class) or escape the guarantees of the standards (by
+using assembly), so I'm not too concerned about it, especially since many
+existing compilers don't currently guarantee the uniqueness of v-tables
+in all cases anyway (e.g. across dynamic library boundaries).
+
+John.
+
+From daveed at edg.com  Mon Feb 18 19:48:40 2013
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 18 Feb 2013 14:48:40 -0500
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <DA22006E-D33E-47E3-94C7-B863AECC7664@apple.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+	<CAAiZkiC46ZTV-LRfjzC2OSheenO+nNUzBVY-LM0BLPJ-QwcFaA@mail.gmail.com>
+	<DA22006E-D33E-47E3-94C7-B863AECC7664@apple.com>
+Message-ID: <8A89A93F-141D-4878-B11D-FAFC01B38DB7@edg.com>
+
+
+On Feb 18, 2013, at 1:47 PM, John McCall <rjmccall at apple.com> wrote:
+[...]
+> I am currently seeking consensus that we never meant to guarantee
+> uniqueness of *v-tables* (_ZTVs and _ZTTs).
+
+[...]
+
+
+That sounds reasonable to me.
+
+	Daveed
+
+
+
+From gdr at integrable-solutions.net  Mon Feb 18 21:53:59 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Mon, 18 Feb 2013 15:53:59 -0600
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <DA22006E-D33E-47E3-94C7-B863AECC7664@apple.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+	<CAAiZkiC46ZTV-LRfjzC2OSheenO+nNUzBVY-LM0BLPJ-QwcFaA@mail.gmail.com>
+	<DA22006E-D33E-47E3-94C7-B863AECC7664@apple.com>
+Message-ID: <CAAiZkiDVn_BWL7Ovf1sJE_FKwHMnYXxu1ttRk7Hp_F-EYbtR+A@mail.gmail.com>
+
+On Mon, Feb 18, 2013 at 12:47 PM, John McCall <rjmccall at apple.com> wrote:
+> On Feb 17, 2013, at 4:38 PM, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+>
+>> On Sun, Feb 17, 2013 at 3:58 PM, Jason Merrill <jason at redhat.com> wrote:
+>>> On 02/16/2013 08:58 PM, John McCall wrote:
+>>>>
+>>>> GCC stopped even uniquing _ZTS's by
+>>>> default as of GCC 4.5, using a new comparison scheme on all platforms
+>>>> (which, incidentally, I think would be worth documenting as an official
+>>>> alternative, if anyone from GCC would mind describing the rules they use).
+>>>
+>>>
+>>> _ZTSs are no less unique now than they were before; we just accepted that
+>>> RTLD_LOCAL prevents reliably uniquing symbols.  For data that really needs
+>>> to be unique such as template static data members, we introduced
+>>> STB_GNU_UNIQUE, but we decided that it was too expensive to use for _ZTSs,
+>>> so we left them only mostly unique, and started doing string comparison
+>>> instead of pointer comparison.  For types local to a translation unit we
+>>> still do pointer comparison.
+>>>
+>>> Jason
+>>
+>> John, I believe it is a reasonable thing to ask for *amendment* to the
+>> ABI to get
+>> the leeway you would like to get -- though I suspect the wording would be more
+>> involved than what I've seen so far.
+>>
+>> However, we can't pretend that the ABI never asked for uniqueness of these
+>> artefacts or that nobody depended on them.
+>
+> Gaby, I'd to clarify again that I am not actually proposing that we do
+> anything about the uniqueness of RTTI objects (_ZTSs and _ZTIs),
+> despite the widespread divergence.  The widespread divergence is a
+> problem that we need to address eventually, because it does seriously
+> affect the interoperation of compilers, but it's not why I'm posting now.
+>
+> I am currently seeking consensus that we never meant to guarantee
+> uniqueness of *v-tables* (_ZTVs and _ZTTs).  I thought this would be
+> uncontroversial.  If it isn't, then I agree that I should come back with a
+> more formalized proposal.
+
+OK.
+
+-- Gaby
+
+>
+> I do know that there's code out there which loads and compares v-table
+> pointers ? for example, WebKit's JavaScript engine used to do that,
+> although IIRC those types had key functions.  Of course, that code has
+> to either perform undefined behavior (by accessing the byte representation
+> of a polymorphic class) or escape the guarantees of the standards (by
+> using assembly), so I'm not too concerned about it, especially since many
+> existing compilers don't currently guarantee the uniqueness of v-tables
+> in all cases anyway (e.g. across dynamic library boundaries).
+>
+> John.
+
+From dhandly at cup.hp.com  Tue Feb 19 23:17:56 2013
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 19 Feb 2013 15:17:56 -0800 (PST)
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+Message-ID: <201302192317.r1JNHuG24187@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>_ZTSs are no less unique now than they were before; we just accepted 
+>that RTLD_LOCAL prevents reliably uniquing symbols.
+
+We tell our customers they can't use those options for C++, unless they
+know types are really local.
+
+>and started doing string comparison instead of pointer comparison.
+Jason
+
+We had to have a secret method that can enable the string comparison, for
+one important customer.
+
+>From: Gabriel Dos Reis <gdr at integrable-solutions.net>
+>However, we can't pretend that the ABI never asked for uniqueness of these
+>artefacts or that nobody depended on them.
+
+Right.  We depend on them.
+
+>From: David Vandevoorde <daveed at edg.com>
+>On Feb 18, 2013, at 1:47 PM, John McCall <rjmccall at apple.com> wrote:
+>> I am currently seeking consensus that we never meant to guarantee
+>> uniqueness of *v-tables* (_ZTVs and _ZTTs).
+
+>That sounds reasonable to me.
+
+Except uniqueness is always good.  ;-)
+
+On Mon, Feb 18, 2013 at 12:47 PM, John McCall <rjmccall at apple.com> wrote:
+> I do know that there's code out there which loads and compares v-table
+> pointers
+
+We do try to optimize dynamic_casts into static_casts by comparing the
+pointer values.
+
+From jason at redhat.com  Wed Feb 20 03:36:59 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 19 Feb 2013 22:36:59 -0500
+Subject: [cxx-abi-dev] There is no obligation to unique virtual tables
+In-Reply-To: <7C706302-340F-4011-A7C8-F0453E66020F@apple.com>
+References: <AF7B2A72-A8C9-4A55-BA52-4107E7971EF7@apple.com>
+	<CAGL0aWeiVFfp4+_cmZKF-Ue8oLP4Kvn6TGRf1Hx+Z9Uy_uRcRw@mail.gmail.com>
+	<CED241F0-F5B6-45B5-A2E2-60C3A54B71A0@apple.com>
+	<5121527A.5040103@redhat.com>
+	<7C706302-340F-4011-A7C8-F0453E66020F@apple.com>
+Message-ID: <512444DB.9050601@redhat.com>
+
+On 02/18/2013 01:12 PM, John McCall wrote:
+>> we decided that it was too expensive to use for _ZTSs, so we left them only mostly unique
+>
+> So... _ZTSs are less unique now than they were before. :)
+
+Exactly as unique as they were before; that is, unique except in the 
+presence of RTLD_LOCAL.  We just declined to use the new technology to 
+make them even more unique.
+
+>> For types local to a translation unit we still do pointer comparison.
+>
+> Out of curiosity, do you try to use pointer comparison for types with hidden visibility, or is it just internal vs. at-any-visibility external?
+
+Just internal; for them, string comparison could mistakenly decide that 
+two unrelated types are the same.
+
+Jason
+
+

@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] RTTI symbol uniqueness
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20RTTI%20symbol%20uniqueness&In-Reply-To=%3C14FA812A-A04A-4BF9-B7CA-4DC91536FFC9%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002637.html">
+   <LINK REL="Next"  HREF="002632.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] RTTI symbol uniqueness</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20RTTI%20symbol%20uniqueness&In-Reply-To=%3C14FA812A-A04A-4BF9-B7CA-4DC91536FFC9%40apple.com%3E"
+       TITLE="[cxx-abi-dev] RTTI symbol uniqueness">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Nov 21 05:43:29 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002637.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+        <LI>Next message: <A HREF="002632.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2623">[ date ]</a>
+              <a href="thread.html#2623">[ thread ]</a>
+              <a href="subject.html#2623">[ subject ]</a>
+              <a href="author.html#2623">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The ABI often requires symbols to be emitted with vague linkage: inline functions, static data members of class temploids, RTTI objects and names for types that aren&#8217;t polymorphic classes with a key function, etc.
+
+Vague linkage is fine during static linking*.  However, it can be really expensive if the program needs dynamic linking***, and it&#8217;s expensive even if only one shared object actually defines the symbol.
+
+  * Well, no, it causes terrible build-time regressions, but that&#8217;s hard to avoid in the C++ translation model.**
+  ** Unless you are EDG.
+  *** Which is to say, always, unless you&#8217;re on a very special platform.
+
+When the symbol is a function, a lot of this cost is avoidable, or at least postponable:
+  - Direct calls and v-table references don&#8217;t care about the exact address and can potentially be resolved within the shared object.* **
+  - Direct calls can use a lazy-binding stub to postpone symbol resolution until the code actually executes.
+
+  * At least, this is legal by the language standard.  IIRC, GCC has historically not done this on the grounds that it violates the ELF standard.
+  ** Although this can hurt code locality by causing multiple copies of a function to be executed.
+
+When the symbol is a variable, including RTTI objects and names, that resolution has to occur immediately upon load.*  That&#8217;s a lot of work, but more importantly, it&#8217;s a lot of memory that has to be loaded from disk before you can even start running global constructors.
+
+  * References from code could also use lazy binding in theory, but I don&#8217;t think anybody does this for various reasons.  References from data, like the name pointer from an RTTI object, have to be resolved immediately.
+
+Some of that work is absolutely necessary: the language requires variables to have a single, unique address.  But the language has no such requirement on RTTI objects and names; that&#8217;s purely our requirement, done to make it more efficient to compare type_infos.
+
+In practice, users take measures to reduce these costs, e.g. using broad-spectrum visibility switches like GCC/Clang&#8217;s -fvisibility=hidden.  If they use dynamic libraries, they then usually have to manually undo that for specific symbols, e.g. with attributes like GCC/Clang&#8217;s __attribute__((visibility(&#8220;default&#8221;))).  Symbol visibility is its own, glorious thing that some of us probably ought to standardize the computation of one of these days.  All that&#8217;s really important is that it&#8217;s not uncommon for RTTI symbols to get hidden despite actually needing to be uniqued across library boundaries.
+
+I believe GCC and libstdc++ have recently(-ish) taken measures against that problem.  If the RTTI name starts with &#8216;*&#8217;, it is known to have a unique address; otherwise, equality/comparison must happen with strcmp.  I don&#8217;t know exactly when the library and compile use that ABI, however, or what causes the compiler to emit a name starting with &#8216;*'.
+
+On ARM64, Apple/clang/libc++ does something very similar.  When an RTTI object would otherwise have default visibility and vague linkage, we instead give it hidden visibility and set a high bit in the RTTI object&#8217;s name pointer.*  If that bit is set on both pointers, we fall back on using string comparison.  Using a high bit means that, in the fast path, the name data never needs to be loaded at all.
+
+  * On ARM64, the top eight bits of all pointers are reserved for shenanigans.**
+  ** Not Objective-C object pointers.
+
+The chief difference* is that Apple&#8217;s approach still requires the type to be formally given the right visibility.**   It's primarily a targeted optimization to eliminate a common need for vague linkage in the dynamic linker; it's also ARM64-specific, and on all other platforms, Apple&#8217;s clang still hews exactly to the ABI.  In contrast, I believe GCC&#8217;s approach is intended to Do The Right Thing even when types are completely mis-decorated (or at least, left undecorated under -fvisibility=hidden).
+
+  * Ignoring the minor representation difference.
+  ** Clang provides a type_visibility attribute which only controls the visibility only of a type, not its (non-type) members.  This makes it easy to formally export a type without changing the visibility rules for any of its member functions.  This is also essentially what happens with -fvisibility-ms-compat.
+
+This seems to be a growing area of disagreement between vendors, and I wanted to bring it to the list&#8217;s attention for discussion.
+
+John.
+</PRE>
+
+
+
+
+
+
+
+
+
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002637.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+	<LI>Next message: <A HREF="002632.html">[cxx-abi-dev] C++ ABI version 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2623">[ date ]</a>
+              <a href="thread.html#2623">[ thread ]</a>
+              <a href="subject.html#2623">[ subject ]</a>
+              <a href="author.html#2623">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

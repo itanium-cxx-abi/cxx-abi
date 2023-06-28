@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] question on the virtual base offset
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20question%20on%20the%20virtual%20base%20offset&In-Reply-To=%3C4176AFED.60008%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001869.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] question on the virtual base offset</H1>
+    <B>Kerch Holt</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20question%20on%20the%20virtual%20base%20offset&In-Reply-To=%3C4176AFED.60008%40cup.hp.com%3E"
+       TITLE="[cxx-abi-dev] question on the virtual base offset">kerch at cup.hp.com
+       </A><BR>
+    <I>Wed Oct 20 18:35:25 UTC 2004</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001869.html">[cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1868">[ date ]</a>
+              <a href="thread.html#1868">[ thread ]</a>
+              <a href="subject.html#1868">[ subject ]</a>
+              <a href="author.html#1868">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Seems like this issue hasn't been resolved...
+
+Mark Mitchell wrote:
+&gt;<i> Nathan Sidwell wrote:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Yan Liu wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+</I>&gt;&gt;&gt;<i> following testcase:
+</I>&gt;&gt;&gt;<i> struct A {char a;};
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> struct B: virtual public A {};
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> struct C:public B{
+</I>&gt;&gt;&gt;<i>   int c;
+</I>&gt;&gt;&gt;<i>   virtual void f() {};
+</I>&gt;&gt;&gt;<i> };
+</I>&gt;&gt;&gt;<i> struct D {
+</I>&gt;&gt;&gt;<i>         char d;
+</I>&gt;&gt;&gt;<i> };
+</I>&gt;&gt;&gt;<i> struct E {int:3;};
+</I>&gt;&gt;&gt;<i> struct F: public C, virtual E, public D {
+</I>&gt;&gt;&gt;<i>         char f1;
+</I>&gt;&gt;&gt;<i>         virtual void f(){}
+</I>&gt;&gt;&gt;<i> };
+</I>&gt;&gt;&gt;<i> int main()
+</I>&gt;&gt;&gt;<i> {F f;}
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Attached files are the class and vft  layout results with three g++
+</I>&gt;&gt;&gt;<i> compilers using -fdump-class-hierarchy option.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> (See attached file: temp4.g++35.class)(See attached file:
+</I>&gt;&gt;&gt;<i> temp4.g++33.class)(See attached file: temp4.C.g++34_32.class)
+</I>&gt;&gt;&gt;<i> According to the C++ ABI online document chapter 2.4
+</I>&gt;&gt;&gt;<i> (<A HREF="http://www.codesourcery.com/cxx-abi/abi.html">http://www.codesourcery.com/cxx-abi/abi.html</A>).  After mapping the 
+</I>&gt;&gt;&gt;<i> virtual
+</I>&gt;&gt;&gt;<i> base class A while mapping of the most derived class F,  the 
+</I>&gt;&gt;&gt;<i> dsize(F)=11,
+</I>&gt;&gt;&gt;<i> size(F)=11, align(F)=4, and nvsize(E)=4, nvalign(E)=4.  So, when mapping
+</I>&gt;&gt;&gt;<i> virtual base class E, the next available bits are at offset 
+</I>&gt;&gt;&gt;<i> dsize(F)=11.  E
+</I>&gt;&gt;&gt;<i> should be put at offset(F) which is the dsize(F) =11, and the final 
+</I>&gt;&gt;&gt;<i> class
+</I>&gt;&gt;&gt;<i> size should be 12. To me, g++3.4 gives the most reasonable result, I 
+</I>&gt;&gt;&gt;<i> don't
+</I>&gt;&gt;&gt;<i> understand why g++3.5 put E at offset 12, and the final class size is 
+</I>&gt;&gt;&gt;<i> 16.
+</I>&gt;&gt;&gt;<i> Is it means that ABI has changed or just a gcc bug?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Your kind help is highly appreciated. Thanks.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> the layout 3.5 gives looks ok to me.  E requires 4 byte alignment, so
+</I>&gt;&gt;<i> cannot be at 11.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> If E should have 4-byte alignment (as indicated above by &quot;nvalign(E)&quot;), 
+</I>&gt;<i> then I agree.
+</I>&gt;<i> 
+</I>Since E only contains an &quot;unnamed bitfield&quot; which is not even considered
+a member (see 9.6 P2) I think the nvalign(E) should be 1.
+
+&gt;<i> Of course, independently of which choice is correct, we don't want G++ 
+</I>&gt;<i> changing the ABI without explicit use of -fabi-version.  However, I see 
+</I>&gt;<i> the size of F as 12 with both G++ 3.4.1 and the current mainline, on 
+</I>&gt;<i> i686-pc-linux-gnu.
+</I>&gt;<i> 
+</I>
+Does this need extra wording in the ABI to deal with the special case
+of unnamed bitfields? Perhaps alter 2.4 II 1. to say:
+     If D is not an unnamed bitfield
+         update align(C) to max(align(C),align(T))
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001869.html">[cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1868">[ date ]</a>
+              <a href="thread.html#1868">[ thread ]</a>
+              <a href="subject.html#1868">[ subject ]</a>
+              <a href="author.html#1868">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

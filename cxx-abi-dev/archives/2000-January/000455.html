@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Array placement new
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Array%20placement%20new&In-Reply-To=%3C200001201118.MAA05093%40pandora%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000452.html">
+   <LINK REL="Next"  HREF="000453.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Array placement new</H1>
+    <B>Martin von Loewis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Array%20placement%20new&In-Reply-To=%3C200001201118.MAA05093%40pandora%3E"
+       TITLE="Array placement new">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Thu Jan 20 11:18:42 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000452.html">Array placement new
+</A></li>
+        <LI>Next message: <A HREF="000453.html">Agenda for 20 January
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#455">[ date ]</a>
+              <a href="thread.html#455">[ thread ]</a>
+              <a href="subject.html#455">[ subject ]</a>
+              <a href="author.html#455">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> (2) Do we store n at a negative offset from the return value of
+</I>&gt;<i>     operator new[]?
+</I>
+I believe the answer to this question must be 'no'. operator new[] is
+a replaceable signature (18.4.1). If there is a user-provided
+definition of operator new[], there is no guarantee that anything at
+negative offsets is accessible.
+
+I just noticed there is a terminology problem. I'd call the outcome of
+
+  ::operator new[](size)
+
+the return value of operator new[], and the outcome of
+
+  new T[size]
+
+the return value of the new-expression.
+
+&gt;<i> Some implementations store the number of elements in the array at
+</I>&gt;<i> a negative offset from p1.  The standard neither requires nor
+</I>&gt;<i> forbids it.
+</I>
+The standard requires that, if T is a class type, the appropriate
+number of constructors are invoked when the array is
+deleted. Therefore, delete[] has to have knowledge about the number of
+elements in the array.
+
+I believe g++ uses the following strategy: If T has a destructor, the
+array size is stored within the array. If T is primitive, or POD, only
+the total size of all objects is requested.
+
+&gt;<i> (1) Given n, T, sizeof(T), and alignof(T), what are n1 and delta?
+</I>&gt;<i>     (a) Are T=char and T=unsigned char special cases?  (Or,
+</I>&gt;<i>         perhaps, is sizeof(T)=1 a special case?)
+</I>
+No. Types without destructor are a special case. That gives the
+special behaviour for new char[], as well.
+
+&lt;proposal&gt;
+If T has an explicitly declared destructor (either directly or in a
+base), then 
+
+  delta = max(sizeof(size_t),alignof(T)) 
+  n1 = n*sizeof(T) + delta
+
+If result of the operator-new-call is p, then the result of the
+new-expression is
+
+  p1 = p+delta
+
+If T has no explicit destructor, then delta=0, and a delete-expression
+only invokes operator delete[] with the given address.
+&lt;/proposal&gt;
+
+I believe this differs from the current g++ solution, which always
+uses delta = biggest_alignment for destructable types.
+
+&gt;<i>     (b) Is ::operator new[](size_t, void*) a special case?
+</I>
+No. The standard clearly says that it must return its argument. So if
+people allocate only n*sizeof(T) memory in a placement-new for an
+array of destructable elements, then it will overwrite some random
+memory.
+
+Regards,
+Martin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000452.html">Array placement new
+</A></li>
+	<LI>Next message: <A HREF="000453.html">Agenda for 20 January
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#455">[ date ]</a>
+              <a href="thread.html#455">[ thread ]</a>
+              <a href="subject.html#455">[ subject ]</a>
+              <a href="author.html#455">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

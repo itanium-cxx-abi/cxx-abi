@@ -1,0 +1,1151 @@
+From dhandly at cup.hp.com  Wed Sep  1 06:47:24 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 31 Aug 2004 23:47:24 -0700 (PDT)
+Subject: [cxx-abi-dev] question on the virtual base offset
+Message-ID: <200409010647.XAA15458@hpcll183.cup.hp.com>
+
+>From: Yan Liu <yanliu at ca.ibm.com>
+>I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+>following testcase:
+
+>virtual base class E, the next available bits are at offset dsize(F)=11.  E
+>should be put at offset(F) which is the dsize(F) =11, and the final class
+>size should be 12. ... Is it means that ABI has changed or just a gcc bug?
+
+It seems like a bug.  Both aCC5 and aCC6 get 12.  (32 bit mode)
+sizeof A:  1
+sizeof B:  8
+sizeof C: 12
+sizeof D:  1
+sizeof E:  1
+sizeof F: 12
+offsetof F.B:   0
+offsetof F.C:   0
+offsetof F.D:   8
+offsetof F.f1:  9
+offsetof F.A:  10
+offsetof F.E:  11
+
+
+From nathan at codesourcery.com  Mon Sep  6 13:18:52 2004
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 06 Sep 2004 14:18:52 +0100
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com>
+References: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com>
+Message-ID: <413C63BC.9000704@codesourcery.com>
+
+Yan Liu wrote:
+> 
+> 
+> 
+> I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+> following testcase:
+> struct A {char a;};
+> 
+> struct B: virtual public A {};
+> 
+> struct C:public B{
+>   int c;
+>   virtual void f() {};
+> };
+> struct D {
+>         char d;
+> };
+> struct E {int:3;};
+> struct F: public C, virtual E, public D {
+>         char f1;
+>         virtual void f(){}
+> };
+> int main()
+> {F f;}
+> 
+> Attached files are the class and vft  layout results with three g++
+> compilers using -fdump-class-hierarchy option.
+> 
+> 
+> (See attached file: temp4.g++35.class)(See attached file:
+> temp4.g++33.class)(See attached file: temp4.C.g++34_32.class)
+> According to the C++ ABI online document chapter 2.4
+> (http://www.codesourcery.com/cxx-abi/abi.html).  After mapping the virtual
+> base class A while mapping of the most derived class F,  the dsize(F)=11,
+> size(F)=11, align(F)=4, and nvsize(E)=4, nvalign(E)=4.  So, when mapping
+> virtual base class E, the next available bits are at offset dsize(F)=11.  E
+> should be put at offset(F) which is the dsize(F) =11, and the final class
+> size should be 12. To me, g++3.4 gives the most reasonable result, I don't
+> understand why g++3.5 put E at offset 12, and the final class size is 16.
+> Is it means that ABI has changed or just a gcc bug?
+> 
+> Your kind help is highly appreciated. Thanks.
+
+the layout 3.5 gives looks ok to me.  E requires 4 byte alignment, so
+cannot be at 11.
+
+3.4 incorrectly packed the bitfield into a char.
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From mark at codesourcery.com  Mon Sep  6 22:31:47 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 06 Sep 2004 15:31:47 -0700
+Subject: [cxx-abi-dev] question on the virtual base offset
+In-Reply-To: <413C63BC.9000704@codesourcery.com>
+References: <OFA76ECA0F.8F32D881-ON85256F01.00762861-85256F01.007A2EB7@ca.ibm.com> <413C63BC.9000704@codesourcery.com>
+Message-ID: <413CE553.1050105@codesourcery.com>
+
+Nathan Sidwell wrote:
+
+> Yan Liu wrote:
+>
+>>
+>>
+>>
+>> I found that g++ 3.3, 3.4 and 3.5 have different class layout for the
+>> following testcase:
+>> struct A {char a;};
+>>
+>> struct B: virtual public A {};
+>>
+>> struct C:public B{
+>>   int c;
+>>   virtual void f() {};
+>> };
+>> struct D {
+>>         char d;
+>> };
+>> struct E {int:3;};
+>> struct F: public C, virtual E, public D {
+>>         char f1;
+>>         virtual void f(){}
+>> };
+>> int main()
+>> {F f;}
+>>
+>> Attached files are the class and vft  layout results with three g++
+>> compilers using -fdump-class-hierarchy option.
+>>
+>>
+>> (See attached file: temp4.g++35.class)(See attached file:
+>> temp4.g++33.class)(See attached file: temp4.C.g++34_32.class)
+>> According to the C++ ABI online document chapter 2.4
+>> (http://www.codesourcery.com/cxx-abi/abi.html).  After mapping the 
+>> virtual
+>> base class A while mapping of the most derived class F,  the 
+>> dsize(F)=11,
+>> size(F)=11, align(F)=4, and nvsize(E)=4, nvalign(E)=4.  So, when mapping
+>> virtual base class E, the next available bits are at offset 
+>> dsize(F)=11.  E
+>> should be put at offset(F) which is the dsize(F) =11, and the final 
+>> class
+>> size should be 12. To me, g++3.4 gives the most reasonable result, I 
+>> don't
+>> understand why g++3.5 put E at offset 12, and the final class size is 
+>> 16.
+>> Is it means that ABI has changed or just a gcc bug?
+>>
+>> Your kind help is highly appreciated. Thanks.
+>
+>
+> the layout 3.5 gives looks ok to me.  E requires 4 byte alignment, so
+> cannot be at 11.
+
+If E should have 4-byte alignment (as indicated above by "nvalign(E)"), 
+then I agree.
+
+Of course, independently of which choice is correct, we don't want G++ 
+changing the ABI without explicit use of -fabi-version.  However, I see 
+the size of F as 12 with both G++ 3.4.1 and the current mainline, on 
+i686-pc-linux-gnu.
+
+Yan, are you using PowerPC instead of IA32?
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From jason at redhat.com  Tue Sep  7 21:17:45 2004
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 07 Sep 2004 17:17:45 -0400
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+In-Reply-To: <xypvffxvccn.fsf@miranda.boston.redhat.com> (Jason Merrill's
+ message of "Thu, 05 Aug 2004 11:22:32 -0400")
+References: <200408050545.WAA10974@hpcll183.cup.hp.com>
+	<xypvffxvccn.fsf@miranda.boston.redhat.com>
+Message-ID: <xypvfepeq2u.fsf@miranda.boston.redhat.com>
+
+On Thu, 05 Aug 2004 11:22:32 -0400, Jason Merrill <jason at redhat.com> wrote:
+> On Wed, 4 Aug 2004 22:45:21 -0700 (PDT), Dennis Handly <dhandly at cup.hp.com> wrote:
+>>>From: Jason Merrill <jason at redhat.com>
+
+>>>  To make this work, we need to do something like
+>>>if (__cxa_guard_acquire (&guard)) {
+>>
+>> You didn't optimize by checking the guard before calling
+>> _cxa_guard_acquire.
+>
+> Yep, I left that out for brevity.
+
+It turns out that checking the guard is broken on the ia-64 platform unless
+there is a memory barrier in the case that 'guard' is set.  This sort of
+optimization is known as the Double Checked Locking Pattern, and is known
+to be broken on modern architectures.
+
+As described in this thread:
+
+  http://www.google.com/groups?threadm=6kuldj$4sk%40bmtlh10.bnr.ca
+
+the problem is that modern architectures can reorder stores and loads so
+that another processor could see the guard variable set, but the controlled
+variable not yet fully initialized.  The cheapest workaround is to add
+memory barriers in the initialization path if the architecture reorders
+stores (SPARC) and in the already-initialized path if it reorders loads
+(Alpha, ia64).
+
+Unfortunately, pthreads (for instance) don't have a portable way of forcing
+a memory barrier other than with a mutex.
+
+The simplest fix is just to remove the check in the compiler-generated
+code, but...
+
+>>>I've been thinking about how to implement the actual locking, and the best
+>>>I've come up with is to have the guard be an index into an array of mutexes
+>>
+>> We use one mutex for all statics.  The same one that synchronizes the
+>> __cxa_atexit list.
+>
+> Yes, that's a much simpler solution, and I think reasonable.
+
+...this solution is much less reasonable if we need to acquire the mutex on
+every call, not just the first one.
+
+I think I will probably solve this problem by implementing a memory barrier
+primitive in GCC.  What do you do?
+
+Jason
+
+
+From dhandly at cup.hp.com  Wed Sep  8 03:58:45 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 7 Sep 2004 20:58:45 -0700 (PDT)
+Subject: [cxx-abi-dev] One-time Construction API (3.3.2)
+Message-ID: <200409080358.UAA23161@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>It turns out that checking the guard is broken on the ia-64 platform unless
+>there is a memory barrier in the case that 'guard' is set.
+
+>The cheapest workaround is to add memory barriers  ...
+>and in the already-initialized path if it reorders loads (Alpha, ia64).
+
+>Unfortunately, pthreads (for instance) don't have a portable way of forcing
+>a memory barrier other than with a mutex.
+
+I assume that mutex has a memory fence.
+
+>The simplest fix is just to remove the check in the compiler-generated
+>code, but...
+
+No need.  If you have a mutex lock/unlock in the runtime, that would have
+to have a memory fence.
+
+>I think I will probably solve this problem by implementing a memory barrier
+>primitive in GCC.  What do you do?
+Jason
+
+We don't do anything.  But talking with a colleage about a similar
+problem of initializing a counter that uses fetchadd, there is no
+need to handle the initial store of 0, since the user must have some
+type of synchronization that tells another thread it exists.
+And we assume that our pthreads library must have memory fences all over
+the place.
+
+
+From mark at codesourcery.com  Wed Sep 15 20:42:59 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Sep 2004 13:42:59 -0700
+Subject: Clarification: behavior of __cxa_vec_delete3
+Message-ID: <4148A953.10106@codesourcery.com>
+
+This patch to the specification attempts to clarify the behavior of 
+_cxa_vec_delete3 by clarifying what it means to "delete the space" and 
+also by making it clear that the deallocation function must be called 
+even if the destructor for one of the array elements throws an 
+exception, as required by DR 353.
+
+I will commit this patch in a few days, if there are no objections.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: diffs
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040915/52382788/attachment.ksh>
+
+From scott.douglass at arm.com  Thu Sep 16 13:06:44 2004
+From: scott.douglass at arm.com (scott douglass)
+Date: Thu, 16 Sep 2004 14:06:44 +0100
+Subject: [cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3
+In-Reply-To: <4148A953.10106@codesourcery.com>
+References: <4148A953.10106@codesourcery.com>
+Message-ID: <1095340004.21124.212.camel@pc982.cambridge.arm.com>
+
+On Wed, 2004-09-15 at 21:42, Mark Mitchell wrote:
+> This patch to the specification attempts to clarify the behavior of 
+> _cxa_vec_delete3 by clarifying what it means to "delete the space" and 
+> also by making it clear that the deallocation function must be called 
+> even if the destructor for one of the array elements throws an 
+> exception, as required by DR 353.
+
+_cxa_delete2 & __cxa_delete3 both say "If <code>dealloc</code> throws an
+exception, the result is undefined."  Does "the result is undefined"
+mean "the behavior is undefined"?
+
+Why is this?  If the destructor never throws an exception then I would
+expect any exception thrown by the deallocation function to just
+propagate.
+
+And, if both the destructor and deallocation function throw, should we
+do the normal thing for getting a second exception while cleaning up and
+go to std::terminate()?  DR 353 doesn't seem to give any guidance here.
+
+
+From mark at codesourcery.com  Thu Sep 16 16:37:46 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Sep 2004 09:37:46 -0700
+Subject: [cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3
+In-Reply-To: <1095340004.21124.212.camel@pc982.cambridge.arm.com>
+References: <4148A953.10106@codesourcery.com> <1095340004.21124.212.camel@pc982.cambridge.arm.com>
+Message-ID: <4149C15A.8010407@codesourcery.com>
+
+scott douglass wrote:
+
+>On Wed, 2004-09-15 at 21:42, Mark Mitchell wrote:
+>  
+>
+>>This patch to the specification attempts to clarify the behavior of 
+>>_cxa_vec_delete3 by clarifying what it means to "delete the space" and 
+>>also by making it clear that the deallocation function must be called 
+>>even if the destructor for one of the array elements throws an 
+>>exception, as required by DR 353.
+>>    
+>>
+>
+>_cxa_delete2 & __cxa_delete3 both say "If <code>dealloc</code> throws an
+>exception, the result is undefined."  Does "the result is undefined"
+>mean "the behavior is undefined"?
+>  
+>
+Yes, I think so.
+
+>Why is this?  If the destructor never throws an exception then I would
+>expect any exception thrown by the deallocation function to just
+>propagate.
+>  
+>
+Yes, me too.  This is a corner case, since the standard ::operator 
+delete[] is declared to throw no exceptions.  I cannot, however, find 
+anything in the standard that forbids a class-specific ::operator 
+delete[] from throwing exceptions.
+
+>And, if both the destructor and deallocation function throw, should we
+>do the normal thing for getting a second exception while cleaning up and
+>go to std::terminate()?  DR 353 doesn't seem to give any guidance here.
+>  
+>
+DR 353 itself does not, but I think that is the right thing to do.
+
+It is indeed what EDG will do in this situation, as shown with the 
+attached test program.
+
+G++ 3.4.1 is inconsistent.  It does not use __cxa_delete3, but the 
+inline code that it generates seems to ignore DR 353; it does not seem 
+to call the deallocation function at all when the destructor throws.  
+The G++ implementation of __cxa_delete3 (provided for ABI compatibility) 
+does call the deallocation routine, but does not call std::terminate; 
+instead, it propagates the exception thrown by the deallocation routine.
+
+Perhaps we should just modify the generic ABI document to say:
+
+The behavior of this function is as that required by the ISO C++ 
+standard for "delete[] x", where "x" is of type "X*", provided that 
+"array_address" is "x", "element_size" is "sizeof (X)", "padding_size" 
+is the number of bytes in the array cookie (or zero, if there is no 
+cookie), "destructor" is the address of the complete object destructor 
+for "X" (but may be "NULL", if the destructor is trivial), and "dealloc" 
+is the deallocation function for "X "(which may not be "NULL").
+
+That would punt these kinds of details back to the ISO standard, rather 
+than making us try to replicate them here.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: test.C
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040916/8ac93989/attachment.ksh>
+
+From dhandly at cup.hp.com  Fri Sep 24 03:15:32 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 23 Sep 2004 20:15:32 -0700 (PDT)
+Subject: What is a POD?  TC1 or first C++ Standard
+Message-ID: <200409240315.UAA13330@hpcll183.cup.hp.com>
+
+We just noticed that the definition of a POD has change in TC1.
+The Original Standard disallowed pointers to members in PODs.
+
+If everyone implements this change then the ABI changes everywhere it
+depends on PODs.  2.2 POD Data Types and 2.4 Non-POD Class Types.
+This section does mention "POD for the purpose of layout", but that only
+addresses bitfields.
+
+Does the ABI need to say which Standard is implemented?
+Should it say that PODs are the original definition so that binary
+compatibility is maintained?
+
+Or do we just have to say this is all messed up and that the definition
+of a POD should have been an ABI-POD, that was frozen?
+
+To meet strict ABI compatibility and Standard requirements, an
+implementation should use the old POD definition for layouts and use the
+new definition for default initialization, 8.5(5).  And for new FOO() or
+FOO() in initializer lists.
+
+(It seems 3.1.4 Return Values doesn't mention PODs at all, so no issues
+there.)
+
+
+From mark at codesourcery.com  Fri Sep 24 03:48:45 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 23 Sep 2004 20:48:45 -0700
+Subject: Clarification: behavior of __cxa_vec_delete3
+In-Reply-To: <4148A953.10106@codesourcery.com>
+References: <4148A953.10106@codesourcery.com>
+Message-ID: <4153991D.7020604@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> This patch to the specification attempts to clarify the behavior of 
+> _cxa_vec_delete3 by clarifying what it means to "delete the space" and 
+> also by making it clear that the deallocation function must be called 
+> even if the destructor for one of the array elements throws an 
+> exception, as required by DR 353.
+>
+> I will commit this patch in a few days, if there are no objections.
+
+I have now committed this change.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From mark at codesourcery.com  Fri Sep 24 04:00:17 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 23 Sep 2004 21:00:17 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <200409240315.UAA13330@hpcll183.cup.hp.com>
+References: <200409240315.UAA13330@hpcll183.cup.hp.com>
+Message-ID: <41539BD1.1010100@codesourcery.com>
+
+Dennis Handly wrote:
+
+>We just noticed that the definition of a POD has change in TC1.
+>The Original Standard disallowed pointers to members in PODs.
+>  
+>
+Ugh.  I knew about that, but I hadn't thought to think about how it 
+affects the ABI.
+
+G++ 3.3 and 3.4 use the TC1 POD definition, so from the GNU point of 
+view, that's what we'd want.  GCC is not going to change back to the 
+pre-TC1 defintion, even for return values, in any GCC 4.0, since that 
+would break compatibility with 3.4.  We probably wouldn't change back to 
+the pre-TC1 definition in any release until we had a compelling need to 
+break the ABI for something else, even if the ABI were clarified to 
+require the TC-1 definition.
+
+>Does the ABI need to say which Standard is implemented?
+>  
+>
+Definitely.
+
+>Should it say that PODs are the original definition so that binary
+>compatibility is maintained?
+>  
+>
+I dunno.  Is there anyone out there shipping compilers with the pre-TC1 
+definition for the return value?  What does aCC do?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From dhandly at cup.hp.com  Fri Sep 24 04:14:29 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 23 Sep 2004 21:14:29 -0700 (PDT)
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+Message-ID: <200409240414.VAA13442@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>Ugh.  I knew about that, but I hadn't thought to think about how it 
+>affects the ABI.
+
+Me too.  I have it written red ink in my Standard.
+
+>GCC is not going to change back to the pre-TC1 definition, even for
+>return values
+
+What do you mean by "return values"?  I said it only affects layout.
+I first thought it also affects them but 3.1.4 Return Values, says nothing
+about PODs.
+
+>Is there anyone out there shipping compilers with the pre-TC1 
+>definition for the return value?  What does aCC do?
+Mark Mitchell
+
+We use the pre-TC1 for layout for aCC5.  For aCC6 (EDG) it currently uses
+the TC1 definition.
+
+For return values, we don't use the rule in 3.1.4 Return Values, we use PODs
+for compatibility with aCC5.  And again aCC6 currently uses the TC1
+definition for POD.
+
+We're just beginning to find all of these incompatibilities due to a
+bug report from RW on new FOO().
+
+
+From dhandly at cup.hp.com  Fri Sep 24 04:41:39 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 23 Sep 2004 21:41:39 -0700 (PDT)
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+Message-ID: <200409240441.VAA13484@hpcll183.cup.hp.com>
+
+>From: Gabriel Dos Reis <gdr at cs.tamu.edu>
+>And it would appear to users very counter-intuitive and confusing if
+>pointer-to-members were treated very differently from other PODs.
+
+I wouldn't think so.  It was there in black and white saying they are
+not PODs, 9(4).  ;-)
+Probably because they are not available in C.
+
+
+From gdr at cs.tamu.edu  Fri Sep 24 04:27:01 2004
+From: gdr at cs.tamu.edu (Gabriel Dos Reis)
+Date: 23 Sep 2004 23:27:01 -0500
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <41539BD1.1010100@codesourcery.com>
+References: <200409240315.UAA13330@hpcll183.cup.hp.com>
+	<41539BD1.1010100@codesourcery.com>
+Message-ID: <m3llf0nvfu.fsf@merlin.cs.tamu.edu>
+
+Mark Mitchell <mark at codesourcery.com> writes:
+
+| Dennis Handly wrote:
+| 
+| >We just noticed that the definition of a POD has change in TC1.
+| >The Original Standard disallowed pointers to members in PODs.
+| >
+| Ugh.  I knew about that, but I hadn't thought to think about how it
+| affects the ABI.
+| 
+| G++ 3.3 and 3.4 use the TC1 POD definition, so from the GNU point of
+| view, that's what we'd want.  GCC is not going to change back to the
+| pre-TC1 defintion, even for return values, in any GCC 4.0, since that
+| would break compatibility with 3.4.  We probably wouldn't change back
+| to the pre-TC1 definition in any release until we had a compelling
+| need to break the ABI for something else, even if the ABI were
+| clarified to require the TC-1 definition.
+
+And it would appear to users very counter-intuitive  and confusing if
+pointer-to-members were treated very differently from other PODs.
+
+-- Gaby
+
+
+From gdr at cs.tamu.edu  Fri Sep 24 05:06:17 2004
+From: gdr at cs.tamu.edu (Gabriel Dos Reis)
+Date: 24 Sep 2004 00:06:17 -0500
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <200409240441.VAA13484@hpcll183.cup.hp.com>
+References: <200409240441.VAA13484@hpcll183.cup.hp.com>
+Message-ID: <m3hdpontme.fsf@merlin.cs.tamu.edu>
+
+Dennis Handly <dhandly at cup.hp.com> writes:
+
+| >From: Gabriel Dos Reis <gdr at cs.tamu.edu>
+| >And it would appear to users very counter-intuitive and confusing if
+| >pointer-to-members were treated very differently from other PODs.
+| 
+| I wouldn't think so.  It was there in black and white saying they are
+| not PODs, 9(4).  ;-)
+
+I mean from C++ programmers point of view -- since the standard has
+been corrected.  And if the standard was changed, it did not match
+users expectations :-) 
+
+| Probably because they are not available in C.
+
+Yes, but "POD" was defined as a more or less good approximation of
+what C provides.  It turned about that that did not catch what
+people would expect to be treated as POD (hence, the proliferation of
+variations, e.g. "nearly POD type", "enhanced POD type", etc.)
+
+-- Gaby
+
+
+From mark at codesourcery.com  Fri Sep 24 16:12:37 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 24 Sep 2004 09:12:37 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <200409240414.VAA13442@hpcll183.cup.hp.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com>
+Message-ID: <41544775.1040406@codesourcery.com>
+
+Dennis Handly wrote:
+
+>>GCC is not going to change back to the pre-TC1 definition, even for
+>>return values
+>>    
+>>
+>
+>What do you mean by "return values"?  I said it only affects layout.
+>I first thought it also affects them but 3.1.4 Return Values, says nothing
+>about PODs.
+>  
+>
+You are correct.  I thought it said that non-PODs could not be 
+passed/returned in registers, but, in fact, it is more specific: it 
+talks about non-trivial copy constructors and destructors.
+
+That makes things somewhat simpler.
+
+It seems to me that a POD with a pointer-to-member data member should 
+not be a "POD for purpose of layout" because the layout of a "POD for 
+the purpose of layout" is supposed to be whatever the C ABI would 
+require -- and the C ABI does not specify the layout of a type 
+containing a pointer-to-member.
+
+Now, the question is, when would this make a difference?  Dennis, can 
+you post a small test case showing where the layout is different 
+depending on whether you use the TC1 or pre-TC1 definition of POD?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From nathan at codesourcery.com  Fri Sep 24 08:17:57 2004
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 24 Sep 2004 09:17:57 +0100
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <200409240441.VAA13484@hpcll183.cup.hp.com>
+References: <200409240441.VAA13484@hpcll183.cup.hp.com>
+Message-ID: <4153D835.6010102@codesourcery.com>
+
+Dennis Handly wrote:
+>>From: Gabriel Dos Reis <gdr at cs.tamu.edu>
+>>And it would appear to users very counter-intuitive and confusing if
+>>pointer-to-members were treated very differently from other PODs.
+> 
+> 
+> I wouldn't think so.  It was there in black and white saying they are
+> not PODs, 9(4).  ;-)
+> Probably because they are not available in C.
+
+I was the submitter of DR 148, responsible for this change.  I pointed
+out that pointers-to-members themselves were PODs [3.9]/10, but a structure
+containing that particular POD would be non-POD.  That was inconsistent.
+
+ah, found it. http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_defects.html#148
+
+
+148. POD classes and pointers to members
+Section: 9  class     Status: TC1     Submitter: Nathan Sidwell     Date: 31 Jul 1999
+
+3.9  basic.types paragraph 10 defines pointer to member types to be scalar types.
+It also defines scalar types to be one of the POD types.
+
+9  class paragraph 4 defines a POD struct as an aggregate class with no non-static
+data members of type pointer to member.
+
+It seems contradictory that a type can be POD, yet a class containing that type
+is non-POD.
+
+Suggested resolution: Alter 9  class paragraph 4 to allow pointer to member objects
+as non-static data members of POD class.
+
+Proposed resolution (10/00):
+
+In 9  class paragraph 4, remove all occurrences of "pointer to member."
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From kerch at cup.hp.com  Fri Sep 24 17:14:39 2004
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Fri, 24 Sep 2004 10:14:39 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <41544775.1040406@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com>
+Message-ID: <415455FF.2050904@cup.hp.com>
+
+Mark -
+
+Here is a test case that shows the difference.
+Kerch
+----------------------------------
+struct S {  // POD after TC1 change
+     int S::*pm;
+     char c;
+};
+struct R {
+};
+
+struct T : public S , public R {
+     char i;
+     double d;
+};
+
+int main () {
+     T t;
+     return (((int)&t.i) - (int)&t); // aCC5 gets 5, aCC6 gets 8
+}
+
+Mark Mitchell wrote:
+> Dennis Handly wrote:
+> 
+>>> GCC is not going to change back to the pre-TC1 definition, even for
+>>> return values
+>>>   
+>>
+>>
+>> What do you mean by "return values"?  I said it only affects layout.
+>> I first thought it also affects them but 3.1.4 Return Values, says 
+>> nothing
+>> about PODs.
+>>  
+>>
+> You are correct.  I thought it said that non-PODs could not be 
+> passed/returned in registers, but, in fact, it is more specific: it 
+> talks about non-trivial copy constructors and destructors.
+> 
+> That makes things somewhat simpler.
+> 
+> It seems to me that a POD with a pointer-to-member data member should 
+> not be a "POD for purpose of layout" because the layout of a "POD for 
+> the purpose of layout" is supposed to be whatever the C ABI would 
+> require -- and the C ABI does not specify the layout of a type 
+> containing a pointer-to-member.
+> 
+> Now, the question is, when would this make a difference?  Dennis, can 
+> you post a small test case showing where the layout is different 
+> depending on whether you use the TC1 or pre-TC1 definition of POD?
+> 
+
+-- 
+Kerch Holt                 kerch at cup.hp.com
+HP Java, Compilers, and Tools Lab (JCTL)
+11000 Wolfe Rd. MS 4023
+Cupertino, CA    95014     408-447-0421
+
+
+
+
+From mark at codesourcery.com  Fri Sep 24 17:31:42 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 24 Sep 2004 10:31:42 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <4154527E.2000906@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com> <4154527E.2000906@codesourcery.com>
+Message-ID: <415459FE.2090306@codesourcery.com>
+
+Nathan Sidwell wrote:
+
+> Mark Mitchell wrote:
+>
+>> Dennis Handly wrote:
+>>
+>>>> GCC is not going to change back to the pre-TC1 definition, even for
+>>>> return values
+>>>>   
+>>>
+>>>
+>>>
+>>> What do you mean by "return values"?  I said it only affects layout.
+>>> I first thought it also affects them but 3.1.4 Return Values, says 
+>>> nothing
+>>> about PODs.
+>>>  
+>>>
+>> You are correct.  I thought it said that non-PODs could not be 
+>> passed/returned in registers, but, in fact, it is more specific: it 
+>> talks about non-trivial copy constructors and destructors.
+>>
+>> That makes things somewhat simpler.
+>>
+>> It seems to me that a POD with a pointer-to-member data member should 
+>> not be a "POD for purpose of layout" because the layout of a "POD for 
+>> the purpose of layout" is supposed to be whatever the C ABI would 
+>> require -- and the C ABI does not specify the layout of a type 
+>> containing a pointer-to-member.
+>>
+>> Now, the question is, when would this make a difference?  Dennis, can 
+>> you post a small test case showing where the layout is different 
+>> depending on whether you use the TC1 or pre-TC1 definition of POD?
+>>
+> I would have thought it'd change when the tail padding of such a class 
+> could
+> be used by a derived class. Something like,
+>
+> struct A {
+>   int A::*ptr;
+>   char f;
+> };
+>
+> struct B : A {
+>   char g;
+> };
+>
+> Where is B::g placed?
+
+Right, good.  Again, it looks like G++ 3.4 will treat A as a POD, 
+following TC1, and will therefore not place B::g in the tail padding for A.
+
+ From what Dennis, says that sounds like G++ and aCC are incompatible in 
+this respect, but that G++ is probably compatible with (recent versions 
+of) EDG.  I'm not sure what the most equitable way to resolve the 
+ambiguity in the ABI specification is.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From nathan at codesourcery.com  Fri Sep 24 16:59:42 2004
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 24 Sep 2004 17:59:42 +0100
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <41544775.1040406@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com>
+Message-ID: <4154527E.2000906@codesourcery.com>
+
+Mark Mitchell wrote:
+> Dennis Handly wrote:
+> 
+>>> GCC is not going to change back to the pre-TC1 definition, even for
+>>> return values
+>>>   
+>>
+>>
+>> What do you mean by "return values"?  I said it only affects layout.
+>> I first thought it also affects them but 3.1.4 Return Values, says 
+>> nothing
+>> about PODs.
+>>  
+>>
+> You are correct.  I thought it said that non-PODs could not be 
+> passed/returned in registers, but, in fact, it is more specific: it 
+> talks about non-trivial copy constructors and destructors.
+> 
+> That makes things somewhat simpler.
+> 
+> It seems to me that a POD with a pointer-to-member data member should 
+> not be a "POD for purpose of layout" because the layout of a "POD for 
+> the purpose of layout" is supposed to be whatever the C ABI would 
+> require -- and the C ABI does not specify the layout of a type 
+> containing a pointer-to-member.
+> 
+> Now, the question is, when would this make a difference?  Dennis, can 
+> you post a small test case showing where the layout is different 
+> depending on whether you use the TC1 or pre-TC1 definition of POD?
+> 
+I would have thought it'd change when the tail padding of such a class could
+be used by a derived class. Something like,
+
+struct A {
+   int A::*ptr;
+   char f;
+};
+
+struct B : A {
+   char g;
+};
+
+Where is B::g placed?
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From nathan at codesourcery.com  Mon Sep 27 08:00:42 2004
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 27 Sep 2004 09:00:42 +0100
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <415459FE.2090306@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com> <4154527E.2000906@codesourcery.com> <415459FE.2090306@codesourcery.com>
+Message-ID: <4157C8AA.6090702@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> 
+> Right, good.  Again, it looks like G++ 3.4 will treat A as a POD, 
+> following TC1, and will therefore not place B::g in the tail padding for A.
+> 
+>  From what Dennis, says that sounds like G++ and aCC are incompatible in 
+> this respect, but that G++ is probably compatible with (recent versions 
+> of) EDG.  I'm not sure what the most equitable way to resolve the 
+> ambiguity in the ABI specification is.
+
+I recall some example along the lines of,
+
+struct A
+{
+	T m;
+	double d;
+	char c;
+	void copy_me (A const *s)
+	{
+		std::memcpy (this, s, sizeof (*this));
+	}
+};
+
+being valid, so long as A is a POD -- i.e. T does not make it a non-pod.
+If that is the case, we should not be reusing the tail padding of
+any base class that the _language_ says should be POD.  For instance
+when T is a ptr-to-member, or for that matter, when it is an overlong
+bitfield.
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From mark at codesourcery.com  Mon Sep 27 15:29:00 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 27 Sep 2004 08:29:00 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <4157C8AA.6090702@codesourcery.com>
+References: <200409240414.VAA13442@hpcll183.cup.hp.com> <41544775.1040406@codesourcery.com> <4154527E.2000906@codesourcery.com> <415459FE.2090306@codesourcery.com> <4157C8AA.6090702@codesourcery.com>
+Message-ID: <415831BC.5060405@codesourcery.com>
+
+Nathan Sidwell wrote:
+
+> Mark Mitchell wrote:
+>
+>>
+>> Right, good.  Again, it looks like G++ 3.4 will treat A as a POD, 
+>> following TC1, and will therefore not place B::g in the tail padding 
+>> for A.
+>>
+>>  From what Dennis, says that sounds like G++ and aCC are incompatible 
+>> in this respect, but that G++ is probably compatible with (recent 
+>> versions of) EDG.  I'm not sure what the most equitable way to 
+>> resolve the ambiguity in the ABI specification is.
+>
+>
+> I recall some example along the lines of,
+>
+> struct A
+> {
+>     T m;
+>     double d;
+>     char c;
+>     void copy_me (A const *s)
+>     {
+>         std::memcpy (this, s, sizeof (*this));
+>     }
+> };
+>
+> being valid, so long as A is a POD -- i.e. T does not make it a non-pod.
+> If that is the case, we should not be reusing the tail padding of
+> any base class that the _language_ says should be POD.  For instance
+> when T is a ptr-to-member, or for that matter, when it is an overlong
+> bitfield.
+
+Yes, you're correct, the standard does guarantee that you can do bitwise 
+copies for PODs  using their size. 
+
+In other words, your point is that unless we interpret the ABI as 
+meaning "TC1 POD", it is not the ABI for a correct C++ compiler, because 
+it will fall afoul of this rule.  This is [basic.types]/3, for reference.
+
+I think that's a pretty compelling agument that we should clarify the 
+ABI to indicate that POD means "POD as defined by TC1".  Any objections 
+to that proposal?  Are there any compilers other than aCC implementing 
+the pre-TC1 definition?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From dhandly at cup.hp.com  Mon Sep 27 23:40:15 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 27 Sep 2004 16:40:15 -0700 (PDT)
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+Message-ID: <200409272340.QAA17674@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>It seems to me that a POD with a pointer-to-member data member should 
+>not be a "POD for purpose of layout" because the layout of a "POD for 
+>the purpose of layout" is supposed to be whatever the C ABI would 
+>require -- and the C ABI does not specify the layout of a type 
+>containing a pointer-to-member.
+
+I don't see that in:
+   http://www.codesourcery.com/cxx-abi/abi.html#POD
+
+I read it as a "POD for the purpose of layout" is a POD except with
+bit fields wider than the type.  Nothing about being C.
+
+
+From mark at codesourcery.com  Mon Sep 27 23:44:32 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 27 Sep 2004 16:44:32 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <200409272340.QAA17674@hpcll183.cup.hp.com>
+References: <200409272340.QAA17674@hpcll183.cup.hp.com>
+Message-ID: <4158A5E0.6020402@codesourcery.com>
+
+Dennis Handly wrote:
+
+>>From: Mark Mitchell <mark at codesourcery.com>
+>>It seems to me that a POD with a pointer-to-member data member should 
+>>not be a "POD for purpose of layout" because the layout of a "POD for 
+>>the purpose of layout" is supposed to be whatever the C ABI would 
+>>require -- and the C ABI does not specify the layout of a type 
+>>containing a pointer-to-member.
+>>    
+>>
+>
+>I don't see that in:
+>   http://www.codesourcery.com/cxx-abi/abi.html#POD
+>
+>I read it as a "POD for the purpose of layout" is a POD except with
+>bit fields wider than the type.  Nothing about being C.
+>  
+>
+If it is a POD for the purpose of layout, then Section 2.2 says that you 
+do layout as specified by the C ABI.  You cannot do that for a type 
+containing a pointer-to-member.  The reason that types with extra-long 
+bitfields are not considered PODs for the purpose of layout is precisely 
+this fact; if extra-long bitfields were part of C, there wouldn't be 
+special rules in the ABI to handle them.
+
+So, you're right that the ABI as written does not say that a POD for the 
+purpose of layout must be a C type, but that is in fact the reason 
+behind the definition.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From ddd at cup.hp.com  Tue Sep 28 06:47:54 2004
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Tue, 28 Sep 2004 08:47:54 +0200
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <4158A5E0.6020402@codesourcery.com>
+References: <200409272340.QAA17674@hpcll183.cup.hp.com> <4158A5E0.6020402@codesourcery.com>
+Message-ID: <536243B8-111A-11D9-BC59-000393576EFA@cup.hp.com>
+
+
+On 28 sept. 04, at 01:44, Mark Mitchell wrote:
+
+> So, you're right that the ABI as written does not say that a POD for 
+> the purpose of layout must be a C type, but that is in fact the reason 
+> behind the definition.
+
+It would not hurt to add one sentence to state this.
+
+
+Regards
+Christophe
+
+
+
+From mark at codesourcery.com  Tue Sep 28 06:50:00 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 27 Sep 2004 23:50:00 -0700
+Subject: [cxx-abi-dev] What is a POD?  TC1 or first C++ Standard
+In-Reply-To: <536243B8-111A-11D9-BC59-000393576EFA@cup.hp.com>
+References: <200409272340.QAA17674@hpcll183.cup.hp.com> <4158A5E0.6020402@codesourcery.com> <536243B8-111A-11D9-BC59-000393576EFA@cup.hp.com>
+Message-ID: <41590998.8000508@codesourcery.com>
+
+Christophe de Dinechin wrote:
+
+>
+> On 28 sept. 04, at 01:44, Mark Mitchell wrote:
+>
+>> So, you're right that the ABI as written does not say that a POD for 
+>> the purpose of layout must be a C type, but that is in fact the 
+>> reason behind the definition.
+>
+>
+> It would not hurt to add one sentence to state this. 
+
+Agreed 100%.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+

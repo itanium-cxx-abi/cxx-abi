@@ -1,0 +1,692 @@
+From jason at redhat.com  Tue Oct  2 02:11:07 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 01 Oct 2012 22:11:07 -0400
+Subject: [cxx-abi-dev] thread_local summary
+Message-ID: <506A4D3B.7020904@redhat.com>
+
+OK, I have an initial implementation working now, along the lines that I 
+discussed before.
+
+For dynamic initialization of non-function-local thread_local variables, 
+I replace odr-uses of such variables with calls to an inline wrapper, i.e.
+
+extern thread_local int i;
+extern void i_init() __attribute__ ((weak));
+inline i& i_wrapper() __attribute__ ((visibility ("internal")))
+{
+   if (i_init) i_init();
+   return i;
+}
+
+The wrapper has internal visibility so that calls in PIC code resolve 
+locally.  The compiler can avoid some of this when it can see the 
+definition of i.
+
+I'm currently mangling the init and wrapper functions as normal 
+functions with a function name of _TH <object name> or _TW <object 
+name>, respectively.  I've thought about dropping the function type from 
+the mangling, but don't have a strong opinion.
+
+Registration of destructors is done via
+
+   __cxa_thread_atexit (void(*)(void *), void *);
+
+which arranges to call the specified destructor for the specified object 
+when the thread exits.  The destructors for the current thread are also 
+run on std::exit.
+
+The standard specifies that these destructors should run before 
+destructors for objects with static storage duration, and my current 
+implementation doesn't get that right; I think it will be necessary to 
+change std::exit to guarantee this.
+
+Dennis suggested that we still include the DSO handle in the parameters 
+to this function.  Since there's really no way to run destructors in all 
+threads on dlclose, I don't really see the need; instead, an 
+implementation can use internal mechanisms to improve semantics and/or 
+diagnostics for dlclosing a shared object with pending thread_local 
+destructors.
+
+Dennis also suggested renaming the function to __cxa_atexit_thread.  I 
+don't have a strong preference.
+
+Any opinions on the name, or the mangling of the init/wrapper functions? 
+  Any other issues?
+
+Jason
+
+From dhandly at cup.hp.com  Tue Oct  2 05:00:02 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 1 Oct 2012 22:00:02 -0700 (PDT)
+Subject: [cxx-abi-dev] thread_local summary
+Message-ID: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>I'm currently mangling the init and wrapper functions as normal 
+>functions with a function name of _TH <object name> or _TW <object 
+>name>, respectively.  I've thought about dropping the function type from 
+>the mangling, but don't have a strong opinion.
+
+So is this going to be added to the mangling specs?
+
+>The destructors for the current thread are also run on std::exit.
+
+And we don't care about other threads?
+
+>Dennis suggested that we still include the DSO handle in the parameters 
+>to this function.  Since there's really no way to run destructors in all 
+>threads on dlclose, I don't really see the need; instead, an 
+>implementation can use internal mechanisms to improve semantics and/or 
+>diagnostics for dlclosing a shared object with pending thread_local 
+>destructors.
+Jason
+
+I don't see any easy way to diagnose it without the DSO handle.
+For static variables, you can look at the address ranges for text and data
+for each shlib that you unload and make a guess on that.  But thread local
+data is in the heap somewhere, with no idea who owns it.
+
+I.e. I don't think you want the C++ runtime to get in bed with the threads
+lib at that low level.  For something that can be easily solved by passing
+that extra handle.
+
+From jason at redhat.com  Tue Oct  2 12:52:02 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 02 Oct 2012 08:52:02 -0400
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+References: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+Message-ID: <506AE372.9030101@redhat.com>
+
+On 10/02/2012 01:00 AM, Dennis Handly wrote:
+>> From: Jason Merrill <jason at redhat.com>
+>> I'm currently mangling the init and wrapper functions as normal
+>> functions with a function name of _TH <object name> or _TW <object
+>> name>, respectively.  I've thought about dropping the function type from
+>> the mangling, but don't have a strong opinion.
+>
+> So is this going to be added to the mangling specs?
+
+Yes, that's the idea.
+
+>> The destructors for the current thread are also run on std::exit.
+>
+> And we don't care about other threads?
+
+This is what the standard mandates.  Running destructors for other 
+threads would require some sort of complicated synchronization 
+mechanism; better just to require the user to deal with unwinding the 
+other threads appropriately before or during exit.
+
+>> Dennis suggested that we still include the DSO handle in the parameters
+>> to this function.  Since there's really no way to run destructors in all
+>> threads on dlclose, I don't really see the need; instead, an
+>> implementation can use internal mechanisms to improve semantics and/or
+>> diagnostics for dlclosing a shared object with pending thread_local
+>> destructors.
+>
+> I don't see any easy way to diagnose it without the DSO handle.
+> For static variables, you can look at the address ranges for text and data
+> for each shlib that you unload and make a guess on that.  But thread local
+> data is in the heap somewhere, with no idea who owns it.
+>
+> I.e. I don't think you want the C++ runtime to get in bed with the threads
+> lib at that low level.  For something that can be easily solved by passing
+> that extra handle.
+
+OK, I'm convinced.
+
+Jason
+
+
+From jason at redhat.com  Tue Oct  2 15:46:42 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 02 Oct 2012 11:46:42 -0400
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <506A4D3B.7020904@redhat.com>
+References: <506A4D3B.7020904@redhat.com>
+Message-ID: <506B0C62.2060705@redhat.com>
+
+I notice that the Intel compiler supports dynamic initialization and 
+destruction of OpenMP threadprivate variables, though this seems to be a 
+completely separate mechanism from __thread, unlike GCC.  Is anyone 
+familiar with their implementation?  Do we have anyone from Intel on the 
+list?
+
+Jason
+
+From rjmccall at apple.com  Tue Oct  2 17:40:01 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 02 Oct 2012 10:40:01 -0700
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <506AE372.9030101@redhat.com>
+References: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+	<506AE372.9030101@redhat.com>
+Message-ID: <5B374F91-EA64-4DD6-9716-C1FAF0F701EA@apple.com>
+
+On Oct 2, 2012, at 5:52 AM, Jason Merrill wrote:
+> On 10/02/2012 01:00 AM, Dennis Handly wrote:
+>>> From: Jason Merrill <jason at redhat.com>
+>>> I'm currently mangling the init and wrapper functions as normal
+>>> functions with a function name of _TH <object name> or _TW <object
+>>> name>, respectively.  I've thought about dropping the function type from
+>>> the mangling, but don't have a strong opinion.
+>> 
+>> So is this going to be added to the mangling specs?
+> 
+> Yes, that's the idea.
+
+FWIW, this all seems basically reasonable to me, at least for the most
+general case.  I think we're going to need a way to declare that a variable
+doesn't have dynamic initialization ? mandating a call basically ruins the
+more efficient TLS models.
+
+Formally, the wrapper function doesn't seem to be ABI here ? it's just a
+recommendation for saving code size and relocations at the access site.
+
+Taking the address of a function leads to pretty awful code.  I suggest that
+we guarantee the existence of an init function in obvious cases, like when
+the type is non-POD.  In this case, we can just call the init function, right?
+
+For mangling, I think we should just follow the pattern for guard variables ?
+pick some 2-character prefix and drop the function type.  So something
+like _ZTH6my_var.
+
+It looks like static data members of class templates fall out naturally here,
+with the init function becoming COMDAT.
+
+John.
+
+From jason at redhat.com  Tue Oct  2 19:10:32 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 02 Oct 2012 15:10:32 -0400
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <5B374F91-EA64-4DD6-9716-C1FAF0F701EA@apple.com>
+References: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+	<506AE372.9030101@redhat.com>
+	<5B374F91-EA64-4DD6-9716-C1FAF0F701EA@apple.com>
+Message-ID: <506B3C28.5030300@redhat.com>
+
+On 10/02/2012 01:40 PM, John McCall wrote:
+> FWIW, this all seems basically reasonable to me, at least for the most
+> general case.  I think we're going to need a way to declare that a variable
+> doesn't have dynamic initialization ? mandating a call basically ruins the
+> more efficient TLS models.
+
+Yep.  At the moment, in my implementation the way to do that is to use 
+__thread instead of thread_local.  I'm not sure we need a different 
+mechanism.
+
+> Formally, the wrapper function doesn't seem to be ABI here ? it's just a
+> recommendation for saving code size and relocations at the access site.
+
+True.  But since it's COMDAT, so the mangled name is exposed to the linker.
+
+> Taking the address of a function leads to pretty awful code.  I suggest that
+> we guarantee the existence of an init function in obvious cases, like when
+> the type is non-POD.  In this case, we can just call the init function, right?
+
+Right, I forgot to mention that.
+
+> For mangling, I think we should just follow the pattern for guard variables ?
+> pick some 2-character prefix and drop the function type.  So something
+> like _ZTH6my_var.
+
+OK.
+
+> It looks like static data members of class templates fall out naturally here,
+> with the init function becoming COMDAT.
+
+The init function symbol is an alias to the function that initializes 
+all the thread_local variables defined in a translation unit.  For a 
+variable with vague linkage, the alias should be weak.
+
+Jason
+
+
+From rjmccall at apple.com  Tue Oct  2 21:34:15 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 02 Oct 2012 14:34:15 -0700
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <506B3C28.5030300@redhat.com>
+References: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+	<506AE372.9030101@redhat.com>
+	<5B374F91-EA64-4DD6-9716-C1FAF0F701EA@apple.com>
+	<506B3C28.5030300@redhat.com>
+Message-ID: <90722CF3-4E18-4D3C-8F0C-73C93CD7B4D5@apple.com>
+
+On Oct 2, 2012, at 12:10 PM, Jason Merrill wrote:
+> On 10/02/2012 01:40 PM, John McCall wrote:
+>> FWIW, this all seems basically reasonable to me, at least for the most
+>> general case.  I think we're going to need a way to declare that a variable
+>> doesn't have dynamic initialization ? mandating a call basically ruins the
+>> more efficient TLS models.
+> 
+> Yep.  At the moment, in my implementation the way to do that is to use __thread instead of thread_local.  I'm not sure we need a different mechanism.
+
+That works for me.
+
+>> Formally, the wrapper function doesn't seem to be ABI here ? it's just a
+>> recommendation for saving code size and relocations at the access site.
+> 
+> True.  But since it's COMDAT, so the mangled name is exposed to the linker.
+
+Right, it's definitely still worth documenting the conventions for this function
+for implementations that want to use it.
+
+>> Taking the address of a function leads to pretty awful code.  I suggest that
+>> we guarantee the existence of an init function in obvious cases, like when
+>> the type is non-POD.  In this case, we can just call the init function, right?
+> 
+> Right, I forgot to mention that.
+
+Okay.  But the init function doesn't return a T&, right?  So we still need a
+wrapper, and not only that, but a non-trivial wrapper that actually rederives
+the address of the variable?  That seems unfortunate.
+
+I would guess that the odds are that most translation units are only going
+to define at most one single thread-local variable that needs dynamic
+initialization.  Why don't we have the everything-in-the-TU init function return
+a reference to the last thread_local variable it initializes?  That let you emit
+at least one init function as an alias; for the rest you'll need stubs, but they
+should be fairly small because they're in the defining translation unit.
+
+>> It looks like static data members of class templates fall out naturally here,
+>> with the init function becoming COMDAT.
+> 
+> The init function symbol is an alias to the function that initializes all the thread_local variables defined in a translation unit.  For a variable with vague linkage, the alias should be weak.
+
+Hmm.  Those of us not on ELF might need to go in a totally different
+direction here.  I am not at all confident about making an alias to a
+weak symbol, particularly when the referent is generally not semantically
+equivalent.
+
+John.
+
+
+From jason at redhat.com  Wed Oct  3 04:34:59 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 03 Oct 2012 00:34:59 -0400
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <90722CF3-4E18-4D3C-8F0C-73C93CD7B4D5@apple.com>
+References: <201210020500.q92502n07019@adlwrk05.cce.hp.com>
+	<506AE372.9030101@redhat.com>
+	<5B374F91-EA64-4DD6-9716-C1FAF0F701EA@apple.com>
+	<506B3C28.5030300@redhat.com>
+	<90722CF3-4E18-4D3C-8F0C-73C93CD7B4D5@apple.com>
+Message-ID: <506BC073.3080100@redhat.com>
+
+On 10/02/2012 05:34 PM, John McCall wrote:
+> I would guess that the odds are that most translation units are only going
+> to define at most one single thread-local variable that needs dynamic
+> initialization.  Why don't we have the everything-in-the-TU init function return
+> a reference to the last thread_local variable it initializes?
+
+That sounds plausible, though I'm not sure how much of a win it would be 
+since you would only get the double load when doing the initialization 
+anyway.
+
+>> The init function symbol is an alias to the function that initializes all the thread_local variables defined in a translation unit.  For a variable with vague linkage, the alias should be weak.
+>
+> Hmm.  Those of us not on ELF might need to go in a totally different
+> direction here.  I am not at all confident about making an alias to a
+> weak symbol, particularly when the referent is generally not semantically
+> equivalent.
+
+Sure, if you don't have useful aliases you'll need to use some sort of stub.
+
+Jason
+
+
+From crowl at googlers.com  Thu Oct  4 23:40:51 2012
+From: crowl at googlers.com (Lawrence Crowl)
+Date: Thu, 4 Oct 2012 16:40:51 -0700
+Subject: [cxx-abi-dev] thread_local destructors
+In-Reply-To: <505B2DCC.8040202@redhat.com>
+References: <505B2DCC.8040202@redhat.com>
+Message-ID: <CAGqM8fbmWrHsyy0t4Ujo8tVyrZRpXt8sVOqLTh+JxhfW_oCneA@mail.gmail.com>
+
+On 9/20/12, Jason Merrill <jason at redhat.com> wrote:
+> C++11 specifies that thread_local variables can have dynamic
+> initialization and destruction semantics, so we need to add that to the
+> existing TLS model.  As discussed in N2659 it is possible to support
+> dynamic initialization in just the compiler, but for destruction we need
+> a thread-local version of atexit.  This seems to call for a new runtime
+> entry point __cxa_thread_atexit.
+>
+> The question is, do we want to try to deal with the intersection of
+> threads and shared libraries?  If the user dlcloses a library with TLS
+> objects that have destructors in multiple threads, trying to arrange for
+> the affected threads to run the relevant destructors seems
+> complex.  Are other people comfortable just saying "don't do that"?
+
+The last paper I know about on dynamic libraries was my N2425, which says:
+
+  The fifth feature of dynamic library support is library
+  removal. This feature is also known as closing a dynamic
+  library. The implications on order of destruction of
+  static-duration and thread-duration variables could be severe. So,
+  rather than try to define a precise meaning, we intend to provide
+  advice to programmers on how to avoid the problems. In particular,
+
+  . Programmers shall terminate all threads that reference a
+    thread-duration variable defined within a load unit before
+    removing that load unit from the program. In practice, this
+    means that a library intended to be conditionally loadable
+    should only use thread-duration variables in threads that it
+    creates and then terminates before removal.
+
+  . Programmers shall ensure that no static-duration variable is
+    referenced from outside the removable load unit. In practice,
+    this means that all variables in removable libraries have
+    private visibility and that the library does not pass their
+    addresses outside of the library.
+
+  As code to remove a dynamic library also has low static frequency,
+  so we chose to not standardize it. Programmers will need to
+  specialize their code for each supported platform.
+
+-- 
+Lawrence Crowl
+
+From xinmin.tian at intel.com  Mon Oct  8 15:58:02 2012
+From: xinmin.tian at intel.com (Tian, Xinmin)
+Date: Mon, 8 Oct 2012 15:58:02 +0000
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <38C37E44FD352B44ABFC58410B0790D048B16D67@ORSMSX101.amr.corp.intel.com>
+References: <506A4D3B.7020904@redhat.com> <506B0C62.2060705@redhat.com>
+	<38C37E44FD352B44ABFC58410B0790D048B0901F@FMSMSX151.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B0E7A9@FMSMSX151.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC6A2@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B13C7A@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC72B@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B14CC5@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC785@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B16D3E@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC848@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B16D67@ORSMSX101.amr.corp.intel.com>
+Message-ID: <E42C235343FF1744BA43DDCC4DF1F1BA150CC870@ORSMSX106.amr.corp.intel.com>
+
+Jason, 
+
+For the Intel compilers, we do have two implementations, the default one 
+is -openmp-threadprivate=legacy which supports dynamic initialization
+and destruction of OpenMP threadprivate variables. 
+
+Under the -openmp-threadprivate=compat, we do use the __thread mechanism for GCC compatibility. 
+
+I am not on the cxx-abi-dev list. Clark forwarded your question to me.
+
+Xinmin Tian (Intel Corporation) 
+
+> > > > > -----Original Message-----
+> > > > > From: cxx-abi-dev-bounces at codesourcery.com [mailto:cxx-abi-dev-
+> > > > > bounces at codesourcery.com] On Behalf Of Jason Merrill
+> > > > > Sent: Tuesday, October 02, 2012 8:47 AM
+> > > > > To: cxx-abi-dev at codesourcery.com
+> > > > > Subject: Re: [cxx-abi-dev] thread_local summary
+> > > > >
+> > > > > I notice that the Intel compiler supports dynamic initialization
+> > > > > and destruction of OpenMP threadprivate variables, though this
+> > > > > seems to be a completely separate mechanism from __thread,
+> unlike
+> > > > > GCC.  Is anyone familiar with their implementation?  Do we have
+> > > > > anyone from Intel on the list?
+> > > > >
+> > > > > Jason
+> > > > > _______________________________________________
+> > > > > cxx-abi-dev mailing list
+> > > > > cxx-abi-dev at codesourcery.com
+> > > > > http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+From jason at redhat.com  Mon Oct  8 18:00:02 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Oct 2012 14:00:02 -0400
+Subject: [cxx-abi-dev] thread_local summary
+In-Reply-To: <E42C235343FF1744BA43DDCC4DF1F1BA150CC870@ORSMSX106.amr.corp.intel.com>
+References: <506A4D3B.7020904@redhat.com> <506B0C62.2060705@redhat.com>
+	<38C37E44FD352B44ABFC58410B0790D048B0901F@FMSMSX151.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B0E7A9@FMSMSX151.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC6A2@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B13C7A@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC72B@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B14CC5@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC785@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B16D3E@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC848@ORSMSX106.amr.corp.intel.com>
+	<38C37E44FD352B44ABFC58410B0790D048B16D67@ORSMSX101.amr.corp.intel.com>
+	<E42C235343FF1744BA43DDCC4DF1F1BA150CC870@ORSMSX106.amr.corp.intel.com>
+Message-ID: <507314A2.1060609@redhat.com>
+
+On 10/08/2012 11:58 AM, Tian, Xinmin wrote:
+> For the Intel compilers, we do have two implementations, the default one
+> is -openmp-threadprivate=legacy which supports dynamic initialization
+> and destruction of OpenMP threadprivate variables.
+>
+> Under the -openmp-threadprivate=compat, we do use the __thread mechanism for GCC compatibility.
+
+Basically, I'm curious whether your experience with the other mechanism 
+would suggest any adjustments to the strategy I've proposed.
+
+Thanks,
+Jason
+
+
+From jason at redhat.com  Fri Oct 26 21:38:53 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 26 Oct 2012 17:38:53 -0400
+Subject: [cxx-abi-dev] Library ABI version markers
+Message-ID: <508B02ED.2020005@redhat.com>
+
+The C++11 standard requires some ABI changes to libstdc++.  To avoid 
+breaking the world, we want to handle this by mangling changes, limited 
+to only those symbols that are affected by the ABI changes.
+
+inline namespaces were intended to be a solution to this issue, but they 
+don't really handle it very well; there's no way to adjust the mangling 
+of a single member function (as needed for some member functions that 
+change their return type in C++11) and they don't handle the issue of 
+subobjects; if my type A changes ABI so I put it in an inline namespace, 
+changing its mangling, then signatures that use it are updated 
+appropriately.  But if type B has a member of type A, signatures that 
+use B are not affected, leading to silent ABI incompatibilities.
+
+ From our discussions of how to deal with this we settled on an 
+attribute which can be attached to a class or a function to affect the 
+mangling.  I'm inclined to make the arguments to the attribute 
+user-provided strings which will then be gathered together and attached 
+to any symbol name that uses the class, or to the mangled name of the 
+function, respectively.
+
+I'm currently leaning toward collecting all the tags involved, sorting, 
+and appending them to the symbol as <source-name>s separated by 'B's.
+
+Any thoughts?
+
+Jason
+
+From rjmccall at apple.com  Fri Oct 26 22:06:58 2012
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 26 Oct 2012 15:06:58 -0700
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <508B02ED.2020005@redhat.com>
+References: <508B02ED.2020005@redhat.com>
+Message-ID: <7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+
+On Oct 26, 2012, at 2:38 PM, Jason Merrill wrote:
+> The C++11 standard requires some ABI changes to libstdc++.  To avoid breaking the world, we want to handle this by mangling changes, limited to only those symbols that are affected by the ABI changes.
+> 
+> inline namespaces were intended to be a solution to this issue, but they don't really handle it very well; there's no way to adjust the mangling of a single member function (as needed for some member functions that change their return type in C++11) and they don't handle the issue of subobjects; if my type A changes ABI so I put it in an inline namespace, changing its mangling, then signatures that use it are updated appropriately.  But if type B has a member of type A, signatures that use B are not affected, leading to silent ABI incompatibilities.
+> 
+> From our discussions of how to deal with this we settled on an attribute which can be attached to a class or a function to affect the mangling.  I'm inclined to make the arguments to the attribute user-provided strings which will then be gathered together and attached to any symbol name that uses the class, or to the mangled name of the function, respectively.
+> 
+> I'm currently leaning toward collecting all the tags involved, sorting, and appending them to the symbol as <source-name>s separated by 'B's.
+
+Including tags from subobjects breaks in the presence of incomplete types.  It would also make it almost completely impossible to have a binary-stable C++ API.  I think this is a non-starter, unfortunately.
+
+Having a way to tag individual methods for ABI compatibility breaks is an interesting idea, but I think you actually need a language extension here, because simply removing the old declaration and tagging the new one isn't good enough if binary compatibility requires you to actually emit a symbol for the old definition.  There may be relatively few non-inline symbols in the STL, but there are a fair number of explicit instantiations.  Unless you're planning to fake this with some *extremely* non-ODR-compliant definitions hidden inside the library.
+
+John.
+
+From rjmccall at apple.com  Fri Oct 26 22:35:53 2012
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 26 Oct 2012 15:35:53 -0700
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+Message-ID: <7C3FCA87-F695-43FC-BCE5-69A80A37CB2C@apple.com>
+
+On Oct 26, 2012, at 3:33 PM, Doug Gregor wrote:
+> On Fri, Oct 26, 2012 at 3:06 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Oct 26, 2012, at 2:38 PM, Jason Merrill wrote:
+>>> The C++11 standard requires some ABI changes to libstdc++.  To avoid breaking the world, we want to handle this by mangling changes, limited to only those symbols that are affected by the ABI changes.
+>>> 
+>>> inline namespaces were intended to be a solution to this issue, but they don't really handle it very well; there's no way to adjust the mangling of a single member function (as needed for some member functions that change their return type in C++11) and they don't handle the issue of subobjects; if my type A changes ABI so I put it in an inline namespace, changing its mangling, then signatures that use it are updated appropriately.  But if type B has a member of type A, signatures that use B are not affected, leading to silent ABI incompatibilities.
+>>> 
+>>> From our discussions of how to deal with this we settled on an attribute which can be attached to a class or a function to affect the mangling.  I'm inclined to make the arguments to the attribute user-provided strings which will then be gathered together and attached to any symbol name that uses the class, or to the mangled name of the function, respectively.
+>>> 
+>>> I'm currently leaning toward collecting all the tags involved, sorting, and appending them to the symbol as <source-name>s separated by 'B's.
+>> 
+>> Including tags from subobjects breaks in the presence of incomplete types.  It would also make it almost completely impossible to have a binary-stable C++ API.  I think this is a non-starter, unfortunately.
+>> 
+>> Having a way to tag individual methods for ABI compatibility breaks is an interesting idea, but I think you actually need a language extension here, because simply removing the old declaration and tagging the new one isn't good enough if binary compatibility requires you to actually emit a symbol for the old definition.  There may be relatively few non-inline symbols in the STL, but there are a fair number of explicit instantiations.  Unless you're planning to fake this with some *extremely* non-ODR-compliant definitions hidden inside the library.
+> 
+> Perhaps you mean the link_name attribute proposed here?
+> 
+>  http://gcc.gnu.org/ml/gcc-patches/2003-07/msg01915.html
+> 
+> :)
+
+Okay, that is a *much* better idea than the language extensions I had in my head about this, about which the less said the better.
+
+John.
+
+From doug.gregor at gmail.com  Fri Oct 26 22:33:58 2012
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Fri, 26 Oct 2012 15:33:58 -0700
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+Message-ID: <CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+
+On Fri, Oct 26, 2012 at 3:06 PM, John McCall <rjmccall at apple.com> wrote:
+> On Oct 26, 2012, at 2:38 PM, Jason Merrill wrote:
+>> The C++11 standard requires some ABI changes to libstdc++.  To avoid breaking the world, we want to handle this by mangling changes, limited to only those symbols that are affected by the ABI changes.
+>>
+>> inline namespaces were intended to be a solution to this issue, but they don't really handle it very well; there's no way to adjust the mangling of a single member function (as needed for some member functions that change their return type in C++11) and they don't handle the issue of subobjects; if my type A changes ABI so I put it in an inline namespace, changing its mangling, then signatures that use it are updated appropriately.  But if type B has a member of type A, signatures that use B are not affected, leading to silent ABI incompatibilities.
+>>
+>> From our discussions of how to deal with this we settled on an attribute which can be attached to a class or a function to affect the mangling.  I'm inclined to make the arguments to the attribute user-provided strings which will then be gathered together and attached to any symbol name that uses the class, or to the mangled name of the function, respectively.
+>>
+>> I'm currently leaning toward collecting all the tags involved, sorting, and appending them to the symbol as <source-name>s separated by 'B's.
+>
+> Including tags from subobjects breaks in the presence of incomplete types.  It would also make it almost completely impossible to have a binary-stable C++ API.  I think this is a non-starter, unfortunately.
+>
+> Having a way to tag individual methods for ABI compatibility breaks is an interesting idea, but I think you actually need a language extension here, because simply removing the old declaration and tagging the new one isn't good enough if binary compatibility requires you to actually emit a symbol for the old definition.  There may be relatively few non-inline symbols in the STL, but there are a fair number of explicit instantiations.  Unless you're planning to fake this with some *extremely* non-ODR-compliant definitions hidden inside the library.
+
+Perhaps you mean the link_name attribute proposed here?
+
+  http://gcc.gnu.org/ml/gcc-patches/2003-07/msg01915.html
+
+:)
+
+  - Doug
+
+From daveed at edg.com  Sat Oct 27 01:32:46 2012
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 26 Oct 2012 21:32:46 -0400
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+Message-ID: <7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>
+
+I'd be interested in a small example illustrating the kind of usage we'd expect to see in the standard library.
+
+	Daveed
+
+
+On Oct 26, 2012, at 6:33 PM, Doug Gregor wrote:
+
+> On Fri, Oct 26, 2012 at 3:06 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Oct 26, 2012, at 2:38 PM, Jason Merrill wrote:
+>>> The C++11 standard requires some ABI changes to libstdc++.  To avoid breaking the world, we want to handle this by mangling changes, limited to only those symbols that are affected by the ABI changes.
+>>> 
+>>> inline namespaces were intended to be a solution to this issue, but they don't really handle it very well; there's no way to adjust the mangling of a single member function (as needed for some member functions that change their return type in C++11) and they don't handle the issue of subobjects; if my type A changes ABI so I put it in an inline namespace, changing its mangling, then signatures that use it are updated appropriately.  But if type B has a member of type A, signatures that use B are not affected, leading to silent ABI incompatibilities.
+>>> 
+>>> From our discussions of how to deal with this we settled on an attribute which can be attached to a class or a function to affect the mangling.  I'm inclined to make the arguments to the attribute user-provided strings which will then be gathered together and attached to any symbol name that uses the class, or to the mangled name of the function, respectively.
+>>> 
+>>> I'm currently leaning toward collecting all the tags involved, sorting, and appending them to the symbol as <source-name>s separated by 'B's.
+>> 
+>> Including tags from subobjects breaks in the presence of incomplete types.  It would also make it almost completely impossible to have a binary-stable C++ API.  I think this is a non-starter, unfortunately.
+>> 
+>> Having a way to tag individual methods for ABI compatibility breaks is an interesting idea, but I think you actually need a language extension here, because simply removing the old declaration and tagging the new one isn't good enough if binary compatibility requires you to actually emit a symbol for the old definition.  There may be relatively few non-inline symbols in the STL, but there are a fair number of explicit instantiations.  Unless you're planning to fake this with some *extremely* non-ODR-compliant definitions hidden inside the library.
+> 
+> Perhaps you mean the link_name attribute proposed here?
+> 
+>  http://gcc.gnu.org/ml/gcc-patches/2003-07/msg01915.html
+> 
+> :)
+> 
+>  - Doug
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From jason at redhat.com  Mon Oct 29 19:01:07 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 29 Oct 2012 15:01:07 -0400
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+Message-ID: <508ED273.9080801@redhat.com>
+
+On 10/26/2012 06:33 PM, Doug Gregor wrote:
+> Perhaps you mean the link_name attribute proposed here?
+
+Gosh, it's like people have thought about this issue before!
+
+That approach also doesn't address the subobject problem that I'm trying 
+to deal with.  But John's point about incomplete types is a big obstacle 
+there, perhaps fatal.  I guess the best I can do is to warn users that 
+they might want to tag their derived/enclosing classes as well.
+
+Jason
+
+From jason at redhat.com  Tue Oct 30 21:02:45 2012
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 30 Oct 2012 17:02:45 -0400
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+	<7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>
+Message-ID: <50904075.6050200@redhat.com>
+
+On 10/26/2012 09:32 PM, David Vandevoorde wrote:
+> I'd be interested in a small example illustrating the kind of usage we'd expect to see in the standard library.
+
+I'm thinking of things like
+
+template <typename CharT, typename Traits, typename Alloc>
+class [[abi_tag ("11")]] basic_string; // ABI change from refcounting
+
+template <class T>
+struct complex {
+    ...
+    // return type changed from C++98
+    [[abi_tag ("11")]] constexpr T real() { return _M_real; }
+    ...
+};
+
+Jason
+
+

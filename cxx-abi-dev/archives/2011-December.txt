@@ -1,0 +1,1682 @@
+From marklandm at acm.org  Mon Dec  5 18:43:53 2011
+From: marklandm at acm.org (Matthew Markland)
+Date: Mon, 5 Dec 2011 12:43:53 -0600
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+
+All:
+
+I am looking at some issues the compiler I support has with covariant
+return thunks and a discussion has broken out regarding whether
+various thunks need to be inlined for the compiler to be ABI
+compliant.  My take on this is that it is up to the compiler whether
+to inline the thunks if they are implemented as complete functions;
+other thunks/thunking that consists of inline code would be inlined of
+course.  A cursory search of the ABI document for "inline" didn't seem
+to call out any requirements.  My question is whether there are such
+requirements.
+
+Thank you for your time.
+
+Matt
+-- 
+-----------------------------
+Matthew W Markland
+marklandm at acm.org
+
+
+From rjmccall at apple.com  Tue Dec  6 19:11:45 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 06 Dec 2011 11:11:45 -0800
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+References: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+Message-ID: <0B8417D1-7415-4C89-81D9-D8B9744E7DC3@apple.com>
+
+On Dec 5, 2011, at 10:43 AM, Matthew Markland wrote:
+> I am looking at some issues the compiler I support has with covariant
+> return thunks and a discussion has broken out regarding whether
+> various thunks need to be inlined for the compiler to be ABI
+> compliant.  My take on this is that it is up to the compiler whether
+> to inline the thunks if they are implemented as complete functions;
+> other thunks/thunking that consists of inline code would be inlined of
+> course.  A cursory search of the ABI document for "inline" didn't seem
+> to call out any requirements.  My question is whether there are such
+> requirements.
+
+It's not clear to me whether you're talking about the compiler transformation
+called "inlining" or the vague-linkage effect of C++'s "inline" keyword.
+Usually people mean the former when they say "inlining", but your question
+doesn't really make sense with that interpretation, because in general you
+cannot inline virtual methods into their call sites.
+
+If you're talking about linkage, thunks should always get exactly the same
+linkage as the method implementation they're being emitted for.
+
+If you're talking about the compiler transformation, the ABI never strictly
+requires code duplication.  Thunks are designed so that you can (mostly)
+implement them as calls to the primary implementation.  The exception is
+for variadic methods;  if you have a thunk with a non-trivial covariant-return
+adjustment for a variadic method, there is no way to simply forward the
+variadic arguments, so you must either duplicate the implementation or
+make all the entrypoints (even the standard one) defer to an implementation
+that takes extra information detailing how to transform the result.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec  6 21:56:03 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 6 Dec 2011 13:56:03 -0800 (PST)
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+
+>From: Matthew Markland <marklandm at acm.org>
+>a discussion has broken out regarding whether
+>various thunks need to be inlined for the compiler to be ABI compliant.
+
+I've assumed this is a quality of implementation issue, not for the ABI.
+Of course if they are not inlined, the ABI has something to say about the
+duplicate symbols and linking.
+
+>My take on this is that it is up to the compiler whether
+>to inline the thunks if they are implemented as complete functions;
+Matt
+
+Right.
+Our ia64 compiler has thunks that just branch to the normal functions.
+Inlining would most likely be counter productive for code bloat, unless
+virtual functions were real small.
+
+
+From rjmccall at apple.com  Wed Dec  7 18:51:46 2011
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 07 Dec 2011 10:51:46 -0800
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+References: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+Message-ID: <1A84D574-015C-4BED-AAF0-1907AC37AB32@apple.com>
+
+On Dec 6, 2011, at 1:56 PM, Dennis Handly wrote:
+> Our ia64 compiler has thunks that just branch to the normal functions.
+
+This-adjustment thunks can get away with tail-calling / branching to the normal
+function, but covariant-return thunks must do an actual call.  That's a problem
+(in every psABI that I know) when the function is variadic, because there's now
+a pointer of extra information (the original return address) and nowhere in the
+call frame to put it.  Clang just gives up and inlines in this case.
+
+John.
+
+
+
+From dhandly at cup.hp.com  Thu Dec  8 00:42:56 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 7 Dec 2011 16:42:56 -0800 (PST)
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>It's not clear to me whether you're talking about the compiler transformation
+>called "inlining" or the vague-linkage effect of C++'s "inline" keyword.
+
+I assumed it was inlining into the thunk of the whole virtual function.
+(Kind of what you mentioned in your other message below?)
+
+>because in general you cannot inline virtual methods into their call sites.
+
+Only if you have a switch to check the typeids of the most common cases?
+
+>The exception is for variadic methods; if you have a thunk with a
+>non-trivial covariant-return adjustment for a variadic method, there is
+>no way to simply forward the variadic arguments, so you must either
+>duplicate the implementation or ...
+John.
+
+With IA64 and both register and memory stacks, it is a simple matter to
+shuffle down the 8 registers and leave the memory stack in place.
+
+>From: John McCall <rjmccall at apple.com>
+>but covariant-return thunks must do an actual call.
+
+Aw, right.
+
+>Clang just gives up and inlines in this case.
+John.
+
+Is there a lot of bloat?
+
+
+From rjmccall at apple.com  Thu Dec  8 01:40:38 2011
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 07 Dec 2011 17:40:38 -0800
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+References: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+Message-ID: <C33AA407-80EC-4518-9A3F-E7CC004E5251@apple.com>
+
+On Dec 7, 2011, at 4:42 PM, Dennis Handly wrote:
+>> because in general you cannot inline virtual methods into their call sites.
+> 
+> Only if you have a switch to check the typeids of the most common cases?
+
+There are places you can devirtualize calls because you know the
+most-derived class ? for example, if the object is a local variable or was
+recently allocated using "new".
+
+>> The exception is for variadic methods; if you have a thunk with a
+>> non-trivial covariant-return adjustment for a variadic method, there is
+>> no way to simply forward the variadic arguments, so you must either
+>> duplicate the implementation or ...
+> 
+> With IA64 and both register and memory stacks, it is a simple matter to
+> shuffle down the 8 registers and leave the memory stack in place.
+
+Oh, yes, I see how this would work on IA64 due to the magic of the
+register stack having a distinct backing store.  Fine.  I now know one
+psABI where it is possible to do this without inlining or using a private
+shared function. :)
+
+>> Clang just gives up and inlines in this case.
+> 
+> Is there a lot of bloat?
+
+Variadic functions are rare, and variadic virtual functions are rarer.
+I've never actually seen a variadic virtual function in the wild that had
+a covariant return type that needed a thunk.  I *have* seen a variadic
+virtual function that needed a this-adjustment thunk, though;  it was a
+printf-like debugging method.
+
+John.
+
+From jason at redhat.com  Tue Dec 13 04:05:30 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 12 Dec 2011 23:05:30 -0500
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+Message-ID: <4EE6CF0A.6020203@redhat.com>
+
+In most cases, an alias template is transparent; when it's used in a 
+template we can just substitute in the dependent template arguments.  So 
+it seems to make sense for it to be transparent to mangling as well. 
+But this doesn't work if the template-id uses a pack expansion for 
+non-variadic parameters.  i.e.
+
+template<class T, class U, class V>
+struct S {};
+
+template<class T, class V>
+using A = S<T, int, V>;
+
+template<class... Ts>
+void foo(A<Ts...>);
+
+There is no way to express A<Ts...> in terms of S; we need to wait until 
+we have the argument pack before we can assign individual arguments to 
+parameters.
+
+So what do we want to do about this?  Mangle alias-templates only in 
+this situation?
+
+Jason
+
+
+From widman at gimpel.com  Tue Dec 13 15:54:08 2011
+From: widman at gimpel.com (James Widman)
+Date: Tue, 13 Dec 2011 10:54:08 -0500
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <914A1757-390B-45D9-9B7D-11C81EB6AE7F@gimpel.com>
+
+
+On 12 Dec 2011, at 11:05 PM, Jason Merrill wrote:
+
+> In most cases, an alias template is transparent; when it's used in a template we can just substitute in the dependent template arguments.  So it seems to make sense for it to be transparent to mangling as well. But this doesn't work if the template-id uses a pack expansion for non-variadic parameters.  i.e.
+> 
+> template<class T, class U, class V>
+> struct S {};
+> 
+> template<class T, class V>
+> using A = S<T, int, V>;
+> 
+> template<class... Ts>
+> void foo(A<Ts...>);
+> 
+> There is no way to express A<Ts...> in terms of S;
+
+If we allow a notation to refer to an element of a pack, we could: alias A has two non-pack parameters so whatever the argument pack, we must expand it to:
+
+  A<Ts at 1, Ts at 2>
+
+And then:
+
+  S<Ts at 1, int, Ts at 2>
+
+If S had default arguments, they would be considered long before we got to the point of deduction against foo() (so we will never consider an argument type to this foo() that has anything other than 3 arguments to S).
+
+James Widman  
+-- 
+Gimpel Software 
+http://gimpel.com
+
+
+
+
+
+From jason at redhat.com  Tue Dec 13 16:52:50 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 13 Dec 2011 11:52:50 -0500
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <E24A031A-2E68-4D21-A089-DE125841418A@edg.com>
+References: <4EE6CF0A.6020203@redhat.com>
+	<E24A031A-2E68-4D21-A089-DE125841418A@edg.com>
+Message-ID: <4EE782E2.2080906@redhat.com>
+
+On 12/13/2011 11:03 AM, John Spicer wrote:
+> I think the answer should just be "you can't do that". Aliases have to
+> be expanded immediately, and if you can't do so it should be an error.
+>
+> For this example, we currently say:
+>
+> "t1.c", line 8: error: too few arguments for alias template "A"
+> void foo(A<Ts...>);
+> ^
+
+Hmm.  Clang does the same thing, as did we initially, but I assumed that 
+was a case of parallel evolution of bugs.  I guess I'll raise it on core.
+
+Jason
+
+
+From jhs at edg.com  Tue Dec 13 18:31:45 2011
+From: jhs at edg.com (John Spicer)
+Date: Tue, 13 Dec 2011 13:31:45 -0500
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <4A3B24BC-BF0F-4DCD-9430-FDD6A3677ED3@edg.com>
+
+[ I originally sent this reply just to Jason by mistake.   I'm resending it to the list now.  Since my original message Jason has taken this to the WG21 core reflector ]
+
+
+On Dec 12, 2011, at 11:05 PM, Jason Merrill wrote:
+
+> In most cases, an alias template is transparent; when it's used in a template we can just substitute in the dependent template arguments.  So it seems to make sense for it to be transparent to mangling as well. But this doesn't work if the template-id uses a pack expansion for non-variadic parameters.  i.e.
+> 
+> template<class T, class U, class V>
+> struct S {};
+> 
+> template<class T, class V>
+> using A = S<T, int, V>;
+> 
+> template<class... Ts>
+> void foo(A<Ts...>);
+> 
+> There is no way to express A<Ts...> in terms of S; we need to wait until we have the argument pack before we can assign individual arguments to parameters.
+> 
+> So what do we want to do about this?  Mangle alias-templates only in this situation?
+> 
+
+I think the answer should just be "you can't do that".   Aliases have to be expanded immediately, and if you can't do so it should be an error.
+
+For this example, we currently say:
+
+"t1.c", line 8: error: too few arguments for alias template "A"
+  void foo(A<Ts...>);
+                  ^
+
+John.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20111213/9148dafd/attachment.html>
+
+From gdr at integrable-solutions.net  Tue Dec 13 19:29:19 2011
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 13 Dec 2011 13:29:19 -0600
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <CAAiZkiBspFpXC-Q6k9Tu3HnF5CSc1MEXjH5_gHBHgnknjoS=tw@mail.gmail.com>
+
+On Mon, Dec 12, 2011 at 10:05 PM, Jason Merrill <jason at redhat.com> wrote:
+> In most cases, an alias template is transparent; when it's used in a
+> template we can just substitute in the dependent template arguments. ?So it
+> seems to make sense for it to be transparent to mangling as well. But this
+> doesn't work if the template-id uses a pack expansion for non-variadic
+> parameters. ?i.e.
+
+What happens when the template alias name is used as a template
+argument? Isn't the
+template name mangled too like any other template name?
+
+>
+> template<class T, class U, class V>
+> struct S {};
+>
+> template<class T, class V>
+> using A = S<T, int, V>;
+>
+> template<class... Ts>
+> void foo(A<Ts...>);
+>
+> There is no way to express A<Ts...> in terms of S; we need to wait until we
+> have the argument pack before we can assign individual arguments to
+> parameters.
+>
+> So what do we want to do about this? ?Mangle alias-templates only in this
+> situation?
+>
+> Jason
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From dhandly at cup.hp.com  Fri Dec 16 07:28:23 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 15 Dec 2011 23:28:23 -0800 (PST)
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+
+I'm trying to see how the code for a throw is generated and to see if
+our compiler is compliant on various exception cases.
+
+2.4.1 Overview of Throw Processing
+
+  # Evaluate the thrown expression, and copy it into the buffer returned
+  by __cxa_allocate_exception, possibly using a copy constructor.  If
+  evaluation of the thrown expression exits by throwing an exception, that
+  exception will propagate instead of the expression itself.  Cleanup code
+  must ensure that __cxa_free_exception is called on the just allocated
+  exception object.  (If the copy constructor itself exits by throwing an
+  exception, terminate() is called.)
+
+Does the last sentence mean that if there is a catch for what the copy
+constructor is throwing, it is ignored?
+
+15.5.1 terminate function:
+footnote 134): ... if that copy constructor exits with an exception during
+a throw.
+
+
+Changing the example to throw something of class XX so we can get a
+throw while evaluating the thrown expression and another during the
+copy construction:
+
+	// Allocate -- never throws:
+	temp1 = __cxa_allocate_exception(sizeof(XX));
+
+	// Construct the exception object:
+try {
+	#if COPY_ELISION
+	  [evaluate XX() into temp1]
+	#else
+	  [evaluate XX() into temp2]
+     try {
+	  copy-constructor(temp1, temp2)
+     } catch(...) {
+	  // Landing Pad if this throws
+	__cxa_free_exception(temp1) // never throws
+        std::terminate();
+     }
+	#endif
+
+	// Pass the exception object to unwind library:
+	__cxa_throw(temp1, type_info<X>, destructor<X>); // Never returns
+} catch(...) {
+
+	// Landing pad for throw expression
+	L1: __cxa_free_exception(temp1) // never throws
+
+    throw;
+}
+
+Where an internal try around the copy-constructor is used to free the
+exception and also always call terminate?
+(Or ignore the free and just terminate?)
+
+
+2.4.3 Throwing the Exception Object
+
+  ...  _Unwind_RaiseException may return.  In that case, __cxa_throw will
+  call terminate, assuming that there was no handler for the exception.
+
+There is nothing here that indicates that __cxa_throw must call
+__cxa_begin_catch before calling terminate.
+
+This is mentioned in 2.5.3 Exception Handlers:
+  When the personality routine encounters a termination condition, it will
+  call __cxa_begin_catch() to mark the exception as handled and then call
+  terminate(), which shall not return to its caller.
+
+But we can't depend on the personality routine to do this because it has no
+idea the unwinder can't find a handler so it seems this must also be done
+in __cxa_throw.
+
+g++ 4.6.0 seems to do this.  It seems the ABI should mention this at the
+end of 2.4.3.
+
+
+From rjmccall at apple.com  Fri Dec 16 20:06:34 2011
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 16 Dec 2011 12:06:34 -0800
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of
+	Throw	Processing
+In-Reply-To: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+References: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+Message-ID: <4E9E53D2-1545-4B59-B36A-4F5E5F667312@apple.com>
+
+On Dec 15, 2011, at 11:28 PM, Dennis Handly wrote:
+> I'm trying to see how the code for a throw is generated and to see if
+> our compiler is compliant on various exception cases.
+> 
+> 2.4.1 Overview of Throw Processing
+> 
+>  # Evaluate the thrown expression, and copy it into the buffer returned
+>  by __cxa_allocate_exception, possibly using a copy constructor.  If
+>  evaluation of the thrown expression exits by throwing an exception, that
+>  exception will propagate instead of the expression itself.  Cleanup code
+>  must ensure that __cxa_free_exception is called on the just allocated
+>  exception object.  (If the copy constructor itself exits by throwing an
+>  exception, terminate() is called.)
+> 
+> Does the last sentence mean that if there is a catch for what the copy
+> constructor is throwing, it is ignored?
+
+I think this is just the ABI document being out-of-date vs. the standard.
+DR 475 jumped around a lot, but the final resolution (March 2010) makes
+it clear that we are *not* supposed to call std::terminate if an exception
+is thrown during the copy-initialization of an exception object.  We only
+terminate if an exception is thrown after the initialization is complete,
+e.g. by a destructor of that full-expression, by a cleanup during unwind,
+or by the copy-initialization of a catch variable.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec 20 03:58:15 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 19 Dec 2011 19:58:15 -0800 (PST)
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>> Does the last sentence mean that if there is a catch for what the copy
+>> constructor is throwing, it is ignored?
+
+>I think this is just the ABI document being out-of-date vs. the standard.
+>DR 475 jumped around a lot, but the final resolution (March 2010) makes
+>it clear that we are *not* supposed to call std::terminate if an exception
+>is thrown during the copy-initialization of an exception object.
+
+So we just go to whatever catch is active or std::terminate?
+But in any case, the copy constructor seems to be elided for both aC++ and
+g++.
+
+>We only terminate if an exception is thrown after the initialization is
+>complete, e.g.  by a destructor of that full-expression,
+
+So does this need to be mentioned for __cxa_end_catch or is it the generated
+cleanup code for the throw?
+
+Since copy constructor seems to be elided, there is no cleanup code for the
+throw.  (Unless some complex conditions or lots of temps?  But these wouldn't
+be the full-expression.)
+
+g++ seems to not disallow that throw in __cxa_end_catch.
+aC++ does too but does get lost if a catch is present.
+
+>by the copy-initialization of a catch variable.
+John.
+
+Or under "2.5.1 Overview of Catch Processing" in the generated code?
+
+g++ seems to handle this terminate call correctly.
+aC++ calls terminate for the wrong reasons, both if there is and isn't a
+catch.
+
+
+From rjmccall at apple.com  Tue Dec 20 18:29:11 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 20 Dec 2011 10:29:11 -0800
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+ Processing
+In-Reply-To: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+References: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+Message-ID: <7FDC0DB0-E96A-40B4-87BC-19DAAC2256F2@apple.com>
+
+On Dec 19, 2011, at 7:58 PM, Dennis Handly wrote:
+>> From: John McCall <rjmccall at apple.com>
+>>> Does the last sentence mean that if there is a catch for what the copy
+>>> constructor is throwing, it is ignored?
+> 
+>> I think this is just the ABI document being out-of-date vs. the standard.
+>> DR 475 jumped around a lot, but the final resolution (March 2010) makes
+>> it clear that we are *not* supposed to call std::terminate if an exception
+>> is thrown during the copy-initialization of an exception object.
+> 
+> So we just go to whatever catch is active or std::terminate?
+
+Right.  It's no longer special in any way, except that if you've allocated
+an exception object (in Itanium-like exception schemes) you need to free it.
+
+> But in any case, the copy constructor seems to be elided for both aC++ and
+> g++.
+
+Right.  One of the nice things about the change is that it no longer calls
+out the final copy-construction as having special exception semantics,
+which means you can now reasonably do copy-elision here.  I know many
+compilers were doing it before anyway, with the special semantics also
+being elided away.
+
+>> We only terminate if an exception is thrown after the initialization is
+>> complete, e.g.  by a destructor of that full-expression,
+> 
+> So does this need to be mentioned for __cxa_end_catch or is it the generated
+> cleanup code for the throw?
+
+I don't know what you mean.  __cxa_end_catch is not required
+as part of the generated code for a throw expression.  I don't think it
+ever was.
+
+> Since copy constructor seems to be elided, there is no cleanup code for the
+> throw.  (Unless some complex conditions or lots of temps?  But these wouldn't
+> be the full-expression.)
+
+Once you've called __cxa_allocate_exception, you must either throw
+it or free it.
+
+> g++ seems to not disallow that throw in __cxa_end_catch.
+> aC++ does too but does get lost if a catch is present.
+
+In general, the generated call to __cxa_end_catch at the end of a
+catch clause can throw.  You can prove that it can't in some cases,
+based on the caught exception object type or the CFG of the catch
+clause.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec 20 22:30:11 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 20 Dec 2011 14:30:11 -0800 (PST)
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>>> We only terminate if an exception is thrown after the initialization is
+>>> complete, e.g.  by a destructor of that full-expression,
+>> 
+>> So does this need to be mentioned for __cxa_end_catch or is it the generated
+>> cleanup code for the throw?
+
+>I don't know what you mean.  __cxa_end_catch is not required
+>as part of the generated code for a throw expression.  I don't think it
+>ever was.
+
+I'm saying that __cxa_end_catch is the code that destructs the
+full-expression, if you elide the copy construction.
+
+>> g++ seems to not disallow that throw in __cxa_end_catch.
+>> aC++ does too but does get lost if a catch is present.
+
+>In general, the generated call to __cxa_end_catch at the end of a
+>catch clause can throw.  You can prove that it can't in some cases,
+>based on the caught exception object type or the CFG of the catch clause.
+John.
+
+I thought you said that the destructor can't throw and if it does, it calls
+terminate?
+
+In our runtime lib, there is nothing else that can throw.
+
+
+From rjmccall at apple.com  Wed Dec 21 00:36:09 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 20 Dec 2011 16:36:09 -0800
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+ Processing
+In-Reply-To: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+References: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+Message-ID: <859B5376-1906-42F0-9C3B-5C1222801EDA@apple.com>
+
+
+On Dec 20, 2011, at 2:30 PM, Dennis Handly wrote:
+
+>> From: John McCall <rjmccall at apple.com>
+>>>> We only terminate if an exception is thrown after the initialization is
+>>>> complete, e.g.  by a destructor of that full-expression,
+>>> 
+>>> So does this need to be mentioned for __cxa_end_catch or is it the generated
+>>> cleanup code for the throw?
+> 
+>> I don't know what you mean.  __cxa_end_catch is not required
+>> as part of the generated code for a throw expression.  I don't think it
+>> ever was.
+> 
+> I'm saying that __cxa_end_catch is the code that destructs the
+> full-expression, if you elide the copy construction.
+
+This conversation would be substantially easier if you looked
+up terms like "full-expression" that you don't understand.
+
+I'll break this down.  Suppose we have code like this:
+  extern std::string cause;
+  extern std::exception make_exception(const std::string &);
+  cause = std::string("failure"), throw make_exception("didn't work");
+
+The entire last line is a full-expression:  it's an expression that's not
+part of another, larger expression.  This is the granularity at which
+temporaries are destroyed.
+The part starting at 'throw' is the throw-expression.
+The part starting at 'make_exception' is the exception operand.
+
+Here we formally have three temporaries, created in the following order:
+  - the std::string created in the LHS of the comma,
+  - the std::string created for the argument to make_exception, and
+  - the result of make_exception.
+Note that the actual exception object is not formally a temporary.  It is
+never destructed along any path as part of evaluating this expression.
+As soon as it completes construction ? and specifically, before any
+of the temporaries are destroyed ? it is thrown.
+
+Copy elision doesn't really have a significant impact.  Without it, the
+generated code for this example looks basically like this, with some
+flexibility about in exactly what order the exception is allocated and
+freed:
+
+  std::string::string(&temp0, "failure");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&cause, &temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&temp1, "didn't work");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(&temp2, &temp1);
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&temp2)
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::exception::exception(exn, &temp2)
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&temp2)
+  //   std::string::~string(&temp1)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &typeid(std::exception), &std::exception::~exception);
+
+With copy elision, the code looks like this:
+
+  std::string::string(&temp0, "failure");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&cause, &temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&temp1, "didn't work");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(exn, &temp1);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &typeid(std::exception), &std::exception::~exception);
+
+Regardless of whether copy elision occurs, __cxa_end_catch has
+the potential to throw, because it has the responsibility to destroy the
+actual exception object ('exn').
+
+By the time that the unwinder enters a landing pad for a catch clause,
+all of these temporaries have already been destructed.  The only object
+that survives is the exception object, which, as I mentioned, is not a
+temporary.
+
+>>> g++ seems to not disallow that throw in __cxa_end_catch.
+>>> aC++ does too but does get lost if a catch is present.
+> 
+>> In general, the generated call to __cxa_end_catch at the end of a
+>> catch clause can throw.  You can prove that it can't in some cases,
+>> based on the caught exception object type or the CFG of the catch clause.
+> 
+> I thought you said that the destructor can't throw and if it does, it calls
+> terminate?
+
+If a destructor throws during unwinding, we must call terminate.  But
+only some calls to __cxa_end_catch occur during unwinding:  only if
+you throw out of a catch clause.  If control falls out of a catch clause,
+and the destructor for the caught exception object throws an
+exception, that new exception just starts propagating.
+
+In the paragraph you quoted here, I was discussing a very minor
+optimization where you deduce that an exception object cannot
+have a destructor based on the type that was caught.  For example,
+in the catch for a 'void *', you know that __cxa_end_catch
+will not throw, because that catch type cannot catch any objects
+with destructors.
+
+John.
+
+From dhandly at cup.hp.com  Wed Dec 21 03:27:37 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 20 Dec 2011 19:27:37 -0800 (PST)
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112210327.pBL3Rb303864@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>> I'm saying that __cxa_end_catch is the code that destructs the
+>> full-expression, if you elide the copy construction.
+
+>This conversation would be substantially easier if you looked
+>up terms like "full-expression" that you don't understand.
+
+>Note that the actual exception object is not formally a temporary.
+
+Thanks for the details.
+My confusion was not in "full-expression" but thinking the exception operand
+was a temporary.
+
+>Regardless of whether copy elision occurs, __cxa_end_catch has
+>the potential to throw, because it has the responsibility to destroy the
+>actual exception object ('exn').
+>which, as I mentioned, is not a temporary.
+
+And here I mistakenly thought the Standard didn't allow the throw because
+this was a temporary.
+
+>But only some calls to __cxa_end_catch occur during unwinding:  only if
+>you throw out of a catch clause.  If control falls out of a catch clause,
+>and the destructor for the caught exception object throws an
+>exception, that new exception just starts propagating.
+
+That's the one I was confused about.
+
+>in the catch for a 'void *', you know that __cxa_end_catch
+>will not throw, because that catch type cannot catch any objects
+>with destructors.
+John.
+
+Ah, so at compile time, you could statically remove the landing pad on
+__cxa_end_catch based on that.
+
+I found out my problem.  The landing pad for __cxa_end_catch was set to
+__cxa_end_catch.  ;-)
+I.e. the call wasn't treated special and for that one, don't add that call.
+
+
+From marklandm at acm.org  Mon Dec  5 18:44:03 2011
+From: marklandm at acm.org (Matthew Markland)
+Date: Mon, 05 Dec 2011 18:44:03 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+
+All:
+
+I am looking at some issues the compiler I support has with covariant
+return thunks and a discussion has broken out regarding whether
+various thunks need to be inlined for the compiler to be ABI
+compliant.  My take on this is that it is up to the compiler whether
+to inline the thunks if they are implemented as complete functions;
+other thunks/thunking that consists of inline code would be inlined of
+course.  A cursory search of the ABI document for "inline" didn't seem
+to call out any requirements.  My question is whether there are such
+requirements.
+
+Thank you for your time.
+
+Matt
+-- 
+-----------------------------
+Matthew W Markland
+marklandm at acm.org
+
+
+From rjmccall at apple.com  Tue Dec  6 19:30:18 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 06 Dec 2011 19:30:18 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+References: <CADVWeu-WQXPG92w6eaxUBJnThi0+A-CNHSCiS5QjAUDTXjoMow@mail.gmail.com>
+Message-ID: <0B8417D1-7415-4C89-81D9-D8B9744E7DC3@apple.com>
+
+On Dec 5, 2011, at 10:43 AM, Matthew Markland wrote:
+> I am looking at some issues the compiler I support has with covariant
+> return thunks and a discussion has broken out regarding whether
+> various thunks need to be inlined for the compiler to be ABI
+> compliant.  My take on this is that it is up to the compiler whether
+> to inline the thunks if they are implemented as complete functions;
+> other thunks/thunking that consists of inline code would be inlined of
+> course.  A cursory search of the ABI document for "inline" didn't seem
+> to call out any requirements.  My question is whether there are such
+> requirements.
+
+It's not clear to me whether you're talking about the compiler transformation
+called "inlining" or the vague-linkage effect of C++'s "inline" keyword.
+Usually people mean the former when they say "inlining", but your question
+doesn't really make sense with that interpretation, because in general you
+cannot inline virtual methods into their call sites.
+
+If you're talking about linkage, thunks should always get exactly the same
+linkage as the method implementation they're being emitted for.
+
+If you're talking about the compiler transformation, the ABI never strictly
+requires code duplication.  Thunks are designed so that you can (mostly)
+implement them as calls to the primary implementation.  The exception is
+for variadic methods;  if you have a thunk with a non-trivial covariant-return
+adjustment for a variadic method, there is no way to simply forward the
+variadic arguments, so you must either duplicate the implementation or
+make all the entrypoints (even the standard one) defer to an implementation
+that takes extra information detailing how to transform the result.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec  6 21:56:09 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 06 Dec 2011 21:56:09 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+
+>From: Matthew Markland <marklandm at acm.org>
+>a discussion has broken out regarding whether
+>various thunks need to be inlined for the compiler to be ABI compliant.
+
+I've assumed this is a quality of implementation issue, not for the ABI.
+Of course if they are not inlined, the ABI has something to say about the
+duplicate symbols and linking.
+
+>My take on this is that it is up to the compiler whether
+>to inline the thunks if they are implemented as complete functions;
+Matt
+
+Right.
+Our ia64 compiler has thunks that just branch to the normal functions.
+Inlining would most likely be counter productive for code bloat, unless
+virtual functions were real small.
+
+
+From rjmccall at apple.com  Wed Dec  7 18:52:13 2011
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 07 Dec 2011 18:52:13 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+References: <201112062156.pB6Lu3b26670@adlwrk05.cce.hp.com>
+Message-ID: <1A84D574-015C-4BED-AAF0-1907AC37AB32@apple.com>
+
+On Dec 6, 2011, at 1:56 PM, Dennis Handly wrote:
+> Our ia64 compiler has thunks that just branch to the normal functions.
+
+This-adjustment thunks can get away with tail-calling / branching to the normal
+function, but covariant-return thunks must do an actual call.  That's a problem
+(in every psABI that I know) when the function is variadic, because there's now
+a pointer of extra information (the original return address) and nowhere in the
+call frame to put it.  Clang just gives up and inlines in this case.
+
+John.
+
+
+
+From dhandly at cup.hp.com  Thu Dec  8 00:43:01 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 08 Dec 2011 00:43:01 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+Message-ID: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>It's not clear to me whether you're talking about the compiler transformation
+>called "inlining" or the vague-linkage effect of C++'s "inline" keyword.
+
+I assumed it was inlining into the thunk of the whole virtual function.
+(Kind of what you mentioned in your other message below?)
+
+>because in general you cannot inline virtual methods into their call sites.
+
+Only if you have a switch to check the typeids of the most common cases?
+
+>The exception is for variadic methods; if you have a thunk with a
+>non-trivial covariant-return adjustment for a variadic method, there is
+>no way to simply forward the variadic arguments, so you must either
+>duplicate the implementation or ...
+John.
+
+With IA64 and both register and memory stacks, it is a simple matter to
+shuffle down the 8 registers and leave the memory stack in place.
+
+>From: John McCall <rjmccall at apple.com>
+>but covariant-return thunks must do an actual call.
+
+Aw, right.
+
+>Clang just gives up and inlines in this case.
+John.
+
+Is there a lot of bloat?
+
+
+From rjmccall at apple.com  Thu Dec  8 01:40:42 2011
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 08 Dec 2011 01:40:42 -0000
+Subject: [cxx-abi-dev] Inlining requirements for ABI functionality
+In-Reply-To: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+References: <201112080042.pB80gu513725@adlwrk05.cce.hp.com>
+Message-ID: <C33AA407-80EC-4518-9A3F-E7CC004E5251@apple.com>
+
+On Dec 7, 2011, at 4:42 PM, Dennis Handly wrote:
+>> because in general you cannot inline virtual methods into their call sites.
+> 
+> Only if you have a switch to check the typeids of the most common cases?
+
+There are places you can devirtualize calls because you know the
+most-derived class ? for example, if the object is a local variable or was
+recently allocated using "new".
+
+>> The exception is for variadic methods; if you have a thunk with a
+>> non-trivial covariant-return adjustment for a variadic method, there is
+>> no way to simply forward the variadic arguments, so you must either
+>> duplicate the implementation or ...
+> 
+> With IA64 and both register and memory stacks, it is a simple matter to
+> shuffle down the 8 registers and leave the memory stack in place.
+
+Oh, yes, I see how this would work on IA64 due to the magic of the
+register stack having a distinct backing store.  Fine.  I now know one
+psABI where it is possible to do this without inlining or using a private
+shared function. :)
+
+>> Clang just gives up and inlines in this case.
+> 
+> Is there a lot of bloat?
+
+Variadic functions are rare, and variadic virtual functions are rarer.
+I've never actually seen a variadic virtual function in the wild that had
+a covariant return type that needed a thunk.  I *have* seen a variadic
+virtual function that needed a this-adjustment thunk, though;  it was a
+printf-like debugging method.
+
+John.
+
+From jason at redhat.com  Tue Dec 13 04:05:36 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 13 Dec 2011 04:05:36 -0000
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+Message-ID: <4EE6CF0A.6020203@redhat.com>
+
+In most cases, an alias template is transparent; when it's used in a 
+template we can just substitute in the dependent template arguments.  So 
+it seems to make sense for it to be transparent to mangling as well. 
+But this doesn't work if the template-id uses a pack expansion for 
+non-variadic parameters.  i.e.
+
+template<class T, class U, class V>
+struct S {};
+
+template<class T, class V>
+using A = S<T, int, V>;
+
+template<class... Ts>
+void foo(A<Ts...>);
+
+There is no way to express A<Ts...> in terms of S; we need to wait until 
+we have the argument pack before we can assign individual arguments to 
+parameters.
+
+So what do we want to do about this?  Mangle alias-templates only in 
+this situation?
+
+Jason
+
+
+From widman at gimpel.com  Tue Dec 13 15:54:12 2011
+From: widman at gimpel.com (James Widman)
+Date: Tue, 13 Dec 2011 15:54:12 -0000
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <914A1757-390B-45D9-9B7D-11C81EB6AE7F@gimpel.com>
+
+
+On 12 Dec 2011, at 11:05 PM, Jason Merrill wrote:
+
+> In most cases, an alias template is transparent; when it's used in a template we can just substitute in the dependent template arguments.  So it seems to make sense for it to be transparent to mangling as well. But this doesn't work if the template-id uses a pack expansion for non-variadic parameters.  i.e.
+> 
+> template<class T, class U, class V>
+> struct S {};
+> 
+> template<class T, class V>
+> using A = S<T, int, V>;
+> 
+> template<class... Ts>
+> void foo(A<Ts...>);
+> 
+> There is no way to express A<Ts...> in terms of S;
+
+If we allow a notation to refer to an element of a pack, we could: alias A has two non-pack parameters so whatever the argument pack, we must expand it to:
+
+  A<Ts at 1, Ts at 2>
+
+And then:
+
+  S<Ts at 1, int, Ts at 2>
+
+If S had default arguments, they would be considered long before we got to the point of deduction against foo() (so we will never consider an argument type to this foo() that has anything other than 3 arguments to S).
+
+James Widman  
+-- 
+Gimpel Software 
+http://gimpel.com
+
+
+
+
+
+From jason at redhat.com  Tue Dec 13 16:52:57 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 13 Dec 2011 16:52:57 -0000
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <E24A031A-2E68-4D21-A089-DE125841418A@edg.com>
+References: <4EE6CF0A.6020203@redhat.com>
+	<E24A031A-2E68-4D21-A089-DE125841418A@edg.com>
+Message-ID: <4EE782E2.2080906@redhat.com>
+
+On 12/13/2011 11:03 AM, John Spicer wrote:
+> I think the answer should just be "you can't do that". Aliases have to
+> be expanded immediately, and if you can't do so it should be an error.
+>
+> For this example, we currently say:
+>
+> "t1.c", line 8: error: too few arguments for alias template "A"
+> void foo(A<Ts...>);
+> ^
+
+Hmm.  Clang does the same thing, as did we initially, but I assumed that 
+was a case of parallel evolution of bugs.  I guess I'll raise it on core.
+
+Jason
+
+
+From jhs at edg.com  Tue Dec 13 18:31:53 2011
+From: jhs at edg.com (John Spicer)
+Date: Tue, 13 Dec 2011 18:31:53 -0000
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <4A3B24BC-BF0F-4DCD-9430-FDD6A3677ED3@edg.com>
+
+[ I originally sent this reply just to Jason by mistake.   I'm resending it to the list now.  Since my original message Jason has taken this to the WG21 core reflector ]
+
+
+On Dec 12, 2011, at 11:05 PM, Jason Merrill wrote:
+
+> In most cases, an alias template is transparent; when it's used in a template we can just substitute in the dependent template arguments.  So it seems to make sense for it to be transparent to mangling as well. But this doesn't work if the template-id uses a pack expansion for non-variadic parameters.  i.e.
+> 
+> template<class T, class U, class V>
+> struct S {};
+> 
+> template<class T, class V>
+> using A = S<T, int, V>;
+> 
+> template<class... Ts>
+> void foo(A<Ts...>);
+> 
+> There is no way to express A<Ts...> in terms of S; we need to wait until we have the argument pack before we can assign individual arguments to parameters.
+> 
+> So what do we want to do about this?  Mangle alias-templates only in this situation?
+> 
+
+I think the answer should just be "you can't do that".   Aliases have to be expanded immediately, and if you can't do so it should be an error.
+
+For this example, we currently say:
+
+"t1.c", line 8: error: too few arguments for alias template "A"
+  void foo(A<Ts...>);
+                  ^
+
+John.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20111213/9148dafd/attachment-0001.html>
+
+From gdr at integrable-solutions.net  Tue Dec 13 19:29:24 2011
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Tue, 13 Dec 2011 19:29:24 -0000
+Subject: [cxx-abi-dev] Mangling of variadic arguments to alias template
+In-Reply-To: <4EE6CF0A.6020203@redhat.com>
+References: <4EE6CF0A.6020203@redhat.com>
+Message-ID: <CAAiZkiBspFpXC-Q6k9Tu3HnF5CSc1MEXjH5_gHBHgnknjoS=tw@mail.gmail.com>
+
+On Mon, Dec 12, 2011 at 10:05 PM, Jason Merrill <jason at redhat.com> wrote:
+> In most cases, an alias template is transparent; when it's used in a
+> template we can just substitute in the dependent template arguments. ?So it
+> seems to make sense for it to be transparent to mangling as well. But this
+> doesn't work if the template-id uses a pack expansion for non-variadic
+> parameters. ?i.e.
+
+What happens when the template alias name is used as a template
+argument? Isn't the
+template name mangled too like any other template name?
+
+>
+> template<class T, class U, class V>
+> struct S {};
+>
+> template<class T, class V>
+> using A = S<T, int, V>;
+>
+> template<class... Ts>
+> void foo(A<Ts...>);
+>
+> There is no way to express A<Ts...> in terms of S; we need to wait until we
+> have the argument pack before we can assign individual arguments to
+> parameters.
+>
+> So what do we want to do about this? ?Mangle alias-templates only in this
+> situation?
+>
+> Jason
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From dhandly at cup.hp.com  Fri Dec 16 07:28:28 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 16 Dec 2011 07:28:28 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+
+I'm trying to see how the code for a throw is generated and to see if
+our compiler is compliant on various exception cases.
+
+2.4.1 Overview of Throw Processing
+
+  # Evaluate the thrown expression, and copy it into the buffer returned
+  by __cxa_allocate_exception, possibly using a copy constructor.  If
+  evaluation of the thrown expression exits by throwing an exception, that
+  exception will propagate instead of the expression itself.  Cleanup code
+  must ensure that __cxa_free_exception is called on the just allocated
+  exception object.  (If the copy constructor itself exits by throwing an
+  exception, terminate() is called.)
+
+Does the last sentence mean that if there is a catch for what the copy
+constructor is throwing, it is ignored?
+
+15.5.1 terminate function:
+footnote 134): ... if that copy constructor exits with an exception during
+a throw.
+
+
+Changing the example to throw something of class XX so we can get a
+throw while evaluating the thrown expression and another during the
+copy construction:
+
+	// Allocate -- never throws:
+	temp1 = __cxa_allocate_exception(sizeof(XX));
+
+	// Construct the exception object:
+try {
+	#if COPY_ELISION
+	  [evaluate XX() into temp1]
+	#else
+	  [evaluate XX() into temp2]
+     try {
+	  copy-constructor(temp1, temp2)
+     } catch(...) {
+	  // Landing Pad if this throws
+	__cxa_free_exception(temp1) // never throws
+        std::terminate();
+     }
+	#endif
+
+	// Pass the exception object to unwind library:
+	__cxa_throw(temp1, type_info<X>, destructor<X>); // Never returns
+} catch(...) {
+
+	// Landing pad for throw expression
+	L1: __cxa_free_exception(temp1) // never throws
+
+    throw;
+}
+
+Where an internal try around the copy-constructor is used to free the
+exception and also always call terminate?
+(Or ignore the free and just terminate?)
+
+
+2.4.3 Throwing the Exception Object
+
+  ...  _Unwind_RaiseException may return.  In that case, __cxa_throw will
+  call terminate, assuming that there was no handler for the exception.
+
+There is nothing here that indicates that __cxa_throw must call
+__cxa_begin_catch before calling terminate.
+
+This is mentioned in 2.5.3 Exception Handlers:
+  When the personality routine encounters a termination condition, it will
+  call __cxa_begin_catch() to mark the exception as handled and then call
+  terminate(), which shall not return to its caller.
+
+But we can't depend on the personality routine to do this because it has no
+idea the unwinder can't find a handler so it seems this must also be done
+in __cxa_throw.
+
+g++ 4.6.0 seems to do this.  It seems the ABI should mention this at the
+end of 2.4.3.
+
+
+From rjmccall at apple.com  Fri Dec 16 20:07:13 2011
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 16 Dec 2011 20:07:13 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of
+	Throw	Processing
+In-Reply-To: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+References: <201112160728.pBG7SNJ16892@adlwrk05.cce.hp.com>
+Message-ID: <4E9E53D2-1545-4B59-B36A-4F5E5F667312@apple.com>
+
+On Dec 15, 2011, at 11:28 PM, Dennis Handly wrote:
+> I'm trying to see how the code for a throw is generated and to see if
+> our compiler is compliant on various exception cases.
+> 
+> 2.4.1 Overview of Throw Processing
+> 
+>  # Evaluate the thrown expression, and copy it into the buffer returned
+>  by __cxa_allocate_exception, possibly using a copy constructor.  If
+>  evaluation of the thrown expression exits by throwing an exception, that
+>  exception will propagate instead of the expression itself.  Cleanup code
+>  must ensure that __cxa_free_exception is called on the just allocated
+>  exception object.  (If the copy constructor itself exits by throwing an
+>  exception, terminate() is called.)
+> 
+> Does the last sentence mean that if there is a catch for what the copy
+> constructor is throwing, it is ignored?
+
+I think this is just the ABI document being out-of-date vs. the standard.
+DR 475 jumped around a lot, but the final resolution (March 2010) makes
+it clear that we are *not* supposed to call std::terminate if an exception
+is thrown during the copy-initialization of an exception object.  We only
+terminate if an exception is thrown after the initialization is complete,
+e.g. by a destructor of that full-expression, by a cleanup during unwind,
+or by the copy-initialization of a catch variable.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec 20 03:58:21 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 20 Dec 2011 03:58:21 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>> Does the last sentence mean that if there is a catch for what the copy
+>> constructor is throwing, it is ignored?
+
+>I think this is just the ABI document being out-of-date vs. the standard.
+>DR 475 jumped around a lot, but the final resolution (March 2010) makes
+>it clear that we are *not* supposed to call std::terminate if an exception
+>is thrown during the copy-initialization of an exception object.
+
+So we just go to whatever catch is active or std::terminate?
+But in any case, the copy constructor seems to be elided for both aC++ and
+g++.
+
+>We only terminate if an exception is thrown after the initialization is
+>complete, e.g.  by a destructor of that full-expression,
+
+So does this need to be mentioned for __cxa_end_catch or is it the generated
+cleanup code for the throw?
+
+Since copy constructor seems to be elided, there is no cleanup code for the
+throw.  (Unless some complex conditions or lots of temps?  But these wouldn't
+be the full-expression.)
+
+g++ seems to not disallow that throw in __cxa_end_catch.
+aC++ does too but does get lost if a catch is present.
+
+>by the copy-initialization of a catch variable.
+John.
+
+Or under "2.5.1 Overview of Catch Processing" in the generated code?
+
+g++ seems to handle this terminate call correctly.
+aC++ calls terminate for the wrong reasons, both if there is and isn't a
+catch.
+
+
+From rjmccall at apple.com  Tue Dec 20 18:29:13 2011
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 20 Dec 2011 18:29:13 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+ Processing
+In-Reply-To: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+References: <201112200358.pBK3wFM21698@adlwrk05.cce.hp.com>
+Message-ID: <7FDC0DB0-E96A-40B4-87BC-19DAAC2256F2@apple.com>
+
+On Dec 19, 2011, at 7:58 PM, Dennis Handly wrote:
+>> From: John McCall <rjmccall at apple.com>
+>>> Does the last sentence mean that if there is a catch for what the copy
+>>> constructor is throwing, it is ignored?
+> 
+>> I think this is just the ABI document being out-of-date vs. the standard.
+>> DR 475 jumped around a lot, but the final resolution (March 2010) makes
+>> it clear that we are *not* supposed to call std::terminate if an exception
+>> is thrown during the copy-initialization of an exception object.
+> 
+> So we just go to whatever catch is active or std::terminate?
+
+Right.  It's no longer special in any way, except that if you've allocated
+an exception object (in Itanium-like exception schemes) you need to free it.
+
+> But in any case, the copy constructor seems to be elided for both aC++ and
+> g++.
+
+Right.  One of the nice things about the change is that it no longer calls
+out the final copy-construction as having special exception semantics,
+which means you can now reasonably do copy-elision here.  I know many
+compilers were doing it before anyway, with the special semantics also
+being elided away.
+
+>> We only terminate if an exception is thrown after the initialization is
+>> complete, e.g.  by a destructor of that full-expression,
+> 
+> So does this need to be mentioned for __cxa_end_catch or is it the generated
+> cleanup code for the throw?
+
+I don't know what you mean.  __cxa_end_catch is not required
+as part of the generated code for a throw expression.  I don't think it
+ever was.
+
+> Since copy constructor seems to be elided, there is no cleanup code for the
+> throw.  (Unless some complex conditions or lots of temps?  But these wouldn't
+> be the full-expression.)
+
+Once you've called __cxa_allocate_exception, you must either throw
+it or free it.
+
+> g++ seems to not disallow that throw in __cxa_end_catch.
+> aC++ does too but does get lost if a catch is present.
+
+In general, the generated call to __cxa_end_catch at the end of a
+catch clause can throw.  You can prove that it can't in some cases,
+based on the caught exception object type or the CFG of the catch
+clause.
+
+John.
+
+
+From dhandly at cup.hp.com  Tue Dec 20 22:30:15 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 20 Dec 2011 22:30:15 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>>> We only terminate if an exception is thrown after the initialization is
+>>> complete, e.g.  by a destructor of that full-expression,
+>> 
+>> So does this need to be mentioned for __cxa_end_catch or is it the generated
+>> cleanup code for the throw?
+
+>I don't know what you mean.  __cxa_end_catch is not required
+>as part of the generated code for a throw expression.  I don't think it
+>ever was.
+
+I'm saying that __cxa_end_catch is the code that destructs the
+full-expression, if you elide the copy construction.
+
+>> g++ seems to not disallow that throw in __cxa_end_catch.
+>> aC++ does too but does get lost if a catch is present.
+
+>In general, the generated call to __cxa_end_catch at the end of a
+>catch clause can throw.  You can prove that it can't in some cases,
+>based on the caught exception object type or the CFG of the catch clause.
+John.
+
+I thought you said that the destructor can't throw and if it does, it calls
+terminate?
+
+In our runtime lib, there is nothing else that can throw.
+
+
+From rjmccall at apple.com  Wed Dec 21 00:36:15 2011
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 21 Dec 2011 00:36:15 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+ Processing
+In-Reply-To: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+References: <201112202230.pBKMUB601233@adlwrk05.cce.hp.com>
+Message-ID: <859B5376-1906-42F0-9C3B-5C1222801EDA@apple.com>
+
+
+On Dec 20, 2011, at 2:30 PM, Dennis Handly wrote:
+
+>> From: John McCall <rjmccall at apple.com>
+>>>> We only terminate if an exception is thrown after the initialization is
+>>>> complete, e.g.  by a destructor of that full-expression,
+>>> 
+>>> So does this need to be mentioned for __cxa_end_catch or is it the generated
+>>> cleanup code for the throw?
+> 
+>> I don't know what you mean.  __cxa_end_catch is not required
+>> as part of the generated code for a throw expression.  I don't think it
+>> ever was.
+> 
+> I'm saying that __cxa_end_catch is the code that destructs the
+> full-expression, if you elide the copy construction.
+
+This conversation would be substantially easier if you looked
+up terms like "full-expression" that you don't understand.
+
+I'll break this down.  Suppose we have code like this:
+  extern std::string cause;
+  extern std::exception make_exception(const std::string &);
+  cause = std::string("failure"), throw make_exception("didn't work");
+
+The entire last line is a full-expression:  it's an expression that's not
+part of another, larger expression.  This is the granularity at which
+temporaries are destroyed.
+The part starting at 'throw' is the throw-expression.
+The part starting at 'make_exception' is the exception operand.
+
+Here we formally have three temporaries, created in the following order:
+  - the std::string created in the LHS of the comma,
+  - the std::string created for the argument to make_exception, and
+  - the result of make_exception.
+Note that the actual exception object is not formally a temporary.  It is
+never destructed along any path as part of evaluating this expression.
+As soon as it completes construction ? and specifically, before any
+of the temporaries are destroyed ? it is thrown.
+
+Copy elision doesn't really have a significant impact.  Without it, the
+generated code for this example looks basically like this, with some
+flexibility about in exactly what order the exception is allocated and
+freed:
+
+  std::string::string(&temp0, "failure");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&cause, &temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&temp1, "didn't work");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(&temp2, &temp1);
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&temp2)
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::exception::exception(exn, &temp2)
+
+  // On the unwind path out of this, call:
+  //   std::exception::~exception(&temp2)
+  //   std::string::~string(&temp1)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &typeid(std::exception), &std::exception::~exception);
+
+With copy elision, the code looks like this:
+
+  std::string::string(&temp0, "failure");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::operator=(&cause, &temp0);
+
+  exn = __cxa_allocate_exception(sizeof(std::exception));
+
+  // On the unwind path out of this, call:
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  std::string::string(&temp1, "didn't work");
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   __cxa_free_exception(exn)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  make_exception(exn, &temp1);
+
+  // On the unwind path out of this, call:
+  //   std::string::~string(&temp1)
+  //   std::string::~string(&temp0)
+  // and then unwind the enclosing scopes.
+  __cxa_throw(exn, &typeid(std::exception), &std::exception::~exception);
+
+Regardless of whether copy elision occurs, __cxa_end_catch has
+the potential to throw, because it has the responsibility to destroy the
+actual exception object ('exn').
+
+By the time that the unwinder enters a landing pad for a catch clause,
+all of these temporaries have already been destructed.  The only object
+that survives is the exception object, which, as I mentioned, is not a
+temporary.
+
+>>> g++ seems to not disallow that throw in __cxa_end_catch.
+>>> aC++ does too but does get lost if a catch is present.
+> 
+>> In general, the generated call to __cxa_end_catch at the end of a
+>> catch clause can throw.  You can prove that it can't in some cases,
+>> based on the caught exception object type or the CFG of the catch clause.
+> 
+> I thought you said that the destructor can't throw and if it does, it calls
+> terminate?
+
+If a destructor throws during unwinding, we must call terminate.  But
+only some calls to __cxa_end_catch occur during unwinding:  only if
+you throw out of a catch clause.  If control falls out of a catch clause,
+and the destructor for the caught exception object throws an
+exception, that new exception just starts propagating.
+
+In the paragraph you quoted here, I was discussing a very minor
+optimization where you deduce that an exception object cannot
+have a destructor based on the type that was caught.  For example,
+in the catch for a 'void *', you know that __cxa_end_catch
+will not throw, because that catch type cannot catch any objects
+with destructors.
+
+John.
+
+From dhandly at cup.hp.com  Wed Dec 21 03:27:45 2011
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 21 Dec 2011 03:27:45 -0000
+Subject: [cxx-abi-dev] Details missing for EH 2.4.1 Overview of Throw
+	Processing
+Message-ID: <201112210327.pBL3Rb303864@adlwrk05.cce.hp.com>
+
+>From: John McCall <rjmccall at apple.com>
+>> I'm saying that __cxa_end_catch is the code that destructs the
+>> full-expression, if you elide the copy construction.
+
+>This conversation would be substantially easier if you looked
+>up terms like "full-expression" that you don't understand.
+
+>Note that the actual exception object is not formally a temporary.
+
+Thanks for the details.
+My confusion was not in "full-expression" but thinking the exception operand
+was a temporary.
+
+>Regardless of whether copy elision occurs, __cxa_end_catch has
+>the potential to throw, because it has the responsibility to destroy the
+>actual exception object ('exn').
+>which, as I mentioned, is not a temporary.
+
+And here I mistakenly thought the Standard didn't allow the throw because
+this was a temporary.
+
+>But only some calls to __cxa_end_catch occur during unwinding:  only if
+>you throw out of a catch clause.  If control falls out of a catch clause,
+>and the destructor for the caught exception object throws an
+>exception, that new exception just starts propagating.
+
+That's the one I was confused about.
+
+>in the catch for a 'void *', you know that __cxa_end_catch
+>will not throw, because that catch type cannot catch any objects
+>with destructors.
+John.
+
+Ah, so at compile time, you could statically remove the landing pad on
+__cxa_end_catch based on that.
+
+I found out my problem.  The landing pad for __cxa_end_catch was set to
+__cxa_end_catch.  ;-)
+I.e. the call wasn't treated special and for that one, don't add that call.
+
+

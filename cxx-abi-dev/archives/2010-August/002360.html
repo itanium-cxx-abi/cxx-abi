@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Demangling ambiguity for templated conversion operators
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Demangling%20ambiguity%20for%20templated%20conversion%20operators&In-Reply-To=%3C9BA91A38-8DC7-4073-900D-DBF84D690F5B%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002359.html">
+   <LINK REL="Next"  HREF="002361.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Demangling ambiguity for templated conversion operators</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Demangling%20ambiguity%20for%20templated%20conversion%20operators&In-Reply-To=%3C9BA91A38-8DC7-4073-900D-DBF84D690F5B%40edg.com%3E"
+       TITLE="Demangling ambiguity for templated conversion operators">mjh at edg.com
+       </A><BR>
+    <I>Tue Aug 10 19:36:57 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002359.html">[cxx-abi-dev] Clarification on floating point literal mangling
+</A></li>
+        <LI>Next message: <A HREF="002361.html">[cxx-abi-dev] Demangling ambiguity for templated conversion operators
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I was doing some &quot;house cleaning&quot; and came upon this apparent demangling ambiguity in the IA-64 ABI that we ran into a while back (unrelated to recent SFINAE discussions).  I thought I'd highlight it here along with the demangler heuristic we implemented as a workaround in case that information is useful to other implementers.
+
+Take this example:
+
+$ cat ex.c
+  template &lt;class T&gt; struct A { };
+  template &lt;class T&gt; struct B { };
+  struct S {
+   template &lt;class T&gt; operator T();
+  } s;
+  void f() {
+   s.operator A&lt; A&lt;int&gt; &gt;();
+   s.operator A&lt; B&lt; A&lt;int&gt; &gt; &gt;();
+  }
+$ g++450 -c ex.c
+$ nm -u ex.o
+                 U _ZN1ScvT_I1AI1BIS2_IiEEEEEv
+                 U _ZN1ScvT_I1AIS2_IiEEEEv
+$ nm -u -C ex.o
+                 U S::operator A&lt;B&lt;B&lt;int&gt; &gt; &gt;&lt;A&lt;B&lt;B&lt;int&gt; &gt; &gt; &gt;()
+                 U _ZN1ScvT_I1AIS2_IiEEEEv
+
+GNU (and EDG and others) can't correctly demangle these names (the substitutions are wrong in the first demangled name above).
+
+I believe the problem arises when using this rule for a template conversion function:
+
+	&lt;operator-name&gt; ::= cv &lt;type&gt;	# (cast)
+
+In the case for &quot;_ZN1ScvT_I1AIS2_IiEEEEv&quot; above, after the demangler sees the &quot;cv&quot;, it's presented with &quot;T_I1AIS2_IiEEEEv&quot; and asked to demangle a &lt;type&gt;, but &lt;type&gt; can be either &quot;T_&quot; (a &lt;template-param&gt;) or &quot;T_I1AIS2_IiEEE&quot; (a &lt;template-template-param&gt; &lt;template-args&gt;).  As far as I can tell, there's no way to know if the &lt;template-args&gt; are part of the &lt;type&gt; or belong to an enclosing production (i.e., &lt;template-prefix&gt; &lt;template-args&gt; -- where &lt;template-prefix&gt; is reduced to &lt;operator-name&gt;).
+
+Here's an example that produces both cases depending on whether or not FOO is defined:
+
+  template &lt;class T&gt; struct A { };
+  struct S {
+  #ifdef FOO
+    template &lt;class T&gt; operator T();
+  #else
+    template &lt;template &lt;class&gt; class T&gt; operator T&lt;int&gt;();
+  #endif
+  } s;
+  void f() {
+    s.operator A&lt;int&gt;();
+  }
+
+We've made a change to our demangler to initially not parse any &lt;template-args&gt; as part of the &lt;type&gt; when demangling a conversion function, but if the demangling fails, it makes a second attempt, this time allowing &lt;template-args&gt; as part of the &lt;type&gt;.  With these changes, we now give these demangled names (for the initial example):
+
+$ nm -u ex.o | edg_decode
+                 U S::operator T1&lt;A&lt;B&lt;A&lt;int&gt;&gt;&gt;&gt;()
+                 U S::operator T1&lt;A&lt;A&lt;int&gt;&gt;&gt;()
+
+Mike Herrick
+Edison Design Group
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002359.html">[cxx-abi-dev] Clarification on floating point literal mangling
+</A></li>
+	<LI>Next message: <A HREF="002361.html">[cxx-abi-dev] Demangling ambiguity for templated conversion operators
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

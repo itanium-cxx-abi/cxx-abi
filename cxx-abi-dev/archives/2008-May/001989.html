@@ -1,0 +1,333 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI modification for exception propagation
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483DC862.7070608%40getdesigned.at%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001986.html">
+   <LINK REL="Next"  HREF="001981.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI modification for exception propagation</H1>
+    <B>Sebastian Redl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483DC862.7070608%40getdesigned.at%3E"
+       TITLE="[cxx-abi-dev] ABI modification for exception propagation">sebastian.redl at getdesigned.at
+       </A><BR>
+    <I>Wed May 28 21:02:26 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001986.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+        <LI>Next message: <A HREF="001981.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1989">[ date ]</a>
+              <a href="thread.html#1989">[ thread ]</a>
+              <a href="subject.html#1989">[ subject ]</a>
+              <a href="author.html#1989">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>David Vandevoorde wrote:
+&gt;<i>
+</I>&gt;<i> On May 27, 2008, at 4:39 AM, Sebastian Redl wrote:
+</I>&gt;&gt;<i> Although, thinking about it some more, there might be a way. There 
+</I>&gt;&gt;<i> could be essentially two kinds of __cxa_exception. One looks like the 
+</I>&gt;&gt;<i> old one, with an added reference count. The other holds a pointer to 
+</I>&gt;&gt;<i> the first kind instead. All exception_ptrs refer to the primary 
+</I>&gt;&gt;<i> __cxa_exception, but on rethrow they allocate a secondary that also 
+</I>&gt;&gt;<i> refers to the first.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> That's an interesting idea.
+</I>OK, here's the write-up of my new approach.
+
+Sebastian
+
+-----------------------------
+
+With the integration of N2179 &quot;Exception Propagation&quot;
+(<A HREF="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html">http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html</A>)
+into the C++0x working paper, the C++ ABI described at
+<A HREF="http://www.codesourcery.com/cxx-abi/abi-eh.html">http://www.codesourcery.com/cxx-abi/abi-eh.html</A> has unfortunately become
+insufficient. It describes a model where exceptions are bound to a single
+thread and cannot be copied, whereas exception propagation was introduced
+for the specific purpose of transferring exceptions between threads.
+
+In order to allow implementation of exception propagation, I propose the
+following changes to the ABI. These changes have been successfully 
+implemented
+in the G++ compiler.
+
+This version of the draft takes binary compatibility very seriously. The 
+goal is
+to have only a single restriction on backward compatibility, which is 
+that all
+code must run with an updated version of the support library. Code linking
+statically against the old library must be relinked. It is possible to 
+link code
+compiled with a new compiler to an old support library, unless 
+exception_ptr is
+used. (In that case, there would be unresolved symbols from exception_ptr.)
+
+
+The Level I ABI remains unchanged.
+
+
+Level II: C++ ABI
+
+The current C++ ABI is structured like this: the exception data lies in 
+a single
+block of memory, starting with C++-specific information (the __cxa_exception
+object), then the general unwind header (the unwindHeader field of the
+__cxa_exception object), and finally the actual C++ exception object. 
+Neither
+the __cxa_exception object nor the unwind header can be used concurrently in
+more than one thread. Therefore, these parts of the data must be copied 
+in order
+to implement N2179.
+The previous proposal advertised an approach that separated the 
+exception object
+from the __cxa_exception object. There were serious concerns regarding 
+the ABI-
+breaking nature of this change.
+
+This proposal instead follows this approach: there is one primary exception
+object, which has the same layout as in the old ABI, with a reference count
+prepended. There can be multiple dependent exception objects referring 
+to the
+primary, which duplicate the necessary information. The primary and 
+dependent
+exception objects use different exception class identifiers in order to 
+have the
+support library be able to distinguish them. A throw-expression with an 
+argument
+allocates a primary exception object. Calling std::rethrow_exception() 
+with an
+exception_ptr allocates a dependent exception object.
+
+The primary exception object continues to use the exception identifier 
+&quot;C++\0&quot;.
+The dependent exception object uses &quot;C++\x01&quot;.
+
++-----------------------------+------------------+
+|<i> __cxa_exception &quot;VENDC++\0&quot; | exception object |
+</I>+-----------------------------+------------------+
+                              ^
+  +---------------------------+
+  |
++-----------------------------------------+
+|<i> __cxa_dependent_exception &quot;VENDC++\x01&quot; |
+</I>+-----------------------------------------+
+
+2.2.1 C++ Exception Objects
+
+The __cxa_exception is prepended a reference count:
+
+    struct __cxa_exception {
+        std::size_t        referenceCount;
+        std::type_info *   exceptionType;
+        void (*exceptionDestructor) (void *):
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The referenceCount field counts the dependent exceptions and exception_ptrs
+referring to this primary exception.
+
+In addition, a new struct __cxa_dependent_exception is introduced:
+
+    struct __cxa_dependent_exception {
+        void *             primaryException;
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The primaryException field of a dependent exception shall always point at a
+primary exception (just after the __cxa_exception, as per convention).
+
+The nextException field of the structures can point either at a 
+__cxa_exception
+or a __cxa_dependent_exception. However, it shall point to a dependent 
+exception
+such that the offset to the unwindHeader field is the same. In other 
+words, the
+field (and caughtExceptions of __cxa_eh_globals) shall be used like this:
+
+    __cxa_eh_globals *globals = __cxa_get_globals();
+    __cxa_exception *eh = globals-&gt;caughtExceptions;
+    __cxa_dependent_exception *deh = 0;
+    if (eh-&gt;unwindHeader.exception_class == dependent_exception_class) {
+        deh = reinterpret_cast&lt;__cxa_dependent_exception*&gt;(eh + 1) - 1;
+        eh = static_cast&lt;__cxa_exception*&gt;(deh-&gt;primaryException) - 1;
+    }
+
+Note that, since the tail of primary and dependent exception are 
+identical, it
+is not actually necessary to cast to access these fields, as long as the 
+offset
+to the unwindHeader is the same. For example, you can access
+the nextException field of globals-&gt;caughtException without casting, and it
+will give the correct result whether you're dealing with a primary or a
+dependent exception.
+
+2.4.1 Overview of Throw Processing
+
+Throw processing remains the same, for primary throw expressions. For
+rethrow_exception(), the process obviously differs, and is described below.
+
+2.4.2 Allocating the Exception Object
+
+__cxa_allocate_exception remains the same. __cxa_free_exception remains the
+same.
+
+To create dependent exceptions, two new functions are introduced.
+
+    __cxa_dependent_exception*
+    __cxa_allocate_dependent_exception() throw();
+
+This function shall allocate a __cxa_dependent_exception and return a 
+pointer
+to it. (Really to the object, not past its end.) The function shall 
+otherwise
+behave as __cxa_allocate_exception.
+
+    void __cxa_free_dependent_exception(__cxa_dependent_exception*) throw();
+
+This function shall free a __cxa_dependent_exception. It does not affect the
+reference count of the primary exception.
+
+2.4.3 Throwing the Exception Object
+
+The first argument passed to __cxa_throw shall refer to a primary exception,
+not a dependent one. __cxa_throw shall set the reference count of the 
+primary
+to 1. (It works under the assumption that the __cxa_exception was newly
+allocated and its reference count was 0.)
+
+2.5.3 Exception Handlers
+
+__cxa_begin_catch has unchanged behaviour.
+
+__cxa_end_catch has modified behaviour:
+* It locates the most recently caught exception and decrements its handler
+count.
+* If the handler count goes to zero, it removes the exception from the
+caughtExceptions stack.
+* If the handler count goes down to zero, and the exception was not 
+re-thrown
+by throw, it locates the primary exception (which may be the same as the one
+it's handling) and decrements its reference count. If that reference count
+goes to zero, the function destroys the exception. In any case, if the 
+current
+exception is a dependent exception, it destroys that.
+
+With std::current_exception() available, it would be possible to add an
+ABI-specific extension to exception_ptr with equivalent functionality as
+__cxa_current_exception_type(). For example:
+
+    exception_ptr ep = current_exception();
+    std::type_info *ti = ep.__cxa_exception_type();
+
+2.5.4 Rethrowing Exceptions
+
+The semantics of __cxa_rethrow are unchanged. std::rethrow_exception is
+described separately.
+
+On a side note, __cxa_rethrow may have to update the terminate and 
+unexpected
+handler. Clarification from the Core Working Group on this issue would be
+appreciated.
+
+2.5.5 Finishing and Destroying the Exception
+
+__cxa_end_catch must observe the restrictions as detailed in 2.5.3.
+
+2.7 Exception Propagation
+
+Since exception_ptr provides a mechanism to influence the lifetime of
+exceptions, I consider it part of this machinery and will describe it in 
+short
+here.
+
+exception_ptr is a smart pointer. Its only member is a pointer to a primary
+exception. It uses this exception's reference count, incrementing upon 
+taking
+ownership and decrementing and potentially destroying upon releasing it.
+
+std::current_exception() examines the current exception. If there is 
+none, or
+it is foreign, it returns null. If the current exception is dependent, it
+obtains the primary exception and returns a pointer to that. If the current
+exception is primary, it is returned directly.
+Because the function does not allocate memory, it will never return a 
+pointer
+to a std::bad_alloc object.
+
+std::rethrow_exception() shall call __cxa_allocate_dependent_exception() and
+make it reference the primary exception pointed to by the exception_ptr. It
+shall increment the reference count of the primary exception. It then 
+behaves
+like __cxa_throw: it stores the unexpected and terminate handlers, sets the
+exception_class field (to the dependent class name, of course), 
+increments the
+uncaught_exception flag and calls _Unwind_RaiseException.
+
+std::copy_exception() can be implemented like the standard says, or it can
+call __cxa_allocate_exception() and initialize the exception object, 
+then return
+a pointer to that.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001986.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+	<LI>Next message: <A HREF="001981.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1989">[ date ]</a>
+              <a href="thread.html#1989">[ thread ]</a>
+              <a href="subject.html#1989">[ subject ]</a>
+              <a href="author.html#1989">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

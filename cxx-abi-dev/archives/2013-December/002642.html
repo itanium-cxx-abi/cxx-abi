@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of string literals versus variadic templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20string%20literals%20versus%20variadic%20templates&In-Reply-To=%3CCAGL0aWe3yj1gW1Sqno0VPeVqc%2BOB%2Bff8domwGzy3_WKBDmBoig%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002641.html">
+   <LINK REL="Next"  HREF="002643.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of string literals versus variadic templates</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20string%20literals%20versus%20variadic%20templates&In-Reply-To=%3CCAGL0aWe3yj1gW1Sqno0VPeVqc%2BOB%2Bff8domwGzy3_WKBDmBoig%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of string literals versus variadic templates">richardsmith at google.com
+       </A><BR>
+    <I>Tue Dec 17 01:10:07 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002641.html">[cxx-abi-dev] Mangling of anonymous unions
+</A></li>
+        <LI>Next message: <A HREF="002643.html">[cxx-abi-dev] Mangling of string literals versus variadic	templates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2642">[ date ]</a>
+              <a href="thread.html#2642">[ thread ]</a>
+              <a href="subject.html#2642">[ subject ]</a>
+              <a href="author.html#2642">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+Consider:
+
+  void g(...);
+  template&lt;int...N&gt; inline const char *f() { g(&quot;foo&quot; + N ...); return
+&quot;bar&quot;; }
+  const char *p = f();
+  const char *q = f&lt;0&gt;();
+  const char *r = f&lt;0, 1&gt;();
+
+In f&lt;&gt;, what is the mangling of the &quot;bar&quot; string literal? Is this the first
+string literal or the second?
+
+The ABI document says &quot;In all cases the numbering order is strictly lexical
+order based on the original token sequence&quot;, but it's not obvious what that
+would mean for a template instantiation that discards tokens, as this one
+does. Now consider:
+
+  template&lt;int...N&gt; inline const char *h() { g([]{return &quot;foo&quot;;}() + N
+...); return &quot;bar&quot;; }
+  const char *p = h();
+  const char *q = h&lt;0&gt;();
+  const char *r = h&lt;0, 1&gt;();
+
+What happens here? Does the string literal inside the lambda get a number
+in the context of the outer function as well as a number within the lambda?
+It appears within the original token sequence...
+
+
+EDG is the only vendor I can find that provides manglings for string
+literals at all, and its results here are surprising. It provides these
+manglings for &quot;bar&quot;:
+
+  f&lt;&gt;: _ZZ1fIJEEPKcvEs_0
+  f&lt;0&gt;: _ZZ1fIJLi0EEEPKcvEs_0
+  f&lt;0, 1&gt;: _ZZ1fIJLi0ELi1EEEPKcvEs_0
+
+These suggest that EDG includes &quot;foo&quot; in the numbering, even though it is
+not actually part of f&lt;&gt;. But then:
+
+  h&lt;&gt;: _ZZ1hIJEEPKcvEs_0
+  h&lt;0&gt;: _ZZ1hIJLi0EEEPKcvEs
+  h&lt;0, 1&gt;: _ZZ1hIJLi0ELi1EEEPKcvEs
+
+These seem very surprising. &quot;foo&quot; is included in the numbering *only* in
+the case where it doesn't actually appear in the instantiated function body.
+
+
+Suggestion: change in 5.1.6:
+
+&quot;In all cases the numbering order is strictly lexical order based on the
+original token sequence&lt;ins&gt;, excluding any tokens that are part of the
+body of a nested entity&lt;/ins&gt;. All entities occurring in that sequence are
+to be numbered, even if subsequent optimization &lt;ins&gt;or (in the case of a
+string literal) expansion of an empty parameter pack&lt;/ins&gt; makes some of
+them unnecessary.&quot;
+
+
+This would make EDG correct, except for the h&lt;&gt; case, where the mangling
+would be _ZZ1hIJEEPKcvEs
+
+
+Another related issue is with user-defined literals. If 123_x appears in an
+inline function, and implicitly calls operator&quot;&quot;_x(&quot;123&quot;), the implicit
+string literal should (presumably) be assigned a mangling number. If it
+calls operator&quot;&quot;&quot;_x(123ULL), a mangling number should presumably not be
+assigned.
+
+Suggestion: insert after previously-quoted text from 5.1.6:
+
+If a user-defined-literal implicitly passes a string literal to a literal
+operator, the user-defined-literal token is numbered as if it were a string
+literal token.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/df1b5471/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20131216/df1b5471/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002641.html">[cxx-abi-dev] Mangling of anonymous unions
+</A></li>
+	<LI>Next message: <A HREF="002643.html">[cxx-abi-dev] Mangling of string literals versus variadic	templates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2642">[ date ]</a>
+              <a href="thread.html#2642">[ thread ]</a>
+              <a href="subject.html#2642">[ subject ]</a>
+              <a href="author.html#2642">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

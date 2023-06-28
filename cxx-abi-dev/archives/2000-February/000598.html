@@ -1,0 +1,390 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Meeting agenda for 17 Feb 2000
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Meeting%20agenda%20for%2017%20Feb%202000&In-Reply-To=%3C38AC2EC8.F05C9B0%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000597.html">
+   <LINK REL="Next"  HREF="000600.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Meeting agenda for 17 Feb 2000</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Meeting%20agenda%20for%2017%20Feb%202000&In-Reply-To=%3C38AC2EC8.F05C9B0%40edg.com%3E"
+       TITLE="Meeting agenda for 17 Feb 2000">daveed at edg.com
+       </A><BR>
+    <I>Thu Feb 17 17:24:24 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000597.html">Meeting agenda for 17 Feb 2000
+</A></li>
+        <LI>Next message: <A HREF="000600.html">Meeting agenda for 17 Feb 2000
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Attached is an updated mangling spec.  It starts with a &quot;left to do&quot; list.
+
+I won't be able to attend today's meeting though.
+
+	Daveed
+-------------- next part --------------
+Name mangling
+=============
+
+[ To do:
+   . Revise examples.
+   . Mangling of special entities: VT, VTT, typeinfo, &quot;TID&quot;, helper variables
+        to ensure one-time initialization and thread protection, ...
+   . ILP-32 conventions?
+   . Complete glossary of Sx abbreviations.
+   . Escape mechanism for extended operator like __alignof?
+   . Proof of nonambiguity
+   . 80-bit vs. 128-bit long doubles?
+]
+
+
+Entities with C linkage and file scope variables are not mangled.
+
+
+General structure
+-----------------
+
+    _Z&lt;name&gt;&lt;type&gt;opt
+
+&lt;name&gt; is one of:
+   &lt;unqualified-name&gt;
+      &lt;length&gt;&lt;function name&gt;
+      &lt;length&gt;&lt;function name&gt;I&lt;template-args&gt;E
+      &lt;operator-name&gt;
+      &lt;operator-name&gt;I&lt;template-args&gt;E
+      &lt;special-name&gt;
+         (see below: ctors, vtables, ...)   
+   &lt;qualified-name&gt;
+      N&lt;qual-1&gt;...&lt;qual-J&gt;&lt;unqualified-name&gt;E
+   &lt;local-name&gt;
+      (see below: scope encoding)
+
+&lt;type&gt; is used to disambiguate overloaded functions, but also to
+distinguish the various virtual tables associated with a given complete
+class type.  For nontemplate functions, &lt;type&gt; lists the parameter types
+only. For template functions, &lt;type&gt; lists the return type followed by
+the parameter types.  &lt;type&gt; is omitted for variables and static data
+members.
+
+
+Operator encodings
+------------------
+
+Operators appear as function names, but also in nontype template argument
+expressions.
+   new           nw
+   new[]         na
+   delete        dl
+   delete[]      da
+   - (unary)     ng
+   &amp; (unary)     ad
+   * (unary)     de
+   ~             co
+   +             pl
+   -             mi
+   *             ml
+   /             dv
+   %             rm
+   &amp;             an
+   |             or
+   ^             eo
+   =             aS
+   +=            pL
+   -=            mI
+   *=            mL
+   /=            dV
+   %=            rM
+   &amp;=            aN
+   |=            oR
+   ^=            eO
+   &lt;&lt;            ls
+   &gt;&gt;            rs
+   &lt;&lt;=           lS
+   &gt;&gt;=           rS
+   ==            eq
+   !=            ne
+   &lt;             lt
+   &gt;             gt
+   &lt;=            le
+   &gt;=            ge
+   !             nt
+   &amp;&amp;            aa
+   ||            oo
+   ++            pp
+   --            mm
+   ,             cm
+   -&gt;*           pm
+   -&gt;            pt
+   ()            cl
+   []            ix
+   ?             qu
+   (cast)        cv
+   sizeof        sz
+
+Unlike Cfront, unary and binary operators using the same symbol have
+different encodings.  All operators are encoded using exactly two letters,
+the first of which is lowercase.
+
+
+Other special functions and entities
+------------------------------------
+
+   TV            virtual table
+   TI            typeinfo structure
+   C1            complete object constructor
+   C2            base object constructor
+   D0            deleting destructor
+   D1            complete object destructor
+   D2            base object destructor
+
+
+Type encodings
+--------------
+Types are encoded as follows:
+
+builtin types: (one letter)
+   void                     v
+   wchar_t                  w
+   bool                     b
+   char                     c
+   signed char              a
+   unsigned char            h
+   short                    s
+   unsigned short           t
+   int                      i
+   unsigned int             j
+   long                     l
+   unsigned long            m
+   long long                x
+   unsigned long long       y
+   float                    f
+   double                   d
+   long double              e
+   ellipsis                 z
+
+classes &amp; enums:
+   &lt;decimal length of unqualified name&gt;&lt;unqualified-name&gt;
+   Class names can optionally be followed by the encoding of a template
+   argument list (see below).
+
+template params (including nontype and template template parameters):
+   T&lt;param num&gt;_
+
+other dependent names: (see below)
+   N&lt;qual 1&gt;...&lt;qual N&gt;&lt;unqual name&gt;E
+
+template argument list: (see below)
+   I&lt;arg1&gt;...&lt;argN&gt;E
+
+function types:
+   F&lt;return type&gt;&lt;param type 1&gt;...&lt;param type N&gt;E
+
+array types:
+   A&lt;dimension&gt;_&lt;element type encoding&gt;
+
+pointers, references:
+   P&lt;encoding pointed-to type&gt;
+   R&lt;encoding pointed-to type&gt;
+
+pointer-to-member:
+   M&lt;class type encoding&gt;&lt;member type encoding&gt;
+
+cv-qualifiers:
+   K const
+   V volatile
+   r restrict
+
+
+Scope encoding
+--------------
+A nonlocal scope is encoded as the qualifier of a qualified name: it can be
+the top-level name qualification or it can appear inside &lt;type&gt; to denote
+dependent types or bind specific names as arguments.  Qualified names are
+encoded as:
+   N&lt;qual 1&gt;...&lt;qual N&gt;&lt;unqual name&gt;E
+where each &lt;qual K&gt; is the encoding of a namespace name or a class name (with
+the latter possibly including a template argument list).
+
+Occasionally entities in local scopes must be mangled too (e..g., because
+inlining or separate template compilation causes mutliple translation units
+to need access to that entity).  Local entities that might be mangled are
+numbered in lexical order starting with &quot;1&quot;.  The numbered entities are:
+   . local static variables
+   . local classes
+   . string literals
+
+The local name encoding is then:
+   Z&lt;function-encoding-without-prefix&gt;E&lt;num&gt;_&lt;entity-name&gt;
+where &lt;entity-name&gt; is either the entity's unqualified name or &quot;0&quot; (zero) if
+it is a string literal.
+
+Example:
+   namespace N {
+      inline char* f(int i) {
+         static char *p = &quot;IA-64 C++ ABI&quot;;  // p = 1, &quot;...&quot; = 2
+         {  struct X {                      // X = 3
+               void g() {}
+            };   }
+         return p[i];
+      }
+   }
+
+   &quot;_ZZN1N1fEiE1_1p&quot;:  encoding of N::f:p (first local mangled entity)
+   &quot;_ZZN1N1fEiE2_0&quot;:  encoding of N::f:&quot;IA-64 C++ ABI&quot;
+   &quot;_ZNZN1N1fEiE3_1X1gE&quot;:  encoding of N::f:X::g()
+                      (third local mangled entity used as a class-qualifier)
+
+Template argument encoding
+--------------------------
+Template-ids are encoded by following the unqualified name with
+	I&lt;arguments&gt;E
+This is used for the &lt;specialization&gt; segment in particular, but also in the
+&lt;type&gt; and &lt;scope&gt; segments.
+
+Type arguments appear using their regular encoding.  For example, the
+template class &quot;A&lt;char, float&gt;&quot; is encoded as &quot;1AIcfE&quot;.  A slightly more
+involved example might be a dependent function parameter type &quot;A&lt;T2&gt;::X&quot;
+(T2 is the second template parameter) which is encoded as &quot;N1AIT2_E1XE&quot;,
+where the &quot;N...E&quot; construct is used to describe a qualified name.
+
+Nontype arguments can be:
+   a) a literal, e.g. &quot;A&lt;42L&gt;&quot;: these are encoded as &quot;L&lt;type&gt;&lt;num&gt;E&quot;;
+      negative integer &lt;num&gt; are preceded with &quot;n&quot;; false is &quot;Lb0E&quot;;
+      true is &quot;Lb1E&quot;.  For example, &quot;A&lt;-42L&gt;&quot; becomes &quot;1AILln42EE&quot;.
+      If floating-point arguments are accepted as an extension, they
+      should be encoded using a fixed-length lowercase hexadecimal
+      string corresponding to the internal (IEEE) representation.
+      For example: &quot;Lfbff000000&quot; is -1.0f.
+   b) a reference to an entity with external linkage: encoded with
+      &quot;L&lt;mangled name&gt;E&quot;.  For example:
+          void foo(char); // mangled as _Z3fooc
+          template&lt;void (&amp;)(char)&gt; struct CB;
+          // CB&lt;foo&gt; is encoded with &quot;2CBIL_Z3foocEE&quot;
+   c) an expression, e.g., &quot;B&lt;(J+1)/2&gt;&quot; is encoded with a prefix traversal
+      of the operators involved, delimited by &quot;X...E&quot;.  The operators are
+      encoded using their two letter mangled names.  For example, &quot;B&lt;(J+1)/2&gt;&quot;
+      becomes &quot;1BI Xdv pl T1_ Li1E Li2E E E&quot; (the blanks were inserted to
+      visualize the decomposition).
+
+
+Compression
+-----------
+The subsequence
+   S&lt;num&gt;_
+is used to repeat the num-th most recently encoded type, namespace or template
+(in right-to-left order, starting at &quot;1&quot;), but only if &quot;S&lt;num&gt;_&quot; is strictly
+shorter that the previous encoding.  A qualifier is less recent than what it
+qualifies and a template name is is less recent than the template-id it might
+be a part of.  For example:
+
+   &quot;_ZN1N1TIiiE2mfES4_IddE&quot;: Ret? N::T&lt;int, int&gt;::mf(N::T&lt;double, double&gt;)
+
+since at the point where S4_ appears:
+   &quot;S1_&quot; == int
+   &quot;S2_&quot; == int
+   &quot;S3_&quot; == N::T&lt;int, int&gt;
+   &quot;S4_&quot; == N::T (template is less recent than template-id)
+   &quot;S5_&quot; == N (qualifier is less recent than qualified entity)
+
+In addition, the following catalog of abbreviations of the form &quot;Sx&quot; should
+be used:
+   St = ::std::
+   Sb = ::std::basic_string
+   Ss = ::std::basic_string&lt;char, ::std::char_traits&lt;char&gt;,
+                            ::std::allocator&lt;char&gt; &gt;
+
+The abbreviation St is always treated as a qualifier and therefore does not
+need a N...E construct.  For example:
+   &quot;_ZSt5state&quot;: ::std::state
+   &quot;_ZStN3_In4wardE&quot;: ::std::_In::ward
+
+
+Examples
+--------
+
+1) &quot;f&quot;: The C function or variable &quot;f&quot; or a file scope variable &quot;f&quot;.
+
+2) &quot;_Z1f&quot;: Ret? f();
+
+3) &quot;_Z1fi&quot;: Ret? f(int);
+
+4) &quot;_Z3foo3bar&quot;: Ret? foo(bar);
+
+5) &quot;_Zrm1X1X&quot;: Ret? operator%(X, X);
+
+6) &quot;_ZplR1XR1X&quot;: Ret? operator+(X&amp;, X&amp;);
+
+7) &quot;_ZlsRK1XS1_&quot;: Ret? operator(X const&amp;, X const&amp;);
+       (Note: strlen(&quot;S1_&quot;)&lt;strlen(&quot;RK1X&quot;))
+
+8) &quot;_Z1fIiE&quot;: void f&lt;int&gt;();
+
+9) &quot;_Z1fIiEvi&quot;: void f&lt;int&gt;(/*nondependent*/int);
+       (Note: the return type is always explicitly encoded for template
+              functions taking parameters.)
+
+10) &quot;_Z5firstI3DuoEvS2_&quot;: void first&lt;Duo&gt;(/*nondependent*/Duo);
+       (Note: &quot;S1_&quot; would refer to the &quot;void&quot; return type.)
+
+11) &quot;_Z5firstI3DuoEvT1_&quot;: void first&lt;Duo&gt;(/*T1=*/Duo);
+
+12) &quot;_ZN1N1fE&quot;: Ret? N::f();
+
+13) &quot;_ZN6System5Sound4beepE: Ret? System::Sound::beep();
+
+14) &quot;_ZN5Arena5levelE&quot;: Type? Arena::level;
+
+15) &quot;_ZN5StackIiiE5levelE&quot;: Type? Stack&lt;int, int&gt;::level
+
+16) &quot;_Z1fI1XEvPVN1AIT1_E1TE&quot;: void f&lt;X&gt;(A&lt;/*T1=*/X&gt;::T volatile*);
+                |         |
+                |         `------&gt; end dependent name encoding
+                `----------------&gt; start of dependent name A&lt;T1&gt;::T
+
+17) &quot;_ZngIL42iEEvN1AIXplT1_L2iEE1TE&quot;: void operator-&lt;/*int J=*/42&gt;(A&lt;J+2&gt;::T);
+
+18) &quot;_Z4makeI7FactoryiET1_IT2_E&quot;:
+                              /*T1=*/Factory&lt;/*T2=*/int&gt; make&lt;Factory, int&gt;();
+                                          // T1 == template template parameter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000597.html">Meeting agenda for 17 Feb 2000
+</A></li>
+	<LI>Next message: <A HREF="000600.html">Meeting agenda for 17 Feb 2000
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

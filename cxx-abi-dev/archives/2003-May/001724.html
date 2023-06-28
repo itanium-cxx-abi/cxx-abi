@@ -1,0 +1,235 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] gcc unwind ABI change for forced unwind	
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20gcc%20unwind%20ABI%20change%20for%20forced%20unwind%0A%09&In-Reply-To=%3C3ECCDDE2.60306%40hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001723.html">
+   <LINK REL="Next"  HREF="001728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] gcc unwind ABI change for forced unwind	</H1>
+    <B>Dave Butenhof</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20gcc%20unwind%20ABI%20change%20for%20forced%20unwind%0A%09&In-Reply-To=%3C3ECCDDE2.60306%40hp.com%3E"
+       TITLE="[cxx-abi-dev] gcc unwind ABI change for forced unwind	">David.Butenhof at hp.com
+       </A><BR>
+    <I>Thu May 22 14:25:38 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001723.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind
+</A></li>
+        <LI>Next message: <A HREF="001728.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind 
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1724">[ date ]</a>
+              <a href="thread.html#1724">[ thread ]</a>
+              <a href="subject.html#1724">[ subject ]</a>
+              <a href="author.html#1724">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Greetings.
+
+I've been forwarded part of this discussion and asked to comment. For 
+those who don't know me, the relevant context is probably that I know 
+nothing about gcc internals, a little about its external manifestation, 
+a moderate amount about C++ syntax and semantics without being by any 
+means a C++ expert, and I know rather a lot about threads and POSIX. I'm 
+the principal architect for the POSIX threads library on Tru64 UNIX and 
+OpenVMS, where cancel and thread exit are exceptions implemented using 
+the system libexc library -- also used by C++, Ada, and others for their 
+exceptions. That said, I have both opinions and a fair amount of 
+experience behind (and often in front of) those opinions. ;-)
+
+&gt;<i> &gt;From: Cary Coutant &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cary at cup.hp.com</A>&gt;
+</I>&gt;<i> Content-Transfer-Encoding: 7bit
+</I>&gt;<i> Message-Id: &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">A34F2B63-8BD7-11D7-8E8F-003065589C02 at cup.hp.com</A>&gt;
+</I>&gt;<i> X-Mailer: Apple Mail (2.552)
+</I>&gt;<i> Subject: [cxx-abi-dev] gcc unwind ABI change for forced unwind
+</I>&gt;<i> Status: RO
+</I>&gt;<i>
+</I>&gt;<i> Many of you are probably aware of (and several of you participated in)
+</I>&gt;<i> a discussion thread on the gcc-patches mailing list about a new unwind
+</I>&gt;<i> API that Richard Henderson had to add to support forced unwinds
+</I>&gt;<i> resulting from (among possibly other things) thread cancellation. I
+</I>&gt;<i> thought it would be appropriate to bring this issue to this mailing list.
+</I>&gt;<i>
+</I>&gt;<i> Courtesy of Jim Wilson (who posted a note to the libunwind mailing
+</I>&gt;<i> list, which brought it to my attention), here are some pointers to the
+</I>&gt;<i> discussion threads leading up to this.
+</I>&gt;<i>
+</I>&gt;<i> <A HREF="http://gcc.gnu.org/ml/gcc-patches/2003-04/msg00008.html">http://gcc.gnu.org/ml/gcc-patches/2003-04/msg00008.html</A>
+</I>&gt;<i> <A HREF="http://gcc.gnu.org/ml/gcc-patches/2003-04/msg02246.html">http://gcc.gnu.org/ml/gcc-patches/2003-04/msg02246.html</A>
+</I>&gt;<i> <A HREF="http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00473.html">http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00473.html</A>
+</I>&gt;<i> <A HREF="http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00160.html">http://gcc.gnu.org/ml/gcc-patches/2003-05/msg00160.html</A>
+</I>&gt;<i>
+</I>&gt;<i> As I understand the central issue, we would like to run C++ cleanups on
+</I>&gt;<i> a thread cancellation, in addition to the cleanups registered through
+</I>&gt;<i> the POSIX C bindings to the pthreads library. Cleanups resulting from
+</I>&gt;<i> local automatic objects that need destruction are easy, but the problem
+</I>&gt;<i> is what to do about catch(...) blocks. Richard's approach was to end
+</I>&gt;<i> such blocks with a call to the new API, &quot;_Unwind_Resume_or_Rethrow()&quot;,
+</I>&gt;<i> if the block did not already end with a rethrow.
+</I>&gt;<i>
+</I>&gt;<i> I think Jason Merrill hit the nail on the head when he said (on 4/30):
+</I>&gt;<i>
+</I>&gt;<i> &gt; The problem is that catch(...) is overloaded in C++.  It's used both for
+</I>&gt;<i> &gt; code that wants to write a cleanup inline and rethrow and for code that
+</I>&gt;<i> &gt; wants to trap all exceptions.
+</I>&gt;<i>
+</I>&gt;<i> There was some discussion about whether catch(...) blocks should run at
+</I>&gt;<i> all when doing a forced unwind, and whether forced unwinds should be
+</I>&gt;<i> allowed to penetrate a function declared throw(). I think I saw a
+</I>&gt;<i> consensus on the latter issue that thread cancellation and
+</I>&gt;<i> longjmp_unwind are not really exceptions, and must be allowed to
+</I>&gt;<i> proceed. On the former issue, however, there didn't seem to be a clear
+</I>&gt;<i> resolution.
+</I>&gt;<i>
+</I>Personally, I dislike the attempt to separate &quot;cleanup&quot; from 
+&quot;finalization&quot; (handle/catch). I don't like the idea of an exception 
+that can't be finalized, because it reduces the application's ability to 
+control behavior.
+
+Our cancel exception is in every way a normal exception (though there 
+doesn't happen to be a C++ *name* for this exception). By CONVENTION, we 
+declare that it should normally be handled via &quot;finally&quot; clauses rather 
+than &quot;catch&quot; clauses, because it expresses some component's desire to 
+terminate the thread and that should usually be honored. Similarly, a 
+longjmp_unwind type operation shouldn't usually be finalized until it 
+propagates to the target frame.
+
+But there are always, er, &quot;exceptions&quot;.
+
+For example, back in the early days of DCE and DCE threads, we see the 
+RPC component servers running what amounts to a remote extension of the 
+client's call stack. The client makes an RPC call, and a remote server 
+application fires up the server side of that call. It does this inside a 
+managed server thread. If the server were to raise an exception, such as 
+cancel, it should propagate and clean up the subset of the call stack 
+that is logically a part of the client's call... but the managed server 
+logic must be able to finalize the exception and marshall it back to the 
+client so it can be made aware of what happened. And there's no need to 
+unwind/cleanup any further, because the managed server thread can live 
+to serve again.
+
+A catch(...) is a catch. A catch(...) that happens to end in a throw 
+isn't fundamentally different. It does represent a sort of ambiguity in 
+the language model, though. Really, &quot;cleanup&quot; in C++ is a destructor, 
+whereas catch() is for finalization. But as most people who initially 
+took up C++ had learned their exception model on another language, such 
+as Ada or Modula-2, the idiom 'catch (...) {throw;}' looked a lot like 
+'finally{}' and provides a familiar hook for frame-based (rather than 
+object-based) cleanup.
+
+If someone's going to take this idiom more seriously, to the point of 
+defining radically divergent behavior, you'd be far better off adding a 
+true 'finally' keyword that makes it obvious. However, I'd prefer to see 
+emphasis on the &quot;pure C++&quot; model that cleanup is done in local object 
+destructors, while catch() is really for finalization. (That is, there 
+may be reasons for 'catch(...) { if ( ... ) throw; else ... ; }' but 
+'catch(...) { ... ; throw; }' should be, at least, strongly discouraged.)
+
+&gt;<i> Ideally, one would take the position that good C++ code would
+</I>&gt;<i> encapsulate any cleanups it needs into local automatic objects, so that
+</I>&gt;<i> the compiler-generated cleanups would invoke the destructor. Real code,
+</I>&gt;<i> however, doesn't seem to work that way -- we see catch(...) blocks
+</I>&gt;<i> written with the intent to do cleanups. Given this real code, we should
+</I>&gt;<i> try to run those cleanups. But what happens when we hit a catch(...) of
+</I>&gt;<i> the other flavor -- the kind that just want to catch all exceptions?
+</I>&gt;<i> Ideally, we wouldn't want to run them at all on a forced unwind, since
+</I>&gt;<i> they're exception handlers, not cleanups. Without Richard's approach,
+</I>&gt;<i> if we execute such a block on a forced unwind, and that block doesn't
+</I>&gt;<i> end with a rethrow, the forced unwind doesn't resume (until, in the
+</I>&gt;<i> case of thread cancellation, the thread next reaches a cancellation
+</I>&gt;<i> point, and the process gets repeated). With Richard's new routine, a
+</I>&gt;<i> forced unwind gets the opportunity to rethrow, while a normal exception
+</I>&gt;<i> gets to resume execution.
+</I>&gt;<i>
+</I>There's nothing wrong with finalizing (catching) a cancel, thread exit, 
+or even a longjmp_unwind... if that's what the application intended, and 
+if the designers knew what they were doing. And if not... that's not a 
+language issue, it's an application issue.
+
+I realize that, pragmatically, there are complications when adding 
+something like this after the fact. There will be applications busted 
+when/if cancel becomes a true exception shared with C++, because someone 
+will have catch(...) blocks that simply assume they'll never see an 
+unexpected (new) exception. I call that bad design, but that's life.
+
+There are those who have all along argued that cancel (and thread exit) 
+should run C++ destructors but not be catch()-able. One (weird) option 
+might be to make them catchable by &quot;name&quot;, but not anonymously... they'd 
+ignore any catch(...) clauses. I don't like it, but it'd solve the 
+compatibility issue without preventing savvy code from finalizing a 
+cancel or exit where it really makes sense in the context of the 
+application. The same could be done for longjmp_unwind. It might be nice 
+to have a standard way to catch all &quot;forced_unwind&quot; exceptions without 
+needing to name each one.
+
+Essentially, that twists the usage of &quot;forced unwind&quot; around a bit; they 
+CAN be finalized, but only by code that at least explicitly states 
+(correctly or not) that it knows what it's doing.
+
+Throw specs add another interesting wrinkle. If cancel/exit/unwind are 
+&quot;exceptions&quot;, then it's illegal to propagate through an empty throw() 
+spec, or any that doesn't identify them. Which means that everything 
+calling a cancellation point needs to propagate the throw(cancel). (And 
+don't forget thread exit! And what about longjmp_unwind?) Many think 
+there's no need to worry about that if they're &quot;forced unwinds&quot; instead 
+of &quot;exceptions&quot;, but that depends a lot on the semantic intent of the 
+throw() spec. Should it really be taken to be literally only &quot;C++ 
+exceptions&quot;, or should it be taken as a limitation on the reasons for 
+abnormally unwinding that frame? That is, when I call a routine with a 
+throw() spec, should I not be expecting that control will return to me 
+only when the called function returns normally or when one of the listed 
+throw conditions occurs? The &quot;forced unwind&quot; isn't transparent -- it'll 
+run destructors, maybe at least some catch(...) clauses. There's not 
+much use in throw() specifications if they can be so easily violated. 
+(E.g., as someone pointed out, empty throw() clauses might provide an 
+optimization opportunity to avoid generating unwind information... if 
+unwinds can occur anyway you can't do that.)
+
+The subject here is extending C++ to know about and somehow rationally 
+deal with foreign exceptions (and/or unwind if you really want to make 
+that distinction). The language semantics, or at least usage 
+conventions, (and perhaps syntax), NOT just the runtime, needs to be 
+changed to do that in a way that's consistent and useful.
+
+-- 
+/--------------------[ <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">David.Butenhof at hp.com</A> ]--------------------\
+|<i> Hewlett-Packard Company       Tru64 UNIX &amp; VMS Thread Architect |
+</I>|<i>     My book: <A HREF="http://www.awl.com/cseng/titles/0-201-63392-2/">http://www.awl.com/cseng/titles/0-201-63392-2/</A>     |
+</I>\----[ <A HREF="http://homepage.mac.com/dbutenhof/Threads/Threads.html">http://homepage.mac.com/dbutenhof/Threads/Threads.html</A> ]---/
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001723.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind
+</A></li>
+	<LI>Next message: <A HREF="001728.html">[cxx-abi-dev] gcc unwind ABI change for forced unwind 
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1724">[ date ]</a>
+              <a href="thread.html#1724">[ thread ]</a>
+              <a href="subject.html#1724">[ subject ]</a>
+              <a href="author.html#1724">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

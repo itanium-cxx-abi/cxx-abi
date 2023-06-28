@@ -1,0 +1,153 @@
+From jason at redhat.com  Thu Oct  1 16:50:42 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 1 Oct 2015 12:50:42 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560C26F1.1060400@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com> <560B5A26.9030508@redhat.com>
+	<E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+	<560C26F1.1060400@redhat.com>
+Message-ID: <560D6462.8090900@redhat.com>
+
+On 09/30/2015 02:16 PM, Jason Merrill wrote:
+> On 09/30/2015 01:31 PM, John McCall wrote:
+>>> On Sep 29, 2015, at 8:42 PM, Jason Merrill <jason at redhat.com> wrote:
+>
+>>> There's also the question of whether the non-transaction-safe
+>>> function type is substitutable in this mangling.  I think we might as
+>>> well allow it, as we do for cv-qualified types.
+>>
+>> Hmm.  To me, this seems much more like a ref-qualifier or a cv method
+>> qualifier, which we do not make independently substitutable.
+>
+> It's like them in that it comes at the end of the declarator, but it is
+> unlike them in that they modify the 'this' parameter.
+>
+> It's like cv-quals in that there is a standard conversion to change the
+> qualifier under a pointer.
+
+On the other hand, trying to treat it differently from function cv-quals 
+when they appear in the same place seems like a hassle, so I think I'm 
+coming around to your perspective.
+
+Jason
+
+
+From jason at redhat.com  Mon Oct  5 16:34:28 2015
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 5 Oct 2015 12:34:28 -0400
+Subject: [cxx-abi-dev] Mangling "transaction-safe function"
+In-Reply-To: <560D6462.8090900@redhat.com>
+References: <560AD3F6.8000200@redhat.com>
+	<CAGL0aWckZAiJb2u7Y_6_FOcr9UFJeu-2zHAedmUQZFOyrff=+w@mail.gmail.com>
+	<560B569F.5040203@redhat.com> <560B5A26.9030508@redhat.com>
+	<E73E47A8-2EB6-4B69-B7F3-4E8B77B5C2D7@apple.com>
+	<560C26F1.1060400@redhat.com> <560D6462.8090900@redhat.com>
+Message-ID: <5612A694.60008@redhat.com>
+
+I've submitted a pull request on github.
+
+Jason
+
+From rjmccall at apple.com  Mon Oct 19 21:04:47 2015
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 19 Oct 2015 14:04:47 -0700
+Subject: [cxx-abi-dev] unresolved-names starting with substitutable
+	namespaces
+Message-ID: <76B8975B-679D-42F0-9D57-6D0F6089BE21@apple.com>
+
+A bug was filed against Clang claiming that we mangle a particular symbol differently from GCC:
+  https://llvm.org/bugs/show_bug.cgi?id=24794
+
+Basically, it comes down to this:
+
+namespace foo {
+  class V {};
+}
+
+namespace baz {
+  template <class _Ty>
+  struct is_enum {
+    static const bool value = __is_enum(_Ty);
+  };
+
+  template<bool _Test, class _Ty = void>
+  struct enable_if {
+  };
+
+  template<class _Ty>
+  struct enable_if < true, _Ty > {
+    typedef _Ty type;
+  };
+
+  template <class T>
+  typename enable_if< !is_enum< T >::value, void>::type
+  Conv(T &x, int *v);
+}
+
+int main() {
+  int v;
+  int i;
+  baz::Conv(v, &i);
+}
+
+Clang mangles this template specialization as:
+  _ZN3baz4ConvIiEENS_9enable_ifIXntsr7is_enumIT_EE5valueEvE4typeERS2_Pi
+GCC mangles it as:
+  _ZN3baz4ConvIiEENS_9enable_ifIXntsrNS_7is_enumIT_EE5valueEvE4typeERS3_Pi
+
+The key question for this list is the mangling of
+  is_enum< T >::value
+as either (Clang):
+  sr7is_enumIT_EE5valueE
+or (GCC, and perhaps EDG):
+  srNS_7is_enumIT_EE5valueE
+
+This expression is an unresolved-name.  In the current spec, we have:
+
+  <unresolved-name> ::= [gs] <base-unresolved-name>                     # Production #1: x or (with "gs") ::x
+                    ::= sr <unresolved-type> <base-unresolved-name>     # Production #2: T::x / decltype(p)::x
+                    ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
+                                                                        # Production #3: T::N::x /decltype(p)::N::x
+                    ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>  
+                                                                        # Production #4: A::x, N::y, A<T>::z; "gs" means leading "::"
+
+  <unresolved-type> ::= <template-param>
+                    ::= <decltype>
+                    ::= <substitution>
+
+  <unresolved-qualifier-level> ::= <simple-id>
+  <base-unresolved-name> ::= <simple-id>
+  <simple-id> ::= <source-name> [ <template-args> ]
+
+Clang is looking at this and saying that it?s not rooted in a template-param or a decltype, so it?s not rooted in an unresolved-type, so it has to be mangled using the fourth production of unresolved-name.  GCC appears to be looking at it and saying that it has a substitution for something in the prefix, namely the (implicit) ?baz::?, so the unresolved-type should be mangled using one of the second or third productions; since there?s another level of prefix (?is_enum<T>::?) before the final base-unresolved-name, it has to use the third production, srN.
+
+When reasoning about this to myself, it occurred to me that I was arguing based on something that?s not actually spelled out in the spec.  Specifically, it seems right to me that the general intent of <substitution> is that it only ever shortens something that *could* otherwise be mangled by the current production.  For most cases of <substitution>, this is a distinction without a difference, because the production is only used in specific places that limit what entities can appear there, and all those entities can be mangled there; for example, that?s true of all the places where <prefix> is used.  But <unresolved-type> is different, because there are many possible unresolvable prefixes that are substitution candidates but neither a template-parameter or a decltype.  In our example, ?baz::? isn?t even a type; and if this conversion function didn?t happen to be written in that namespace, there wouldn?t be an existing substitution for it, and the only legal mangling would use production #4.
+
+Now, if I were designing this mangling from scratch today, I?d probably say that any resolvable entities in the prefix should actually be mangled as normal entities, instead of textually, and of course that would also make them substitution candidates.  That is, ?baz", "baz::is_enum?, and ?baz::is_enum<T>? would all be legit substitutions here, and if they weren?t substituted they?d at least be mangled as properly-resolved entities, so that (e.g.) a function where is_enum resolved to be an entity in a different namespace would actually be mangled differently.  But that?s not how I read the specification.
+
+Unfortunately, this might be a serious compatibility problem.  What do other compilers do?  What?s the general feeling about this?
+
+John.
+
+From richardsmith at google.com  Thu Oct 22 05:11:18 2015
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 21 Oct 2015 22:11:18 -0700
+Subject: [cxx-abi-dev] coroutines proposal, operator co_await
+Message-ID: <CAGL0aWdhytgfOV4UB9yjh7sX4USJ_3VCG5DsuOL-yKhGtmXoBQ@mail.gmail.com>
+
+Hi,
+
+It looks like C++17 may incorporate the coroutines proposal from
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0057r0.pdf (with
+some modifications). One of the ABI-relevant changes here is a new
+overloaded operator name, 'operator co_await'.
+
+I suggest we use 'aw' as the mangling for that operator-name. (Possibly
+best not to update the ABI document until this is voted into the standard,
+though.)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20151021/238a3a37/attachment.html>
+

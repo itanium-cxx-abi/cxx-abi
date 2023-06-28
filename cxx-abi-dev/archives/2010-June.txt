@@ -1,0 +1,1155 @@
+From mjh at edg.com  Wed Jun  9 16:55:37 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Wed, 9 Jun 2010 12:55:37 -0400
+Subject: Mangling of function-to-pointer conversion
+Message-ID: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+
+While working on SFINAE mangling, I ran across this issue with an implicit function-to-pointer conversion.  Given:
+
+$ cat test.cpp
+template <class T> struct A {
+  template <void (*PF)()> struct B {};
+};
+template <void (*PF)()> struct B {};
+void ff();
+template <class T> B<&ff> f1(T);
+template <class T> B<ff>  f2(T);
+template <class T> typename A<T>::template B<&ff> f3(T);
+template <class T> typename A<T>::template B<ff>  f4(T);
+int main() {
+  f1(1);
+  f2(1);
+  f3(1);
+  f4(1);
+}
+$ g++450 -fabi-version=0 -c test.cpp && nm -u test.o
+               U _Z2f1IiE1BIXadL_Z2ffvEEET_
+               U _Z2f2IiE1BIXadL_Z2ffvEEET_
+               U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+               U _Z2f4IiEN1AIT_E1BIL_Z2ffvEEES1_
+$ eccp -c test.cpp && nm -u test.o
+               U _Z2f1IiE1BIXadL_Z2ffvEEET_
+               U _Z2f2IiE1BIXadL_Z2ffvEEET_
+               U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+               U _Z2f4IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+$ clang++ -c test.cpp && nm -u test.o
+__Z2f1IiE1BILZ2ffvEET_
+__Z2f2IiE1BILZ2ffvEET_
+__Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+__Z2f4IiEN1AIT_E1BIXL_Z2ffvEEEES1_
+
+When ff is used as a nontype template parameter in f2, both g++ and EDG add an "ad" to represent the implied function-to-pointer conversion.  However, that's not the case in f4 where g++ doesn't add the "ad".
+
+The ABI spec says (5.1.5): "Except for the parentheses, therefore, it [the mangled expression encoding] represents the source token stream".  That would seem to indicate that the mangling for f2 is wrong (as is EDG's mangling for f4).
+
+Does anyone know the logic behind adding the "ad" in the mangled name for f2 (and whether or not that same logic applies to f4)?
+
+Curiously, g++ doesn't add the "ad" in dependent cases:
+
+template <class T> auto f5(T p1) -> decltype(p1(f));
+
+Thanks,
+
+Mike Herrick
+Edison Design Group
+
+From jason at redhat.com  Mon Jun 14 17:10:08 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 14 Jun 2010 13:10:08 -0400
+Subject: [cxx-abi-dev] Parameter references in function types
+In-Reply-To: <D7C64F55-F8D1-4728-9658-1D66D738544F@edg.com>
+References: <D7C64F55-F8D1-4728-9658-1D66D738544F@edg.com>
+Message-ID: <4C166270.3050408@redhat.com>
+
+On 05/06/2010 03:48 PM, David Vandevoorde wrote:
+> Let L be the number of function prototype scopes from the innermost one (in which the parameter reference occurs) up to (and including) the one containing the declaration of the referenced parameter.  If the parameter declaration clause of the innermost function prototype scope has been completely seen, it is not counted (in that case -- which is perhaps the most common -- L can be zero).
+
+I agree with the general idea, but would quibble with the specification; 
+the innermost scope should be #0, and the return type should be 
+considered part of the prototype. So:
+
+> 	template<class T, class U> void f(T p, decltype(p)(*)(U p));          // L = 1
+
+Yes.
+
+> 	template<class T, class U> void f(T p, auto (*)(U p)->decltype(p));   // L = 0
+
+Yes.
+
+> 	template<class T>  void f(T p, decltype(p));                // L = 1
+
+L = 0.
+
+> 	template<class T>  void g(T p, decltype(p) (*)());          // L = 1
+
+Yes.
+
+> 	template<class T>  void h(T p, auto (*)()->decltype(p));    // L = 1
+
+Yes.
+
+> 	template<class T>  void i(T p, auto (*)(T q)->decltype(q)); // L = 0
+
+Yes.
+
+> 	template<class T>  void j(T p, auto (*)(decltype(p))->T);   // L = 2
+
+L = 1.
+
+> 	template<class T>  void k(T p, int (*(*)(T p))[sizeof(p)]); // L = 1
+
+Yes; sizeof(p) refers to the outer p.
+
+Jason
+
+
+From daveed at edg.com  Tue Jun 15 15:49:17 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 15 Jun 2010 11:49:17 -0400
+Subject: [cxx-abi-dev] Parameter references in function types
+In-Reply-To: <4C166270.3050408@redhat.com>
+References: <D7C64F55-F8D1-4728-9658-1D66D738544F@edg.com> <4C166270.3050408@redhat.com>
+Message-ID: <ADA51765-8E29-4179-9631-66A8588C3242@edg.com>
+
+
+On Jun 14, 2010, at 1:10 PM, Jason Merrill wrote:
+
+> On 05/06/2010 03:48 PM, David Vandevoorde wrote:
+>> Let L be the number of function prototype scopes from the innermost one (in which the parameter reference occurs) up to (and including) the one containing the declaration of the referenced parameter.  If the parameter declaration clause of the innermost function prototype scope has been completely seen, it is not counted (in that case -- which is perhaps the most common -- L can be zero).
+> 
+> I agree with the general idea, but would quibble with the specification; the innermost scope should be #0, and the return type should be considered part of the prototype. So:
+> 
+>> 	template<class T, class U> void f(T p, decltype(p)(*)(U p));          // L = 1
+> 
+> Yes.
+> 
+>> 	template<class T, class U> void f(T p, auto (*)(U p)->decltype(p));   // L = 0
+> 
+> Yes.
+> 
+>> 	template<class T>  void f(T p, decltype(p));                // L = 1
+> 
+> L = 0.
+
+
+
+At first we tried it like that, but it turns out to be a pain: You really want the first case above and this one to have the same L value.  Otherwise, you cannot assign the L value when you parse the type, and instead have to wait until you have parsed the whole parameter (and by then you may already have used the type in all kinds of other contexts that have needed the mangled name).  
+
+	Daveed
+
+
+> 
+>> 	template<class T>  void g(T p, decltype(p) (*)());          // L = 1
+> 
+> Yes.
+> 
+>> 	template<class T>  void h(T p, auto (*)()->decltype(p));    // L = 1
+> 
+> Yes.
+> 
+>> 	template<class T>  void i(T p, auto (*)(T q)->decltype(q)); // L = 0
+> 
+> Yes.
+> 
+>> 	template<class T>  void j(T p, auto (*)(decltype(p))->T);   // L = 2
+> 
+> L = 1.
+> 
+>> 	template<class T>  void k(T p, int (*(*)(T p))[sizeof(p)]); // L = 1
+> 
+> Yes; sizeof(p) refers to the outer p.
+> 
+> Jason
+
+
+
+From jason at redhat.com  Thu Jun 17 19:14:52 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 17 Jun 2010 15:14:52 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com>
+Message-ID: <4C1A742C.90207@redhat.com>
+
+On 05/17/2010 08:20 PM, Mike Herrick wrote:
+> Generally speaking, the idea is to provide a mangling for entities that don't have a "describable" type (https://www.codesourcery.com/archives/cxx-abi-dev/msg01984.html).
+
+Note that I abandoned the notion of describable type (and type stubs) 
+because a dependent expression of describable type could differ in 
+SFINAE handling from another one with the same describable type.
+
+> In that vein, rules were added to<expression>  to handle cases such as:
+>
+>    struct A {
+>      int m;
+>    } *pa;
+>    int f(void);
+>    template<class T>  auto f1(T p1) ->  decltype(p1->m); // _Z2f1IP1AEDtptfp_1mET_
+>    template<class T>  auto f2(T p1) ->  decltype(p1());  // _Z2f2IPFivEEDTclfp_EET_
+>    int main() {
+>      f1(pa);
+>      f2(f);
+>    }
+
+> As a general rule, expressions (that appear in decltype/sizeof/alignof) with dependent types are mangled in full (using the newly added rules), while expressions with non-dependent types simply use the expression type.
+
+Right.
+
+> But what about these similar cases:
+>
+>    struct A {
+>      int m;
+>    } *pa;
+>    int f(void);
+>    template<class T>  auto f1(T p1) ->  decltype(pa->m); // _Z2f1IP1AEDtptL_Z2paE1mET_ or _Z2f1IP1AEiT_?
+>    template<class T>  auto f2(T p1) ->  decltype(f());   // _Z2f2IPFivEEDTclL_Z1fvEEET_ or _Z2f2IPFivEEiT_?
+>    int main() {
+>      f1(pa);
+>      f2(f);
+>    }
+>
+> Since the types of pa->m and f are non-dependent, is it required to mangle these with the full decltype expression mangling (as g++ 4.5 currently does)?
+
+In the case of decltype(pa->m), access control might depend on the 
+template parameters.
+
+> Here are some other interesting cases:
+>
+>    #include<typeinfo>
+>    struct A {
+>      A();
+>      A(int i);
+>      int m;
+>    } a;
+>    int f();
+>    template<class T>  auto f1(T p1) ->  decltype(p1);
+>    template<class T>  auto f2(T p1) ->  decltype(A(p1));
+>    template<class T>  auto f3(T p1) ->  decltype(typeid(p1));
+>    template<class T>  auto f4(T p1) ->  decltype(a.m);
+>    template<class T>  auto f5(T p1) ->  decltype(a.A::m);
+>    int main() {
+>      f1(0);
+>      f2(0);
+>      f3(0);
+>      f4(0);
+>      f5(0);
+>    }
+>
+> We believe f1, f2, and f3 require decltype manglings, while f4 and f5 do not (g++ 4.5 takes the opposite view on each of these).  Even though the typeid expression in f3 above is not type-dependent (always returning an lvalue of const std::type_info regardless of its argument), it can still be used in ways where a distinct mangling is required; for example:
+>
+>    template<class T>  auto f(T p) ->  decltype(g(typeid(p))) { ... }
+>    template<class T>  auto f(T p) ->  decltype(g(typeid(*p))) { ... }
+
+Right.  Currently G++ just uses the type of non-type-dependent 
+expressions that are not member access expressions, and of 
+type-dependent expressions that are simple decls.  This does seem like 
+an unnecessarily complex set, and is definitely wrong for f2 and f3.  I 
+think G++ is right for f4 and f5 because of access control, and f1 is an 
+aesthetic choice.
+
+> Similarly, we believe that constructors can be used in ways that require a full dependent mangling, as shown by this "if it's valid, it always means one thing, but it might not be valid, which means new-style SFINAE could knock it out of the candidate set" example:
+>
+>    template<class T>  auto f(T p) ->  decltype(A(p)) { ... }
+>    template<class T>  auto f(T p) ->  decltype(A(p, 5)) { ... }
+>
+> This seems to argue for a third designation, "partially-dependent", for cases where the expression type is non-dependent, but because of the new SFINAE rules, it can be distinguished by the programmer and therefore requires a distinct mangling (as though it were dependent).
+
+The important thing is that we use different mangling for functions that 
+are not functionally equivalent (14.5.6.1).  The definition of 
+functionally equivalent doesn't mention well-formedness of the 
+expression, but I think it can be read into it, since an ill-formed 
+expression produces no value.
+
+Adding value-dependency would get us closer, but that still doesn't 
+cover f4 and f5 above.
+
+Perhaps we should just always use the dependent mangling in template 
+scope, as G++ does for sizeof.
+
+Jason
+
+
+From jason at redhat.com  Thu Jun 17 19:31:12 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 17 Jun 2010 15:31:12 -0400
+Subject: [cxx-abi-dev] Mangling literals
+In-Reply-To: <FCEDA0C9-23A1-4579-995F-8978C65C38E6@edg.com>
+References: <FCEDA0C9-23A1-4579-995F-8978C65C38E6@edg.com>
+Message-ID: <4C1A7800.2040006@redhat.com>
+
+On 05/20/2010 10:13 AM, Mike Herrick wrote:
+> The first thought is to extend the unique numbering scheme currently used to identify string literals, but we're wondering if even that is necessary.  We're not sure that you can write a test case that can distinguish two functions in overload resolution if they differ only in the contents of two string literals.  For example, we need a mangling that differentiates between these:
+>
+>   template<class T>  auto f(T p1) ->  decltype(p1 == "xyz") { return true; }
+>   template<class T>  auto f(T p1) ->  decltype(p1 == 0.0)  { return false; }
+>   int main() {
+>     return !f("xyz");
+>   }
+>
+> but do we need to differentiate between these ambiguous cases:
+>
+>   template<class T>  auto f(T p1) ->  decltype(p1 == "xyz") { return true; }
+>   template<class T>  auto f(T p1) ->  decltype(p1 == "abc") { return false; }
+>   template<class T>  auto f(T p1) ->  decltype(p1 == "x")   { return false; }
+>   int main() {
+>     return !f("xyz");
+>   }
+
+No, I'm pretty sure those are all functionally equivalent.  I'm not 
+thinking of any way the content of a string literal can affect the type 
+of an expression, though it can participate in a constant-expression 
+through sizeof, i.e.
+
+template<class T> auto f(T p1)-> T (*)[sizeof "a" - 3]
+
+In which case we either need to collapse the sizeof or mangle the length 
+as well as the type.  But then, I guess we already need to collapse the 
+sizeof in constant expression context.
+
+So yes, I think your proposal should work.
+
+Jason
+
+
+From jason at redhat.com  Thu Jun 17 19:41:21 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 17 Jun 2010 15:41:21 -0400
+Subject: [cxx-abi-dev] Mangling of function-to-pointer conversion
+In-Reply-To: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+References: <A42B5B6E-F44C-473C-AD30-AD52E9662AAB@edg.com>
+Message-ID: <4C1A7A61.9060708@redhat.com>
+
+On 06/09/2010 12:55 PM, Mike Herrick wrote:
+> While working on SFINAE mangling, I ran across this issue with an implicit function-to-pointer conversion.  Given:
+>
+> $ cat test.cpp
+> template<class T>  struct A {
+>    template<void (*PF)()>  struct B {};
+> };
+> template<void (*PF)()>  struct B {};
+> void ff();
+> template<class T>  B<&ff>  f1(T);
+> template<class T>  B<ff>   f2(T);
+> template<class T>  typename A<T>::template B<&ff>  f3(T);
+> template<class T>  typename A<T>::template B<ff>   f4(T);
+> int main() {
+>    f1(1);
+>    f2(1);
+>    f3(1);
+>    f4(1);
+> }
+> $ g++450 -fabi-version=0 -c test.cpp&&  nm -u test.o
+>                 U _Z2f1IiE1BIXadL_Z2ffvEEET_
+>                 U _Z2f2IiE1BIXadL_Z2ffvEEET_
+>                 U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+>                 U _Z2f4IiEN1AIT_E1BIL_Z2ffvEEES1_
+> $ eccp -c test.cpp&&  nm -u test.o
+>                 U _Z2f1IiE1BIXadL_Z2ffvEEET_
+>                 U _Z2f2IiE1BIXadL_Z2ffvEEET_
+>                 U _Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+>                 U _Z2f4IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+> $ clang++ -c test.cpp&&  nm -u test.o
+> __Z2f1IiE1BILZ2ffvEET_
+> __Z2f2IiE1BILZ2ffvEET_
+> __Z2f3IiEN1AIT_E1BIXadL_Z2ffvEEEES1_
+> __Z2f4IiEN1AIT_E1BIXL_Z2ffvEEEES1_
+>
+> When ff is used as a nontype template parameter in f2, both g++ and EDG add an "ad" to represent the implied function-to-pointer conversion.  However, that's not the case in f4 where g++ doesn't add the "ad".
+>
+> The ABI spec says (5.1.5): "Except for the parentheses, therefore, it [the mangled expression encoding] represents the source token stream".  That would seem to indicate that the mangling for f2 is wrong (as is EDG's mangling for f4).
+>
+> Does anyone know the logic behind adding the "ad" in the mangled name for f2 (and whether or not that same logic applies to f4)?
+
+Presumably it's there because of the conversion of the template argument 
+to match the template parameter; this doesn't apply to f4 because in f4 
+we don't know what the template parameters of A<T>::B are.
+
+I don't have a particular opinion about whether or not adding the "ad" 
+is a good thing, but given that G++ has put it there since 3.4 (3.0-3.3 
+crashed on this testcase) I'd rather not change it.
+
+> Curiously, g++ doesn't add the "ad" in dependent cases:
+>
+> template<class T>  auto f5(T p1) ->  decltype(p1(f));
+
+Again, there is no conversion to match a target type in this case.
+
+Jason
+
+
+From mjh at edg.com  Sat Jun 19 19:52:54 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Sat, 19 Jun 2010 15:52:54 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4C1A742C.90207@redhat.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com>
+Message-ID: <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com>
+
+
+On Jun 17, 2010, at 3:14 PM, Jason Merrill wrote:
+
+> On 05/17/2010 08:20 PM, Mike Herrick wrote:
+>> 
+>> But what about these similar cases:
+>> 
+>>   struct A {
+>>     int m;
+>>   } *pa;
+>>   int f(void);
+>>   template<class T>  auto f1(T p1) ->  decltype(pa->m); // _Z2f1IP1AEDtptL_Z2paE1mET_ or _Z2f1IP1AEiT_?
+>>   template<class T>  auto f2(T p1) ->  decltype(f());   // _Z2f2IPFivEEDTclL_Z1fvEEET_ or _Z2f2IPFivEEiT_?
+>>   int main() {
+>>     f1(pa);
+>>     f2(f);
+>>   }
+>> 
+>> Since the types of pa->m and f are non-dependent, is it required to mangle these with the full decltype expression mangling (as g++ 4.5 currently does)?
+> 
+> In the case of decltype(pa->m), access control might depend on the template parameters.
+
+Could you expand on that?  How might access control depend on the template parameters in f1 above?
+
+> 
+>> Here are some other interesting cases:
+>> 
+>>   #include<typeinfo>
+>>   struct A {
+>>     A();
+>>     A(int i);
+>>     int m;
+>>   } a;
+>>   int f();
+>>   template<class T>  auto f1(T p1) ->  decltype(p1);
+>>   template<class T>  auto f2(T p1) ->  decltype(A(p1));
+>>   template<class T>  auto f3(T p1) ->  decltype(typeid(p1));
+>>   template<class T>  auto f4(T p1) ->  decltype(a.m);
+>>   template<class T>  auto f5(T p1) ->  decltype(a.A::m);
+>>   int main() {
+>>     f1(0);
+>>     f2(0);
+>>     f3(0);
+>>     f4(0);
+>>     f5(0);
+>>   }
+>> 
+>> We believe f1, f2, and f3 require decltype manglings, while f4 and f5 do not (g++ 4.5 takes the opposite view on each of these).  Even though the typeid expression in f3 above is not type-dependent (always returning an lvalue of const std::type_info regardless of its argument), it can still be used in ways where a distinct mangling is required; for example:
+>> 
+>>   template<class T>  auto f(T p) ->  decltype(g(typeid(p))) { ... }
+>>   template<class T>  auto f(T p) ->  decltype(g(typeid(*p))) { ... }
+> 
+> Right.  Currently G++ just uses the type of non-type-dependent expressions that are not member access expressions, and of type-dependent expressions that are simple decls.  This does seem like an unnecessarily complex set, and is definitely wrong for f2 and f3.  I think G++ is right for f4 and f5 because of access control, and f1 is an aesthetic choice.
+
+It sounds to me that you agree that in more complicated cases the full expression should be mangled, and you're wondering if perhaps the simple "decltype(p1)" case falls into that category?
+
+> 
+>> Similarly, we believe that constructors can be used in ways that require a full dependent mangling, as shown by this "if it's valid, it always means one thing, but it might not be valid, which means new-style SFINAE could knock it out of the candidate set" example:
+>> 
+>>   template<class T>  auto f(T p) ->  decltype(A(p)) { ... }
+>>   template<class T>  auto f(T p) ->  decltype(A(p, 5)) { ... }
+>> 
+>> This seems to argue for a third designation, "partially-dependent", for cases where the expression type is non-dependent, but because of the new SFINAE rules, it can be distinguished by the programmer and therefore requires a distinct mangling (as though it were dependent).
+> 
+> The important thing is that we use different mangling for functions that are not functionally equivalent (14.5.6.1).  The definition of functionally equivalent doesn't mention well-formedness of the expression, but I think it can be read into it, since an ill-formed expression produces no value.
+> 
+> Adding value-dependency would get us closer, but that still doesn't cover f4 and f5 above.
+> 
+> Perhaps we should just always use the dependent mangling in template scope, as G++ does for sizeof.
+
+I'm not sure what you mean by "template scope".  Certainly some expressions in "template scope" are folded to constant results in current practice going back many years, and we wouldn't want to change that.  We could say that the new decltype/sizeof cases would always get a full expression, but there doesn't seem to be a good dividing line between "old" sizeof/decltype cases and "new" ones.  Though distinguishing between "old" and "new" cases would make it easier for backward compatibility (for example, introducing new manglings for static_cast, etc. in decltype expressions without breaking the existing ABI).
+
+We think it makes sense to mangle full expressions only for things that are dependent or value-dependent.
+
+Mike.
+
+
+From jason at redhat.com  Sat Jun 19 21:12:57 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Sat, 19 Jun 2010 17:12:57 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com>
+Message-ID: <4C1D32D9.50003@redhat.com>
+
+On 06/19/2010 03:52 PM, Mike Herrick wrote:
+> Could you expand on that?  How might access control depend on the template parameters in f1 above?
+
+template <class T> struct B;
+
+class A
+{
+   int i;
+   friend struct B<int>;
+} a;
+
+template <class T>
+struct B
+{
+   decltype (a.i) f() { }
+};
+
+B<int> b; // OK, B<int> is a friend of A
+B<float> b2; // error, a.i is private
+
+> It sounds to me that you agree that in more complicated cases the full expression should be mangled,
+
+Yes.
+
+> and you're wondering if perhaps the simple "decltype(p1)" case falls into that category?
+
+And I think that case works fine either way.
+
+>> Perhaps we should just always use the dependent mangling in template scope, as G++ does for sizeof.
+>
+> I'm not sure what you mean by "template scope".  Certainly some expressions in "template scope" are folded to constant results in current practice going back many years, and we wouldn't want to change that.  We could say that the new decltype/sizeof cases would always get a full expression, but there doesn't seem to be a good dividing line between "old" sizeof/decltype cases and "new" ones.  Though distinguishing between "old" and "new" cases would make it easier for backward compatibility (for example, introducing new manglings for static_cast, etc. in decltype expressions without breaking the existing ABI).
+
+Ah, yes.  We always build up the sizeof expression, but then fold it away.
+
+> We think it makes sense to mangle full expressions only for things that are dependent or value-dependent.
+
+I'm sympathetic, but not sure what to do about the "access-dependent" 
+case above.
+
+Jason
+
+
+From daveed at edg.com  Mon Jun 21 21:51:06 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 21 Jun 2010 17:51:06 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4C1D32D9.50003@redhat.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com> <4C1D32D9.50003@redhat.com>
+Message-ID: <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com>
+
+
+On Jun 19, 2010, at 5:12 PM, Jason Merrill wrote:
+
+> On 06/19/2010 03:52 PM, Mike Herrick wrote:
+>> Could you expand on that?  How might access control depend on the template parameters in f1 above?
+> 
+> template <class T> struct B;
+> 
+> class A
+> {
+>  int i;
+>  friend struct B<int>;
+> } a;
+> 
+> template <class T>
+> struct B
+> {
+>  decltype (a.i) f() { }
+> };
+> 
+> B<int> b; // OK, B<int> is a friend of A
+> B<float> b2; // error, a.i is private
+
+
+But that's an error: The mangling doesn't matter at that point, no?
+
+I didn't think there is a valid case where access is the only disambiguator between two entities (from a mangling perspective, in particular).  Did I get that wrong?
+
+[...]
+	Daveed
+
+
+
+From jason at redhat.com  Tue Jun 22 15:22:32 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 22 Jun 2010 11:22:32 -0400
+Subject: deleted functions, implicit move constructors, and the ABI
+Message-ID: <4C20D538.1060009@redhat.com>
+
+I thought I remembered Lawrence sending mail to the list about deleted 
+functions a while back, but I don't see it now.  But in N3053 he notes 
+that ABIs may want to treat deleted functions as trivial in some situations.
+
+There are two places in the ABI that deal with triviality:
+
+1) Array new cookies.  If the destructor is deleted, we won't ever call 
+it, so it doesn't require a cookie.
+
+2) Parameter/return value passing.  Currently if the copy constructor or 
+destructor is non-trivial, we pass and return by invisible reference. 
+We might as well treat a deleted dtor as trivial in this case as well, 
+though it's not a very interesting case.
+
+We definitely don't want to change the C++98-compatible cases (implicit 
+trivial, implicit non-trivial, user-provided).  But what if the copy 
+constructor is deleted, or there is no copy constructor because it's 
+suppressed by a user-declared move constructor?
+
+It seems natural to change "a non-trivial copy constructor or 
+destructor" to "a non-trivial, non-deleted copy constructor, move 
+constructor or destructor".
+
+OTOH, that would make changing a no-copy class's copy constructor or 
+destructor from private and undefined to deleted an ABI change, so 
+perhaps we should treat deleted functions as non-trivial for this 
+purpose (and array new cookies).  I am ambivalent on this point.
+
+But we definitely need to do something about classes with a move 
+constructor and no copy constructor.  I think we want to add "move 
+constructor" to the list as above, for consistency with the definition 
+of "trivially copyable".
+
+Thoughts?
+
+Jason
+
+
+From daveed at edg.com  Tue Jun 22 16:53:23 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 22 Jun 2010 12:53:23 -0400
+Subject: [cxx-abi-dev] deleted functions, implicit move constructors, and the ABI
+In-Reply-To: <4C20D538.1060009@redhat.com>
+References: <4C20D538.1060009@redhat.com>
+Message-ID: <FA74484D-A85A-49A7-B5AC-7028502136D9@edg.com>
+
+
+On Jun 22, 2010, at 11:22 AM, Jason Merrill wrote:
+
+> I thought I remembered Lawrence sending mail to the list about deleted functions a while back, but I don't see it now.  But in N3053 he notes that ABIs may want to treat deleted functions as trivial in some situations.
+> 
+> There are two places in the ABI that deal with triviality:
+> 
+> 1) Array new cookies.  If the destructor is deleted, we won't ever call it, so it doesn't require a cookie.
+> 
+> 2) Parameter/return value passing.  Currently if the copy constructor or destructor is non-trivial, we pass and return by invisible reference. We might as well treat a deleted dtor as trivial in this case as well, though it's not a very interesting case.
+
+
+Actually, I'd prefer not to introduce a divergence from the standard notion of trivial, and therefore "deleted destructors" would be nontrivial.
+
+
+> We definitely don't want to change the C++98-compatible cases (implicit trivial, implicit non-trivial, user-provided).  But what if the copy constructor is deleted, or there is no copy constructor because it's suppressed by a user-declared move constructor?
+> 
+> It seems natural to change "a non-trivial copy constructor or destructor" to "a non-trivial, non-deleted copy constructor, move constructor or destructor".
+> 
+> OTOH, that would make changing a no-copy class's copy constructor or destructor from private and undefined to deleted an ABI change,
+
+
+Right.  Again, I'd prefer to just keep with what falls out of the standard notion of "trivial copy constructor" (a deleted copy constructor is nontrivial, and hence the associated class is passed by invisible reference).
+
+
+> so perhaps we should treat deleted functions as non-trivial for this purpose (and array new cookies).  I am ambivalent on this point.
+> 
+> But we definitely need to do something about classes with a move constructor and no copy constructor.  I think we want to add "move constructor" to the list as above, for consistency with the definition of "trivially copyable".
+
+
+Right.  Below is an e-mail I posted a while back about that.
+
+
+	Daveed
+
+
+> 
+> Thoughts?
+> 
+> Jason
+
+
+
+	From: 	David Vandevoorde <daveed at edg.com>
+	Subject: 	[cxx-abi-dev] Transfer modes for parameters and return values
+	Date: 	June 3, 2009 4:59:51 PM EDT
+	To: 	cxx-abi-dev at codesourcery.com
+
+Hello again,
+
+In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type parameters and class type return values are passed via the address of a reference if the class type has
+	(a) a nontrivial destructor, or
+	(b) a nontrivial copy constructor.
+
+Should we now also add to that:
+	(c) a (nontrivial) move constructor
+?
+
+(There is currently no notion of "trivial move constructor", but I think there are suggestions to introduce that in the future.)
+
+	Daveed
+
+From jason at redhat.com  Tue Jun 22 19:15:50 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 22 Jun 2010 15:15:50 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com> <4C1D32D9.50003@redhat.com> <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com>
+Message-ID: <4C210BE6.8010209@redhat.com>
+
+On 06/21/2010 05:51 PM, David Vandevoorde wrote:
+> But that's an error: The mangling doesn't matter at that point, no?
+
+Not in this case, certainly, since the return type isn't mangled.
+
+> I didn't think there is a valid case where access is the only disambiguator between two entities (from a mangling perspective, in particular).  Did I get that wrong?
+
+Hmm.  In general, errors are relevant to mangling because of SFINAE, but 
+I'm not sure if that is possible in this case (even assuming that access 
+control violations get added to SFINAE).  Let's see:
+
+template <class T> struct C;
+
+class A
+{
+   int i;
+   friend struct C<int>;
+} a;
+
+class B
+{
+   int i;
+   friend struct C<float>;
+} b;
+
+template <class T>
+struct C
+{
+   template <class U> decltype (a.i) f() { } // #1
+   template <class U> decltype (b.i) f() { } // #2
+};
+
+int main()
+{
+   C<int>().f<int>();     // calls #1
+   C<float>().f<float>(); // calls #2
+}
+
+OK, looks like we can create a situation where we have two different 
+function templates with the same signature but different access 
+restrictions.
+
+Jason
+
+
+From daveed at edg.com  Tue Jun 22 19:34:52 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 22 Jun 2010 15:34:52 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4C210BE6.8010209@redhat.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com> <4C1D32D9.50003@redhat.com> <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com> <4C210BE6.8010209@redhat.com>
+Message-ID: <10D4FD8B-0E0D-4B45-9420-02793D0B98B5@edg.com>
+
+
+On Jun 22, 2010, at 3:15 PM, Jason Merrill wrote:
+
+> On 06/21/2010 05:51 PM, David Vandevoorde wrote:
+>> But that's an error: The mangling doesn't matter at that point, no?
+> 
+> Not in this case, certainly, since the return type isn't mangled.
+> 
+>> I didn't think there is a valid case where access is the only disambiguator between two entities (from a mangling perspective, in particular).  Did I get that wrong?
+> 
+> Hmm.  In general, errors are relevant to mangling because of SFINAE, but I'm not sure if that is possible in this case (even assuming that access control violations get added to SFINAE).
+
+
+I thought we (the C++ committee) deliberately did _not_ put access control under SFINAE?
+
+
+>  Let's see:
+> 
+> template <class T> struct C;
+> 
+> class A
+> {
+>  int i;
+>  friend struct C<int>;
+> } a;
+> 
+> class B
+> {
+>  int i;
+>  friend struct C<float>;
+> } b;
+> 
+> template <class T>
+> struct C
+> {
+>  template <class U> decltype (a.i) f() { } // #1
+>  template <class U> decltype (b.i) f() { } // #2
+
+This (#2) declaration is invalid because it's a redeclaration of #1.  (And if they weren't they'd have distinct signatures.)
+
+
+> };
+> 
+> int main()
+> {
+>  C<int>().f<int>();     // calls #1
+>  C<float>().f<float>(); // calls #2
+> }
+> 
+> OK, looks like we can create a situation where we have two different function templates with the same signature but different access restrictions.
+
+
+I still don't see it: Even ignoring the redeclaration error and the fact that access errors aren't under SFINAE, don't these two have different signatures since they're members of distinct class types (C<int> vs. C<float>)?
+
+	Daveed
+
+
+
+
+
+
+From crowl at google.com  Tue Jun 22 21:52:20 2010
+From: crowl at google.com (Lawrence Crowl)
+Date: Tue, 22 Jun 2010 14:52:20 -0700
+Subject: [cxx-abi-dev] deleted functions, implicit move constructors, and 
+	the ABI
+In-Reply-To: <FA74484D-A85A-49A7-B5AC-7028502136D9@edg.com>
+References: <4C20D538.1060009@redhat.com>
+	<FA74484D-A85A-49A7-B5AC-7028502136D9@edg.com>
+Message-ID: <AANLkTilWjW3BLTbp8V2WSQP5w_7tWLZHBTVSvhRvP1hq@mail.gmail.com>
+
+On 6/22/10, David Vandevoorde <daveed at edg.com> wrote:
+> On Jun 22, 2010, at 11:22 AM, Jason Merrill wrote:
+> > I thought I remembered Lawrence sending mail to the list about
+> > deleted functions a while back, but I don't see it now.  But in
+> > N3053 he notes that ABIs may want to treat deleted functions
+> > as trivial in some situations.
+> >
+> > There are two places in the ABI that deal with triviality:
+> >
+> > 1) Array new cookies.  If the destructor is deleted, we won't
+> > ever call it, so it doesn't require a cookie.
+> >
+> > 2) Parameter/return value passing.  Currently if the copy
+> > constructor or destructor is non-trivial, we pass and return
+> > by invisible reference. We might as well treat a deleted
+> > dtor as trivial in this case as well, though it's not a very
+> > interesting case.
+>
+> Actually, I'd prefer not to introduce a divergence from the
+> standard notion of trivial, and therefore "deleted destructors"
+> would be nontrivial.
+>
+> > We definitely don't want to change the C++98-compatible cases
+> > (implicit trivial, implicit non-trivial, user-provided).
+> > But what if the copy constructor is deleted, or there is no
+> > copy constructor because it's suppressed by a user-declared
+> > move constructor?
+> >
+> > It seems natural to change "a non-trivial copy constructor or
+> > destructor" to "a non-trivial, non-deleted copy constructor,
+> > move constructor or destructor".
+> >
+> > OTOH, that would make changing a no-copy class's copy constructor
+> > or destructor from private and undefined to deleted an ABI
+> > change,
+
+I think programmers would prefer to make that code change without
+changing their ABI.  In the absence of other significant ABI changes,
+I believe we should let them.
+
+>
+> Right.  Again, I'd prefer to just keep with what falls out of
+> the standard notion of "trivial copy constructor" (a deleted
+> copy constructor is nontrivial, and hence the associated class
+> is passed by invisible reference).
+
+> > so perhaps we should treat deleted functions as non-trivial
+> > for this purpose (and array new cookies).  I am ambivalent on
+> > this point.
+> >
+> > But we definitely need to do something about classes with a move
+> > constructor and no copy constructor.  I think we want to add
+> > "move constructor" to the list as above, for consistency with
+> > the definition of "trivially copyable".
+
+The standard currently says:
+
+  A trivially copyable class is a class that:
+    -- has no non-trivial copy constructors (12.8),
+    -- has no non-trivial move constructors (12.8),
+    -- has no non-trivial copy assignment operators (13.5.3, 12.8),
+    -- has no non-trivial move assignment operators (13.5.3, 12.8), and
+    -- has a trivial destructor (12.4).
+
+A strict correspondence would use the same wording for value
+parameters, but omitting the two bullets on assignment operators.
+I don't think that wording would change the ABI for any C++03 code,
+but would for C++0x code that used =default.  In that situation,
+we probably do want the "no non-trivial" wording.
+
+> Right.  Below is an e-mail I posted a while back about that.
+>
+>        From:   David Vandevoorde <daveed at edg.com>
+>        Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+>        Date:   June 3, 2009 4:59:51 PM EDT
+>        To:     cxx-abi-dev at codesourcery.com
+>
+>  Hello again,
+>
+> In 3.1.1 and 3.1.4, the ABI specifies that "by value" class type
+> parameters and class type return values are passed via the address
+> of a reference if the class type has
+>         (a) a nontrivial destructor, or
+>         (b) a nontrivial copy constructor.
+>
+> Should we now also add to that:
+>         (c) a (nontrivial) move constructor
+> ?
+>
+> (There is currently no notion of "trivial move constructor",
+> but I think there are suggestions to introduce that in the future.)
+
+And it was introduced.  See 12.8/13.
+
+-- 
+Lawrence Crowl
+
+
+From jason at redhat.com  Wed Jun 23 02:12:27 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 22 Jun 2010 22:12:27 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <10D4FD8B-0E0D-4B45-9420-02793D0B98B5@edg.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com> <4C1D32D9.50003@redhat.com> <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com> <4C210BE6.8010209@redhat.com> <10D4FD8B-0E0D-4B45-9420-02793D0B98B5@edg.com>
+Message-ID: <4C216D8B.1040909@redhat.com>
+
+On 06/22/2010 03:34 PM, David Vandevoorde wrote:
+> I thought we (the C++ committee) deliberately did _not_ put access control under SFINAE?
+
+Yes, but I think this was a mistake which adds a lot of complexity to 
+libraries, as people need to hack around it with cumbersome traits.  I 
+recently brought this up under "SFINAE and access control" on the core 
+reflector.
+
+>> >  template <class U> decltype (a.i) f() { } // #1
+>> >  template <class U> decltype (b.i) f() { } // #2
+> This (#2) declaration is invalid because it's a redeclaration of #1.  (And if they weren't they'd have distinct signatures.)
+
+Right, either they're the same function or they have distinct 
+signatures.  I was arguing that they aren't the same function, so they 
+need to have distinct signatures, so we shouldn't fold decltype(a.i) to int.
+
+But I am leery of trying to define a whole new kind of dependency to 
+deal with this, so I guess I'm content to decide that these are the same 
+function because a.i is not value-dependent or type-dependent--and that 
+these functions wouldn't be subject to the hypothetical access-SFINAE 
+because the access doesn't arise from a substitution.
+
+Jason
+
+
+
+From daveed at edg.com  Wed Jun 23 15:29:37 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 23 Jun 2010 11:29:37 -0400
+Subject: [cxx-abi-dev] Decltype mangling and type dependency
+In-Reply-To: <4C216D8B.1040909@redhat.com>
+References: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com> <4C1A742C.90207@redhat.com> <B5B7DDAD-F9E0-4436-9C6F-CECBAE7F650F@edg.com> <4C1D32D9.50003@redhat.com> <25448DAC-D97B-4DCD-A5E5-6AB1C6DCB9CC@edg.com> <4C210BE6.8010209@redhat.com> <10D4FD8B-0E0D-4B45-9420-02793D0B98B5@edg.com> <4C216D8B.1040909@redhat.com>
+Message-ID: <8DD8E5D3-BF6E-4791-AB88-46FCD431B52F@edg.com>
+
+
+On Jun 22, 2010, at 10:12 PM, Jason Merrill wrote:
+
+> On 06/22/2010 03:34 PM, David Vandevoorde wrote:
+>> I thought we (the C++ committee) deliberately did _not_ put access control under SFINAE?
+> 
+> Yes, but I think this was a mistake which adds a lot of complexity to libraries, as people need to hack around it with cumbersome traits.  I recently brought this up under "SFINAE and access control" on the core reflector.
+> 
+>>> >  template <class U> decltype (a.i) f() { } // #1
+>>> >  template <class U> decltype (b.i) f() { } // #2
+>> This (#2) declaration is invalid because it's a redeclaration of #1.  (And if they weren't they'd have distinct signatures.)
+> 
+> Right, either they're the same function or they have distinct signatures.  I was arguing that they aren't the same function, so they need to have distinct signatures, so we shouldn't fold decltype(a.i) to int.
+> 
+> But I am leery of trying to define a whole new kind of dependency to deal with this, so I guess I'm content to decide that these are the same function because a.i is not value-dependent or type-dependent--and that these functions wouldn't be subject to the hypothetical access-SFINAE because the access doesn't arise from a substitution.
+
+
+Thanks: Our reasoning/opinions may differ, but the conclusion is the same.  So I'll work on wording for that.
+
+Regarding the following case you and Mike Herrick have discussed:
+
+	template<class T> auto f(T p)->decltype(p);
+
+The encoding of decltype(p) could use the Dt/DT codes or the underlying type (T_).  The latter, however, requires a special case in the spec: Is it worth it, and if so, where should the line be drawn (any identifier with a dependent type? only identifiers with a template parameter type? something else?)?  (My own preference is not to have a special case, but that would require a change in the g++ implementation.)
+
+	Daveed
+
+
+
+From daveed at vandevoorde.com  Fri Jun 25 21:55:17 2010
+From: daveed at vandevoorde.com (David Vandevoorde)
+Date: Fri, 25 Jun 2010 17:55:17 -0400
+Subject: Member selections on dependent expressions
+Message-ID: <6B740CC5-185A-4875-9E3C-4BA5C3D6863C@edg.com>
+
+We've been working on the new C++0x SFINAE rules and the backward-compatibility consequences for mangling are a bit baffling: I'd like to get input from other implementors (particularly GCC) regarding direction in this area.
+
+Let me start with a seemingly simple example:
+
+	namespace N {
+	  struct S { int x; } s;
+	  template<class T> auto f(T p)->decltype(p.S::x);
+	  void g() {
+	    f(s);  // i.e. f<S>(s)
+	  }
+	}
+
+GCC 4.5 encodes N::f<N::S> as "_ZN1N1fINS_1SEEEDtdtfp_srS1_1xET_" -- let me walk through how it gets there.
+
+After the ABI prefix "_Z" comes the <nested-name> N::f<N::S> which is encoded as "N1N1fINS_1SEEE".
+Note how the first substitutable entity (code "S_") is the namespace N, and that is used for the second reference to N in the template argument N::S ("NS_1SE"), which itself becomes the second substitutable entity (code "S1_").
+
+The return type follows ("Dtdtfp_srS1_1xE") and breaks down as follows: "Dt ... E" for decltype of the member selection encoded as "dtfp_srS1_1x", "dt" for the dot operator on "fp_" (an encoding that means "first function parameter"), which leaves "srS1_1x" to represent "S::x" in this case.
+
+Now the "sr" ("scope resolution") code in the current ABI spec is specified through the following productions:
+
+  <expression> ::= ...
+               ::= sr <type> <unqualified-name>                    # dependent name
+               ::= sr <type> <unqualified-name> <template-args>    # dependent template-id
+
+This seems reasonable here because p in "p.S::x" has a template-dependent type, and so the "x" can be considered a dependent name.  "S" is apparently N::S, which, as noted above, is encoded as "S1_" because of the substitution rules.
+
+Now, if I'd written the declaration of f by writing S as N::S:
+
+	  template<class T> auto f(T p)->decltype(p.N::S::x);
+
+the reasoning above holds and I'd find the same mangled name (and, indeed, GCC 4.5 does that).
+
+However, the language definition throws a wrench in that reasoning: S in "p.S::x" must be looked up both using ordinary lookup and in the scope of whatever class type p ends up having (see 3.4.5/4 in the current working paper for the language), and if the two lookups end up finding different things, it is an error... except that since this is a SFINAE case it just means that that function instance drops out of the overload set.  Similarly, N::S in "p.N::S" must be looked up twice, and may end up being invalid.  But since S and N::S can yield different results in the class-scope lookup, it means that the two template declarations above are distinct!
+
+Let me demonstrate this by example with a slight modification of the example above (still valid C++0x, but requires support for the new SFINAE rules):
+
+	namespace N {
+	  struct S { int x; struct N { enum S {}; }; } s;                   // Note the added nested class N.
+	  template<class T> auto f(T p)->decltype(p.S::x) { return 1; }     // #1
+	  template<class T> auto f(T p)->decltype(p.N::S::x) { return 2; }  // #2
+	  void g() {
+	    f(s);  // Calls #1
+	  }
+	}
+
+When substituting N::S for T in template #1, the lookup of S in the scope of p finds the type S itself, which is the same type as what ordinary lookup finds: That substitution is fine.
+
+When substituting N::S for T in template #2, the lookup of N::S in the scope of p finds an enumeration, which conflicts with the class type N::S found through ordinary lookup: The substitution of #2 therefore fails, and the only remaining candidate for the call is #1.
+
+The existing ABI (and, hence, existing practice) is therefore not adequate for the C++0x language rules: We have to break backward compatibility in this area.
+
+(We also looked at changing the C++0x language itself to avoid the problem, but it's a really sell ("please change the language in an obscure/subtle way because it raises some obscure/subtle backward-compatibility issue in our mangling scheme").)
+
+Instead of the current approach, we'll have to encode the source form of the selected member in cases like these.  I.e., p.S::x, p.N::S, and even p.::N::S::x must all be encoded differently even though for a valid instantiation they must all resolve to the same thing.  I'm thinking that we should continue to use the sr prefix, but what follows would be a <type> only if the qualifier is a template parameter (p.T::x) or a decltype construct (p.decltype(xx)::x); otherwise, it would encode an "unresolved name" (which is not a candidate for substitution; e.g., N::S might be encoded as "N1N1SE" even though there is a substitution code for the type ::N::S.
+
+
+Thoughts?
+
+	Daveed
+
+
+
+P.S.: What mitigates the bad news of ABI breakage is that I don't think code like this is widespread yet (and the cases that do occur are probably inlined calls).
+
+
+
+From daveed at edg.com  Wed Jun 30 15:33:44 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 30 Jun 2010 11:33:44 -0400
+Subject: Proposed ABI changes for new C++0x SFINAE rules
+Message-ID: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+
+Hi all,
+
+(I sent this e-mail with the wrong attachment last night.  I don't think it made it through the mailing list software, but if it does eventually, please ignore it.)
+
+We've been implementing the new C++0x SFINAE rules (as you probably guessed from recent traffic on this list), and it turns out that it requires ABI changes in the mangling of template signatures.  Often these are pure extensions (reflecting the fact that more kinds of expressions can appear in the signatures), but some of the changes are backward incompatible.  Fortunately, the incompatible changes affect code that is highly unlikely in C++03 (and probably also somehwat unlikely in C++0x).
+
+Attached are our proposed diffs for the ABI document.  Let me walk through its various aspects.
+
+- We're introducing a new definition: "instantiation-dependent".  When encoding a signature that contains a non-dependent expression like "sizeof(int)", existing practice it to just replace that by the resulting value, or in some cases, by the encoding for a literal representing that value.  For example:
+
+	template<class T, int N> struct S {};
+	template<class T> void f(S<T, sizeof(int)>);
+	  // "sizeof(int)" is encoded as "Li4E" on typical platforms;
+	  // i.e., as if we'd written "4" instead.
+
+Similarly, something like "decltype(int)" is just encoded as the known underlying type.
+
+However, there are non-dependent expressions and types that can still fail instantiation.  With the new SFINAE rules, several template declarations differing only in such expressions can be written such that their encodings don't collide.  So reducing a sizeof/decltype that is applied to such an expression to a literal isn't workable.  Here is an example of the idea:
+
+	template<class T> auto f(T *p)->decltype(sizeof(sizeof(T)));
+
+"sizeof(sizeof(T))" is neither type-dependent nor value-dependent, but if T is e.g. a function type, that declaration will be "SFINAEed out".  
+
+So an "instantiation-dependent" expression or type is one that is either type-dependent or value-dependent, or one that contains a type-dependent or value-dependent sub-expression.  decltype, sizeof, and alignof must be fully encoded if (and only if) their operand is "instantiation-dependent"; otherwise, the resulting type/value is encoded instead.
+
+
+- Since "auto" can appear as a type specifier in new-expressions, we introduce "Da" for its encoding.
+
+
+- A number of new codes are introduced for expression operators that were not previously expected in template signatures (e.g., new/delete operators, typeid, throw, etc.).  We also added codes to distinguish prefix and postfix increment/decrement operators (since e.g. "decltype(x++)" is different from "decltype(++x)"). See the patch for details.
+
+
+- Explicit casts (previously always encoded with the generic "cv" code) now get different codes depending on the form used in the source.  This is needed, because two templates can now validly differ only in that respect (and so manglings must not collide).  For example:
+
+	template<class T, int N> void f(int (*)[const_cast<T>(N)]);    // #1
+	template<class T, int N> void f(int (*)[static_cast<T>(N)]);   // #2
+
+	int main() {
+	  f<long, 3>(0);  // Calls #2 since const_cast is invalid
+	}
+
+This is unfortunately a backward incompatible change (but as mentioned before, the code is unlikely in C++03 since the SFINAE rules for this were unclear at best).
+
+
+- The encoding of "unresolved names" (e.g., the second operand of a "->" or "." member selection operation) is now more thorough.  Previously, <expression> had the following productions:
+
+            ::= sr <type> <unqualified-name>                    # dependent name
+            ::= sr <type> <unqualified-name> <template-args>    # dependent template-id
+
+e.g. for the name "T::x" in "p->T::x" (where T is a template parameter).  In the new SFINAE world, however, this is insufficient. The qualifier may not be a resolved type (or a type at all?) and whether it instantiates successfully may depend on its exact form. E.g., "p->X::y" and "p->::X::y" must mangle differently (we're introducing a "gs" operator for that; it also applies to new/delete encodings).  In fact, this matters even for names that don't include a qualifier ("p->x" vs. "p->::x").  (For more analysis, see my mail titled "Member selections on dependent expressions" posted on this reflector last week.)  After looking at lots of examples, we ended up with the following:
+
+	<expression> ::= <unresolved-name>
+
+	<unresolved-name> ::= [gs] <base-unresolved-name>                # x or (with "gs") ::x
+	                  ::= sr <unresolved-type> <base-unresolved-name>
+	                                                                 # T::x / decltype(p)::x
+	                  ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
+	                                                                 # T::N::x /decltype(p)::N::x
+	                  ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+	                                                                 # A::x, N::y, A<T>::z; "gs" means leading "::"
+	<unresolved-type> ::= <template-param>
+	                  ::= <decltype>
+
+	<unresolved-qualifier-level> ::= <source-name> [ <template-args> ]
+
+	<base-unresolved-name> ::= <source-name>                         # unresolved name
+	                       ::= <source-name> <template-args>         # unresolved template-id
+	                       ::= on <operator-name>                    # unresolved operator-function-id
+	                       ::= on <operator-name> <template-args>    # unresolved operator template-id
+	                       ::= dn <unresolved-name>                  # destructor name; e.g. ~X or ~T::X
+
+This is backward incompatible for cases like p->A::x where the name qualifier is not a template parameter (or decltype operator; though that case was not specified at all in the past), but it is backward compatible for the more common unqualified case (p->x or p.x).
+
+Note also the "on" prefix for operator names may not be strictly needed (but it wouldn't take much for the language to evolve in a way that would create ambiguities without it; even now, we're not 100% sure), but it appears to be existing (GCC) practice (and it simplifies demangling).  For example:
+
+	template <class T> auto g(T p1) -> decltype(operator+(p1,p1));
+	  // The decltype operation is encoded as "DTclonplfp_fp_EE"
+
+Finally, let me mention that I've raised an issue with the C++ committee about p.T::x with T a template parameter possibly becoming ambiguous if the type of p is a class type with a member named T.  The proposal here assumes that the language will change to remove that ambiguity: If not (which leads to some bizarre language effects), the encoding rules would have to change.
+
+
+- We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where <character type> is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+
+
+- The patch includes an encoding for parenthesized initializers (code "pi") in new-expressions (see the production for <initializer>).  It's leaving the door open for braced initializers, but since we haven't implemented those yet, we're not proposing the encoding at this time.  Similarly, since we don't implement complex integers, we haven't specified their literals, but I think the floating-point case we do specify gives a clear direction for that.
+
+
+- The patch includes a number of minor improvement/corrections.  E.g., it is now much more explicit that when mangling the types of function template instantiations, the encoded function type is that of the template (i.e., before substitutions).  Also, some examples were added.
+
+
+As always, we're looking for feedback/corrections.
+
+Thanks,
+
+	Daveed Vandevoorde
+	Edison Design Group
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: SFINAE_diffs
+Type: application/octet-stream
+Size: 32735 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100630/c00ffdaf/attachment.obj>
+

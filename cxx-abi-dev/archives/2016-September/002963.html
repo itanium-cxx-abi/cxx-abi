@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] How to detect a forced unwind in a catch block?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20How%20to%20detect%20a%20forced%20unwind%20in%20a%20catch%20block%3F&In-Reply-To=%3CCAAiZkiCdL%3D6DDX2NRW07ov%3DY-euwERrD-bdjuMqMYiJF2trw1w%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002962.html">
+   <LINK REL="Next"  HREF="002964.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] How to detect a forced unwind in a catch block?</H1>
+    <B>Gabriel Dos Reis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20How%20to%20detect%20a%20forced%20unwind%20in%20a%20catch%20block%3F&In-Reply-To=%3CCAAiZkiCdL%3D6DDX2NRW07ov%3DY-euwERrD-bdjuMqMYiJF2trw1w%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] How to detect a forced unwind in a catch block?">gdr at integrable-solutions.net
+       </A><BR>
+    <I>Wed Sep  7 15:56:31 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002962.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+        <LI>Next message: <A HREF="002964.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2963">[ date ]</a>
+              <a href="thread.html#2963">[ thread ]</a>
+              <a href="subject.html#2963">[ subject ]</a>
+              <a href="author.html#2963">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Didn't we have a similar discussion all the way back when we were
+considering whether IO cancellation  should be modeled as a &quot;catchable&quot; C++
+exception?
+
+On Tue, Sep 6, 2016 at 12:39 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at googlers.com</A>&gt;
+wrote:
+
+&gt;<i> On 6 September 2016 at 11:56, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> &gt; On Sep 6, 2016, at 11:50 AM, Thiago Macieira &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">thiago at kde.org</A>&gt; wrote:
+</I>&gt;&gt;<i> &gt; Em ter&#231;a-feira, 6 de setembro de 2016, &#224;s 11:38:43 PDT, John McCall
+</I>&gt;&gt;<i> escreveu:
+</I>&gt;&gt;<i> &gt;&gt; This would be inappropriate; the appropriate solution would be to ask
+</I>&gt;&gt;<i> the
+</I>&gt;&gt;<i> &gt;&gt; committee for a new function in namespace std that could be implemented
+</I>&gt;&gt;<i> &gt;&gt; with abi::__forced_unwind.  I believe that's the chief purpose of that
+</I>&gt;&gt;<i> &gt;&gt; function, to allow that sort of functionality to be implemented in the
+</I>&gt;&gt;<i> &gt;&gt; future.
+</I>&gt;&gt;<i> &gt;&gt;
+</I>&gt;&gt;<i> &gt;&gt; If std::current_exception works, of course, all the better.
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; I will post to std-discussion and see if there's a consensus. I'm not
+</I>&gt;&gt;<i> sure
+</I>&gt;&gt;<i> &gt; there can be because this is outside of the C++ language: there's no
+</I>&gt;&gt;<i> such
+</I>&gt;&gt;<i> &gt; thing as forced unwinds in the standard.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Hmm.  I think this used to not be true; there were library features (e.g.
+</I>&gt;&gt;<i> longjmp)
+</I>&gt;&gt;<i> that were allowed, but not required, to be implemented by unwinding the
+</I>&gt;&gt;<i> stack.
+</I>&gt;&gt;<i> But now it seems that these places have all been changed to specify
+</I>&gt;&gt;<i> undefined
+</I>&gt;&gt;<i> behavior if they would bypass any non-trivial destructors.
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> That's true, but it does not place restrictions on intervening 'catch
+</I>&gt;<i> (...)' blocks, and (since no exception has been thrown) they presumably
+</I>&gt;<i> must /not/ be entered. (You don't get UB from a longjmp where a
+</I>&gt;<i> corresponding throw would enter a catch(...) block -- although that may
+</I>&gt;<i> just be a wording defect.)
+</I>&gt;<i>
+</I>&gt;<i> The possibility of forced unwinding invoking a 'catch (...)' block with no
+</I>&gt;<i> current exception seems broken to me. For instance, this may or may not
+</I>&gt;<i> call terminate() if f() results in a forced unwind, depending on how
+</I>&gt;<i> 'throw;' is implemented:
+</I>&gt;<i>
+</I>&gt;<i>   try {
+</I>&gt;<i>     f();
+</I>&gt;<i>   } catch (...) {
+</I>&gt;<i>     log_error(); // might reasonably assert(std::current_exception())
+</I>&gt;<i>     throw;
+</I>&gt;<i>   }
+</I>&gt;<i>
+</I>&gt;<i> Pretending that a forced unwind throws a C++ exception of some known type
+</I>&gt;<i> seems likely to be the best approach -- and I'd expect that exception to be
+</I>&gt;<i> capturable via std::current_exception and counted by
+</I>&gt;<i> std::uncaught_exceptions, or exception-safe code using those facilities
+</I>&gt;<i> will not function correctly in the presence of a forced unwind. (And
+</I>&gt;<i> likewise for foreign exceptions; we presumably want to pretend that they
+</I>&gt;<i> are just like C++ exceptions but are of a type that doesn't match that of
+</I>&gt;<i> any handlers.)
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160907/d63f1c0a/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160907/d63f1c0a/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002962.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+	<LI>Next message: <A HREF="002964.html">[cxx-abi-dev] How to detect a forced unwind in a catch block?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2963">[ date ]</a>
+              <a href="thread.html#2963">[ thread ]</a>
+              <a href="subject.html#2963">[ subject ]</a>
+              <a href="author.html#2963">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

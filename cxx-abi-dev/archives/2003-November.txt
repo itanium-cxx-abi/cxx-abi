@@ -1,0 +1,866 @@
+From mark at codesourcery.com  Mon Nov  3 07:08:35 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 02 Nov 2003 23:08:35 -0800
+Subject: [cxx-abi-dev] __cxa_delete{,2,3}(NULL, ...) legal?
+In-Reply-To: <005c01c39a7e$41f751b0$6900a8c0@minax>
+References: <200310230410.VAA27275@hpcll183.cup.hp.com>
+	 <005c01c39a7e$41f751b0$6900a8c0@minax>
+Message-ID: <1067843314.28122.58.camel@doubledemon.codesourcery.com>
+
+On Fri, 2003-10-24 at 15:29, Mark Mitchell wrote:
+> Scott, Dennis --
+> 
+> The short answer is that the ABI does not really specify the behavior of
+> these functions when the first argument is NULL.
+> 
+> The G++ runtime does not presently permit the first argument to be NULL.
+> Changing that would be OK; it's backwards compatible.
+> 
+> If there's no objection, we can update the specification to indicate that
+> the "array_address" parameter may be NULL.
+
+Since nobody objected, I committed the attached change.
+
+-- 
+Mark Mitchell <mark at codesourcery.com>
+CodeSourcery, LLC
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: text/x-patch
+Size: 3600 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20031102/59ec7f51/attachment.bin>
+
+From carlo at alinoe.com  Sat Nov 22 17:39:04 2003
+From: carlo at alinoe.com (Carlo Wood)
+Date: Sat, 22 Nov 2003 18:39:04 +0100
+Subject: RFA: Patch for new demangler
+In-Reply-To: <m3smkgpha1.fsf@gossamer.airs.com>
+References: <20031121211012.27399.qmail@gossamer.airs.com> <200311212114.hALLEwcO022427@greed.delorie.com> <20031122145334.GB25391@alinoe.com> <m3smkgpha1.fsf@gossamer.airs.com>
+Message-ID: <20031122173904.GA26851@alinoe.com>
+
+On Sat, Nov 22, 2003 at 10:14:14AM -0500, Ian Lance Taylor wrote:
+> I'm not sure that it is possible to demangle floating point literals
+> correctly unless you assume that the demangler is running on the same
+> system as the compiler which generated the mangled name.  That might
+> be an OK assumption, but since I come from a cross-compilation world,
+> I didn't want to make it.  My demangler produces
+>     void f<1>(A<(1) + (((int)(-((float)3f800000))))>)
+> 
+> I don't know what is best for this type of case, admittedly an unusual
+> one.
+
+Yeah :/.  This is why all mangled names should use the same format imho.
+I consider it a bug in the ABI that not all mangled names follow the
+IEEE standard; after all, they DO correct the endianness (mangled names
+always follow big endian) - seems inconsistent to make symbols incompatible
+in other cases.  You can determine the size of the float or double from
+the mangled name (in ABI version 2).  So, this problem would not exist
+if all mangled names used big endian IEEE formats for their floating point
+value mangling.  My demangler will assume IEEE only - because it would be
+guessing to heuristically determine if it is not, and for example is a
+Cray format instead.
+
+CC to cxx-abi-dev at codesourcery.com
+
+> As noted in an earlier message, I believe it is the former.
+
+Thanks, I'll fix it.
+
+> > ~/c++/demangler>./c++filt _Z1fILi1EEv1AIXplT_cvingLf3f800000EEE 2> /dev/null
+> > void f<1>(A<(1) + ((int)(-((float)7.8125e-3)))>)
+> 
+> This is an interesting case, because the correct demangling would be
+> something like
+>     void f<1>(A<(1) + ((int)(-((float)1.0)))>)
+
+Heh - well, I didn't test float yet, only double :p.
+I just fixed this.
+
+-- 
+Carlo Wood <carlo at alinoe.com>
+
+
+From ian at wasabisystems.com  Sun Nov 23 03:28:43 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 22 Nov 2003 22:28:43 -0500
+Subject: Handling of cast operators in the mangling ABI
+Message-ID: <20031123032843.14804.qmail@gossamer.airs.com>
+
+When writing the new demangler, I discovered an interesting quirk in
+the way g++ handles template parameter substitution for templated cast
+operators.  I think this case merits some attention in the mangling
+ABI, since I, at least, found it to be rather unexpected.
+
+Consider this test case:
+
+template<typename t> class B { public: t i; B(t j) : i(j) { } };
+template<template<typename v> class u, typename v> u<v> f() { return u<v>(0); }
+B<int> g() { return f<B, int>(); }
+template<typename t> class A { template<typename u> operator u(); int i; };
+A<float>::operator int() { return this->i; }
+
+Let's look first at the mangled name for f<B, int>:
+    _Z1fI1BiET_IT0_Ev
+This demangles to
+    B<int> f<B, int>()
+Pulling the mangled name apart, we get this:
+_Z
+ 1f               (name 'f')
+  I               (start of template arguments)
+   1B             (name 'B')
+   i              (int)
+  E               (end of template arguments)
+ T_               (return type of 'f': first template parameter ('B'))
+  I               (start of template arguments)
+   T0_            (second template parameter ('int'))
+  E               (end of template arguments)
+ v                (void--i.e., function 'f' has no arguments)
+
+This mangled name first describes f<B, int>, and then describes the
+return type of the function.  When describing the return type, the
+template parameter references refer to the template parameters used
+for f<B, int>.  This is straightforward, and follows the ABI, which
+says ``When function and member function template instantiations
+reference the template parameters in their parameter/result types, the
+template parameter number is encoded, with the sequence T_, T0_, ...''
+(to be a gramatical pedant, that should be etc., not an ellipsis, but
+that is not important now).  Note in particular that in the sequence
+T_IT0_E the template parameter reference T_ refers to the first
+parameter of the outer template (i.e., B in f<B, int>) not to its own
+first parameter (i.e., T0_, which refers to int in f<B, int>).
+
+Now let's turn to the mangled name for A<float>::operator int():
+    _ZN1AIfEcvT_IiEEv
+This demangles to
+    A<float>::operator int<int>()
+Again pulling the mangled name apart, we get this:
+_Z
+ N                (nested name)
+  1A              (name 'A')
+   I              (start of template arguments)
+    f             (float)
+   E              (end of template arguments)
+  cv              (cast operator)
+   T_             (type of cast--first template parameter (???))
+   I              (start of template arguments)
+    i             (int)
+   E              (end of template arguments)
+ E                (end of nested name)
+ v                (void--i.e., function has no arguments)
+
+Now, what does the template parameter T_ refer to?  From the source
+code, it must refer to the type int.  However, there is only int
+available in the mangled name, namely the first parameter of the
+subsequent template parameters.  In other words, in this case, when we
+see T_IiE, the template parameter reference T_ refers to its own first
+parameter, in direct contradiction to the previous case.
+
+The difference is apparently that the cast operator is handled
+specially with respect to template parameter substitution.  My best
+guess is that when the cast operator is itself a template, as
+indicated by the presence of template parameters, any template
+parameter used in the name of the cast operator must be resolved
+against the list of template arguments used in the definition of the
+cast operator.  Note in particular that this is a forward reference in
+the mangled string.
+
+I think this needs to be spelled out more clearly in the mangling ABI.
+It's true that the ABI mentions the use of template parameters in
+parameter/result types, and it's true that the return type of operator
+A<A>() is in fact A.  But I think that the fact that a forward
+reference is required here, and the fact that it only applies to the
+cast operator, merits a special mention in the ABI document itself.
+
+I recommend adding sentences along the lines of ``The instantiation of
+a templated conversion operator may use a template parameter number in
+the <type> which appears in the <operator-name>.  This parameter
+number refers to the template arguments for the templated conversion
+operator itself.  Note that this is a forward reference in the mangled
+name, as the template arguments will appear after the
+<operator-name>.''
+
+Thanks.
+
+Ian
+
+
+From carlo at alinoe.com  Sat Nov 22 06:34:08 2003
+From: carlo at alinoe.com (Carlo Wood)
+Date: Sat, 22 Nov 2003 07:34:08 +0100
+Subject: C++ demangler ABI vs. g++
+In-Reply-To: <m33cchrv2p.fsf@gossamer.airs.com>
+References: <m33cchrv2p.fsf@gossamer.airs.com>
+Message-ID: <20031122063408.GA20283@alinoe.com>
+
+I can only completely agree with this.
+
+>From the source code comments of bits/demangle.h:
+
+// It is unclear why g++ doesn't add a substitution for
+// "<Q2>F<R><B>E" as it should I think.
+
+I've chosen to let the demangler match whatever g++ does
+rather than what the ABI says ;).
+
+It is very well possible that the best/correct thing
+is a change/clarification of the ABI.  Hence, a CC to cxx-abi-dev at codesourcery.com
+
+
+On Fri, Nov 21, 2003 at 09:33:18PM -0500, Ian Lance Taylor wrote:
+> Since I just dug through the C++ V3 mangling ABI in spec and in usage,
+> I thought I should report a discrepancy I found.  I found it because I
+> implemented the demangler based on my reading of the ABI, and then
+> found that there were some symbols generated by g++ which the
+> demangler did not handle correctly.
+> 
+> I can file a PR on this if that would be appropriate.  Basically,
+> though, I think the mangling ABI should be changed.
+> 
+> I used the mangling ABI found here:
+>     http://www.codesourcery.com/cxx-abi/abi.html#mangling
+> (I don't know if this is in the gcc repository anywhere, but I think
+> it would be appropriate.)
+> 
+> The mangling ABI says that whenever the grammar uses <substitution>,
+> that is a substitution candidate (with some restrictions which are not
+> relevant here).  The grammar includes these productions:
+>     <type> ::= <substitution>
+>     <pointer-to-member-type> ::= M <type> <type>
+> This clearly suggests that the second <type> in
+> <pointer-to-member-type> is a substitution candidate.
+> 
+> However, g++ does not work that way.  Only the base type of the second
+> <type> is a substitution candidate.  If the second <type> is
+> CV-qualified, the fully qualified type is not a substitution
+> candidate.
+> 
+> The ABI specifies that any CV-qualifiers on the second <type> are
+> qualifiers for the member function which is being pointed to.  So the
+> second <type> is slightly unusual.  But the ABI does not say that
+> those CV-qualifiers are not themselves a substitution candidate as is
+> indicated by the grammar.
+> 
+> In the code in cp/mangle.c, see write_function_type().  For a
+> pointer-to-member-function, it writes out the CV qualifiers for the
+> first parameter to the function type, and it passes the function type
+> to write_bare_function_type(), but it never calls add_substitution()
+> for the qualified type.  This is understandable, since it does not
+> have the correct type to pass to add_substitution().  But to me it
+> looks like a violation of the mangling ABI.
+> 
+> Here is a test case:
+> 
+> class G { int g; }; class H { int h; };
+> template<class t> class what { int w1; };
+> template<class t> class what2 { int w2; };
+> void r(int (G::*)(), int (G::*)() const, G, int (H::*)(), int (G::*)(),
+>        what<G const>, what2<G const>, int (G::*)() const) {}
+> 
+> The mangled name of the function r is
+>     _Z1rM1GFivEMS_KFivES_M1HFivES1_4whatIKS_E5what2IS8_ES3_
+> which demangles into
+>     r(int (G::*)(), int (G::*)() const, G, int (H::*)(), int (G::*)(), what<G const>, what2<G const>, int (G::*)() const)
+> 
+> Breaking this down, we get (substitution candidates are labelled with
+> SUB and the substitution index):
+> 
+> _Z                   (prefix)
+>  1r                  (name 'r')
+>  M                   (pointer to member)
+>   1G                 (name 'G') (SUB 0)
+>   F                  (function)
+>    i                 (int--return type)
+>    v                 (void--no parameters)
+>   E                  (end function) (fn is SUB 1) (ptr-to-mem is SUB 2)
+>  M                   (pointer to member)
+>   S_                 (substitution 0 == name 'G')
+>   K                  (const)
+>    FivE              (function as above) (fn is SUB 3) (p-to-m is SUB 4) ***
+>  S_                  (substitution 0 == name 'G')
+>  M1HFivE             (pointer to member as above)
+>                      ('H' is SUB 5) (fn is SUB 6) (p-to-m is SUB 7)
+>  S1_                 (substitution 2 == first ptr-to-mem above)
+>  4what               (name 'what') (SUB 8)
+>   I                  (template arguments follow)
+>    K                 (const)
+>     S_               (substitution 0 == name 'G') (SUB 9)
+>   E                  (end template arguments)
+>  5what2              (name 'what2') (SUB 10)
+>   I                  (template arguments follow)
+>    S8_               (substitution 9 == 'G const')
+>   E                  (end template arguments)
+>  S3_                 (substitution 4 == second ptr-to-mem above)
+> 
+> So, if you followed all that, look closely at the line with ***.
+> There you see that the function FivE is a substitution candidate, and
+> the full pointer to member MS_KFivE is a substitution candidate.
+> However, by the reading of the grammar, the qualified type KFivE
+> should also be a substitution candidate.  However, it is not.  If it
+> were, the rest of the name would be mangled incorrectly, because the
+> references to substitution 4 and 9 would refer to the incorrect
+> types.
+> 
+> I think the simplest fix is to change the ABI to say
+>     <pointer-to-member-type> ::= M <type> <CV-qualifers> <type>
+> That would clarify that the <CV-qualifiers> do not form a substitution
+> candidate with the second <type>.
+> 
+> Ian
+
+-- 
+Carlo Wood <carlo at alinoe.com>
+
+
+From ian at wasabisystems.com  Sun Nov 23 23:40:43 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 23 Nov 2003 18:40:43 -0500
+Subject: A complexity in the mangling ABI
+Message-ID: <m34qwuirgk.fsf@gossamer.airs.com>
+
+The mangling ABI says this:
+
+``For purposes of substitution, given a CV-qualified type, the base
+  type is substitutible, and the type with all the C, V, and r
+  qualifiers plus any vendor extended types in the same
+  order-insensitive set is substitutible; any type with a subset of
+  those qualifiers is not.  That is, given a type const volatile foo,
+  the fully qualified type or foo may be substituted, but not volatile
+  foo nor const foo.  Also, note that the grammar above is written
+  with the assumption that vendor extended type qualifiers will be in
+  the order-sensitive (not CV) set.  An appropriate grammar
+  modification would be necessitated by an order-insensitive vendor
+  extended type qualifier like const or volatile.''
+
+What I'm thinking about here is the language about vendor extended
+type qualifiers.  This paragraph states clearly that if a type has
+more than one order-insensitive qualifier, the base type is
+substitutable, and the base type with all of the qualifiers is
+substitutable, but the base type with a subset of the qualifiers is
+not substitutable.
+
+The ABI also says ``Vendors must therefore specify which of their
+extended qualifiers are considered order-insensitive....''
+
+This implies that some vendor extended type qualifiers may be
+order-sensitive.  The first paragraph implies that if a vendor
+extended type qualifier is order sensitive, then it is permissible to
+subset that qualifier--the restriction on subsetting refers only to
+order-insensitive qualifiers.
+
+This means that a demangler must be able to distinguish between an
+order-sensitive vendor extended type qualifer and an order-insensitive
+vendor extended type qualifier.  Otherwise it is impossible to
+correctly handle substitutions.
+
+The first paragraph quoted above suggests that an order-insensitive
+vendor extended type qualifier would require a grammar modification.
+However, I can't see why.  The <type> nonterminal permits any ordering
+between a vendor extended type qualifier and a set of CV-qualifiers.
+
+I believe that all of the V3 demanglers I am aware of resolve this
+issue by assuming that all vendor extended type qualifiers are
+order-insensitive, and thus that when multiple vendor extended type
+qualifiers are present, or when a vendor extended type qualifier is
+used with one or more CV-qualifiers, the type may be subset for
+purposes of substitution.
+
+Without assuming that all vendor extended type qualifiers are
+order-insensitive, I believe that it is possible to write a demangler
+which is not aware of all vendor extended type qualifiers, which is
+obviously impossible.
+
+This is all a long-winded way of asking why the ABI says that
+order-insensitive vendor extended type qualifiers may not be subset
+for purposes of substitution.  If this restriction were lifted--if
+only the standard CV-qualified type could not be subset--then I
+believe that it would be possible to write a correct demangler which
+was not aware of all vendor extended type qualifiers.
+
+For the record, I believe that g++ emits only one vendor extended type
+qualifier, namely __vector, and g++ emits it as though it were
+order-sensitive, at least for purposes of substitution.
+
+Thanks.
+
+Ian
+
+
+From mark at codesourcery.com  Mon Nov 24 02:09:26 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 23 Nov 2003 18:09:26 -0800
+Subject: [cxx-abi-dev] A complexity in the mangling ABI
+References: <m34qwuirgk.fsf@gossamer.airs.com>
+Message-ID: <000901c3b22f$fdce2b20$37b0fd0a@minax>
+
+> This is all a long-winded way of asking why the ABI says that
+> order-insensitive vendor extended type qualifiers may not be subset
+> for purposes of substitution.  If this restriction were lifted--if
+> only the standard CV-qualified type could not be subset--then I
+> believe that it would be possible to write a correct demangler which
+> was not aware of all vendor extended type qualifiers.
+
+The paragraph you quoted talks about "the grammar" but as with many aspects
+of the ABI specification, the wording is not ideal.  I think that paragraph
+means to be talking about the ordering requirements on something like "const
+volatile int"; the ABI specifies the order in which the "C" and "V" appear,
+and requires that vendor-extended qualifiers appear in alphabetical order.
+
+The specification doesn't actually say how to deal with mangling
+order-sensitive qualifiers.
+
+If there are vendor-extended order-sensitive qualifiers, that would clearly
+need to change.
+
+As for adding additional substitution candidates (like "const foo" given
+"const volatile foo", or "vendor1 foo" given "const vendor1 vendor2 foo")
+might very well increase the number of substitution candidates substantially
+without major benefit.  Once you exceed 36 substitution candidates the
+number of digits in the substitution reference increases, so that would
+increase the cost.  Furthermore, the obvious way to organize the
+substitution table in the compiler is to have a dictionary mapping types to
+substitution numbers; if "const volatile foo" resulted in adding "const foo"
+to the table you might have to create a type which would otherwise be
+unncessary.
+
+I'm not sure what the historical justifications were for the restriction you
+quoted.
+
+-- Mark
+
+
+
+From carlo at alinoe.com  Mon Nov 24 03:39:39 2003
+From: carlo at alinoe.com (Carlo Wood)
+Date: Mon, 24 Nov 2003 04:39:39 +0100
+Subject: A complexity in the mangling ABI
+In-Reply-To: <m34qwuirgk.fsf@gossamer.airs.com>
+References: <m34qwuirgk.fsf@gossamer.airs.com>
+Message-ID: <20031124033939.GA9731@alinoe.com>
+
+On Sun, Nov 23, 2003 at 06:40:43PM -0500, Ian Lance Taylor wrote:
+> The mangling ABI says this:
+> 
+> ``For purposes of substitution, given a CV-qualified type, the base
+>   type is substitutible, and the type with all the C, V, and r
+>   qualifiers plus any vendor extended types in the same
+>   order-insensitive set is substitutible; any type with a subset of
+>   those qualifiers is not.  That is, given a type const volatile foo,
+>   the fully qualified type or foo may be substituted, but not volatile
+>   foo nor const foo.  Also, note that the grammar above is written
+>   with the assumption that vendor extended type qualifiers will be in
+>   the order-sensitive (not CV) set.  An appropriate grammar
+>   modification would be necessitated by an order-insensitive vendor
+>   extended type qualifier like const or volatile.''
+> 
+> What I'm thinking about here is the language about vendor extended
+> type qualifiers.  This paragraph states clearly that if a type has
+> more than one order-insensitive qualifier, the base type is
+> substitutable, and the base type with all of the qualifiers is
+> substitutable, but the base type with a subset of the qualifiers is
+> not substitutable.
+[...]
+> I believe that all of the V3 demanglers I am aware of resolve this
+> issue by assuming that all vendor extended type qualifiers are
+> order-insensitive, and thus that when multiple vendor extended type
+> qualifiers are present, or when a vendor extended type qualifier is
+> used with one or more CV-qualifiers, the type may be subset for
+> purposes of substitution.
+
+There are two reasons for this.
+
+Firstly, the only reason that order matters in the mangled name
+is in order not to have two different symbols that essentially
+are the same type.  Thus:
+
+int const volatile
+
+and
+
+int volatile const
+
+much be mangled in the same way (because they ARE the same type,
+you cannot overload a function by exchanging these qualifiers).
+That includes all vendor specified qualifiers.
+
+However, after all order-insensitive qualifiers are _uniquely_
+ordered for the purpose of getting only a different symbol
+name when they really are different, that order doesn't matter
+anymore: Why not keep them in the order that they are put in?
+So, a demangle should simply demangle these symbols as-if the
+order is important (this is reason 1).
+
+It does matter for the substitutions however; and the second
+reason that vendor specified symbols are handled as 100%
+order sensitive (which means they are NOT combined with CV-
+qualifiers to make a single substitution) is because of the
+grammar definition:
+
+<type> ::=
+
+[...]
+	<substitution>
+	<CV-qualifiers> <type>
+	U <source-name> <type>
+[...]
+
+The standard says "everything that can be a <substitution>
+form a substitution itself".  Therefore 'U <source-name> <type>'
+must be a substitution by itself, for any <type>, including
+<CV-qualifiers> <type>.  And thus will
+U <source-name> <CV-qualifiers> <type>
+cause two substitutions.
+
+The text that you quoted says
+>   Also, note that the grammar above is written
+>   with the assumption that vendor extended type qualifiers will be in
+>   the order-sensitive (not CV) set.
+but this grammar is not given - and thus nobody implemented it.
+
+I agree that this is a lack in the ABI that cannot be solved
+by the demangler - lets just hope that the compiler WILL add
+a substitution for every order-insensitive vendor qualifier,
+unlike what the ABI says - otherwise all demanglers will break.
+If they do that, then there is no problem.
+
+-- 
+Carlo Wood <carlo at alinoe.com>
+
+
+From ian at wasabisystems.com  Mon Nov 24 02:40:24 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 23 Nov 2003 21:40:24 -0500
+Subject: [cxx-abi-dev] A complexity in the mangling ABI
+In-Reply-To: <000901c3b22f$fdce2b20$37b0fd0a@minax>
+References: <m34qwuirgk.fsf@gossamer.airs.com>
+	<000901c3b22f$fdce2b20$37b0fd0a@minax>
+Message-ID: <m3smkeh4kn.fsf@gossamer.airs.com>
+
+"Mark Mitchell" <mark at codesourcery.com> writes:
+
+> > This is all a long-winded way of asking why the ABI says that
+> > order-insensitive vendor extended type qualifiers may not be subset
+> > for purposes of substitution.  If this restriction were lifted--if
+> > only the standard CV-qualified type could not be subset--then I
+> > believe that it would be possible to write a correct demangler which
+> > was not aware of all vendor extended type qualifiers.
+> 
+> The paragraph you quoted talks about "the grammar" but as with many aspects
+> of the ABI specification, the wording is not ideal.  I think that paragraph
+> means to be talking about the ordering requirements on something like "const
+> volatile int"; the ABI specifies the order in which the "C" and "V" appear,
+> and requires that vendor-extended qualifiers appear in alphabetical order.
+
+Well, to be nit-pickingly precise, the ABI only specifies that
+*order-insensitive* vendor-extended qualifiers appear in alphabetical
+order, and they must appear before the standard CV-qualifiers.
+
+This makes sense, since if the qualifier is order sensitive, then the
+ABI can't really mandate the order in which it appears.  It has to
+appear in the appropriate order.
+
+> The specification doesn't actually say how to deal with mangling
+> order-sensitive qualifiers.
+
+I think you meant to say order-insensitive here.  (I know that I'm
+confused about the difference.)
+
+> If there are vendor-extended order-sensitive qualifiers, that would clearly
+> need to change.
+
+Again, I think you mean to say order-insensitive.
+
+g++ supports one vendor-extended type qualifier, and it handles it in
+an order-sensitive manner.
+
+I realize that I got confused between order-sensitive and
+order-insensitive in part of my earlier note.  I said 
+
+``I believe that all of the V3 demanglers I am aware of resolve this
+  issue by assuming that all vendor extended type qualifiers are
+  order-insensitive''
+
+but the last words should have been ``order-sensitive.''
+
+> As for adding additional substitution candidates (like "const foo" given
+> "const volatile foo", or "vendor1 foo" given "const vendor1 vendor2 foo")
+> might very well increase the number of substitution candidates substantially
+> without major benefit.  Once you exceed 36 substitution candidates the
+> number of digits in the substitution reference increases, so that would
+> increase the cost.  Furthermore, the obvious way to organize the
+> substitution table in the compiler is to have a dictionary mapping types to
+> substitution numbers; if "const volatile foo" resulted in adding "const foo"
+> to the table you might have to create a type which would otherwise be
+> unncessary.
+
+That makes sense.  Unfortunately, following this policy with respect
+to vendor extended type qualifiers makes it impossible to write a
+generic demangler.
+
+An alternative to lifting the restriction would be to extend the
+restriction.  The ABI could declare that vendor extended type
+qualifiers must always combine with CV-qualifiers when forming a
+substitution candidate, regardless of whether the vendor extended type
+qualifier is order-sensitive or order-insensitive.
+
+Unfortunately, this would mean that the current g++ mangling of
+__vector did not follow the ABI.
+
+A slightly more complex alternative might be to say that a vendor
+extended type qualifier *followed* by CV-qualifiers can not be subset.
+That is, you can only substitute for the base type, or for the base
+type plus the CV-qualifiers plus the vendor-extended type
+qualifier(s).  I think this might work for g++ at present, because I
+don't think there is a way to say ``vector of const int''--I think you
+can only say ``const vector of int.''  I'm not 100% sure, though.
+
+Ian
+
+
+From mark at codesourcery.com  Mon Nov 24 07:17:30 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 23 Nov 2003 23:17:30 -0800
+Subject: [cxx-abi-dev] Handling of cast operators in the mangling ABI
+In-Reply-To: <20031123032843.14804.qmail@gossamer.airs.com>
+References: <20031123032843.14804.qmail@gossamer.airs.com>
+Message-ID: <1069658250.3863.15.camel@minax.codesourcery.com>
+
+
+> I think this needs to be spelled out more clearly in the mangling ABI.
+> It's true that the ABI mentions the use of template parameters in
+> parameter/result types, and it's true that the return type of operator
+> A<A>() is in fact A.  But I think that the fact that a forward
+> reference is required here, and the fact that it only applies to the
+> cast operator, merits a special mention in the ABI document itself.
+> 
+> I recommend adding sentences along the lines of ``The instantiation of
+> a templated conversion operator may use a template parameter number in
+> the <type> which appears in the <operator-name>.  This parameter
+> number refers to the template arguments for the templated conversion
+> operator itself.  Note that this is a forward reference in the mangled
+> name, as the template arguments will appear after the
+> <operator-name>.''
+
+I don't think there's anything special about a conversion operator.
+
+If you had another member template function with a return value that was
+a template parameter to the function, you would see the same behavior.
+
+If you want to prepare a patch to the HTML document (using the
+non-normative note formatting that is used elsewhere), we can see if
+people want to apply it.  (I would certainly be in favor.)
+
+-- 
+Mark Mitchell <mark at codesourcery.com>
+CodeSourcery, LLC
+
+
+
+From ian at wasabisystems.com  Mon Nov 24 17:10:47 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 24 Nov 2003 12:10:47 -0500
+Subject: A complexity in the mangling ABI
+In-Reply-To: <20031124033939.GA9731@alinoe.com>
+References: <m34qwuirgk.fsf@gossamer.airs.com>
+	<20031124033939.GA9731@alinoe.com>
+Message-ID: <m3y8u5bsko.fsf@gossamer.airs.com>
+
+Carlo Wood <carlo at alinoe.com> writes:
+
+> I agree that this is a lack in the ABI that cannot be solved
+> by the demangler - lets just hope that the compiler WILL add
+> a substitution for every order-insensitive vendor qualifier,
+> unlike what the ABI says - otherwise all demanglers will break.
+> If they do that, then there is no problem.
+
+I agree, and my feeling is that the best resolution would be for the
+ABI to change to encourage compilers to behave this way.
+
+Ian
+
+
+From carlo at alinoe.com  Mon Nov 24 17:45:42 2003
+From: carlo at alinoe.com (Carlo Wood)
+Date: Mon, 24 Nov 2003 18:45:42 +0100
+Subject: [cxx-abi-dev] Handling of cast operators in the mangling ABI
+In-Reply-To: <1069658250.3863.15.camel@minax.codesourcery.com>
+References: <20031123032843.14804.qmail@gossamer.airs.com> <1069658250.3863.15.camel@minax.codesourcery.com>
+Message-ID: <20031124174542.GA20002@alinoe.com>
+
+On Sun, Nov 23, 2003 at 11:17:30PM -0800, Mark Mitchell wrote:
+> I don't think there's anything special about a conversion operator.
+> 
+> If you had another member template function with a return value that was
+> a template parameter to the function, you would see the same behavior.
+> 
+> If you want to prepare a patch to the HTML document (using the
+> non-normative note formatting that is used elsewhere), we can see if
+> people want to apply it.  (I would certainly be in favor.)
+
+Well, he is certainly right that from a demangler point
+of view it is a special case.  My demangler was broken
+for this too and I had to fix it later by adding special
+code for this case.  A clarification might therefore by
+in order.
+
+  else if (opcode0 == 'c' && opcode1 == 'v')  // casting operator
+  {
+    eat_current();
+    output += "operator ";
+    if (current() == 'T')
+    {
+      // This is a templated cast operator.
+      // It must be of the form "cvT_I...E".
+      // Let M_template_arg_pos already point
+      // to the template argument.
+      M_template_arg_pos_offset = M_template_arg_pos.size();
+      M_template_arg_pos.push_back(M_pos + 3);
+    }
+    if (!decode_type(output))
+      _GLIBCXX_DEMANGLER_FAILURE
+
+
+The part of the 'if (current() == 'T') { }' is the code that
+handles this 'exception'.
+
+-- 
+Carlo Wood <carlo at alinoe.com>
+
+
+From ian at wasabisystems.com  Mon Nov 24 18:27:14 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 24 Nov 2003 13:27:14 -0500
+Subject: [cxx-abi-dev] Handling of cast operators in the mangling ABI
+In-Reply-To: <1069658250.3863.15.camel@minax.codesourcery.com>
+References: <20031123032843.14804.qmail@gossamer.airs.com>
+	<1069658250.3863.15.camel@minax.codesourcery.com>
+Message-ID: <m34qwtbp19.fsf@gossamer.airs.com>
+
+Mark Mitchell <mark at codesourcery.com> writes:
+
+> > I think this needs to be spelled out more clearly in the mangling ABI.
+> > It's true that the ABI mentions the use of template parameters in
+> > parameter/result types, and it's true that the return type of operator
+> > A<A>() is in fact A.  But I think that the fact that a forward
+> > reference is required here, and the fact that it only applies to the
+> > cast operator, merits a special mention in the ABI document itself.
+> > 
+> > I recommend adding sentences along the lines of ``The instantiation of
+> > a templated conversion operator may use a template parameter number in
+> > the <type> which appears in the <operator-name>.  This parameter
+> > number refers to the template arguments for the templated conversion
+> > operator itself.  Note that this is a forward reference in the mangled
+> > name, as the template arguments will appear after the
+> > <operator-name>.''
+> 
+> I don't think there's anything special about a conversion operator.
+> 
+> If you had another member template function with a return value that was
+> a template parameter to the function, you would see the same behavior.
+
+Well, yes and no.  The difference is that for a conversion operator,
+the return type is part of the function name, which means that it
+precedes the template arguments.  For any other type of function, the
+return type follows the function name and hence follows the template
+arguments (since the template arguments are part of the function
+name).
+
+> If you want to prepare a patch to the HTML document (using the
+> non-normative note formatting that is used elsewhere), we can see if
+> people want to apply it.  (I would certainly be in favor.)
+
+How's this?
+
+Ian
+
+--- mangling-abi.html.~1~	Mon Nov 24 12:39:08 2003
++++ mangling-abi.html	Mon Nov 24 13:24:53 2003
+@@ -4234,6 +4234,15 @@
+ distinct from the type (or other substitutible entity)
+ that is the actual parameter.
+ 
++<i>
++Note that for a conversion operator function, the result type is part
++of the name of the function.  Since the function name appears before
++the template argument list, the effect is that for a templated
++conversion operator function, if the function name contains a template
++parameter, it is a forward reference to the following template
++arguments.
++</i>
++
+ </p><pre><code><font color="blue">
+   &lt;template-param&gt; ::= T_	# first template parameter
+ 		   ::= T &lt;<i>parameter-2 non-negative</i> number&gt; _
+
+
+From dehnert at transmeta.com  Mon Nov 24 22:01:45 2003
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Mon, 24 Nov 2003 14:01:45 -0800
+Subject: [cxx-abi-dev] Re: A complexity in the mangling ABI
+References: <m34qwuirgk.fsf@gossamer.airs.com>	<20031124033939.GA9731@alinoe.com> <m3y8u5bsko.fsf@gossamer.airs.com>
+Message-ID: <3FC27FC9.8080703@transmeta.com>
+
+Ian Lance Taylor wrote:
+> Carlo Wood <carlo at alinoe.com> writes:
+> 
+> 
+>>I agree that this is a lack in the ABI that cannot be solved
+>>by the demangler - lets just hope that the compiler WILL add
+>>a substitution for every order-insensitive vendor qualifier,
+>>unlike what the ABI says - otherwise all demanglers will break.
+>>If they do that, then there is no problem.
+> 
+> I agree, and my feeling is that the best resolution would be for the
+> ABI to change to encourage compilers to behave this way.
+
+What I recall the ABI intended to convey, though obviously it
+isn't clear enough, was that order-insensitive vendor qualifiers
+were to be treated just like the predefined qualifiers const and
+volatile.  That is, the substitutions permitted are two: one for
+the bare type, and one for the final type with all of its
+order-insensitive qualifiers.
+
+We did not want to "waste" substitutions on the intermediate
+qualifications, and wanted to avoid multiple substitutions for
+different orderings of order-indifferent sets of qualifiers.
+
+Order-sensitive qualifiers present a significant complication.
+I don't recall clearly, but I think our intent was just to avoid
+substituting them entirely to avoid any ambiguity.  One would
+therefore end up with a substitution for the bare type, and
+explicit qualifiers.  Perhaps others that were involved have
+a clearer recollection, though.
+
+Jim
+
+
+
+
+From ian at wasabisystems.com  Mon Nov 24 22:05:08 2003
+From: ian at wasabisystems.com (Ian Lance Taylor)
+Date: 24 Nov 2003 17:05:08 -0500
+Subject: [cxx-abi-dev] Re: A complexity in the mangling ABI
+In-Reply-To: <3FC27FC9.8080703@transmeta.com>
+References: <m34qwuirgk.fsf@gossamer.airs.com>
+	<20031124033939.GA9731@alinoe.com> <m3y8u5bsko.fsf@gossamer.airs.com>
+	<3FC27FC9.8080703@transmeta.com>
+Message-ID: <m3fzgd5sob.fsf@gossamer.airs.com>
+
+Jim Dehnert <dehnert at transmeta.com> writes:
+
+> What I recall the ABI intended to convey, though obviously it
+> isn't clear enough, was that order-insensitive vendor qualifiers
+> were to be treated just like the predefined qualifiers const and
+> volatile.
+
+It does more or less convey that impression.
+
+The problem, from the demangler perspective, is that the demangler
+can't tell which vendor qualifiers are order-insensitive and which are
+order-sensitive.  Thus any difference in behaviour between the two,
+particularly in how they substitute, is a problem for the demangler.
+
+Ian
+
+

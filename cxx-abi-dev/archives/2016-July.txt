@@ -1,0 +1,1777 @@
+From jwakely at redhat.com  Fri Jul  1 14:13:52 2016
+From: jwakely at redhat.com (Jonathan Wakely)
+Date: Fri, 1 Jul 2016 15:13:52 +0100
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <CACs=ty+yTO2SqfURkTPF=CBnQJMMJHKdueo_Q2wG8nzu1ORM1Q@mail.gmail.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+	<CAGL0aWcnAT=7H5=h+UOOqVzb6yQS0W-ah8KhQ1Sghp5BJZPgvg@mail.gmail.com>
+	<225867D4-033A-4AA5-8BD7-0741E22743DF@apple.com>
+	<CACs=ty+yTO2SqfURkTPF=CBnQJMMJHKdueo_Q2wG8nzu1ORM1Q@mail.gmail.com>
+Message-ID: <20160701141352.GW7722@redhat.com>
+
+On 22/06/16 12:59 -0700, Reid Kleckner wrote:
+>This bug still isn't fixed in Clang. It's
+>https://llvm.org/bugs/show_bug.cgi?id=19668. You should probably go ahead
+>and update the document.
+
+It's probably also the cause of
+https://llvm.org/bugs/show_bug.cgi?id=23034
+which I've been asked about (because it involves the libstdc++
+std::tuple).
+
+Is the current status that Clang is still believed to require a
+change, and that G++ is doing the right thing already?
+
+
+
+>On Wed, Feb 24, 2016 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> > On Feb 24, 2016, at 1:14 PM, Richard Smith <richardsmith at googlers.com>
+>> wrote:
+>> > On 24 February 2016 at 12:56, John McCall <rjmccall at apple.com> wrote:
+>> >>> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com>
+>> wrote:
+>> >>> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>> >>>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>> >>>>>
+>> >>>>> in 3.1.1, we use "In the special case where the parameter type has a
+>> >>>>> non-trivial copy constructor or destructor" to force passing by
+>> >>>>> reference. It seems that for C++11, this should also include move
+>> >>>>> constructors, for the same reasons.
+>> >>>>
+>> >>>>
+>> >>>> We talked about adding move constructors to that sentence years ago.
+>> Did it
+>> >>>> never make it into the spec?
+>> >>>
+>> >>> Looks like it didn't. The rule we ended up with was:
+>> >>>
+>> >>> "[Pass an object of class type by value if] every copy constructor and
+>> >>> move constructor is deleted or trivial and at least one of them is not
+>> >>> deleted, and the destructor is trivial.?
+>> >>>
+>> >>>
+>> >>> However, this seems overly-cautious to me; it would seem sufficient
+>> >>> for there to be at least one copy or move constructor that is trivial
+>> >>> and not deleted, and a trivial destructor. It's not really
+>> >>> particularly plausible for there to be a trivial copy and a
+>> >>> non-trivial move or vice versa, but it *is* plausible for there to be
+>> >>> two non-deleted copy constructors -- a trivial one, and one that takes
+>> >>> a const volatile reference -- and in that case, passing through
+>> >>> registers seems completely reasonable. How about changing the rule in
+>> >>> 3.1.1 bullet 1 to:
+>> >>>
+>> >>> "In the special case where the parameter type does not have both a
+>> >>> trivial destructor and at least one trivial copy or move constructor
+>> >>> that is not deleted, the caller must allocate space for a temporary
+>> >>> copy, and pass the resulting copy by reference (below). Specifically
+>> >>> [?]"
+>> >>
+>> >> I agree with your proposal in theory, but I?m concerned about changing
+>> >> the ABI at this point.  We *are* talking about the language standard
+>> that was
+>> >> released six years ago, and an area of that standard that was
+>> theoretically
+>> >> fully implemented by compilers several years before that.
+>> >>
+>> >> Do we understand the scope of the ABI disagreement between GCC and
+>> Clang here?
+>> >> What do other compilers do?
+>> >
+>> > Clang's rule is the one in the ABI: a class is passed indirectly if it
+>> > has a non-trivial destructor or a non-trivial copy constructor. This
+>> > rule definitely needs some adjustment, because it's not meaningful to
+>> > ask whether an implicitly-deleted function is trivial.
+>>
+>> That sounds like it?s on us to fix.  Do GCC and other compilers correctly
+>> implement the rule that we agreed on?  If so, I?ll go ahead and apply
+>> the change to the ABI document, and we should fix this in clang.
+>>
+>> John.
+>> _______________________________________________
+>> cxx-abi-dev mailing list
+>> cxx-abi-dev at codesourcery.com
+>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>>
+
+>_______________________________________________
+>cxx-abi-dev mailing list
+>cxx-abi-dev at codesourcery.com
+>http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+From rjmccall at apple.com  Fri Jul  1 15:43:02 2016
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 1 Jul 2016 08:43:02 -0700
+Subject: [cxx-abi-dev] Non-trivial move constructor
+In-Reply-To: <20160701141352.GW7722@redhat.com>
+References: <alpine.DEB.2.20.1602241058470.1869@laptop-mg.saclay.inria.fr>
+	<56CDB628.8000302@redhat.com>
+	<CAGL0aWdEQ-nbd6c4xxMQrUncKimJSSOPSQxN7O34aJSHzKm35Q@mail.gmail.com>
+	<F8C9B03C-2D82-4577-B5B6-C7E39E08D4C1@apple.com>
+	<CAGL0aWcnAT=7H5=h+UOOqVzb6yQS0W-ah8KhQ1Sghp5BJZPgvg@mail.gmail.com>
+	<225867D4-033A-4AA5-8BD7-0741E22743DF@apple.com>
+	<CACs=ty+yTO2SqfURkTPF=CBnQJMMJHKdueo_Q2wG8nzu1ORM1Q@mail.gmail.com>
+	<20160701141352.GW7722@redhat.com>
+Message-ID: <185E047E-9BF5-4DFE-ABA7-7584A0FF5CF0@apple.com>
+
+> On Jul 1, 2016, at 7:13 AM, Jonathan Wakely <jwakely at redhat.com> wrote:
+> On 22/06/16 12:59 -0700, Reid Kleckner wrote:
+>> This bug still isn't fixed in Clang. It's
+>> https://llvm.org/bugs/show_bug.cgi?id=19668. You should probably go ahead
+>> and update the document.
+> 
+> It's probably also the cause of
+> https://llvm.org/bugs/show_bug.cgi?id=23034
+> which I've been asked about (because it involves the libstdc++
+> std::tuple).
+> 
+> Is the current status that Clang is still believed to require a
+> change, and that G++ is doing the right thing already?
+
+Yes.
+
+John.
+
+> 
+> 
+> 
+>> On Wed, Feb 24, 2016 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+>> 
+>>> > On Feb 24, 2016, at 1:14 PM, Richard Smith <richardsmith at googlers.com>
+>>> wrote:
+>>> > On 24 February 2016 at 12:56, John McCall <rjmccall at apple.com> wrote:
+>>> >>> On Feb 24, 2016, at 11:43 AM, Richard Smith <richardsmith at googlers.com>
+>>> wrote:
+>>> >>> On 24 February 2016 at 05:54, Jason Merrill <jason at redhat.com> wrote:
+>>> >>>> On 02/24/2016 05:51 AM, Marc Glisse wrote:
+>>> >>>>>
+>>> >>>>> in 3.1.1, we use "In the special case where the parameter type has a
+>>> >>>>> non-trivial copy constructor or destructor" to force passing by
+>>> >>>>> reference. It seems that for C++11, this should also include move
+>>> >>>>> constructors, for the same reasons.
+>>> >>>>
+>>> >>>>
+>>> >>>> We talked about adding move constructors to that sentence years ago.
+>>> Did it
+>>> >>>> never make it into the spec?
+>>> >>>
+>>> >>> Looks like it didn't. The rule we ended up with was:
+>>> >>>
+>>> >>> "[Pass an object of class type by value if] every copy constructor and
+>>> >>> move constructor is deleted or trivial and at least one of them is not
+>>> >>> deleted, and the destructor is trivial.?
+>>> >>>
+>>> >>>
+>>> >>> However, this seems overly-cautious to me; it would seem sufficient
+>>> >>> for there to be at least one copy or move constructor that is trivial
+>>> >>> and not deleted, and a trivial destructor. It's not really
+>>> >>> particularly plausible for there to be a trivial copy and a
+>>> >>> non-trivial move or vice versa, but it *is* plausible for there to be
+>>> >>> two non-deleted copy constructors -- a trivial one, and one that takes
+>>> >>> a const volatile reference -- and in that case, passing through
+>>> >>> registers seems completely reasonable. How about changing the rule in
+>>> >>> 3.1.1 bullet 1 to:
+>>> >>>
+>>> >>> "In the special case where the parameter type does not have both a
+>>> >>> trivial destructor and at least one trivial copy or move constructor
+>>> >>> that is not deleted, the caller must allocate space for a temporary
+>>> >>> copy, and pass the resulting copy by reference (below). Specifically
+>>> >>> [?]"
+>>> >>
+>>> >> I agree with your proposal in theory, but I?m concerned about changing
+>>> >> the ABI at this point.  We *are* talking about the language standard
+>>> that was
+>>> >> released six years ago, and an area of that standard that was
+>>> theoretically
+>>> >> fully implemented by compilers several years before that.
+>>> >>
+>>> >> Do we understand the scope of the ABI disagreement between GCC and
+>>> Clang here?
+>>> >> What do other compilers do?
+>>> >
+>>> > Clang's rule is the one in the ABI: a class is passed indirectly if it
+>>> > has a non-trivial destructor or a non-trivial copy constructor. This
+>>> > rule definitely needs some adjustment, because it's not meaningful to
+>>> > ask whether an implicitly-deleted function is trivial.
+>>> 
+>>> That sounds like it?s on us to fix.  Do GCC and other compilers correctly
+>>> implement the rule that we agreed on?  If so, I?ll go ahead and apply
+>>> the change to the ABI document, and we should fix this in clang.
+>>> 
+>>> John.
+>>> _______________________________________________
+>>> cxx-abi-dev mailing list
+>>> cxx-abi-dev at codesourcery.com
+>>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>>> 
+> 
+>> _______________________________________________
+>> cxx-abi-dev mailing list
+>> cxx-abi-dev at codesourcery.com
+>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+> 
+
+
+From richardsmith at google.com  Wed Jul 20 01:04:07 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 19 Jul 2016 18:04:07 -0700
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+Message-ID: <CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+
+Another item for the list:
+
+Variadic virtual functions with covariant return types are currently
+problematic: it's not possible in general to generate an adjustor thunk for
+them, because it's not possible in general to forward a (non-tail) varargs
+call. Similar problems exist for the conversion to function pointer in a
+non-capturing varargs lambda.
+
+We can fix this by changing the calling convention for varargs non-static
+member functions so that they are passed a va_list object directly (that
+is, effectively put the va_start / va_end into the caller, and convert a
+va_start in the callee into a va_copy from the va_list argument). Then
+forwarding the varargs become trivial.
+
+(It seems preferable to apply this change to all non-static member
+functions, not just virtual functions, so that we don't need to emit two
+quite different codepaths for a call through a pointer to member.)
+
+On 12 May 2015 at 17:29, Richard Smith <richardsmith at google.com> wrote:
+
+> Another item for the Itanium C++ ABI version 2 list:
+>
+> The ABI currently specifies that the initial guard variable load is an
+> acquire load (3.3.2, "An implementation supporting thread-safety on
+> multiprocessor systems must also guarantee that references to the
+> initialized object do not occur before the load of the initialization flag.
+> On Itanium, this can be done by using a ld1.acq operation to load the
+> flag.").
+>
+> This is inefficient on systems where an acquire load requires a fence.
+> Using an algorithm due to Mike Burrows (described in the appendix of
+> http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm) the
+> same interface can be implemented starting with a relaxed load, where the
+> acquire operation is performed only the first time each thread hits the
+> initialization.
+>
+> On 19 November 2013 at 17:57, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+>> Hi,
+>>
+>> There are a few things in the current ABI which are known to be
+>> suboptimal, but we cannot change because doing so would introduce an ABI
+>> break. However, vendors sometimes get an opportunity to break their ABI (or
+>> are defining a new ABI), and for some vendors, this is a very common
+>> occurrence. To this end, I think it would be valuable for the ABI document
+>> to describe what we might want to put in a 'Version 2' of the ABI; that is,
+>> a set of changes that we recommend be made whenever a vendor has a chance
+>> to introduce an ABI break.
+>>
+>> (Or perhaps this should be viewed from the opposite perspective: we could
+>> make improvements to the ABI, with an annex listing changes that old
+>> platforms must make for compatibility.)
+>>
+>> Would there be support for this idea?
+>>
+>>
+>> In off-line discussion with John McCall, we came up with the following
+>> list of potential changes that might be made (sorry if I forgot any):
+>>
+>>  * Make constructors and destructors return 'this' instead of returning
+>> 'void', in order to allow callers to avoid a reload in common cases and to
+>> allow more tail calls.
+>>  * Simplify case 2b in non-POD class layout.
+>>  * Make virtual functions that are defined as 'inline' not be key
+>> functions
+>>  * Fix the bug that -1 is both the null pointer-to-data-member value and
+>> also a valid value of a pointer-to-data-member (could use SIZE_MIN instead)
+>>  * Relax the definition of POD used in the ABI, in order to allow more
+>> class types to be passed in registers
+>>
+>> Are there any other things that it would make sense to change in a
+>> version 2 of the ABI?
+>>
+>>
+>> Also, would there be any support for documenting common deviations from
+>> the ABI that platform vendors might want to consider when specifying their
+>> own ABIs? In addition to some of the above, this would also include:
+>>
+>>  * Representation of pointers-to-member-functions (in particular, the
+>> current representation assumes that the lowest bit of a function pointer is
+>> unused, which isn't true in general)
+>>  * Representation of guard variables (some platforms use the native word
+>> size rather than forcing this to be 64 bits wide)
+>>
+>> Are there any others?
+>>
+>>
+>> Thanks!
+>>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160719/24141344/attachment.html>
+
+From hstong at ca.ibm.com  Thu Jul 21 00:24:42 2016
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Wed, 20 Jul 2016 20:24:42 -0400
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com><CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+	<CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+Message-ID: <OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+
+
+I believe at least the covariant return case can be solved with alternative
+function entry points which record the adjustments necessary on return.
+Of course, the va_list option can still be presented.
+
+-- HT
+
+
+
+From:	Richard Smith <richardsmith at google.com>
+To:	"cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+Date:	19-07-2016 09:04 p.m.
+Subject:	Re: [cxx-abi-dev] C++ ABI version 2
+Sent by:	cxx-abi-dev-bounces at codesourcery.com
+
+
+
+Another item for the list:
+
+Variadic virtual functions with covariant return types are currently
+problematic: it's not possible in general to generate an adjustor thunk for
+them, because it's not possible in general to forward a (non-tail) varargs
+call. Similar problems exist for the conversion to function pointer in a
+non-capturing varargs lambda.
+
+We can fix this by changing the calling convention for varargs non-static
+member functions so that they are passed a va_list object directly (that
+is, effectively put the va_start / va_end into the caller, and convert a
+va_start in the callee into a va_copy from the va_list argument). Then
+forwarding the varargs become trivial.
+
+(It seems preferable to apply this change to all non-static member
+functions, not just virtual functions, so that we don't need to emit two
+quite different codepaths for a call through a pointer to member.)
+
+On 12 May 2015 at 17:29, Richard Smith <richardsmith at google.com> wrote:
+  Another item for the Itanium C++ ABI version 2 list:
+
+  The ABI currently specifies that the initial guard variable load is an
+  acquire load (3.3.2, "An implementation supporting thread-safety on
+  multiprocessor systems must also guarantee that references to the
+  initialized object do not occur before the load of the initialization
+  flag. On Itanium, this can be done by using a ld1.acq operation to load
+  the flag.").
+
+  This is inefficient on systems where an acquire load requires a fence.
+  Using an algorithm due to Mike Burrows (described in the appendix of
+  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm) the
+  same interface can be implemented starting with a relaxed load, where the
+  acquire operation is performed only the first time each thread hits the
+  initialization.
+
+  On 19 November 2013 at 17:57, Richard Smith <richardsmith at google.com>
+  wrote:
+   Hi,
+
+   There are a few things in the current ABI which are known to be
+   suboptimal, but we cannot change because doing so would introduce an ABI
+   break. However, vendors sometimes get an opportunity to break their ABI
+   (or are defining a new ABI), and for some vendors, this is a very common
+   occurrence. To this end, I think it would be valuable for the ABI
+   document to describe what we might want to put in a 'Version 2' of the
+   ABI; that is, a set of changes that we recommend be made whenever a
+   vendor has a chance to introduce an ABI break.
+
+   (Or perhaps this should be viewed from the opposite perspective: we
+   could make improvements to the ABI, with an annex listing changes that
+   old platforms must make for compatibility.)
+
+   Would there be support for this idea?
+
+
+   In off-line discussion with John McCall, we came up with the following
+   list of potential changes that might be made (sorry if I forgot any):
+
+   ?* Make constructors and destructors return 'this' instead of returning
+   'void', in order to allow callers to avoid a reload in common cases and
+   to allow more tail calls.
+   ?* Simplify case 2b in non-POD class layout.
+   ?* Make virtual functions that are defined as 'inline' not be key
+   functions
+   ?* Fix the bug that -1 is both the null pointer-to-data-member value and
+   also a valid value of a pointer-to-data-member (could use SIZE_MIN
+   instead)
+   ?* Relax the definition of POD used in the ABI, in order to allow more
+   class types to be passed in registers
+
+   Are there any other things that it would make sense to change in a
+   version 2 of the ABI?
+
+
+   Also, would there be any support for documenting common deviations from
+   the ABI that platform vendors might want to consider when specifying
+   their own ABIs? In addition to some of the above, this would also
+   include:
+
+   ?* Representation of pointers-to-member-functions (in particular, the
+   current representation assumes that the lowest bit of a function pointer
+   is unused, which isn't true in general)
+   ?* Representation of guard variables (some platforms use the native word
+   size rather than forcing this to be 64 bits wide)
+
+   Are there any others?
+
+
+   Thanks!
+
+_______________________________________________
+cxx-abi-dev mailing list
+cxx-abi-dev at codesourcery.com
+http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/0b1b6fdc/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/0b1b6fdc/attachment.gif>
+
+From richardsmith at google.com  Thu Jul 21 00:30:42 2016
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 20 Jul 2016 17:30:42 -0700
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+	<CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+	<OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+Message-ID: <CAGL0aWd5XGRVO3nA5RJ5+5adyvDwKqDGU5AMMwkuNKY3PD+rzA@mail.gmail.com>
+
+On 20 July 2016 at 17:24, Hubert Tong <hstong at ca.ibm.com> wrote:
+
+> I believe at least the covariant return case can be solved with
+> alternative function entry points which record the adjustments necessary on
+> return.
+>
+A constant adjustment is not sufficient if you're converting to a virtual
+base.
+
+> Of course, the va_list option can still be presented.
+>
+> -- HT
+>
+> [image: Inactive hide details for Richard Smith ---19-07-2016 09:04:25
+> p.m.---Another item for the list: Variadic virtual functions wit]Richard
+> Smith ---19-07-2016 09:04:25 p.m.---Another item for the list: Variadic
+> virtual functions with covariant return types are currently
+>
+> From: Richard Smith <richardsmith at google.com>
+> To: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> Date: 19-07-2016 09:04 p.m.
+> Subject: Re: [cxx-abi-dev] C++ ABI version 2
+> Sent by: cxx-abi-dev-bounces at codesourcery.com
+> ------------------------------
+>
+>
+>
+> Another item for the list:
+>
+> Variadic virtual functions with covariant return types are currently
+> problematic: it's not possible in general to generate an adjustor thunk for
+> them, because it's not possible in general to forward a (non-tail) varargs
+> call. Similar problems exist for the conversion to function pointer in a
+> non-capturing varargs lambda.
+>
+> We can fix this by changing the calling convention for varargs non-static
+> member functions so that they are passed a va_list object directly (that
+> is, effectively put the va_start / va_end into the caller, and convert a
+> va_start in the callee into a va_copy from the va_list argument). Then
+> forwarding the varargs become trivial.
+>
+> (It seems preferable to apply this change to all non-static member
+> functions, not just virtual functions, so that we don't need to emit two
+> quite different codepaths for a call through a pointer to member.)
+>
+> On 12 May 2015 at 17:29, Richard Smith <*richardsmith at google.com*
+> <richardsmith at google.com>> wrote:
+>
+>    Another item for the Itanium C++ ABI version 2 list:
+>
+>    The ABI currently specifies that the initial guard variable load is an
+>    acquire load (3.3.2, "An implementation supporting thread-safety on
+>    multiprocessor systems must also guarantee that references to the
+>    initialized object do not occur before the load of the initialization flag.
+>    On Itanium, this can be done by using a ld1.acq operation to load the
+>    flag.").
+>
+>    This is inefficient on systems where an acquire load requires a fence.
+>    Using an algorithm due to Mike Burrows (described in the appendix of
+>    *http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm*
+>    <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm>)
+>    the same interface can be implemented starting with a relaxed load, where
+>    the acquire operation is performed only the first time each thread hits the
+>    initialization.
+>
+>    On 19 November 2013 at 17:57, Richard Smith <*richardsmith at google.com*
+>    <richardsmith at google.com>> wrote:
+>    Hi,
+>
+>    There are a few things in the current ABI which are known to be
+>    suboptimal, but we cannot change because doing so would introduce an ABI
+>    break. However, vendors sometimes get an opportunity to break their ABI (or
+>    are defining a new ABI), and for some vendors, this is a very common
+>    occurrence. To this end, I think it would be valuable for the ABI document
+>    to describe what we might want to put in a 'Version 2' of the ABI; that is,
+>    a set of changes that we recommend be made whenever a vendor has a chance
+>    to introduce an ABI break.
+>
+>    (Or perhaps this should be viewed from the opposite perspective: we
+>    could make improvements to the ABI, with an annex listing changes that old
+>    platforms must make for compatibility.)
+>
+>    Would there be support for this idea?
+>
+>
+>    In off-line discussion with John McCall, we came up with the following
+>    list of potential changes that might be made (sorry if I forgot any):
+>
+>     * Make constructors and destructors return 'this' instead of
+>    returning 'void', in order to allow callers to avoid a reload in common
+>    cases and to allow more tail calls.
+>     * Simplify case 2b in non-POD class layout.
+>     * Make virtual functions that are defined as 'inline' not be key
+>    functions
+>     * Fix the bug that -1 is both the null pointer-to-data-member value
+>    and also a valid value of a pointer-to-data-member (could use SIZE_MIN
+>    instead)
+>     * Relax the definition of POD used in the ABI, in order to allow more
+>    class types to be passed in registers
+>
+>    Are there any other things that it would make sense to change in a
+>    version 2 of the ABI?
+>
+>
+>    Also, would there be any support for documenting common deviations
+>    from the ABI that platform vendors might want to consider when specifying
+>    their own ABIs? In addition to some of the above, this would also include:
+>
+>     * Representation of pointers-to-member-functions (in particular, the
+>    current representation assumes that the lowest bit of a function pointer is
+>    unused, which isn't true in general)
+>     * Representation of guard variables (some platforms use the native
+>    word size rather than forcing this to be 64 bits wide)
+>
+>    Are there any others?
+>
+>
+>    Thanks!
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/d30b8f53/attachment-0001.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/d30b8f53/attachment-0001.gif>
+
+From hstong at ca.ibm.com  Thu Jul 21 00:33:29 2016
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Wed, 20 Jul 2016 20:33:29 -0400
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <CAGL0aWd5XGRVO3nA5RJ5+5adyvDwKqDGU5AMMwkuNKY3PD+rzA@mail.gmail.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+	<CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+	<OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+	<CAGL0aWd5XGRVO3nA5RJ5+5adyvDwKqDGU5AMMwkuNKY3PD+rzA@mail.gmail.com>
+Message-ID: <OF085E20CD.3B1FFCEB-ON00257FF7.0002F21B-85257FF7.00031113@notes.na.collabserv.com>
+
+
+... and I can record the adjustments necessary as a pointer to a function.
+
+-- HT
+
+
+
+From:	Richard Smith <richardsmith at google.com>
+To:	Hubert Tong/Toronto/IBM at IBMCA
+Cc:	"cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+Date:	20-07-2016 08:30 p.m.
+Subject:	Re: [cxx-abi-dev] C++ ABI version 2
+
+
+
+On 20 July 2016 at 17:24, Hubert Tong <hstong at ca.ibm.com> wrote:
+  I believe at least the covariant return case can be solved with
+  alternative function entry points which record the adjustments necessary
+  on return.
+
+
+A constant adjustment is not sufficient if you're converting to a virtual
+base.
+  Of course, the va_list option can still be presented.
+
+  -- HT
+
+  Inactive hide details for Richard Smith ---19-07-2016 09:04:25
+  p.m.---Another item for the list: Variadic virtual functions witRichard
+  Smith ---19-07-2016 09:04:25 p.m.---Another item for the list: Variadic
+  virtual functions with covariant return types are currently
+
+  From: Richard Smith <richardsmith at google.com>
+  To: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+  Date: 19-07-2016 09:04 p.m.
+  Subject: Re: [cxx-abi-dev] C++ ABI version 2
+  Sent by: cxx-abi-dev-bounces at codesourcery.com
+
+
+
+
+  Another item for the list:
+
+  Variadic virtual functions with covariant return types are currently
+  problematic: it's not possible in general to generate an adjustor thunk
+  for them, because it's not possible in general to forward a (non-tail)
+  varargs call. Similar problems exist for the conversion to function
+  pointer in a non-capturing varargs lambda.
+
+  We can fix this by changing the calling convention for varargs non-static
+  member functions so that they are passed a va_list object directly (that
+  is, effectively put the va_start / va_end into the caller, and convert a
+  va_start in the callee into a va_copy from the va_list argument). Then
+  forwarding the varargs become trivial.
+
+  (It seems preferable to apply this change to all non-static member
+  functions, not just virtual functions, so that we don't need to emit two
+  quite different codepaths for a call through a pointer to member.)
+
+  On 12 May 2015 at 17:29, Richard Smith <richardsmith at google.com> wrote:
+        Another item for the Itanium C++ ABI version 2 list:
+
+        The ABI currently specifies that the initial guard variable load is
+        an acquire load (3.3.2, "An implementation supporting thread-safety
+        on multiprocessor systems must also guarantee that references to
+        the initialized object do not occur before the load of the
+        initialization flag. On Itanium, this can be done by using a
+        ld1.acq operation to load the flag.").
+
+        This is inefficient on systems where an acquire load requires a
+        fence. Using an algorithm due to Mike Burrows (described in the
+        appendix of
+        http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm)
+        the same interface can be implemented starting with a relaxed load,
+        where the acquire operation is performed only the first time each
+        thread hits the initialization.
+
+        On 19 November 2013 at 17:57, Richard Smith <
+        richardsmith at google.com> wrote:
+        Hi,
+
+        There are a few things in the current ABI which are known to be
+        suboptimal, but we cannot change because doing so would introduce
+        an ABI break. However, vendors sometimes get an opportunity to
+        break their ABI (or are defining a new ABI), and for some vendors,
+        this is a very common occurrence. To this end, I think it would be
+        valuable for the ABI document to describe what we might want to put
+        in a 'Version 2' of the ABI; that is, a set of changes that we
+        recommend be made whenever a vendor has a chance to introduce an
+        ABI break.
+
+        (Or perhaps this should be viewed from the opposite perspective: we
+        could make improvements to the ABI, with an annex listing changes
+        that old platforms must make for compatibility.)
+
+        Would there be support for this idea?
+
+
+        In off-line discussion with John McCall, we came up with the
+        following list of potential changes that might be made (sorry if I
+        forgot any):
+
+        ?* Make constructors and destructors return 'this' instead of
+        returning 'void', in order to allow callers to avoid a reload in
+        common cases and to allow more tail calls.
+        ?* Simplify case 2b in non-POD class layout.
+        ?* Make virtual functions that are defined as 'inline' not be key
+        functions
+        ?* Fix the bug that -1 is both the null pointer-to-data-member
+        value and also a valid value of a pointer-to-data-member (could use
+        SIZE_MIN instead)
+        ?* Relax the definition of POD used in the ABI, in order to allow
+        more class types to be passed in registers
+
+        Are there any other things that it would make sense to change in a
+        version 2 of the ABI?
+
+
+        Also, would there be any support for documenting common deviations
+        from the ABI that platform vendors might want to consider when
+        specifying their own ABIs? In addition to some of the above, this
+        would also include:
+
+        ?* Representation of pointers-to-member-functions (in particular,
+        the current representation assumes that the lowest bit of a
+        function pointer is unused, which isn't true in general)
+        ?* Representation of guard variables (some platforms use the native
+        word size rather than forcing this to be 64 bits wide)
+
+        Are there any others?
+
+
+        Thanks!
+  _______________________________________________
+  cxx-abi-dev mailing list
+  cxx-abi-dev at codesourcery.com
+  http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+
+
+
+
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/6e862dbd/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160720/6e862dbd/attachment.gif>
+
+From rnk at google.com  Thu Jul 21 13:59:29 2016
+From: rnk at google.com (Reid Kleckner)
+Date: Thu, 21 Jul 2016 09:59:29 -0400
+Subject: [cxx-abi-dev] C++ ABI version 2
+In-Reply-To: <OF085E20CD.3B1FFCEB-ON00257FF7.0002F21B-85257FF7.00031113@notes.na.collabserv.com>
+References: <CAGL0aWcwKmaQcPSnqvo=5BKOqGmJNGvioZ2iZjTDEgo+t5XYZw@mail.gmail.com>
+	<CAGL0aWfBuFGbQtery85NNYYksS5qUVJ3CnKHA5zpJ6NRtRwPqw@mail.gmail.com>
+	<CAGL0aWdkEPoYHUvJEG7b8g-i=gDidG95p+BHJDCjwfGJL0hL-w@mail.gmail.com>
+	<OF5FC80EA2.B31864BB-ON00257FF7.00001EAE-85257FF7.0002432B@notes.na.collabserv.com>
+	<CAGL0aWd5XGRVO3nA5RJ5+5adyvDwKqDGU5AMMwkuNKY3PD+rzA@mail.gmail.com>
+	<OF085E20CD.3B1FFCEB-ON00257FF7.0002F21B-85257FF7.00031113@notes.na.collabserv.com>
+Message-ID: <CACs=tyKihAyzhAn9=n3Uc6hZqkVdNjGcohNLiSN0C0AbbPAHOA@mail.gmail.com>
+
+Alternative function entry points seem like too much of a burden on the
+compiler implementing the ABI. I'm not sure how I would transliterate that
+to C either. Translating va_start to va_copy in variadic virtual functions
+with a covariant return type seems much simpler to me.
+
+On Wed, Jul 20, 2016 at 8:33 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+
+> ... and I can record the adjustments necessary as a pointer to a function.
+>
+> -- HT
+>
+> [image: Inactive hide details for Richard Smith ---20-07-2016 08:30:52
+> p.m.---On 20 July 2016 at 17:24, Hubert Tong <hstong at ca.ibm.com>]Richard
+> Smith ---20-07-2016 08:30:52 p.m.---On 20 July 2016 at 17:24, Hubert Tong <
+> hstong at ca.ibm.com> wrote: > I believe at least the covariant
+>
+> From: Richard Smith <richardsmith at google.com>
+> To: Hubert Tong/Toronto/IBM at IBMCA
+> Cc: "cxx-abi-dev at codesourcery.com" <cxx-abi-dev at codesourcery.com>
+> Date: 20-07-2016 08:30 p.m.
+> Subject: Re: [cxx-abi-dev] C++ ABI version 2
+> ------------------------------
+>
+>
+>
+> On 20 July 2016 at 17:24, Hubert Tong <*hstong at ca.ibm.com*
+> <hstong at ca.ibm.com>> wrote:
+>
+>    I believe at least the covariant return case can be solved with
+>    alternative function entry points which record the adjustments necessary on
+>    return.
+>
+>
+> A constant adjustment is not sufficient if you're converting to a virtual
+> base.
+>
+>    Of course, the va_list option can still be presented.
+>
+>    -- HT
+>
+>    [image: Inactive hide details for Richard Smith ---19-07-2016 09:04:25
+>    p.m.---Another item for the list: Variadic virtual functions wit]Richard
+>    Smith ---19-07-2016 09:04:25 p.m.---Another item for the list: Variadic
+>    virtual functions with covariant return types are currently
+>
+>    From: Richard Smith <*richardsmith at google.com*
+>    <richardsmith at google.com>>
+>    To: "*cxx-abi-dev at codesourcery.com* <cxx-abi-dev at codesourcery.com>" <
+>    *cxx-abi-dev at codesourcery.com* <cxx-abi-dev at codesourcery.com>>
+>    Date: 19-07-2016 09:04 p.m.
+>    Subject: Re: [cxx-abi-dev] C++ ABI version 2
+>    Sent by: *cxx-abi-dev-bounces at codesourcery.com*
+>    <cxx-abi-dev-bounces at codesourcery.com>
+>    ------------------------------
+>
+>
+>
+>
+>    Another item for the list:
+>
+>    Variadic virtual functions with covariant return types are currently
+>    problematic: it's not possible in general to generate an adjustor thunk for
+>    them, because it's not possible in general to forward a (non-tail) varargs
+>    call. Similar problems exist for the conversion to function pointer in a
+>    non-capturing varargs lambda.
+>
+>    We can fix this by changing the calling convention for varargs
+>    non-static member functions so that they are passed a va_list object
+>    directly (that is, effectively put the va_start / va_end into the caller,
+>    and convert a va_start in the callee into a va_copy from the va_list
+>    argument). Then forwarding the varargs become trivial.
+>
+>    (It seems preferable to apply this change to all non-static member
+>    functions, not just virtual functions, so that we don't need to emit two
+>    quite different codepaths for a call through a pointer to member.)
+>
+>    On 12 May 2015 at 17:29, Richard Smith <*richardsmith at google.com*
+>    <richardsmith at google.com>> wrote:
+>       Another item for the Itanium C++ ABI version 2 list:
+>
+>          The ABI currently specifies that the initial guard variable load
+>          is an acquire load (3.3.2, "An implementation supporting thread-safety on
+>          multiprocessor systems must also guarantee that references to the
+>          initialized object do not occur before the load of the initialization flag.
+>          On Itanium, this can be done by using a ld1.acq operation to load the
+>          flag.").
+>
+>          This is inefficient on systems where an acquire load requires a
+>          fence. Using an algorithm due to Mike Burrows (described in the appendix of
+>          *http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm*
+>          <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2008/n2660.htm>)
+>          the same interface can be implemented starting with a relaxed load, where
+>          the acquire operation is performed only the first time each thread hits the
+>          initialization.
+>
+>          On 19 November 2013 at 17:57, Richard Smith <
+>          *richardsmith at google.com* <richardsmith at google.com>> wrote:
+>          Hi,
+>
+>          There are a few things in the current ABI which are known to be
+>          suboptimal, but we cannot change because doing so would introduce an ABI
+>          break. However, vendors sometimes get an opportunity to break their ABI (or
+>          are defining a new ABI), and for some vendors, this is a very common
+>          occurrence. To this end, I think it would be valuable for the ABI document
+>          to describe what we might want to put in a 'Version 2' of the ABI; that is,
+>          a set of changes that we recommend be made whenever a vendor has a chance
+>          to introduce an ABI break.
+>
+>          (Or perhaps this should be viewed from the opposite perspective:
+>          we could make improvements to the ABI, with an annex listing changes that
+>          old platforms must make for compatibility.)
+>
+>          Would there be support for this idea?
+>
+>
+>          In off-line discussion with John McCall, we came up with the
+>          following list of potential changes that might be made (sorry if I forgot
+>          any):
+>
+>           * Make constructors and destructors return 'this' instead of
+>          returning 'void', in order to allow callers to avoid a reload in common
+>          cases and to allow more tail calls.
+>           * Simplify case 2b in non-POD class layout.
+>           * Make virtual functions that are defined as 'inline' not be
+>          key functions
+>           * Fix the bug that -1 is both the null pointer-to-data-member
+>          value and also a valid value of a pointer-to-data-member (could use
+>          SIZE_MIN instead)
+>           * Relax the definition of POD used in the ABI, in order to
+>          allow more class types to be passed in registers
+>
+>          Are there any other things that it would make sense to change in
+>          a version 2 of the ABI?
+>
+>
+>          Also, would there be any support for documenting common
+>          deviations from the ABI that platform vendors might want to consider when
+>          specifying their own ABIs? In addition to some of the above, this would
+>          also include:
+>
+>           * Representation of pointers-to-member-functions (in
+>          particular, the current representation assumes that the lowest bit of a
+>          function pointer is unused, which isn't true in general)
+>           * Representation of guard variables (some platforms use the
+>          native word size rather than forcing this to be 64 bits wide)
+>
+>          Are there any others?
+>
+>
+>          Thanks!
+>       _______________________________________________
+>    cxx-abi-dev mailing list
+> *cxx-abi-dev at codesourcery.com* <cxx-abi-dev at codesourcery.com>
+> *http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev*
+>    <http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/89a7ba4e/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/89a7ba4e/attachment.gif>
+
+From jason at redhat.com  Thu Jul 21 17:53:31 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 21 Jul 2016 13:53:31 -0400
+Subject: [cxx-abi-dev] Passing an empty class by value
+In-Reply-To: <56D11FA2.3010408@redhat.com>
+References: <38C37E44FD352B44ABFC58410B0790D0901271A2@ORSMSX103.amr.corp.intel.com>
+	<42A290F1-70B3-4BC1-A4F5-F42051DB7629@apple.com>
+	<CAGL0aWcT+RszbyBJgJDv2RYLa0NYnnqNKpjYtOBAsUOFQWNjHg@mail.gmail.com>
+	<566B1803.8070201@redhat.com> <56D11FA2.3010408@redhat.com>
+Message-ID: <CADzB+2koib_0zpCLT3A16b+sHW0nJO+jN_iEdeWAGgQPcDUsSA@mail.gmail.com>
+
+On Fri, Feb 26, 2016 at 11:01 PM, Jason Merrill <jason at redhat.com> wrote:
+> I also notice that the ABI says "If the base ABI does not specify rules for
+> empty classes, then an empty class has size and alignment 1."
+
+It also says,
+
+"Empty classes will be passed no differently from ordinary classes....
+The contents of the single byte parameter slot are unspecified, and
+the callee may not depend on any particular value."
+
+and
+
+"A result of an empty class type will be returned as though it were a
+struct containing a single char, i.e. struct S { char c; };. The
+actual content of the return register is unspecified."
+
+If we want the (new) psABI wording to override this, we need to update
+these rules by referring to the base ABI in these passages as well.
+
+Jason
+
+From jason at redhat.com  Thu Jul 21 18:02:48 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 21 Jul 2016 14:02:48 -0400
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+Message-ID: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+
+P0135 seems to require that we elide the copy when using the result of
+a function returning by value to initialize a base class subobject,
+but the ABI doesn't currently require that such a function avoid
+clobbering tail padding when initializing its return object.
+Thoughts?
+
+Jason
+
+From rjmccall at apple.com  Thu Jul 21 18:45:02 2016
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 21 Jul 2016 11:45:02 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+Message-ID: <0BB4FB95-1332-4FCA-8F63-6F6E18C549F9@apple.com>
+
+> On Jul 21, 2016, at 11:02 AM, Jason Merrill <jason at redhat.com> wrote:
+> P0135 seems to require that we elide the copy when using the result of
+> a function returning by value to initialize a base class subobject,
+> but the ABI doesn't currently require that such a function avoid
+> clobbering tail padding when initializing its return object.
+> Thoughts?
+
+This is not possible in general.  A function returning by value returns a complete
+object, i.e. one with its own virtual base subobjects.  We have no choice but to
+emit that to a temporary and move out of the non-virtual subobject.
+
+The next semantic question is whether it's compatible with NRVO, i.e. whether
+there are guarantees about the existence of padding on named local variables.
+
+Assuming that it's possible in some definable cases (and I think you could
+easily revise the standard to make it only apply to classes without v-bases), 
+it seems abstractly reasonable.  Certainly it's generally preferable to avoid
+a high-level copy/move + destroy pair than to use a larger store at the end
+of very specific initializers.
+
+As an implementor, I think I'm most worried about how this + NRVO would
+mess up our existing peepholes that assume the existence of tail padding
+on certain complete objects.
+
+John.
+
+From richardsmith at googlers.com  Thu Jul 21 18:48:13 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 21 Jul 2016 11:48:13 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <0BB4FB95-1332-4FCA-8F63-6F6E18C549F9@apple.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+	<0BB4FB95-1332-4FCA-8F63-6F6E18C549F9@apple.com>
+Message-ID: <CAGL0aWfqd+mNP-hywhjHXM6bNE3EK+Z67ynLvv1Xf48aEgXrKw@mail.gmail.com>
+
+On 21 July 2016 at 11:45, John McCall <rjmccall at apple.com> wrote:
+
+> > On Jul 21, 2016, at 11:02 AM, Jason Merrill <jason at redhat.com> wrote:
+> > P0135 seems to require that we elide the copy when using the result of
+> > a function returning by value to initialize a base class subobject,
+> > but the ABI doesn't currently require that such a function avoid
+> > clobbering tail padding when initializing its return object.
+> > Thoughts?
+>
+> This is not possible in general.  A function returning by value returns a
+> complete
+> object, i.e. one with its own virtual base subobjects.  We have no choice
+> but to
+> emit that to a temporary and move out of the non-virtual subobject.
+>
+
+That's a great point. At least for classes with virtual bases, we need to
+go via a temporary object when initializing a base class with a prvalue.
+I'll file a core issue for this.
+
+
+> The next semantic question is whether it's compatible with NRVO, i.e.
+> whether
+> there are guarantees about the existence of padding on named local
+> variables.
+>
+> Assuming that it's possible in some definable cases (and I think you could
+> easily revise the standard to make it only apply to classes without
+> v-bases),
+> it seems abstractly reasonable.  Certainly it's generally preferable to
+> avoid
+> a high-level copy/move + destroy pair than to use a larger store at the end
+> of very specific initializers.
+>
+> As an implementor, I think I'm most worried about how this + NRVO would
+> mess up our existing peepholes that assume the existence of tail padding
+> on certain complete objects.
+>
+> John.
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/baa5eb26/attachment.html>
+
+From richardsmith at googlers.com  Thu Jul 21 18:45:16 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 21 Jul 2016 11:45:16 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+Message-ID: <CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+
+On 21 July 2016 at 11:02, Jason Merrill <jason at redhat.com> wrote:
+
+> P0135 seems to require that we elide the copy when using the result of
+> a function returning by value to initialize a base class subobject,
+> but the ABI doesn't currently require that such a function avoid
+> clobbering tail padding when initializing its return object.
+> Thoughts?
+
+
+If the function clobbers the tail padding of its return object, at least
+GCC and Clang will miscompile the program today, without P0135:
+
+#include <string.h>
+struct X { ~X() {} int n; char d; };
+struct Y { Y(); char c[3]; };
+struct Z : X, virtual Y { Z(); };
+
+X f() { X nrvo; memset(&nrvo, 0, sizeof(X)); return nrvo; }
+Z::Z() : Y(), X(f()) {}
+Y::Y() : c{1, 2, 3} {}
+
+int main() {
+  Z z;
+  return z.c[0];
+}
+
+GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+optimization level, even with -fno-elide-constructors) returns 0.
+
+(It looks like Clang gets this "wrong" in two ways: first, NRVO is
+apprently never correct on a type whose tail padding could be reused, and
+second, we assume that we can memcpy a trivially-copyable base class at its
+full size -- effectively, we seem to assume that we won't initialize the
+tail padding of a base class before we initialize the base class itself.)
+
+At this point I'm questioning the wisdom of allowing a virtual base to be
+allocated into tail padding.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/3808b4bd/attachment.html>
+
+From jason at redhat.com  Thu Jul 21 20:20:07 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 21 Jul 2016 16:20:07 -0400
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+	<CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+Message-ID: <CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+
+On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+<richardsmith at googlers.com> wrote:
+> On 21 July 2016 at 11:02, Jason Merrill <jason at redhat.com> wrote:
+>>
+>> P0135 seems to require that we elide the copy when using the result of
+>> a function returning by value to initialize a base class subobject,
+>> but the ABI doesn't currently require that such a function avoid
+>> clobbering tail padding when initializing its return object.
+>> Thoughts?
+>
+> If the function clobbers the tail padding of its return object, at least GCC
+> and Clang will miscompile the program today, without P0135:
+>
+> #include <string.h>
+> struct X { ~X() {} int n; char d; };
+> struct Y { Y(); char c[3]; };
+> struct Z : X, virtual Y { Z(); };
+>
+> X f() { X nrvo; memset(&nrvo, 0, sizeof(X)); return nrvo; }
+> Z::Z() : Y(), X(f()) {}
+> Y::Y() : c{1, 2, 3} {}
+>
+> int main() {
+>   Z z;
+>   return z.c[0];
+> }
+>
+> GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+> optimization level, even with -fno-elide-constructors) returns 0.
+
+Thanks for the testcase.
+
+> (It looks like Clang gets this "wrong" in two ways: first, NRVO is apprently
+> never correct on a type whose tail padding could be reused
+
+Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+elide the copy because the function might clobber tail padding.  But
+that gets back to my initial question, since P0135 requires that
+elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+create a new ABI requirement that existing code might violate.
+
+> and second, we
+> assume that we can memcpy a trivially-copyable base class at its full size
+> -- effectively, we seem to assume that we won't initialize the tail padding
+> of a base class before we initialize the base class itself.)
+
+And I'd fixed that in one place already, but still needed to fix it in another.
+
+> At this point I'm questioning the wisdom of allowing a virtual base to be
+> allocated into tail padding.
+
+Yep.
+
+Jason
+
+From richardsmith at googlers.com  Thu Jul 21 20:31:59 2016
+From: richardsmith at googlers.com (Richard Smith)
+Date: Thu, 21 Jul 2016 13:31:59 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+	<CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+	<CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+Message-ID: <CAGL0aWf34eSfFkFiDMTbJaRzDCyZRaYn6UW6EurG+Gi4E-8q2A@mail.gmail.com>
+
+On 21 July 2016 at 13:20, Jason Merrill <jason at redhat.com> wrote:
+
+> On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+> <richardsmith at googlers.com> wrote:
+> > On 21 July 2016 at 11:02, Jason Merrill <jason at redhat.com> wrote:
+> >>
+> >> P0135 seems to require that we elide the copy when using the result of
+> >> a function returning by value to initialize a base class subobject,
+> >> but the ABI doesn't currently require that such a function avoid
+> >> clobbering tail padding when initializing its return object.
+> >> Thoughts?
+> >
+> > If the function clobbers the tail padding of its return object, at least
+> GCC
+> > and Clang will miscompile the program today, without P0135:
+> >
+> > #include <string.h>
+> > struct X { ~X() {} int n; char d; };
+> > struct Y { Y(); char c[3]; };
+> > struct Z : X, virtual Y { Z(); };
+> >
+> > X f() { X nrvo; memset(&nrvo, 0, sizeof(X)); return nrvo; }
+> > Z::Z() : Y(), X(f()) {}
+> > Y::Y() : c{1, 2, 3} {}
+> >
+> > int main() {
+> >   Z z;
+> >   return z.c[0];
+> > }
+> >
+> > GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+> > optimization level, even with -fno-elide-constructors) returns 0.
+>
+> Thanks for the testcase.
+>
+> > (It looks like Clang gets this "wrong" in two ways: first, NRVO is
+> apprently
+> > never correct on a type whose tail padding could be reused
+>
+> Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+> elide the copy because the function might clobber tail padding.  But
+> that gets back to my initial question, since P0135 requires that
+> elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+> create a new ABI requirement that existing code might violate.
+
+
+Given John's observation that P0135 can't even work in theory for the case
+of a base class with virtual bases, it seems like disabling P0135 for the
+case of initializing a base class of a class with vbases may be the
+simplest way forward.
+
+> and second, we
+> > assume that we can memcpy a trivially-copyable base class at its full
+> size
+> > -- effectively, we seem to assume that we won't initialize the tail
+> padding
+> > of a base class before we initialize the base class itself.)
+>
+> And I'd fixed that in one place already, but still needed to fix it in
+> another.
+>
+> > At this point I'm questioning the wisdom of allowing a virtual base to be
+> > allocated into tail padding.
+>
+> Yep.
+>
+> Jason
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/58d796ca/attachment.html>
+
+From rjmccall at apple.com  Thu Jul 21 20:34:06 2016
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 21 Jul 2016 13:34:06 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+	<CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+	<CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+Message-ID: <63F2FD6B-6768-4FDD-AC49-7ED1C229BBA0@apple.com>
+
+> On Jul 21, 2016, at 1:20 PM, Jason Merrill <jason at redhat.com> wrote:
+> On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+> <richardsmith at googlers.com> wrote:
+>> On 21 July 2016 at 11:02, Jason Merrill <jason at redhat.com> wrote:
+>>> 
+>>> P0135 seems to require that we elide the copy when using the result of
+>>> a function returning by value to initialize a base class subobject,
+>>> but the ABI doesn't currently require that such a function avoid
+>>> clobbering tail padding when initializing its return object.
+>>> Thoughts?
+>> 
+>> If the function clobbers the tail padding of its return object, at least GCC
+>> and Clang will miscompile the program today, without P0135:
+>> 
+>> #include <string.h>
+>> struct X { ~X() {} int n; char d; };
+>> struct Y { Y(); char c[3]; };
+>> struct Z : X, virtual Y { Z(); };
+>> 
+>> X f() { X nrvo; memset(&nrvo, 0, sizeof(X)); return nrvo; }
+>> Z::Z() : Y(), X(f()) {}
+>> Y::Y() : c{1, 2, 3} {}
+>> 
+>> int main() {
+>>  Z z;
+>>  return z.c[0];
+>> }
+>> 
+>> GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+>> optimization level, even with -fno-elide-constructors) returns 0.
+> 
+> Thanks for the testcase.
+> 
+>> (It looks like Clang gets this "wrong" in two ways: first, NRVO is apprently
+>> never correct on a type whose tail padding could be reused
+> 
+> Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+> elide the copy because the function might clobber tail padding.  But
+> that gets back to my initial question, since P0135 requires that
+> elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+> create a new ABI requirement that existing code might violate.
+
+P0135 is broken and cannot be implemented as written.  Given that we're telling
+the committee to fix it, we should ask for something that we think can be
+reasonably implemented with acceptable backwards compatibility.  We should
+not be encouraging implementations to avoid NRVO.
+
+It seems to me that the bug is that implementations should not be evaluating
+call results in-place into base sub-objects that have tail padding that might be reused.
+
+John.
+
+From rjmccall at apple.com  Thu Jul 21 20:57:05 2016
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 21 Jul 2016 13:57:05 -0700
+Subject: [cxx-abi-dev] Guaranteed copy elision and tail padding
+In-Reply-To: <CAGL0aWf34eSfFkFiDMTbJaRzDCyZRaYn6UW6EurG+Gi4E-8q2A@mail.gmail.com>
+References: <CADzB+2==VgX7tX0JYt_1ZvwZ7DxU6y-ZMQ5Jt2AO4fi+YcpgNw@mail.gmail.com>
+	<CAGL0aWf7EC-9v7mB6PXiMryYvGY4-cLyAPw=-WCDjzF4mKXuVg@mail.gmail.com>
+	<CADzB+2=jQxy2H4T4rF_6PcTST7tpGZQMw+fs2HUPujV6zH8GiA@mail.gmail.com>
+	<CAGL0aWf34eSfFkFiDMTbJaRzDCyZRaYn6UW6EurG+Gi4E-8q2A@mail.gmail.com>
+Message-ID: <88E38761-9B5D-49D5-B57A-DF9FFD72DDE9@apple.com>
+
+> On Jul 21, 2016, at 1:31 PM, Richard Smith <richardsmith at googlers.com> wrote:
+> On 21 July 2016 at 13:20, Jason Merrill <jason at redhat.com <mailto:jason at redhat.com>> wrote:
+> On Thu, Jul 21, 2016 at 2:45 PM, Richard Smith
+> <richardsmith at googlers.com <mailto:richardsmith at googlers.com>> wrote:
+> > On 21 July 2016 at 11:02, Jason Merrill <jason at redhat.com <mailto:jason at redhat.com>> wrote:
+> >>
+> >> P0135 seems to require that we elide the copy when using the result of
+> >> a function returning by value to initialize a base class subobject,
+> >> but the ABI doesn't currently require that such a function avoid
+> >> clobbering tail padding when initializing its return object.
+> >> Thoughts?
+> >
+> > If the function clobbers the tail padding of its return object, at least GCC
+> > and Clang will miscompile the program today, without P0135:
+> >
+> > #include <string.h>
+> > struct X { ~X() {} int n; char d; };
+> > struct Y { Y(); char c[3]; };
+> > struct Z : X, virtual Y { Z(); };
+> >
+> > X f() { X nrvo; memset(&nrvo, 0, sizeof(X)); return nrvo; }
+> > Z::Z() : Y(), X(f()) {}
+> > Y::Y() : c{1, 2, 3} {}
+> >
+> > int main() {
+> >   Z z;
+> >   return z.c[0];
+> > }
+> >
+> > GCC -O0 returns 1 from main, as it should. GCC -O2 and Clang (any
+> > optimization level, even with -fno-elide-constructors) returns 0.
+> 
+> Thanks for the testcase.
+> 
+> > (It looks like Clang gets this "wrong" in two ways: first, NRVO is apprently
+> > never correct on a type whose tail padding could be reused
+> 
+> Hmm, I was thinking that the NRVO was fine, but the caller shouldn't
+> elide the copy because the function might clobber tail padding.  But
+> that gets back to my initial question, since P0135 requires that
+> elision.  Avoiding NRVO here doesn't conflict with P0135, but it does
+> create a new ABI requirement that existing code might violate.
+> 
+> Given John's observation that P0135 can't even work in theory for the case of a base class with virtual bases, it seems like disabling P0135 for the case of initializing a base class of a class with vbases may be the simplest way forward.
+
+We re-use tail padding of all bases, not just virtual bases.  It's true that the Itanium ABI generally initializes things in ascending address order, but there are *two* exceptions.  The first, as you've noted, is virtual bases.  The second is when the primary base class is not the first base class in inheritance order:
+
+    struct A {
+      char c;
+      A() : c(15) {}
+    };
+
+    struct B {
+      virtual void foo() {}
+      char d;
+    };
+
+    struct C : A, B {};
+
+    int main() {
+        C c;
+    }
+
+Here the 'A' base is allocated in the tail padding of the 'B' base.  Now, 'B' is not technically trivially-copyable, but...
+
+Also, it's a big world, and other/alternative/future ABIs might want to do all sorts of things.  It's also not that hard to imagine future language features that would rely on knowing whether a constructor is initializing a base sub-object or a complete object (for example, the language could provide a way to declare constructors that are only allowed to initialize one or the other).
+
+It seems to me that the maximally correct thing is to disable the P0135 mandate for the case of initializing a base sub-object, full stop.  If we can define conditions in which it's acceptable to elide the copy, great, but that should be up to the implementation / ABI.
+
+(Semantic features like base-only constructors wouldn't prevent us from doing this best-effort today because adding one to an existing type is an ODR violation anyway.  We could easily adjust the ABI rule to disable in-place copy elision into base subobjects when the chosen copy constructor is base-only or something.)
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/eb0c64ea/attachment-0001.html>
+
+From pcc at google.com  Fri Jul 22 01:42:06 2016
+From: pcc at google.com (Peter Collingbourne)
+Date: Thu, 21 Jul 2016 18:42:06 -0700
+Subject: [cxx-abi-dev] Proposing an ABI restriction on loads from an
+	object's vtable pointer
+Message-ID: <CAMn1gO4wg0CecF15e4pUyPUOPdAZ608LKX9e6KNkw2KfwsKu6Q@mail.gmail.com>
+
+Hi all,
+
+The ABI currently requires that virtual tables for a class appear
+consecutively in a virtual table group. I would like to propose a
+restriction that would require that compilers may only access the virtual
+table associated with the address point stored in an object's virtual table
+pointer, and may not rely on any knowledge that the compiler may have about
+the relative layout of other virtual tables in the virtual table group.
+
+The purpose of this restriction is to allow an implementation to split a
+virtual table group along virtual table boundaries.
+
+Motivation
+
+There are at least two scenarios which would benefit from vtable splitting:
+clients which want to place data either before or after the ABI-required
+part of a virtual table, and clients which want to control the layout of
+virtual tables for performance or security reasons.
+
+As an example of the first scenario, when performing whole-program virtual
+call optimization, Clang will apply an optimization known as virtual
+constant propagation [0], which causes data to be laid out at a specific
+offset from the address point of each virtual table in a hierarchy. If that
+virtual table appears in a virtual table group, padding is required to
+place the data at an appropriate offset for each class. Because of the
+current restriction that vtables must appear consecutively, the optimizer
+may need to add more padding than necessary, or inhibit the optimization
+entirely if it would require too much padding.
+
+As an example of the second scenario, an implementation may wish to lay out
+virtual tables hierarchically either in order to increase the likelihood of
+a cache hit when repeatedly making the same virtual call over a set of
+heterogeneous objects, or to efficiently implement a security mitigation
+(specifically control flow integrity [1]) based on checking virtual table
+addresses for set membership. Placing only virtual tables (rather than
+virtual table groups) consecutively would likely increase the cache hit
+likelihood further and reduces the amount of metadata required to implement
+set membership checks.
+
+In an experiment involving the Chromium web browser, I have measured a
+binary size decrease of 1.5%, and a median performance improvement of about
+1% on Chromium's layout benchmarks when comparing a binary compiled with
+control flow integrity and whole-program virtual call optimization against
+a binary compiled with control flow integrity, whole-program virtual call
+optimization and a prototype implementation of vtable splitting.
+
+Commentary
+
+Although the ABI specifies [2] the calling convention for virtual calls,
+which requires the call to be made using the this-adjustment appropriate
+for the object from which the virtual table pointer was loaded, the as-if
+rule could in principle allow a program to make a call using a different
+virtual table if the virtual table group contains multiple secondary
+virtual tables, as the distance between these virtual tables would be fixed
+(the same would be possible for all virtual tables if the dynamic type were
+known, but in that case the program could just call the appropriate virtual
+function directly).
+
+The purported benefit would be to avoid an additional virtual pointer load
+from the object in cases where consecutive calls are made to virtual
+functions introduced in different bases. However, it seems to me that cases
+where this is beneficial would be rare: not only would you need at least
+three bases and a derived class which does not override any of the called
+virtual functions, but when performing two consecutive calls it seems
+likely that the vtable would need to be reloaded anyway, either from the
+object or from the stack, especially with majority caller-save ABIs such as
+x86-64, or in any event because the first virtual call may have changed the
+object's dynamic type. It seems (according to experiments [3] carried out
+at godbolt.org) that all major compilers (gcc, clang, icc) do already use
+the appropriate vtable group and therefore are compliant with the proposed
+restriction.
+
+(There would also seem to be nothing preventing an implementation from
+choosing to load the RTTI pointer or offset-to-top from another virtual
+table group. However I would consider this even less likely to be
+beneficial than a virtual call via another virtual table.)
+
+The ABI specifies that the vtables in a group shall be laid out
+consecutively when referenced via a vtable group symbol, and I'm not
+proposing to change this. The effect of this proposal would be to allow a
+vtable to be split if the vtable group symbol is not referenced directly by
+name outside of the translation unit(s) participating in the optimization.
+This may be the case when a class has internal linkage, or if the program
+is linked with LTO, which allows the compiler to know which symbols are
+referenced outside of the LTO'd part of the program.
+
+Wording
+
+I propose to add two paragraphs to the section of the ABI describing
+virtual table groups, as follows:
+
+diff --git a/abi.html b/abi.html
+index 79cda2c..fce0c60 100644
+--- a/abi.html
++++ b/abi.html
+@@ -1193,6 +1193,18 @@ and again excluding primary bases
+ (which share virtual tables with the classes for which they are primary).
+ </ul>
+
++<p>
++When performing a virtual call or loading any other data from an address
++derived from the address point stored in an object's virtual table pointer,
++a program may only load from the virtual table associated with that address
++point, and not from any other virtual table in the same virtual table group
++which might be presumed to be located at a fixed offset from the address
++point as a result of the above layout algorithm.
++
++<p>
++The purpose of this restriction is to allow an implementation to split a
++virtual table group along virtual table boundaries if its symbol is not
++visible to other translation units.
+
+ <p>
+ <a name="vtable-construction">
+
+
+Thanks,
+Peter
+
+[0] http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html
+[1] http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html
+[2] https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller
+[3] https://godbolt.org/g/wX7Ay6 is a three-bases test case by Richard
+Smith, https://godbolt.org/g/7eG8A1 is a dynamic-type-known test case by me
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160721/c8874c56/attachment.html>
+
+From rjmccall at apple.com  Thu Jul 28 02:21:01 2016
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 27 Jul 2016 19:21:01 -0700
+Subject: [cxx-abi-dev] Proposing an ABI restriction on loads from
+	an	object's vtable pointer
+In-Reply-To: <CAMn1gO4wg0CecF15e4pUyPUOPdAZ608LKX9e6KNkw2KfwsKu6Q@mail.gmail.com>
+References: <CAMn1gO4wg0CecF15e4pUyPUOPdAZ608LKX9e6KNkw2KfwsKu6Q@mail.gmail.com>
+Message-ID: <A468432F-5821-4E0A-AF6B-795FCDC6020F@apple.com>
+
+
+> On Jul 21, 2016, at 6:42 PM, Peter Collingbourne <pcc at google.com> wrote:
+> 
+> Hi all,
+> 
+> The ABI currently requires that virtual tables for a class appear consecutively in a virtual table group. I would like to propose a restriction that would require that compilers may only access the virtual table associated with the address point stored in an object's virtual table pointer, and may not rely on any knowledge that the compiler may have about the relative layout of other virtual tables in the virtual table group.
+> 
+> The purpose of this restriction is to allow an implementation to split a virtual table group along virtual table boundaries.
+> 
+> Motivation
+> 
+> There are at least two scenarios which would benefit from vtable splitting: clients which want to place data either before or after the ABI-required part of a virtual table, and clients which want to control the layout of virtual tables for performance or security reasons.
+> 
+> As an example of the first scenario, when performing whole-program virtual call optimization, Clang will apply an optimization known as virtual constant propagation [0], which causes data to be laid out at a specific offset from the address point of each virtual table in a hierarchy. If that virtual table appears in a virtual table group, padding is required to place the data at an appropriate offset for each class. Because of the current restriction that vtables must appear consecutively, the optimizer may need to add more padding than necessary, or inhibit the optimization entirely if it would require too much padding.
+> 
+> As an example of the second scenario, an implementation may wish to lay out virtual tables hierarchically either in order to increase the likelihood of a cache hit when repeatedly making the same virtual call over a set of heterogeneous objects, or to efficiently implement a security mitigation (specifically control flow integrity [1]) based on checking virtual table addresses for set membership. Placing only virtual tables (rather than virtual table groups) consecutively would likely increase the cache hit likelihood further and reduces the amount of metadata required to implement set membership checks.
+> 
+> In an experiment involving the Chromium web browser, I have measured a binary size decrease of 1.5%, and a median performance improvement of about 1% on Chromium's layout benchmarks when comparing a binary compiled with control flow integrity and whole-program virtual call optimization against a binary compiled with control flow integrity, whole-program virtual call optimization and a prototype implementation of vtable splitting.
+> 
+> Commentary
+> 
+> Although the ABI specifies [2] the calling convention for virtual calls, which requires the call to be made using the this-adjustment appropriate for the object from which the virtual table pointer was loaded, the as-if rule could in principle allow a program to make a call using a different virtual table if the virtual table group contains multiple secondary virtual tables, as the distance between these virtual tables would be fixed (the same would be possible for all virtual tables if the dynamic type were known, but in that case the program could just call the appropriate virtual function directly).
+
+In what situation would the distance between secondary virtual tables in a VTT be fixed where you don't know the dynamic type?  Derived classes can always introduce or re-introduce virtual bases in ways that re-order the secondary virtual tables.
+
+John.
+
+> 
+> The purported benefit would be to avoid an additional virtual pointer load from the object in cases where consecutive calls are made to virtual functions introduced in different bases. However, it seems to me that cases where this is beneficial would be rare: not only would you need at least three bases and a derived class which does not override any of the called virtual functions, but when performing two consecutive calls it seems likely that the vtable would need to be reloaded anyway, either from the object or from the stack, especially with majority caller-save ABIs such as x86-64, or in any event because the first virtual call may have changed the object's dynamic type. It seems (according to experiments [3] carried out at godbolt.org <http://godbolt.org/>) that all major compilers (gcc, clang, icc) do already use the appropriate vtable group and therefore are compliant with the proposed restriction.
+> 
+> (There would also seem to be nothing preventing an implementation from choosing to load the RTTI pointer or offset-to-top from another virtual table group. However I would consider this even less likely to be beneficial than a virtual call via another virtual table.)
+> 
+> The ABI specifies that the vtables in a group shall be laid out consecutively when referenced via a vtable group symbol, and I'm not proposing to change this. The effect of this proposal would be to allow a vtable to be split if the vtable group symbol is not referenced directly by name outside of the translation unit(s) participating in the optimization. This may be the case when a class has internal linkage, or if the program is linked with LTO, which allows the compiler to know which symbols are referenced outside of the LTO'd part of the program.
+> 
+> Wording
+> 
+> I propose to add two paragraphs to the section of the ABI describing virtual table groups, as follows:
+> 
+> diff --git a/abi.html b/abi.html
+> index 79cda2c..fce0c60 100644
+> --- a/abi.html
+> +++ b/abi.html
+> @@ -1193,6 +1193,18 @@ and again excluding primary bases
+>  (which share virtual tables with the classes for which they are primary).
+>  </ul>
+>  
+> +<p>
+> +When performing a virtual call or loading any other data from an address
+> +derived from the address point stored in an object's virtual table pointer,
+> +a program may only load from the virtual table associated with that address
+> +point, and not from any other virtual table in the same virtual table group
+> +which might be presumed to be located at a fixed offset from the address
+> +point as a result of the above layout algorithm.
+> +
+> +<p>
+> +The purpose of this restriction is to allow an implementation to split a
+> +virtual table group along virtual table boundaries if its symbol is not
+> +visible to other translation units.
+>  
+>  <p>
+>  <a name="vtable-construction">
+> 
+> 
+> Thanks,
+> Peter
+> 
+> [0] http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html <http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html>
+> [1] http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html <http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html>
+> [2] https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller <https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller>
+> [3] https://godbolt.org/g/wX7Ay6 <https://godbolt.org/g/wX7Ay6> is a three-bases test case by Richard Smith, https://godbolt.org/g/7eG8A1 <https://godbolt.org/g/7eG8A1> is a dynamic-type-known test case by me
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160727/ba8f807d/attachment-0001.html>
+
+From rjmccall at apple.com  Thu Jul 28 16:52:37 2016
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 28 Jul 2016 09:52:37 -0700
+Subject: [cxx-abi-dev] Proposing an ABI restriction on loads from	an
+ object's vtable pointer
+In-Reply-To: <A468432F-5821-4E0A-AF6B-795FCDC6020F@apple.com>
+References: <CAMn1gO4wg0CecF15e4pUyPUOPdAZ608LKX9e6KNkw2KfwsKu6Q@mail.gmail.com>
+	<A468432F-5821-4E0A-AF6B-795FCDC6020F@apple.com>
+Message-ID: <549195CC-4BC8-451B-AA61-0BC14F451930@apple.com>
+
+> On Jul 27, 2016, at 7:21 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Jul 21, 2016, at 6:42 PM, Peter Collingbourne <pcc at google.com <mailto:pcc at google.com>> wrote:
+>> 
+>> Hi all,
+>> 
+>> The ABI currently requires that virtual tables for a class appear consecutively in a virtual table group. I would like to propose a restriction that would require that compilers may only access the virtual table associated with the address point stored in an object's virtual table pointer, and may not rely on any knowledge that the compiler may have about the relative layout of other virtual tables in the virtual table group.
+>> 
+>> The purpose of this restriction is to allow an implementation to split a virtual table group along virtual table boundaries.
+>> 
+>> Motivation
+>> 
+>> There are at least two scenarios which would benefit from vtable splitting: clients which want to place data either before or after the ABI-required part of a virtual table, and clients which want to control the layout of virtual tables for performance or security reasons.
+>> 
+>> As an example of the first scenario, when performing whole-program virtual call optimization, Clang will apply an optimization known as virtual constant propagation [0], which causes data to be laid out at a specific offset from the address point of each virtual table in a hierarchy. If that virtual table appears in a virtual table group, padding is required to place the data at an appropriate offset for each class. Because of the current restriction that vtables must appear consecutively, the optimizer may need to add more padding than necessary, or inhibit the optimization entirely if it would require too much padding.
+>> 
+>> As an example of the second scenario, an implementation may wish to lay out virtual tables hierarchically either in order to increase the likelihood of a cache hit when repeatedly making the same virtual call over a set of heterogeneous objects, or to efficiently implement a security mitigation (specifically control flow integrity [1]) based on checking virtual table addresses for set membership. Placing only virtual tables (rather than virtual table groups) consecutively would likely increase the cache hit likelihood further and reduces the amount of metadata required to implement set membership checks.
+>> 
+>> In an experiment involving the Chromium web browser, I have measured a binary size decrease of 1.5%, and a median performance improvement of about 1% on Chromium's layout benchmarks when comparing a binary compiled with control flow integrity and whole-program virtual call optimization against a binary compiled with control flow integrity, whole-program virtual call optimization and a prototype implementation of vtable splitting.
+>> 
+>> Commentary
+>> 
+>> Although the ABI specifies [2] the calling convention for virtual calls, which requires the call to be made using the this-adjustment appropriate for the object from which the virtual table pointer was loaded, the as-if rule could in principle allow a program to make a call using a different virtual table if the virtual table group contains multiple secondary virtual tables, as the distance between these virtual tables would be fixed (the same would be possible for all virtual tables if the dynamic type were known, but in that case the program could just call the appropriate virtual function directly).
+> 
+> In what situation would the distance between secondary virtual tables in a VTT be fixed where you don't know the dynamic type?  Derived classes can always introduce or re-introduce virtual bases in ways that re-order the secondary virtual tables.
+
+Okay, thinking about it more, the idea is that, because the enumeration order is depth-first, there will always be a local range of the compound v-table that contains the v-tables of the non-virtual for any given portion of the class hierarchy.  Because the secondary tables never have new function pointers added to them, they do not grow to the right; and because v-call offsets are always added to the primary v-table for a virtual base, they do not grow to the left.  Therefore, a secondary v-table of a non-virtual base is fixed in size, and so you could theoretically reach from one secondary v-table to another with a constant offset.  For this to be profitable, of course, you would have to have one secondary table already loaded when you tried to use the other; but that could happen.  So I agree that this would be a possible optimization today.
+
+>> The purported benefit would be to avoid an additional virtual pointer load from the object in cases where consecutive calls are made to virtual functions introduced in different bases. However, it seems to me that cases where this is beneficial would be rare: not only would you need at least three bases and a derived class which does not override any of the called virtual functions, but when performing two consecutive calls it seems likely that the vtable would need to be reloaded anyway, either from the object or from the stack, especially with majority caller-save ABIs such as x86-64, or in any event because the first virtual call may have changed the object's dynamic type.
+
+This part of your argument is weak.  Putting the v-table in a callee-save register would be quite reasonable if you're doing many repeat calls.  I don't see why it would matter whether the majority of registers are callee-save as long as the absolute number is at least 2; even i386 gives us 3 general-purpose callee-save registers, and x86-64 has 5.  And it's undefined behavior to change a pointer's dynamic type like that, although that can be tricky to take advantage of.
+
+That said, I would say that the trade-offs still break in your favor here.  The optimization potential of this sort of contrived situation ? calls to virtual methods of two different secondary v-tables ? doesn't out-weigh the optimization potential of permitting non-standard organization of secondary v-tables.
+
+>> It seems (according to experiments [3] carried out at godbolt.org <http://godbolt.org/>) that all major compilers (gcc, clang, icc) do already use the appropriate vtable group and therefore are compliant with the proposed restriction.
+>> 
+>> (There would also seem to be nothing preventing an implementation from choosing to load the RTTI pointer or offset-to-top from another virtual table group. However I would consider this even less likely to be beneficial than a virtual call via another virtual table.)
+
+I agree, I cannot imagine why an optimizer would deliberately do this when it could get the same information from a simpler source.
+
+>> The ABI specifies that the vtables in a group shall be laid out consecutively when referenced via a vtable group symbol, and I'm not proposing to change this. The effect of this proposal would be to allow a vtable to be split if the vtable group symbol is not referenced directly by name outside of the translation unit(s) participating in the optimization. This may be the case when a class has internal linkage, or if the program is linked with LTO, which allows the compiler to know which symbols are referenced outside of the LTO'd part of the program.
+>> 
+>> Wording
+>> 
+>> I propose to add two paragraphs to the section of the ABI describing virtual table groups, as follows:
+>> 
+>> diff --git a/abi.html b/abi.html
+>> index 79cda2c..fce0c60 100644
+>> --- a/abi.html
+>> +++ b/abi.html
+>> @@ -1193,6 +1193,18 @@ and again excluding primary bases
+>>  (which share virtual tables with the classes for which they are primary).
+>>  </ul>
+>>  
+>> +<p>
+>> +When performing a virtual call or loading any other data from an address
+>> +derived from the address point stored in an object's virtual table pointer,
+>> +a program may only load from the virtual table associated with that address
+>> +point, and not from any other virtual table in the same virtual table group
+>> +which might be presumed to be located at a fixed offset from the address
+>> +point as a result of the above layout algorithm.
+>> +
+>> +<p>
+>> +The purpose of this restriction is to allow an implementation to split a
+>> +virtual table group along virtual table boundaries if its symbol is not
+>> +visible to other translation units.
+
+I would say this more generally: the ABI does not make guarantees about the relative layout of v-tables in an object or a VTT.  It guarantees only the layout of the global symbol.  It does not guarantee that the v-table pointers actually installed in an object or a VTT will point into that global symbol.
+
+John.
+
+>>  
+>>  <p>
+>>  <a name="vtable-construction">
+>> 
+>> 
+>> Thanks,
+>> Peter
+>> 
+>> [0] http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html <http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html>
+>> [1] http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html <http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html>
+>> [2] https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller <https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller>
+>> [3] https://godbolt.org/g/wX7Ay6 <https://godbolt.org/g/wX7Ay6> is a three-bases test case by Richard Smith, https://godbolt.org/g/7eG8A1 <https://godbolt.org/g/7eG8A1> is a dynamic-type-known test case by me
+>> _______________________________________________
+>> cxx-abi-dev mailing list
+>> cxx-abi-dev at codesourcery.com <mailto:cxx-abi-dev at codesourcery.com>
+>> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+> 
+> _______________________________________________
+> cxx-abi-dev mailing list
+> cxx-abi-dev at codesourcery.com
+> http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160728/3d8fac90/attachment-0001.html>
+

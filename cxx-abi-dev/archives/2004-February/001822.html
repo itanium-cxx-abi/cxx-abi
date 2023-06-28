@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] trivial __dynamic_cast fails?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20trivial%20__dynamic_cast%20fails%3F&In-Reply-To=%3Cuoerjuuzd.fsf%40boost-consulting.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001821.html">
+   <LINK REL="Next"  HREF="001819.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] trivial __dynamic_cast fails?</H1>
+    <B>David Abrahams</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20trivial%20__dynamic_cast%20fails%3F&In-Reply-To=%3Cuoerjuuzd.fsf%40boost-consulting.com%3E"
+       TITLE="[cxx-abi-dev] trivial __dynamic_cast fails?">dave at boost-consulting.com
+       </A><BR>
+    <I>Sat Feb 28 14:41:42 UTC 2004</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001821.html">[cxx-abi-dev] trivial __dynamic_cast fails?
+</A></li>
+        <LI>Next message: <A HREF="001819.html">[cxx-abi-dev] trivial __dynamic_cast fails?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1822">[ date ]</a>
+              <a href="thread.html#1822">[ thread ]</a>
+              <a href="subject.html#1822">[ subject ]</a>
+              <a href="author.html#1822">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>David Baraff &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">deb at pixar.com</A>&gt; writes:
+
+&gt;<i> At Pixar, we've been making use of a type-system that piggy-backs off
+</I>&gt;<i> of RTTI.
+</I>&gt;<i> The only thing we require users to do is the following for each type
+</I>&gt;<i> they want to participate in the type system:
+</I>&gt;<i>
+</I>&gt;<i> ----source-file: derived.cpp-----
+</I>&gt;<i> #include &quot;instantiateType.h&quot;
+</I>&gt;<i> #include &quot;derived.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> TF_TYPE_INSTANTIATE(Derived, TF_1_PARENT(Base));
+</I>&gt;<i> ----------------------------------
+</I>&gt;<i>
+</I>&gt;<i> At startup-time, the above macro injects into a registry that Derived
+</I>&gt;<i> has a parent, Base.
+</I>&gt;<i> (Presumably base has done the same, possibly saying it has no parents
+</I>&gt;<i> and really is a base.)
+</I>&gt;<i> If you have multiple parents, you can do e.g.
+</I>&gt;<i>
+</I>&gt;<i> TF_TYPE_INSTANTIATE(MyMultiClass, TF_3_PARENT(Base1, Base2, Base3));
+</I>&gt;<i> Along with inserting the parent/child info, the macro above also
+</I>&gt;<i> synthesizes cast functions to/from parent and child and adds them to
+</I>&gt;<i> the registry
+</I>
+Sounds familiar.
+See http:://www.boost.org/boost/libs/python/src/object/inheritance.cpp
+
+&gt;<i>  -- this is trivially done in the macro,  since static
+</I>&gt;<i> type information is available.  After this, at runtime, we simply use
+</I>&gt;<i> the typeid() operator on an object and use the RTTI type_info
+</I>&gt;<i> structure to do lookups in our type-registry, allowing for all the
+</I>&gt;<i> queries and conversions you'd imagine in functions that have no access
+</I>&gt;<i> to static type information.
+</I>&gt;<i>
+</I>&gt;<i> The only ugliness, in fact, is requiring users to add that macro in
+</I>&gt;<i> their source code.  It would be nice to avoid that.
+</I>
+
+You can do all this without the ugly macros, if you care ;-)
+Boost.Python does it with templates.
+
+  class_&lt;X, bases&lt;Y, Z, W&gt; &gt;(&quot;X&quot;)
+      ...
+
+But the user still has to say something.
+
+&gt;<i> ------------------------------------------------------
+</I>&gt;<i> The __cxxabiv1 spec could let us avoid the macro ugliness.  (I say
+</I>&gt;<i> could because I'm quite leery about depending on constructs outside
+</I>&gt;<i> the language.  While Pixar is limited to linux and OsX right now,
+</I>&gt;<i> [i.e. both g++ compilers], you never know how things could change.)
+</I>&gt;<i>
+</I>&gt;<i> Anyway, we make use of the type facility to let our variant class
+</I>&gt;<i> [called TfAny, in fact!] hold onto a pointer of any type, and then let
+</I>&gt;<i> a user ask if it is holding that particular pointer type, or if it
+</I>&gt;<i> could be cast to that pointer type.  I don't see anyway that a query
+</I>&gt;<i> involving parent/child relationship can be done completely at
+</I>&gt;<i> run-time, by a class like boost::any without either the scheme I
+</I>&gt;<i> describe I above, or reliance on a facility like __cxxabiv1.  
+</I>
+See the code I posted.
+
+&gt;<i> Since you create a virtual function which knows only one type, you
+</I>&gt;<i> can't ask it if a cast can succeed to an arbitrary static type, you
+</I>&gt;<i> *have* to be able to ask if it a cast to a type represented by a
+</I>&gt;<i> type_info can succeed.  And *that* can't be done within the language
+</I>&gt;<i> as it stands.
+</I>
+I'm not sure.
+
+&gt;<i> You wrote
+</I>&gt;&gt;&gt;<i> Here's a biggy.  Consider the boost::any class.  Currently, if it
+</I>&gt;&gt;&gt;<i> holds a Derived* and you ask it for a Base*, I think it says &quot;no can
+</I>&gt;&gt;&gt;<i> do.&quot;  Imagine if it could actually say &quot;yes, I can give you back a
+</I>&gt;&gt;&gt;<i> Base*&quot;, because it could dynamically look up the parent chain, and do
+</I>&gt;&gt;&gt;<i> the address shift.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> That would make boost::any a heck of a lot more useful than it is
+</I>&gt;&gt;&gt;<i> today.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> boost::any could already be modified to do this, since it &quot;knows&quot; the
+</I>&gt;&gt;<i> &quot;Derived&quot; type.  I've enclosed an implementation.  Seems to reveal EH
+</I>&gt;&gt;<i> bugs in quite a few compilers, tho ;-)
+</I>&gt;<i>
+</I>&gt;<i> I don't understand what you mean by the above.  As I see it in the
+</I>&gt;<i> implementation, the any_cast&lt;&gt; operation must hit *exactly* the type
+</I>&gt;<i> actually being held or it fails.
+</I>
+You obviously didn't read the modified implementation I enclosed.
+
+&gt;<i> The holder object can't answer the question &quot;can your object be cast
+</I>&gt;<i> to some other type&quot; without making use of the abi-specific
+</I>&gt;<i> functionality we are discussing.  Do you think it can?
+</I>
+Yes; the holder knows the static type; it can throw a pointer of that
+type.  The cast operation can catch the pointer type it's looking
+for, or fail the cast with catch(...).
+
+&gt;<i> Anyway, to answer your other question about shifting addresses, it's
+</I>&gt;<i> trivial:
+</I>&gt;<i> (and Mark Mitchell patiently informed me that what I wanted was indeed
+</I>&gt;<i> sitting in the structure, if I'd just take the time to read
+</I>&gt;<i> carefully).
+</I>&gt;<i>
+</I>&gt;<i> In the code below, ArchGetDemangled() takes a const type_info&amp; and
+</I>&gt;<i> returns the demangled string name:
+</I>&gt;<i>
+</I>&gt;<i> #include &lt;cxxabi.h&gt;
+</I>&gt;<i>
+</I>&gt;<i> void
+</I>&gt;<i> PrintParents(const std::type_info* ti)
+</I>&gt;<i> {
+</I>&gt;<i>      if (const abi::__si_class_type_info* siTi =
+</I>&gt;<i>          dynamic_cast&lt;const abi::__si_class_type_info*&gt;(ti)) {
+</I>&gt;<i>
+</I>&gt;<i> 		 // there is no offset between parent and base class
+</I>&gt;<i>          printf(&quot;%s&quot;, ArchGetDemangled(*siTi-&gt;__base_type).c_str());
+</I>&gt;<i>      }
+</I>&gt;<i>      else if (const abi::__vmi_class_type_info* vmiTi =
+</I>&gt;<i>          dynamic_cast&lt;const abi::__vmi_class_type_info*&gt;(ti)) {
+</I>&gt;<i>
+</I>&gt;<i>          for (size_t i = 0; i &lt; vmiTi-&gt;__base_count; i++) {
+</I>&gt;<i>              printf(&quot;%s [offset %d]\n&quot;,
+</I>&gt;<i>                     ArchGetDemangled(*vmiTi-&gt;__base_info[i].__base_type).c_str(),
+</I>&gt;<i>                     (vmiTi-&gt;__base_info[i].__offset_flags) &gt;&gt;
+</I>&gt;<i>                     abi::__base_class_type_info::__offset_shift);
+</I>&gt;<i>          }
+</I>&gt;<i>      }
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> template &lt;typename T&gt;
+</I>&gt;<i> void PrintParents()
+</I>&gt;<i> {
+</I>&gt;<i>      printf(&quot;Parents of %s: &quot;, ArchGetDemangled(typeid(T)).c_str());
+</I>&gt;<i>      PrintParents(&amp;typeid(T));
+</I>&gt;<i>      printf(&quot;\n&quot;);
+</I>&gt;<i> }
+</I>
+
+Thanks; it'll take me some time to absorb that.
+
+-- 
+Dave Abrahams
+Boost Consulting
+www.boost-consulting.com
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001821.html">[cxx-abi-dev] trivial __dynamic_cast fails?
+</A></li>
+	<LI>Next message: <A HREF="001819.html">[cxx-abi-dev] trivial __dynamic_cast fails?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1822">[ date ]</a>
+              <a href="thread.html#1822">[ thread ]</a>
+              <a href="subject.html#1822">[ subject ]</a>
+              <a href="author.html#1822">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

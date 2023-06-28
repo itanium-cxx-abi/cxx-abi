@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Automatic locking for C++ local static initialization
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C200008020013.RAA05688%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001120.html">
+   <LINK REL="Next"  HREF="001103.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Automatic locking for C++ local static initialization</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C200008020013.RAA05688%40baalbek.engr.sgi.com%3E"
+       TITLE="Automatic locking for C++ local static initialization">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Wed Aug  2 00:13:05 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001120.html">Agenda for Thursday 3 August
+</A></li>
+        <LI>Next message: <A HREF="001103.html">Automatic locking for C++ local static initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1102">[ date ]</a>
+              <a href="thread.html#1102">[ thread ]</a>
+              <a href="subject.html#1102">[ subject ]</a>
+              <a href="author.html#1102">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>As was suggested at the last meeting, I contacted Hans Boehm about
+initialization locking to try to clarify why he was opposed to
+automatic locking.  We (mostly Hans) worked up this example, which
+illustrates one point, that it can produce undeserved deadlocks.
+
+Suppose we have a program written for a pthreads environment that
+supports recursive locks (common these days, but not necessary if one
+goes to a bit more trouble).  It contains a data cluster
+(i.e. a number of interconnected components) that the
+programmer wishes to initialize the first time it is referenced,
+and the first reference may come through a number of different paths.
+One of those paths enters through function f, which defines some static
+data, one of which is constructed using function g, which is part of
+the cluster; others enter elsewhere and eventually call f.
+
+So the conscientious programmer sets up a mutex lock M, and acquires it
+at each potential entry to the cluster before proceeding, which
+includes g and some other function h.  Now consider the following
+execution sequence:
+
+	Thread 1		Thread 2
+	--------		--------
+	call h
+	acquire M
+				call f
+				call g
+				try to acquire M (wait)
+	call f
+	call g
+	acquire M recursively
+	finish initialization
+	exit g, f
+	release M		
+	exit h			acquire M
+				initialization is done
+				release M
+				exit g, f
+
+Everything has worked exactly as the programmer intended.
+
+But now we add automatic locking for the static initialization in F,
+say using lock L.  What happens?
+
+	Thread 1		Thread 2
+	--------		--------
+	call h
+	acquire M
+				call f
+				acquire L
+				call g
+				try to acquire M (wait, holding L)
+	call f
+	try to acquire L (wait, holding M)
+
+		DEADLOCK
+
+So I think what we have here is reasonably designed initialization
+scenario (at least if you believe in recursive locking) that works as
+written, but fails when we insert automatic static initialization
+locks.
+
+Other reasons raised earlier, and appearing in the G-4 commentary, are:
+
+ 1) There are more efficient methods available to a programmer than
+    per-object locks, and doing the latter automatically makes it hard
+    to optimize this.
+
+ 2) Mike Ball objects that interaction with exceptions can't be
+    Standard-conforming with automatic locks.
+
+ 3) Hans believes that there are complications with certain legal
+    optimizations of the function-scope object initialization.
+
+It would be worth people re-familiarizing themselves with the
+commentary (in the Open Issues document) before the meeting.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001120.html">Agenda for Thursday 3 August
+</A></li>
+	<LI>Next message: <A HREF="001103.html">Automatic locking for C++ local static initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1102">[ date ]</a>
+              <a href="thread.html#1102">[ thread ]</a>
+              <a href="subject.html#1102">[ subject ]</a>
+              <a href="author.html#1102">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

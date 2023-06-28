@@ -1,0 +1,96 @@
+From daveed at edg.com  Thu Feb 19 16:37:44 2009
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 19 Feb 2009 11:37:44 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+Message-ID: <047E28BE-88E0-4ED1-8DCF-7319D0708662@edg.com>
+
+Hello,
+
+I'd like to continue some discussion on the topic of mangling lambda  
+closure types.
+
+In the thread of December, I suggested:
+
+On Dec 17, 2008, at 11:00 AM, David Vandevoorde wrote:
+
+>
+> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>
+>> Doug Gregor wrote:
+>>>
+>>> We need something that encodes the context of the lambda (function
+>>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>>> within that context. The context encoding needs to account for (at
+>>> least) inline functions, classes, and namespaces.
+>>>
+>>
+>> This sounds like a problem that must have been encountered before.   
+>> Is there already a solution for it?  At least for the unnumbered  
+>> portion?
+>
+>
+> Yes, see 5.1.6.  We can reuse that general scheme for local  
+> lambdas.  E.g.:
+>
+> 	<local-lambda-name> := Z <function encoding> E l [<discriminator>]
+>
+> and maybe introduce something similar for local unnamed classes:
+>
+> 	<local-unnamed-class_name> := Z <function encoding> E u  
+> [<discriminator>]
+>
+>
+> A tougher problem are namespace-scope lambdas (e.g., in initializers  
+> or default arguments).  There a discriminator count cannot be scope  
+> based (since the mangling then could depend on which header files  
+> were previously included, etc.).
+
+
+Later in that thread, I also suggested that nonlocal uses of lambdas  
+don't need to be matched across translation units, because they'd have  
+different types in two translation units.  For example:
+
+	// File x.h:
+	decltype([]{}) *p;  // ODR violation-bait
+
+	// File y.c:
+	#include "x.h"
+
+	// File z.c:
+	#include "x.h"
+
+The occurrence of the lambda in y.c and z.c produces two distinct  
+types, and so both translation units cannot be part of the same program.
+
+That said, an encoding is probably needed for lambdas that appear in a  
+class definition.  E.g.:
+
+	struct S {
+	  typedef decltype([]()) LT;
+	  void f(LT);
+	};
+
+which means that the minimal encoding above should be extended to  
+cover lambdas in nonlocal class definitions.
+
+
+We're also wondering if it would be worthwhile to add some additional  
+information to the minimal encoding so that the demangled version can  
+be more useful to programmers.
+
+For example, with a minimal encoding as proposed, the demangled output  
+might look like:
+	lambda#1 in f(int)
+which doesn't say much about the lambda's salient properties.
+
+Would it be worthwhile to also encode the "signature" of the  
+operator() so that we could instead demangle it as
+	lambda(int)->void in f(int) (#1)
+?
+
+	Daveed
+
+
+

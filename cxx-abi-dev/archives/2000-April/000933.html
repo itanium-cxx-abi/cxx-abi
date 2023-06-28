@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Proposal for mangling template partial specializations.
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Proposal%20for%20mangling%20template%20partial%20specializations.&In-Reply-To=%3C200004171818.AA03966%40philli.zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000932.html">
+   <LINK REL="Next"  HREF="000934.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Proposal for mangling template partial specializations.</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Proposal%20for%20mangling%20template%20partial%20specializations.&In-Reply-To=%3C200004171818.AA03966%40philli.zko.dec.com%3E"
+       TITLE="Proposal for mangling template partial specializations.">coleen at zko.dec.com
+       </A><BR>
+    <I>Mon Apr 17 18:18:04 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000932.html">another mangling issue
+</A></li>
+        <LI>Next message: <A HREF="000934.html">Proposal for mangling template partial specializations.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#933">[ date ]</a>
+              <a href="thread.html#933">[ thread ]</a>
+              <a href="subject.html#933">[ subject ]</a>
+              <a href="author.html#933">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>/*
+I propose that partial specializations should be mangled differently than
+template instantiations.  The reasons:
+
+ 1) It's the standard.  14.5.4 pp 3:
+
+ -3- Each class template partial specialization is a distinct template
+     and definitions shall be provided for the members of a
+     template partial specialization (temp.class.spec.mfunc). 
+
+     Note that the end of paragraph 1 in this section says &quot;no diagnostic is
+     required&quot;, but does that mean if a template instantiation can be linked
+     instead of a specialization and not violate the standard?  Or does that
+     only mean that the compiler/linker is not required to diagnose the error
+     and can call the wrong version of the function?
+
+ 2)  Since this is a new ABI, users must recompile.
+     The correction to this problem is a source line change to declare
+     the specialization.  We should strive to be 100% standard-compliant
+     with the new ABI, especially with a case we can diagnose.  Users
+     should expect the new ABI to be 100% compliant as well.
+
+The argument against making partial instantiations link incompatible with
+is that users may depend on linking in the template instantiation when
+the definition of partial instantiation is not available.  Two points:
+
+ 1) With the COMDAT model, if the partial instantiation is available in one
+    compilation unit and the template instantiation comes from another -
+    which will be picked?  Isn't this really bad?
+
+ 2) As a data point, DEC/Compaq changed the mangling for partial
+    specializations when using the new syntax (template &lt;&gt;) but kept the
+    mangling for them the same when using the old non-standard syntax (omit
+    the template &lt;&gt;).  We don't have any entries about it in our database of
+    complaints. (We realize more code is written for Sun, HP, g++, etc,
+    so you may end up with complaints on code our compiler hasn't seen.)
+ 
+So I propose a mangling qualifier for partial specializations on each template
+argument that is specialized (maybe you don't need the 'E'):
+
+    &lt;template-args&gt; ::= I &lt;template-arg&gt;+ E
+    &lt;template-arg&gt; ::= &lt;type&gt;                     # type
+    &lt;template-arg&gt; ::= D &lt;type&gt; E                 # partially specialize'D'
+    &lt;template-arg&gt; ::= L &lt;type&gt; &lt;value number&gt; E  # literal
+    &lt;template-arg&gt; ::= LZ &lt;encoding&gt; E            # external name
+    &lt;template-arg&gt; ::= X &lt;expression&gt; E           # expression
+
+Coleen
+*/
+
+//
+// Example of partial specialization [not] linking against template
+// instantiation.
+// 
+// spec.h 
+extern &quot;C&quot; int printf(const char *,...);
+template &lt;class T&gt; class X { public:
+   void f(); // { printf(&quot;X&lt;T&gt;::f called\n&quot;); }
+};
+// spec1.cxx
+
+#include &quot;spec.h&quot;
+main()
+{
+  X&lt;int&gt; t;
+  t.f();
+}
+// spec2.cxx
+#include &quot;spec.h&quot;
+template &lt;&gt; class X&lt;int&gt; { public:
+   void f();
+};
+template &lt;&gt; void X&lt;int&gt;::f() { printf(&quot;X&lt;int&gt;::f();\n&quot;); }
+
+void foo()
+{
+   X&lt;int&gt; x;
+   x.f();
+}
+//
+// EDG/Compaq C++
+% exx spec1.cxx spec2.cxx
+spec1.cxx:
+spec2.cxx:
+ld:
+Unresolved:
+X&lt;int&gt;::f(void)
+
+//
+// Sun
+33% CC spec1.cxx spec2.cxx
+spec1.cxx:
+spec2.cxx:
+34% a.out
+X&lt;int&gt;::f();
+
+// G++
+781% g++ spec1.cxx spec2.cxx
+782% a.out
+X&lt;int&gt;::f();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000932.html">another mangling issue
+</A></li>
+	<LI>Next message: <A HREF="000934.html">Proposal for mangling template partial specializations.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#933">[ date ]</a>
+              <a href="thread.html#933">[ thread ]</a>
+              <a href="subject.html#933">[ subject ]</a>
+              <a href="author.html#933">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

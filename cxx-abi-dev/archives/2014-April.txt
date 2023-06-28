@@ -1,0 +1,139 @@
+From richardsmith at google.com  Thu Apr 24 21:52:23 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 24 Apr 2014 21:52:23 +0000
+Subject: [cxx-abi-dev] Layout of overaligned empty base classes
+Message-ID: <CAGL0aWdkwojJVGQ2isUvt+agaeHJXqu2aUXsKqT4uy+bv7TtSQ@mail.gmail.com>
+
+2.4/II/3 says:
+
+"If D is an empty proper base class: [...potentially misalign the D base
+class...] Note that nvalign(D) is 1, so no update of align(C) is needed."
+
+This is not true.
+
+struct A {};
+struct B : A { char c; };
+struct alignas(4) D : A {};
+struct C : B, D {};
+
+This puts a D object at offset 1 within C, and gives C nvalign of 1, which
+is obviously not right. Fortunately, GCC, Clang, and EDG all deviate from
+the ABI and instead do the natural thing here (put it at offset zero if you
+can, and otherwise allocate it like any other subobject). Looks like the
+wording only needs a little massaging here to say the right thing.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140424/265b9698/attachment.html>
+
+From matthew at dempsky.org  Mon Apr 28 04:12:54 2014
+From: matthew at dempsky.org (Matthew Dempsky)
+Date: Sun, 27 Apr 2014 21:12:54 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+Message-ID: <CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+
+Ping?  Any interest in adding __cxa_thread_atexit to the C++ ABI?
+Would it help if I prepared a proposed change and sent it as a pull
+request or something?
+
+On Fri, Jun 7, 2013 at 4:45 PM, Matthew Dempsky <matthew at dempsky.org> wrote:
+> It looks like GCC and Clang have both decided to use
+> __cxa_thread_atexit() to register destructors for C++11 thread_local
+> objects:
+>
+> http://gcc.gnu.org/viewcvs/gcc/trunk/gcc/cp/decl.c?view=co
+> http://llvm.org/svn/llvm-project/cfe/trunk/lib/CodeGen/ItaniumCXXABI.cpp
+>
+> The semantics seem to be described here (but under the name
+> __cxa_thread_atexit_impl()):
+>
+> http://sourceware.org/glibc/wiki/Destructor%20support%20for%20thread_local%20variables
+>
+> Can/will this function be added to the C++ ABI as well?
+>
+> It looks like there was some discussion about this back in September
+> (http://sourcerytools.com/pipermail/cxx-abi-dev/2012-September/002472.html),
+> but I don't see any subsequent discussion about standardizing the name
+> and semantics.
+
+From rjmccall at apple.com  Mon Apr 28 06:13:38 2014
+From: rjmccall at apple.com (John McCall)
+Date: Sun, 27 Apr 2014 23:13:38 -0700
+Subject: [cxx-abi-dev] Proposal: missing mangling of elaborated type
+ specifiers
+In-Reply-To: <3F958721-81CD-4420-A290-3030FC7C2FF3@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+	<27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+	<OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+	<3F7376C6-1CAF-44F3-87C0-D852398628E7@apple.com>
+	<CAGL0aWdMRdfy-YXv0HyR9s8XipJwN3eMwXb_zgycwUwmwit_aQ@mail.gmail.com>
+	<3F958721-81CD-4420-A290-3030FC7C2FF3@apple.com>
+Message-ID: <1DC8E289-D1BB-47F0-9492-89B7ECEDBE41@apple.com>
+
+On Mar 26, 2014, at 2:36 PM, John McCall <rjmccall at apple.com> wrote:
+> On Mar 26, 2014, at 2:32 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On 26 March 2014 13:59, John McCall <rjmccall at apple.com> wrote:
+>> On Mar 26, 2014, at 1:46 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> > John McCall <rjmccall at apple.com> wrote on 26-03-2014 03:54:40 PM:
+>> > > From: John McCall <rjmccall at apple.com>
+>> > > To: Richard Smith <richardsmith at google.com>,
+>> > > Cc: Hubert Tong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com"
+>> > > <cxx-abi-dev at codesourcery.com>
+>> > > Date: 26-03-2014 03:54 PM
+>> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+>> > >
+>> > > On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com> wrote:
+>> > > On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+>> > > I agree that the benefit of a demangler being able to say whether
+>> > > it's got a class or struct is marginal. Maybe drop the 'TC' mangling
+>> > > and keep the other three?
+>> > >
+>> > > Sounds good to me.
+>> > Agreed. The proposal I had in the works was substantially similar (option 2 with no class/struct distinction).
+>> > I think we can move forward with the proposal presented by Richard.
+>> 
+>> Okay, so this is the proposal under review:
+>> 
+>> <class-enum-type> ::= <name>    # non-dependent or dependent type name or dependent elaborated type specifier using ?typename'
+>> 
+>> Nit: This last case is a typename-specifier, not an elaborated-type-specifier.
+> 
+> I will make that change.
+> 
+>> Do we need to clarify that we mean 'instantiation-dependent' by 'dependent' here?
+> 
+> No, I think that?s the standard rule for dependence in the mangling section.
+
+Okay, I?ve applied and pushed these changes.  Thanks!
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140427/cceb29d1/attachment.html>
+
+From rjmccall at apple.com  Mon Apr 28 06:14:36 2014
+From: rjmccall at apple.com (John McCall)
+Date: Sun, 27 Apr 2014 23:14:36 -0700
+Subject: [cxx-abi-dev] Adding __cxa_thread_atexit() to the C++ ABI?
+In-Reply-To: <CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+References: <CANKkrzEFz+Qo3m1ksNApg3dHrJMYv1XCbuJbFnTs2BdY3JZ9TQ@mail.gmail.com>
+	<CANKkrzHiT8s3en_3W3P9hWx7Hc1ETKz2KTfCurvs7kmLOR5s6A@mail.gmail.com>
+Message-ID: <902A261D-749C-400D-BB94-1E488717D9A3@apple.com>
+
+On Apr 27, 2014, at 9:12 PM, Matthew Dempsky <matthew at dempsky.org> wrote:
+> Ping?  Any interest in adding __cxa_thread_atexit to the C++ ABI?
+> Would it help if I prepared a proposed change and sent it as a pull
+> request or something?
+
+Yes, preparing a proposal would be great.  Please send it here,
+though, not as a push request to github.
+
+John.
+

@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Misc. from this weeks call
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Misc.%20from%20this%20weeks%20call&In-Reply-To=%3C852567D3.007D74E2.00%40D51MTA06.pok.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000203.html">
+   <LINK REL="Next"  HREF="000202.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Misc. from this weeks call</H1>
+    <B>thomson at ca.ibm.com</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Misc.%20from%20this%20weeks%20call&In-Reply-To=%3C852567D3.007D74E2.00%40D51MTA06.pok.ibm.com%3E"
+       TITLE="Misc. from this weeks call">thomson at ca.ibm.com
+       </A><BR>
+    <I>Fri Aug 20 22:49:24 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000203.html">RTTI draft proposal
+</A></li>
+        <LI>Next message: <A HREF="000202.html">Meeting tomorrow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#201">[ date ]</a>
+              <a href="thread.html#201">[ thread ]</a>
+              <a href="subject.html#201">[ subject ]</a>
+              <a href="author.html#201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Re Taligent patents:
+These are controlled by Object Technology
+Licensing Corp., which is jointly owned by IBM
+and Apple.  Although IBM is licenced for them,
+our local IP experts don't believe we are able to
+sublicence.  We'll look into what that would involve
+in case it becomes an issue.
+
+
+Re: vtable layout, sharing vtable offsets
+I'm going to write the exam on this to see how well I
+am understanding the issue.
+
+If I understand it correctly, the proposal under consideration
+is tied to the decision to replicate virtual function
+entries in vtables.  It requires
+replicating in the vtable for base class B all virtual functions
+that are overridden in B; more replication that this implies will
+be wasted since a function is always called through a vtable
+of an introducing or overriding class.
+
+When a non-pure virtual function X::f() is compiled it is possible to determine
+whether it requires a secondary entry point.  It will require one
+if that function may be virtually called (i.e., is the final overrider)
+in any class in which f() appears in more than one vtable; this
+needs to be decidable knowing only X.
+A rule that works is: X::f() overrides one or more f()'s from base classes
+of X, and either one or more of those base classes are
+virtual or X fails to share its vptr with all instances of them.
+
+[Though a virtual base may happen to share its vptr with X
+in an object of complete type X, that relationship may fail to
+hold in further derived classes, so we need to generate the
+secondary entry point just in case.]
+[&quot;Sharing a vptr&quot; is the condition under which no adjustment
+is necessary; if the bases involved are all nonvirtual then
+subsequent class derivation won't change this.]
+
+Each vtable that requires a nonzero adjustment will have a
+&quot;convert to X&quot; offset mixed in with its virtual base offsets.  It is
+necessary that a &quot;convert to X&quot; appears in the same position in
+each vtable that references X::f()'s secondary entry; it is desirable that
+the &quot;convert to X&quot; also be unique in each vtable.
+
+Assume that X has nonvirtual nonprimary bases Nx (x=1,2,...), and virtual
+bases Vx, all of which have a virtual f().   Then vtables for Nx in X, or in any
+class
+derived from X that does not further override f(), will reference X::f()'s
+secondary entry.   Vtables for Vx in X or any derived class where Vx does
+not share a vptr with X, will also reference X::f()'s secondary entry; note
+this will occur in a construction vtable even if the derived class does
+further override f().
+
+The question, then, is whether a position for the &quot;convert to X&quot; offset can be
+chosen, knowing only X and its parentage, that can be used consistently
+in all those vtables and that won't collide with a &quot;convert to Y&quot; position
+chosen on account of some other hierarchy where Y::g() overrides an
+Nx::g() or Vx::g().
+
+If Y derives from X, we will be able to select a &quot;convert to Y&quot; position
+that doesn't conflict, so we can restrict our attention to cases where X
+and Y are unrelated.
+Also, if the base involved is nonvirtual (Nx) then we are safe,
+because no instance of Nx will be a subobject of both X and Y, so no
+Nx vtable will require both &quot;convert to X&quot; and &quot;convert to Y&quot; offsets.
+
+The remaining case is where X and Y are unrelated but both have
+a virtual base Vx:
+
+struct V1 { virtual void f();  virtual void g(); };
+struct Other1 { virtual void ignore1(); }
+struct X : Other1, virtual V1 { virtual void f(); }
+
+struct Y : Other1, virtual V1 { virtual void g(); }
+
+struct ZZ: X, Y {}
+
+The vtable for N1 in ZZ does require both offsets.
+The only way I see to accomplish this is to preallocate
+an adjustment slot for each virtual function in V1.  That
+is, X::f() uses the first slot position, and Y::g() the second,
+based on the order that f() and g() are declared in V1.
+This only needs to be done in hierarchies where V1 is virtual,
+but the same offset has to be used for any Nx tables in X too.
+
+Is this close?
+
+
+Re: Concatenating vtables
+I don't understand the comment that varying numbers of virtual
+base offsets make it impossible to concatenate vtables and refer
+to them via a single symbol.
+The only code that refers by name to X's vtable and the vtables
+of N1 in X etc. is X's constructor and destructor, and maybe some
+derived classes that find they are able to reuse some pieces.
+All that code is aware of X's declaration and can map out its tables.
+What am I missing?
+
+
+
+
+Brian Thomson
+VisualAge C/C++ Chief Architect
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000203.html">RTTI draft proposal
+</A></li>
+	<LI>Next message: <A HREF="000202.html">Meeting tomorrow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#201">[ date ]</a>
+              <a href="thread.html#201">[ thread ]</a>
+              <a href="subject.html#201">[ subject ]</a>
+              <a href="author.html#201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

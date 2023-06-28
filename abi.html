@@ -39,10 +39,10 @@
   <li> <a href=#guards>		2.8 Initialization Guard Variables </a>
   <li> <a href=#rtti>		2.9 Run-Time Type Information (RTTI) </a>
   </ul>
-<li> <a href=#calls> Chapter 3: Function Calling Conventions and APIs </a>
+<li> <a href=#calls> Chapter 3: Code Emission and APIs </a>
   <ul>
-  <li> <a href=#normal-call> 3.1 Non-virtual Function Calling Conventions </a>
-  <li> <a href=#vcall>	     3.2 Virtual Function Calling Conventions </a>
+  <li> <a href=#functions>   3.1 Functions</a>
+  <li> <a href=#vcall>       3.2 Virtual Calls</a>
   <li> <a href=#obj-ctor>    3.3 Construction and Destruction APIs</a>
   <li> <a href=#demangler>   3.4 Demangler API</a>
   </ul>
@@ -61,40 +61,64 @@
 <h2><a href="#acknowledgements"> Acknowledgements</a></h2>
 <p> <hr> <p>
 
-<p>This document was developed jointly by an informal industry
-coalition consisting of (in alphabetical order) CodeSourcery, Compaq,
-EDG, HP, IBM, Intel, Red Hat, and SGI.  Additional contributions were
-provided by a variety of individuals.</p>
+<p>This document was originally developed jointly by an informal
+industry coalition consisting of (in alphabetical order) CodeSourcery,
+Compaq, EDG, HP, IBM, Intel, Red Hat, and SGI.  Additional contributions
+were provided by a variety of individuals.  It is now developed as an
+open-source project with contributions from a variety of individuals
+and companies.</p>
 
 <p> <hr> <p>
 <a name="intro">
 <h2><a href="#intro"> Chapter 1: Introduction </a></h2>
 <p> <hr> <p>
 
-In this document, we specify the Application Binary Interface for
-C++ programs,
-that is, the object code interfaces between user C++ code and the
-implementation-provided system and libraries.
-This includes the memory layout for C++ data objects,
-including both predefined and user-defined data types,
-as well as internal compiler generated objects such as virtual tables.
-It also includes function calling interfaces,
-exception handling interfaces,
-global naming,
-and various object code conventions.
+In this document, we specify the Application Binary Interface (ABI)
+for C++ programs: that is, the object code interfaces between different
+user-provided C++ program fragments and between those fragments and
+the implementation-provided runtime and libraries.  This includes the
+memory layout for C++ data objects, including both predefined and
+user-defined data types, as well as internal compiler generated
+objects such as virtual tables.  It also includes function calling
+interfaces, exception handling interfaces, global naming, and various
+object code conventions.
 
 <p>
-In general, this document is written as a generic specification,
-to be usable by C++ implementations on a variety of architectures.
-However, it does contain processor-specific material for the Itanium
-64-bit ABI, identified as such.
-Where structured data layout is described,
-we generally assume Itanium psABI member sizes.
-An implementation for a 32-bit ABI would typically just change the
-sizes of members as appropriate
-(i.e. pointers and long ints would become 32 bits),
-but sometimes an order change would be required for compactness,
-and we note more substantive changes.
+In general, this document is meant to serve as a generic specification
+which can be used by C++ implementations on a variety of platforms.
+It does this by layering on top of a platform's base C ABI.  However,
+it was originally written for the Itanium architecture, and some parts
+still directly make Itanium-specific or 64-bit-specific assumptions.
+There is an ongoing project to restate the entire C++ ABI specification
+in terms of portable C concepts that are defined in the C ABI.  In
+the meantime, it is usually straightforward to recognize these
+unportable assumptions and translate them appropriately, e.g. by
+replacing a 64-bit pointer with a 32-bit pointer.
+
+<p>
+This document is not an authoritative definition of the C++ ABI for
+any particular platform.  Platform vendors retain the ultimate power
+to define the C++ ABI for their platform.  Platforms using this ABI
+for C++ should declare that they do so, either unmodified or with a
+certain set of changes.
+
+<p>
+While this ABI has generally stood up well, there are some parts of it
+that are now seen as mistakes.  This document includes several
+recommendations for platforms adopting this ABI with no need to
+interoperate with existing C++ object code.  These recommendations
+appear as follows:
+
+<blockquote>
+  <span class="future-abi">Recommendation for new platforms: consider
+  forbidding the use of function templates on your platform so that
+  the ABI can remove these expression-mangling rules.</span>
+</blockquote>
+
+<p>
+Platforms adopting any of these recommendations should describe the
+exact changes they've made in their platform ABI documentation,
+as the set of recommendations in this document may change over time.
 
 <p> <hr> <p>
 <a name="definitions">
@@ -126,6 +150,13 @@ to exclude T itself from the list.
 <dd>
 A function that runs the destructors for non-static data members of T and
 non-virtual direct base classes of T.
+
+<p>
+<dt> <i>basic ABI properties</i> of a type T</dt>
+<dd>
+The basic representational properties of a type decided by the base C ABI,
+including its size, its alignment, its treatment by calling conventions,
+and the representation of pointers to it.
 
 <p>
 <dt> <i>complete object destructor</i> of a class T</dt>
@@ -262,7 +293,7 @@ sharing a virtual pointer with the derived class.
 complement of the definition in [class.temporary]p3 of types for which
 an extra temporary is allowed when passing or returning a type.  A type
 which is trivial for the purposes of the ABI will be passed and returned
-according to the rules of the underlying C ABI, e.g. in registers; often
+according to the rules of the base C ABI, e.g. in registers; often
 this has the effect of performing a trivial copy of the type.
 </p>
 </dd>
@@ -273,10 +304,12 @@ this has the effect of performing a trivial copy of the type.
 <dd>
 <p>
 In general, a type is considered a POD for the purposes of layout if
-it is a POD type (in the sense of ISO C++ [basic.types]). However, a
+it is a POD type (in the sense of ISO C++
+<span class=cxxref>[basic.types]</span>). However, a
 type is not considered to be a POD for the purpose of layout if it is:
 <ul>
-<li>a POD-struct or POD-union (in the sense of ISO C++ [class]) with a
+<li>a POD-struct or POD-union (in the sense of ISO C++
+<span class=cxxref>[class]</span>) with a
 bit-field whose declared width is wider than the declared type
 of the bit-field, or
 <li>an array type whose element type is not a POD for the purpose of layout, or
@@ -630,7 +663,7 @@ without virtual bases.
 
 <p>
 The size and alignment of a type which is a <a href="#POD">POD for the
-purpose of layout<a> is as specified by the base (C) ABI, with the
+purpose of layout<a> is as specified by the base C ABI, with the
 following provisos:
 </p>
 
@@ -662,40 +695,197 @@ sometimes permits faster copying of the type.
 <a name="member-pointers"></a>
 <h3><a href="#member-pointers"> 2.3 Member Pointers </a></h3>
 
-<p>
-A pointer to data member is an offset from the base
-address of the class object containing it,
-represented as a <code>ptrdiff_t</code>.
-It has the size and alignment attributes of a <code>ptrdiff_t</code>.
-A NULL pointer is represented as -1.
+<a name="data-member-pointers"></a>
+<h4><a href="#data-member-pointers"> 2.3.1 Data Member Pointers </a></h4>
 
 <p>
-A pointer to member function is a pair <ptr, adj> as follows:
-
-<dl>
-<p>
-<dt> <code>ptr</code>:
-<dd> For a non-virtual function, this field is a simple function pointer.
-     (Under current base Itanium psABI conventions,
-     that is a pointer to a GP/function address pair.)
-     For a virtual function,
-     it is 1 plus the virtual table offset (in bytes) of the function,
-     represented as a <code>ptrdiff_t</code>.
-     The value zero represents a NULL pointer,
-     independent of the adjustment field value below.
+The basic ABI properties of data member pointer types are those
+of <code>ptrdiff_t</code>.
 
 <p>
-<dt> <code>adj</code>:
-<dd> The required adjustment to <i>this</i>,
-     represented as a <code>ptrdiff_t</code>.
-</dl>
+A data member pointer is represented as the data member's offset in bytes
+from the address point of an object of the base type, as a
+<code>ptrdiff_t</code>.
 
 <p>
-It has the size, data size, and alignment
-of a class containing those two members, in that order.
-(For 64-bit Itanium, that will be 16, 16, and 8 bytes respectively.)
+A null data member pointer is represented as an offset of <code>-1</code>.
 
+<p>
+Note that by <code>[dcl.init]</code>, "zero initialization" of a data
+member pointer object stores a null pointer value into it.  Under this
+representation, that value has a non-zero bit representation.  On most
+modern platforms, data member pointers are the only type with this
+property.
 
+<p>
+Base-to-derived and derived-to-base conversions of a non-null data member
+pointer can be performed by adding or subtracting (respectively) the static
+offset of the base within the derived class.  The C++ standard does not
+permit base-to-derived and derived-to-base conversions of member pointers
+to cross a <code>virtual</code> base relationship, and so a static offset
+is always known.
+
+<p>
+Data member pointers that identify members of their class will always
+store non-negative offsets.  Unfortunately, it is possible to apply
+conversions to a non-null data member pointer that will cause it to
+hold a negative offset.  If this value is <code>-1</code>, the member
+pointer will subsequently be treated as a null pointer.  This is
+considered an irreparable defect in this ABI.
+<span class="future-abi">Recommendation for new platforms: consider using
+a different representation for data member pointers, such as left-shifting
+the offset by one and using a non-zero low bit to indicate a non-null
+value.</span>
+	
+<p>
+It is relatively difficult to demonstrate this defect in well-defined
+code.  It is possible to convert a member pointer to a derived class
+and then cast it back it to a different base class; if the second base
+class is stored after the first, the resulting offset will be negative.
+However, this cast has undefined behavior because the member is no
+longer a member of a base or derived class of the member pointer's class.
+To demonstrate the defect, either an empty base class or an empty
+data member must be involved.  For example:
+
+<pre>
+    struct alignas(2) B1 {};
+
+    struct B2 : B1 {};
+    struct B3 : B1 {};
+
+    struct D : B2, B3 {
+        char a, b;
+    };
+
+    // The offset in D of the B3 base subobject is 2, but the
+    // offset of the data member b is 1.
+    auto mptr = static_cast<char B3::*>(&D::b);
+</pre>
+
+<a name="member-function-pointers"></a>
+<h4><a href="#member-function-pointers"> 2.3.2 Member Function Pointers </a></h4>
+
+<p>
+Several different representions of member function pointers are in use.
+The standard representation relies on several assumptions about the
+platform, such as that the low bit of a function pointer to a non-virtual
+member function is always zero.  For platforms where this is not reasonable
+to guarantee, an alternate representation must be used.  One such
+representation, used on the 32-bit ARM architecture, is also described here.
+
+<p>
+In all representations, the basic ABI properties of member function
+pointer types are those of the following class, where <code>fnptr_t</code>
+is the appropriate function-pointer type for a member function of this type:
+
+<pre>
+  struct {
+    fnptr_t ptr;
+    ptrdiff_t adj;
+  };
+</pre>
+
+<p>
+A member function pointer for a non-virtual member function is represented
+with <code>ptr</code> set to a pointer to the function, using the base
+ABI's representation of function pointers.
+
+<p>
+In the standard representation, a member function pointer for a virtual
+function is represented with <code>ptr</code> set to 1 plus the function's
+v-table entry offset (in bytes), converted to a function pointer as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(1 + offset))</code>,
+where <code>uintfnptr_t</code> is an unsigned integer of the same
+size as <code>fnptr_t</code>.
+
+<p>
+In both of these cases, <code>adj</code> stores the offset (in bytes)
+which must be added to the <code>this</code> pointer before the call.
+
+<p>
+In the standard representation, a null member function pointer is
+represented with <code>ptr</code> set to a null pointer.  The value
+of <code>adj</code> is unspecified for null member function pointers.
+
+<p>
+The standard representation relies on some assumptions which are
+true for most platforms:
+
+<ul compact>
+  <li>The low bit of a function pointer to a non-static member function
+    is never set.  On most platforms, this is either always true or
+    can be made true at little cost.  For example, on platforms where
+    a function pointer is just the address of the first instruction in the
+    function, the implementation can ensure that this addresss is always
+    sufficiently aligned to make the low bit zero for non-static member
+    functions; often this is required by the underlying architecture.</li>
+
+  <li>A null function pointer can be distinguished from a virtual
+    offset value.  On most platforms, this is always true because the
+    null function pointer is the zero value.</li>
+
+  <li>The offset to a v-table entry is never odd.  On most platforms,
+    the size of a v-table entry is even because the architecture is
+    byte-addressed and pointers are even-sized.</li>
+
+  <li>A virtual call can be performed knowing only the addresss of a
+    v-table entry and the type of the virtual function.  On most
+    platforms, a v-table entry is equivalent to a function pointer,
+    and the type of that function pointer can be determined from the
+    member pointer type.</li>
+</ul>
+
+<p>
+However, there are exceptions.  For example, on the 32-bit ARM
+architecture, the low bit of a function pointer determines whether
+the function begins in THUMB mode.  Such platforms must use an
+alternate representation.
+
+<p>
+In the 32-bit ARM representation, the <code>this</code>-adjustment
+stored in <code>adj</code> is left-shifted by one, and the low bit
+of <code>adj</code> indicates whether <code>ptr</code> is a function
+pointer (including null) or the offset of a v-table entry.  A virtual
+member function pointer sets <code>ptr</code> to the v-table entry
+offset as if by
+<code>reinterpret_cast&lt;fnptr_t&gt;(uintfnptr_t(offset))</code>.
+A null member function pointer sets <code>ptr</code> to a null
+function pointer and must ensure that the low bit of <code>adj</code>
+is clear; the upper bits of <code>adj</code> remain unspecified.
+
+<p>A member function pointer is null if <code>ptr</code> is equal
+to a null function pointer and (only when using the 32-bit ARM
+representation) the low bit of <code>adj</code> is clear.
+
+<p>Two member function pointers are equal if they are both null or
+if their corresponding values of <code>ptr</code> and <code>adj</code>
+are equal.  Note that the C++ standard does not require member pointers
+to the same virtual member function to compare equal; implementations
+using this ABI will do so, but only if the member pointers are built
+using the same v-table offset, which they may not be in the presence
+of multiple inheritance or overrides with covariant return types.
+
+<p>
+Base-to-derived and derived-to-base conversions of a member function
+pointer can be performed by adding or subtracting (respectively) the
+static offset of the base within the derived class to the stored
+<code>this</code>-adjustment value.  In the standard representation,
+this simply means adding it to <code>adj</code>; in the 32-bit ARM
+representation, the addend must be left-shifted by one.  Because the
+adjustment does not factor into whether a member function pointer is
+null, this addition can be done unconditionally when performing a
+conversion.
+
+<p>
+A call is performed as follows:
+
+<ol>
+  <li>Add the stored adjustment to the <code>this</code> address.</li>
+  <li>If the member pointer stores a v-table entry offset, load the
+    v-table from the adjusted <code>this</code> address and call
+    the v-table entry at the stored offset.</li>
+  <li>Otherwise, call the stored function pointer.</li>
+</ol>
 
 <p> <hr> <p>
 <a name="class-types">
@@ -811,7 +1001,7 @@ order), allocate as follows:
        <p>
        <li>
        If <code>sizeof(T)*8 >= n</code>,
-       the bit-field is allocated as required by the underlying C psABI,
+       the bit-field is allocated as required by the base C ABI,
        subject to the constraint that a bit-field is never placed in the
        tail padding of a base class of C.
 
@@ -1172,18 +1362,42 @@ which points to such a two-component descriptor,
 a virtual function pointer entry is the descriptor.
 
 <p>
-The order of the virtual function pointers in a virtual table is the order
-of declaration of the corresponding member functions in the class.
-There is an entry for any virtual function declared in a class,
-whether it is a new function or overrides a base class function,
-unless it overrides a function from the primary base,
-and conversion between their return types does not require an adjustment.
-(In the case of this exception,
-the primary base and the derived class share the virtual table,
-and can share the virtual function entry because their 'this' and
-result type adjustments are the same.)
-If a class has an implicitly-defined virtual destructor,
-its entries come after the declared virtual function pointers.
+The order of the virtual function pointers in a virtual table is
+the order of declaration of the corresponding member functions in the class.
+If an implicitly-declared copy assignment operator, move assignment operator,
+or destructor is virtual, it is treated as if it were declared at the end of
+the class, in that order.
+(Implicitly-declared assignment operators may be virtual if
+a base class declares a virtual assignment operator
+taking a reference to a derived class type.)
+
+<p>
+An entry is added for every virtual function in a class,
+including deleted functions, unless:
+<ul>
+<li>the function is <tt>consteval</tt> or
+<li>the function overrides a function from the primary base and
+that override does not require a return-type adjustment.
+</ul>
+
+<p>
+An override requires a return-type adjustment if
+the return types are different and
+have potentially incompatible representations.
+C++ permits an override to differ in return type from the overridden function
+only if both types are pointer-to-class or reference-to-class types and
+the class type <tt>B</tt> in the overridden function is
+an unambiguous base class of the class type <tt>D</tt> in the override.
+For the purposes of vtable layout,
+these types are considered to have potentially incompatible representations if:
+<ul>
+<li>
+<tt>B</tt> is a morally virtual base of <tt>D</tt>
+(even if <tt>D</tt> is <tt>final</tt> and
+the offset of <tt>B</tt> within <tt>D</tt> is known to be zero) or
+<li>
+the (static) offset of <tt>B</tt> within <tt>D</tt> is non-zero.
+</ul>
 
 <p>
 When a derived class and its primary base share a virtual table,
@@ -1288,11 +1502,7 @@ Structure:
 
 <p>
 The virtual table contains offset-to-top and RTTI fields
-followed by virtual function pointers.
-There is one function pointer entry for each
-virtual function declared in the class,
-in declaration order,
-with any implicitly-defined virtual destructor pair last.
+followed by virtual function pointers (as specified above).
 
 <p>
 <h5> Category 2: Non-Virtual Bases Only </h5>
@@ -1335,22 +1545,8 @@ derived class will point to the corresponding base virtual table in this set.
 The primary virtual table for the derived class contains entries for
 each of the functions in the primary base class virtual table,
 replaced by new overriding functions as appropriate.  Following these
-entries, there is an entry for each virtual function declared in the
-derived class (in declaration order) for which one of the following
-two conditions holds:
-<ul>
-<li> The virtual function does not override any function already
-     appearing in the virtual table.
-
-<li> The virtual function overrides a function (or functions) appearing
-     in the virtual table, but the return type of the overrider is
-     substantively different from the return type of the function(s)
-     already present.  If the return types are different, they are
-     both pointer-to-class types, or both reference-to-class types.
-     Let B and D denote the classes, where D is derived from B.  The
-     types are substantively different if B is a morally virtual base of D 
-     or if B is not located at offset zero in D.
-</ul>
+entries, there is an entry for each virtual function pointer for the
+derived class (as specified above).
 
 <p>
 <img src=warning.gif alt="<b>NOTE</b>:">
@@ -1455,18 +1651,11 @@ This virtual table is the primary virtual table of the class
 and is addressed by the virtual table pointer at the top of the object,
 which is not shared
 because there are no nearly empty virtual bases to be primary.
-It holds the following function pointer entries,
-following those of any primary base's virtual table,
-in the virtual functions' declaration order:
-
-<ul>
-<p>
-<li> Entries for virtual functions introduced by this class,
-     i.e. those not declared by any of its bases.
-
-<li> Entries for overridden virtual functions from the base classes,
-     called replicated entries because they are already
-     in the secondary virtual tables of the class.
+It holds the virtual function pointer entries for the class.
+This includes all entries overridden from base classes,
+because there is no primary base class;
+such entries are known as replicated entries
+because they are already in the secondary virtual tables of the class.
 </ul>
 
 <p>
@@ -1508,14 +1697,9 @@ can now have (nearly empty) primary bases:
 
 <p>
 <li> As for the non-virtual base case,
-    virtual function pointer entries from the derived class
-    introductions occur only after the entries from the primary base
+    the virtual function pointer entries from the derived class
+    (specified above) appear after the entries from the primary base
     class.
-    There are entries for overridden virtual functions from the primary
-    base class only if the result types are different (covariant).
-    For purposes of this case,
-    the two types are considered different if one of them is a
-    non-primary or virtual base class of the other.
 
 </ul>
 
@@ -1754,7 +1938,8 @@ to the virtual base class constructors for the complete object.
 <p>
 Each virtual table address in the VTT is the address to be assigned to the
 respective virtual pointer,
-i.e. the address of the first virtual function pointer in the virtual table,
+i.e. the address past the end of the typeinfo pointer
+(the address of the first virtual function pointer, if there are any),
 not of the first vcall offset.
 
 <p>
@@ -2067,7 +2252,7 @@ the associated variable, and 1 after initialization is complete.
 Usage of the other bytes of the guard variable is implementation-defined.
 
 <p>
-See <a href=#once-ctor>Section 3.3.2</a>
+See <a href=#once-ctor>Section 3.3.3</a>
 for the API for references to this guard variable.
 
 
@@ -2133,7 +2318,7 @@ X, X* and X const*,
 for every X in: void, std::nullptr_t,
 bool, wchar_t, char, unsigned char, signed char,
 short, unsigned short, int, unsigned int, long, unsigned long, long long,
-unsigned long long, float, double, long double, char16_t, char32_t,
+unsigned long long, float, double, long double, char8_t, char16_t, char32_t,
 and the IEEE 754r decimal and half-precision floating point types.
 Each of the type_info objects for X shall have type
 <code>abi::__fundamental_type_info</code> (or a type derived therefrom),
@@ -2697,15 +2882,11 @@ no interfaces need to be specified in this document
 
 <p> <hr> <p>
 <a name="calls">
-<h2><a href="#calls"> Chapter 3: Function Calling Conventions and APIs </a></h2>
-<p> <hr> <p>
+<h2><a href="#calls"> Chapter 3: Code Emission and APIs </a></h2>
+<p> <hr>
 
 <p>
-In general, the calling conventions for C++ in this ABI
-follow those specified by the underlying processor-specific ABI for C,
-whenever there is an analogous construct in C.
-This chapter specifies exceptions required by C++-specific semantics,
-or by features without analogues in C.
+This chapter describes how to define and call functions.
 It also specifies the APIs of a variety of runtime utility routines
 required to be part of the support library of an ABI-conforming
 implementation for use by compiled code.
@@ -2714,96 +2895,137 @@ In addition, reference is made to the separate description of
 which defines a large number of runtime utility routine APIs.
 
 <p>
-<a name="normal-call">
-<h3><a href="#normal-call"> 3.1 Non-Virtual Function Calling Conventions </a></h3>
+<a name="functions">
+<h3><a href="#functions">3.1 Functions</a></h3>
 </a>
 
 <p>
-<a name="value-parameter">
-<h4><a href="#value-parameter"> 3.1.1 Value Parameters </a></h4>
+In general, the calling conventions and rules for defining C++
+functions in this ABI follow those specified for functions of
+the corresponding type in the base C ABI.  The corresponding type
+is mostly determined by translating C++ constructs to their
+obvious C analogues.  This section specifies the behavior of
+of features without analogues in C, as well as some exceptions
+and extra rules required by C++-specific semantics.
 
 <p>
-In general, C++ value parameters are handled just like C parameters.
-This includes class type parameters passed wholly or partially in registers.
-There are, however, some special cases.
-</p>
-<ol type="1">
- <li>
-  <p>
-   If the parameter type is <a href="#non-trivial">non-trivial for the
-   purposes of calls</a>, the caller must allocate space for a temporary
-   and pass that temporary by reference.  Specifically:
-  </p>
-  <ul>
-   <li>Space is allocated by the caller in the usual manner for a temporary,
-     typically on the stack.</li>
-   <li>The caller evaluates the argument in the space provided.</li>
-   <li>The function is called, passing the address of the temporary as the
-     appropriate argument.  In the callee, the address passed is used
-     as the address of the parameter variable.</li>
-   <li>If the type has a non-trivial destructor, the caller calls that
-     destructor after control returns to it (including when the caller
-     throws an exception), at the end of enclosing full-expression.
-   <li>If necessary (e.g. if the temporary was allocated on the heap),
-     the caller deallocates space after return and destruction.
-  </ul>
-
-  <p>
-  A C-style variadic argument of a type that is non-trivial for the
-  purposes of calls is passed the same way: the address of the temporary
-  is passed using the normal variadic mechanism, and <code>va_arg</code> in
-  the callee retrieves the address and treats it as a reference to the
-  temporary.
- </li>
- <li>
-  <p>
-   In the case where the parameter type is class
-   <code>std::decimal::decimal32</code>,
-   <code>std::decimal::decimal64</code>, or
-   <code>std::decimal::decimal128</code> as defined in TR 24733, the
-   parameter is passed the same as the corresponding native decimal
-   floating-point scalar type.
-  </p>
- </li>
-</ol>
+<a name="function-defs">
+<h4><a href="#function-defs">3.1.1 Function Definitions</a></h4>
 
 <p>
-<a name="reference-parameter">
-<h4><a href="#reference-parameter"> 3.1.2 Reference Parameters </a></h4>
+For the most part, non-static member functions, including constructors
+and destructors, are defined as if they were ordinary functions except
+for the addition of the implicit parameters to the prototype as
+described in the <a href="#parameters">section on parameters</a>.
+
+<p>
+The rules for <a href="#member-function-pointers">member function
+pointers</a> may require aligning the first instruction of ordinary
+non-static member functions (i.e. not constructors or destructors)
+to a higher value than the platform would normally require.
+
+<a name="parameters">
+<h4><a href="#parameters">3.1.2 Parameters</a></h4>
+</a>
+
+<p>
+<a name="this-parameters">
+<h5><a href="#this-parameters">3.1.2.1 <code>this</code> Parameters</a></h5>
+
+<p>
+Non-static member functions, including constructors and destructors,
+take an implicit <code>this</code> parameter of pointer type.  It is
+passed as if it were the first parameter in the function prototype,
+except as modified for <a href="#non-trivial-return-values">non-trivial
+return values</a>.
+
+<p>
+<a name="vtt-parameters">
+<h5><a href="#vtt-parameters">3.1.2.2 <code>VTT</code> Parameters</a></h5>
+
+<p>
+Base-subobject constructors and destructors for classes with virtual
+bases take an implicit <a href="#vtable-ctor"><code>VTT</code></a>
+parameter of pointer type.  It is passed as if it were the second
+parameter in the function prototype, immediately following the
+<code>this</code> parameter, except as modified for
+<a href="#non-trivial-return-values">non-trivial return values</a>.
+
+<p>
+<a name="non-trivial-parameters">
+<h5><a href="#non-trivial-parameters">3.1.2.3 Non-Trivial Parameters</a></h5>
+
+<p>
+If a parameter type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>, the
+caller must allocate space for a temporary and pass that temporary by
+reference.  Specifically:
+
+<ul>
+ <li>Space is allocated by the caller in the usual manner for a temporary,
+   typically on the stack.</li>
+ <li>The caller evaluates the argument in the space provided.</li>
+ <li>The function is called, passing the address of the temporary as the
+   appropriate argument.  In the callee, the address passed is used
+   as the address of the parameter variable.</li>
+ <li>If the type has a non-trivial destructor, the caller calls that
+   destructor after control returns to it (including when the caller
+   throws an exception).
+ <li>If necessary (e.g. if the temporary was allocated on the heap),
+   the caller deallocates space after return and destruction.
+</ul>
+
+<p>
+A C-style variadic argument of a type that is non-trivial for the
+purposes of calls is passed the same way: the address of the temporary
+is passed using the normal variadic mechanism, and <code>va_arg</code> in
+the callee retrieves the address and treats it as a reference to the
+temporary.
+
+<a name="special-class-parameters">
+<h5><a href="#special-class-parameters">3.1.2.4 Parameters of Special Class Type</a></h5>
+
+<p>
+An argument of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733
+is passed the same as the corresponding native decimal
+floating-point scalar type.
+
+<p>
+<a name="reference-parameters">
+<h5><a href="#reference-parameters">3.1.2.5 Reference Parameters</a></h5>
 
 <p>
 Reference parameters are handled by passing a pointer to the object
 bound to the reference.
 
 <p>
-<a name="empty-parameter">
-<h4><a href="#empty-parameter"> 3.1.3 Empty Parameters </a></h4>
+<a name="empty-parameters">
+<h5><a href="#empty-parameters">3.1.2.6 Empty Parameters</a></h5>
 
 <p>
-Empty classes will be passed no differently from ordinary classes.  If
-passed in registers the NaT bit must not be set on all registers that
-make up the class.
-</p>
+Arguments of empty class types that are not non-trivial for the purposes
+of calls are passed no differently from ordinary classes.
 
 <p>
-The contents of the single byte parameter slot are unspecified,
-and the callee may not depend on any particular value.
-On Itanium, the associated NaT bit must not be set
-if the parameter slot is associated with a register.
-
+On Itanium, the NaT bit must be set on all registers that are associated
+with the argument.
 
 <p>
-<a name="return-value">
-<h4><a href="#return-value"> 3.1.4 Return Values </a></h4>
+<a name="return-values">
+<h4><a href="#return-values">3.1.3 Return Values</a></h4>
 
 <p>
-In general, C++ return values are handled just like C return values.
-This includes class type results returned in registers.</p>
+<a name="non-trivial-return-values">
+<h5><a href="#non-trivial-return-values">3.1.3.1 Non-trivial Return Values</a></h5>
 
 <p>
-However, if the return type is <a href="#non-trivial">non-trivial for
-the purposes of calls</a>, the caller passes an address as an implicit
-parameter.  The callee then constructs the return value into this address.
+If the return type is a class type that is
+<a href="#non-trivial">non-trivial for the purposes of calls</a>,
+the caller passes an address as an implicit parameter.
+The callee then constructs the return value into this address.
 If the return type has a non-trivial destructor, the caller is responsible
 for destroying the temporary when control is returned to it <i>normally</i>.
 If an exception is thrown out of the callee after the return value is
@@ -2812,61 +3034,88 @@ throwing destructor, it is the callee's responsibility to destroy the
 return value before propagating the exception to the caller.  Thus,
 in general, the caller is responsible for destroying the return value
 after, and only after, the callee returns control to the caller normally.
-</p>
 
 <p>
 The address passed need not be of temporary memory; copy elision may
 cause it to point anywhere, including to global or heap-allocated memory.
-<p>
 
 <p>
-If the C ABI uses a special rule for "indirect" return values, e.g. when
-the return type is too large to fit in registers, that rule is used to
-pass the pointer.  Otherwise the pointer is passed as the first parameter,
-preceding all other parameters (including the <code>this</code> and
-<code>VTT</code> parameters).
-</p>
+C ABIs usually provide treatment for "indirect" return values, e.g. when
+returning a large aggregate that cannot fit in registers.  In some cases,
+this treatment may not be suitable for non-trivial C++ return values, such
+as if the convention requires implicit copying or does not permit the
+return value to be constructed at an arbitrary address.  If the treatment
+exists and is suitable, it is used for non-trivial return values.
+Otherwise, the pointer is passed as if it were the first parameter in
+the function prototype, preceding all other parameters, including the
+<code>this</code> and <code>VTT</code> parameters.
 
 <p>
-Reference return values are returned as if pointers to the object bound
-to the reference.
-</p>
+<a name="special-class-return-values">
+<h5><a href="#special-class-return-values">3.1.3.2 Return Values of Special Class Type</a></h5>
 
 <p>
- Another exception is that a return value type of class
- <code>std::decimal::decimal32</code>,
- <code>std::decimal::decimal64</code>, or
- <code>std::decimal::decimal128</code> as defined in TR 24733 is
- returned the same as the corresponding native decimal floating-point
- scalar type.
-</p>
+A return value of class
+<code>std::decimal::decimal32</code>,
+<code>std::decimal::decimal64</code>, or
+<code>std::decimal::decimal128</code> as defined in TR 24733 is
+returned the same as the corresponding native decimal floating-point
+scalar type.
 
 <p>
-A result of an empty class type will be returned as though it were
-a struct containing a single char,
-i.e. <code>struct S { char c; };</code>.
-The actual content of the return register is unspecified.
-On Itanium, the associated NaT bit must not be set.
+<a name="reference-return-values">
+<h5><a href="#reference-return-values">3.1.3.3 Reference Return Values</a></h5>
 
+<p>
+A return value of reference type is returned as a pointer to the object
+bound to the reference.
+
+<p>
+<a name="empty-return-values">
+<h5><a href="#emptty-return-values">3.1.3.4 Empty Return Values</a></h5>
+
+<p>
+A return value of an empty class type that is not non-trivial for
+the purposes of calls will be returned as though it were the
+following C type:
+
+<pre>struct { char c; };</pre>
+
+<p>
+On Itanium, the NaT bit must not be set for any register associated with
+this return value.
 
 <p>
 <a name="return-value-ctor">
-<h4><a href="#return-value-ctor"> 3.1.5 Constructor Return Values </a></h4>
+<h5><a href="#return-value-ctor">3.1.3.5 Constructor Return Values</a></h5>
 
 <p>
 Constructors return <code>void</code> results.
 
+<p>
+Some platforms are known to modify this rule to specify that constructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.
 
 <p>
 <a name="return-value-dtor">
-<h4><a href="#return-value-dtor"> 3.1.5 Destructor Return Values </a></h4>
+<h5><a href="#return-value-dtor">3.1.3.6 Destructor Return Values</a></h5>
 
 <p>
 Destructors return <code>void</code> results.
 
 <p>
+Some platforms are known to modify this rule to specify that destructors
+return a pointer to <code>this</code>.  This may permit more efficient
+code generation in the caller.  This modified rule does not apply to
+deleting destructors.  It also does not apply when making a virtual call
+to a complete-object destructor, so that
+<a href="#vtable-components"><code>this</code>-adjustment thunks</a>
+do not need to adjust the return value after the call.
+
+<p>
 <a name="vcall">
-<h3><a href="#vcall"> 3.2 Virtual Function Calling Conventions </a></h3>
+<h3><a href="#vcall">3.2 Virtual Calls</a></h3>
 </a>
 
 <p>
@@ -2922,7 +3171,7 @@ that its `this' pointer points to a C object.
 
 <p>
 <a name="vcall.vtable">
-<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a>x</h4>
+<h4><a href="#vcall.vtable"> 3.2.2 Virtual Table Components </a></h4>
 
 <p>
 For each virtual function declared in a class C,
@@ -3165,10 +3414,11 @@ destruction of objects.
 This includes:
 <ul>
 <li> <a href=#subobj-ctor> 3.3.1 Subobject Construction and Destruction</a>
-<li> <a href=#once-ctor>   3.3.2 One-time Construction API </a>
-<li> <a href=#array-ctor>  3.3.3 Array Construction and Destruction API </a>
-<li> <a href=#ctor-order>  3.3.4 Controlling Object Construction Order </a>
-<li> <a href=#dso-dtor>    3.3.5 DSO Object Destruction API </a>
+<li> <a href=#inh-ctor>    3.3.2 Construction by Inherited Constructor</a>
+<li> <a href=#once-ctor>   3.3.3 One-time Construction API </a>
+<li> <a href=#array-ctor>  3.3.4 Array Construction and Destruction API </a>
+<li> <a href=#ctor-order>  3.3.5 Controlling Object Construction Order </a>
+<li> <a href=#dso-dtor>    3.3.6 DSO Object Destruction API </a>
 </ul>
 
 
@@ -3277,8 +3527,58 @@ A test program for this can be found in the
 
 
 <p>
+<a name="inh-ctor"></a>
+<h4><a href="#inh-ctor"> 3.3.2 Construction by Inherited Constructor</a></h4>
+
+<p>
+A constructor inherited from a base class can be used to initialize a derived
+class object, if it is explicitly inherited by a <code>using</code>
+declaration.  Formally, such initialization is not performed by a derived class
+constructor, and instead the initialization expression itself directly
+initializes each base class (recursively, if the constructor is inherited from
+an indirect base class) and each non-static data member. To reduce code
+duplication, this ABI permits such initialization to be factored out into an
+<i>inheriting constructor</i> function.
+
+<p>
+An inheriting constructor describes the initialization that would be performed
+when a constructor inherited from a base class is selected to initialize a
+derived class, including the default-initialization of the other base classes
+and the non-static data members of the derived class. If the inheriting
+constructor is a base subobject constructor and the inherited constructor
+constructs a morally virtual base subobject, the inheriting constructor does
+not take any user-declared parameters; otherwise, it takes the same parameters
+as the inherited constructor. In all other respects, an inheriting constructors
+behaves the same as a constructor of the derived class.  For example:
+
+<code><pre>
+struct X { X(); };
+struct A { A(int); };
+struct B : A { using A::A; };
+struct C : virtual B { using B::B; X x; };
+struct D : C { using C::C; };
+C c(0);
+D d(0);
+
+// The initializations of c and d behave as if they call C::C<sub>complete A(int)</sub>(0) and D::D<sub>complete A(int)</sub>(0):
+D::D<sub>complete A(int)</sub>(int n) : B<sub>base A(int)</sub>(n), C<sub>base A(int)</sub>() {}	// _ZN1DCI11AEi
+C::C<sub>complete A(int)</sub>(int n) : B<sub>base A(int)</sub>(n), x() {}      <sub></sub>     	// _ZN1CCI11AEi
+C::C<sub>base A(int)</sub>() : /*no init for vbase B*/ x() {}        <sub></sub><sub></sub>     	// _ZN1CCI21AEi
+B::B<sub>base A(int)</sub>(int n) : A(n) {}                          <sub></sub><sub></sub>     	// _ZN1BCI21AEi
+</pre></code>
+
+<p>
+Inheriting constructors are not permitted to make copies of their parameters
+when passing them to the inherited constructor. If it would not be possible to
+transparently forward all parameters from the inheriting constructor to the
+inherited constructor, an inheriting constructor cannot be used, and a
+different implementation technique (such as emitting the initialization inline)
+must be used instead.
+
+
+<p>
 <a name="once-ctor"></a>
-<h4><a href="#once-ctor"> 3.3.2 One-time Construction API </a></h4>
+<h4><a href="#once-ctor"> 3.3.3 One-time Construction API </a></h4>
 
 <p>
 As described in <a href=#guards>Section 2.8</a>, certain objects with
@@ -3408,7 +3708,7 @@ a more complex lock structure to use.
 
 <p>
 <a name="array-ctor">
-<h4><a href="#array-ctor"> 3.3.3 Array Construction and Destruction API </a></h4>
+<h4><a href="#array-ctor"> 3.3.4 Array Construction and Destruction API </a></h4>
 
 <p>
 An ABI-compliant system shall provide several runtime routines for use
@@ -3654,11 +3954,11 @@ If either is NULL, no action is taken when it would have been called.
 
 <p>
 <a name="ctor-order">
-<h4><a href="#ctor-order"> 3.3.4 Controlling Object Construction Order </a></h4>
+<h4><a href="#ctor-order"> 3.3.5 Controlling Object Construction Order </a></h4>
 
 <p>
 <a name="ctor-order-motivation">
-<h5><a href="#ctor-order-motivation"> 3.3.4.1 Motivation </a></h5>
+<h5><a href="#ctor-order-motivation"> 3.3.5.1 Motivation </a></h5>
 
 <p>
 <i>
@@ -3681,7 +3981,7 @@ initialization ordering specified in the base ABI.
 
 <p>
 <a name="ctor-order-pragma">
-<h5><a href="#ctor-order-pragma"> 3.3.4.2 Source Code API </a></h5>
+<h5><a href="#ctor-order-pragma"> 3.3.5.2 Source Code API </a></h5>
 
 <p>
 A user may specify the construction priority with the pragma:
@@ -3711,7 +4011,7 @@ will be executed in an unspecified order.
 
 <p>
 <a name="ctor-order-object-file">
-<h5><a href="#ctor-order-object-file"> 3.3.4.3 Object File Representation </a></h5>
+<h5><a href="#ctor-order-object-file"> 3.3.5.3 Object File Representation </a></h5>
 
 <p>
 Initialization priority is represented in the object file by elements
@@ -3749,7 +4049,7 @@ preserves the source code order of objects to be initialized.
 
 <p>
 <a name="ctor-order-runtime">
-<h5><a href="#ctor-order-runtime"> 3.3.4.4 Runtime Library Support </a></h5>
+<h5><a href="#ctor-order-runtime"> 3.3.5.4 Runtime Library Support </a></h5>
 
 <p>
 Each implementation supporting priority initialization shall provide
@@ -3765,7 +4065,7 @@ It will be called with the GP of the initialization entries.
 
 <p>
 <a name="ctor-order-linker">
-<h5><a href="#ctor-order-linker"> 3.3.4.5 Linker Processing </a></h5>
+<h5><a href="#ctor-order-linker"> 3.3.5.5 Linker Processing </a></h5>
 
 <p>
 The only required static linker processing is to concatenate the
@@ -3809,11 +4109,11 @@ with no other entries in the <code>DT_INIT_ARRAY</code> section.
 
 <p>
 <a name="dso-dtor">
-<h4><a href="#dso-dtor"> 3.3.5 DSO Object Destruction API </a></h4>
+<h4><a href="#dso-dtor"> 3.3.6 DSO Object Destruction API </a></h4>
 
 <p>
 <a name="dso-dtor-motivation">
-<h5><a href="#dso-dtor-motivation"> 3.3.5.1 Motivation </a></h5>
+<h5><a href="#dso-dtor-motivation"> 3.3.6.1 Motivation </a></h5>
 
 <p>
 The C++ Standard requires that destructors be called for global objects
@@ -3837,7 +4137,7 @@ and reasonable treatment during early DSO unload (e.g. <code>dlclose</code>).
 
 <p>
 <a name="dso-dtor-runtime-data">
-<h5><a href="#dso-dtor-runtime-data"> 3.3.5.2 Runtime Data Structure </a></h5>
+<h5><a href="#dso-dtor-runtime-data"> 3.3.6.2 Runtime Data Structure </a></h5>
 
 <p>
 The runtime library shall maintain a list of termination functions
@@ -3855,7 +4155,7 @@ All references are via the API described below.
 
 <p>
 <a name="dso-dtor-runtime-api">
-<h5><a href="#dso-dtor-runtime-api"> 3.3.5.3 Runtime API </a></h5>
+<h5><a href="#dso-dtor-runtime-api"> 3.3.6.3 Runtime API </a></h5>
 
 <ol type=A>
 <p>
@@ -4051,22 +4351,34 @@ HP <a href="exceptions.pdf">exception handling</a> working paper,
 
 <p>
 This section specifies the <i>mangling</i>, i.e. encoding,
-of external names
-(external in the sense of being visible outside the object file where
-they occur).
-The encoding is formalized as a derivation grammar along with the
-explanatory text,
-in a modified BNF with the following conventions:
+of external names (external in the sense of being visible
+outside the object file where they occur).  The encoding is
+formalized as a derivation grammar along with the explanatory
+text, in a modified BNF with the following conventions:
 <ul>
-<li> Non-terminals are delimited by diamond braces: "&lt;>".
-<li> Italics in non-terminals are modifiers to be ignored,
-     e.g. &lt;<i>function</i> <a href="#mangle.name">name</a>&gt; is the same as &lt;<a href="#mangle.name">name</a>&gt;.
+<li> Alternatives are given on separate lines.
+<li> References to non-terminals are delimited by angle brackets
+     <code class=mangle>&lt;&gt;</code>.
+<li> Italicized text in references to non-terminals describes or
+     limits what is mangled by the reference, but it does not
+     affect the formal grammar.  For example,
+     <code class=mangle>&lt;<i>function</i> <a href="#mangle.name">name</a>&gt;</code> is the same as
+     <code class=mangle>&lt;<a href="#mangle.name">name</a>&gt;</code>,
+     but it means this derivation rule should be used only for
+     the names of functions.
 <li> Spaces are to be ignored.
-<li> Text beginning with '#' is comments, to be ignored.
-<li> Tokens in square brackets "[]" are optional.
-<li> Tokens are placed in parentheses "()" for grouping purposes.
-<li> '*' repeats the preceding item 0 or more times.
-<li> '+' repeats the preceding item 1 or more times.
+<li> Text beginning with <code class=mangle>#</code> is a comment,
+     to be ignored until the end of the line.  Comments are often
+     used to describe in what case an alternative should be used.
+<li> Sequences of items in square brackets
+     <code class=mangle>[]</code> are optional.
+<li> Sequences of items in parentheses
+     <code class=mangle>()</code> are groups for the purposes of
+     <code class=mangle>*</code> and <code class=mangle>+</code>.
+<li> An asterisk <code class=mangle>*</code> allows the preceding
+     item to repeat 0 or more times.
+<li> A plus sign <code class=mangle>+</code> allows the preceding
+     item to repeat 1 or more times.
 <li> All other characters are terminals, representing themselves.
 </ul>
 
@@ -4083,9 +4395,10 @@ we use <code>Ret?</code> for an unknown function return type
 or <code>Type?</code> for an unknown data type.
 
 <p>
-Mangled names containing '<tt>$</tt>' or '<tt>.</tt>' are reserved for
-private implementation use. Names produced using such extensions are
-inherently non-portable and should be given internal linkage where possible.
+Mangled names containing <code class=mangle>$</code> or
+<code class=mangle>.</code> are reserved for private implementation
+use. Names produced using such extensions are inherently non-portable
+and should be given internal linkage where possible.
 
 <p>
 <a name="mangling-structure">
@@ -4120,6 +4433,101 @@ containing a period represents a vendor-specific version or portion
 of the entity named by the <code>&lt;<a href="#mangle.encoding">encoding</a>&gt;</code>
 prior to the first period. There is no restriction on the characters
 that may be used in the suffix following the period.
+
+<p>
+ABI mangling is designed to ensure that entities receive the
+same mangling if and only if they are the same entity according
+to the C++ standard's one-definition rule (ODR) and the
+various rules for declaration matching (such as
+<span class=cxxref>[over.dcl]</span> and
+<span class=cxxref>[temp.over]</span>.  Those rules are quite
+complex, and they dictate the results of mangling, and so it
+should not be surprising that the mangling rules are also complex.
+The ABI must be closely involved with the evolution of those
+language rules to ensure that they remain implementable with
+mangling.  When the rules say that an ODR violation has
+undefined behavior, that is often because it is impractical to
+ensure that the entities involved will have different manglings.
+Similarly, when the rules forbid certain constructs from the
+signature of a declaration, that is often because that construct
+would create unreasonable problems for mangling.
+
+<p>
+Mangling must sometimes be able to distinguish entities that
+are not equivalent under the ODR and declaration-matching
+rules.  This is true even if the entities would not be
+distinguishable by C++ code because, say, every name lookup
+which included both of them would be ambiguous.  For example,
+different translation units might declare similar but not
+eqivalent function templates in the same namespace:
+
+<pre>// a.cpp:
+template &lt;int&rt; void foo() {}
+template &lt;&rt; void foo<0>();
+
+// b.cpp:
+template &lt;long&rt; void foo() {}
+template &lt;&rt; void foo<0>();</pre>
+
+<p>
+The C++ standard grants implementations broad flexibility to
+ignore certain kinds of differences.  For example, the rules
+in <span class=cxxref>[temp.over.link]</span> for
+functionally-equivalent function templates could be used to
+shorten manglings in certain cases where instantiation-dependence
+provably has no effect.  This ABI generally does not take
+advantage of that flexibility.
+
+<a name="mangling.dependent">
+<h5><a href="#mangling.dependent">Dependent constructs in templates</a></h5>
+
+<p>
+It is sometimes necessary to mangle unresolved and uninstantiated
+language constructs such as types and expressions that appear
+within templates.  This accounts for a lot of the complexity of
+entity mangling in this ABI.
+
+<p>
+In many places, the mangling grammar formally allows a single
+construct to be mangled in one of several different ways.
+Usually there is one production which allows a fully-resolved
+value or entity reference, and there is another production that
+allows an expression or unresolved entity reference.  As an
+example, this can be clearly seen in the mangling for
+<a href="#mangle.array-type">array types</a>, which gives
+one mangling for a constant bound and another for an expression.
+
+<p>
+There are two reasons for this.  First, manglings using the
+fully-resolved case are often significantly more compact.
+More importantly, though, the language often treat dependent
+and non-dependent constructs differently.  For example,
+<span class=cxxref>[temp.over.link]</span> gives rules for
+when two expressions that involve template parameters are
+considered equivalent, and those rules are reflected in
+this ABI's expression mangling rules.  Conversely, expressions
+that don't involve template parameters but are used in
+constant-evaluated contexts (such an array length) are
+considered to be equivalent if and only if they resolve
+to the same value.  Mangling a non-dependent expression using
+its expression structure could incorrectly produce different
+manglings for different expressions that resolve to the same
+value, and it could incorrectly produce the same mangling for
+xpressions that resolve to different values but happen to be
+spelled the same.
+
+<p>
+It is therefore important to use the right production given
+the dependence of the construct in question.  The standard
+defines several different kinds of dependence, such as
+<i>value dependence</i> and <i>type dependence</i>.  In
+general, the rule that should be used in mangling is
+<a href="#instantiation-dependent"><i>instantiation
+dependence</i></a>: if a construct in instantiation-dependent,
+it should use the general production, and otherwise it
+should use the narrow production.  The grammar below will
+state clearly when certain productions are only for
+instantiation-dependent cases.
 
 <a name="mangle.anonymous">
 <h5><a href="#mangling.anonymous">Anonymous entities</a></h5>
@@ -4204,9 +4612,9 @@ qualifiers could be inferred from the substitution target.
     &lt;<a name="mangle.prefix">prefix</a>&gt; ::= &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;                 # global class or namespace
              ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt;        # nested class or namespace
 	     ::= &lt;<a href="#mangle.template-prefix">template-prefix</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt;  # class template specialization
+             ::= &lt;<a href="#mangle.closure-prefix">closure-prefix</a>&gt;                   # initializer of a variable or data member
              ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;                   # template type parameter
              ::= &lt;<a href="#mangle.decltype">decltype</a>&gt;                         # decltype qualifier
-             ::= &lt;<a href="#mangle.prefix">prefix</a>&gt; &lt;<a href="#mangle.data-member-prefix">data-member-prefix</a>&gt;      # initializer of a data member
 	     ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
 
     &lt;<a name="mangle.template-prefix">template-prefix</a>&gt; ::= &lt;<i>template</i> <a href="#mangle.unqualified-name">unqualified-name</a>&gt;           # global template
@@ -4361,6 +4769,7 @@ the first of which is lowercase.
 		  ::= na	# new[]
 		  ::= dl	# delete        
 		  ::= da	# delete[]      
+		  ::= aw	# co_await      
 		  ::= ps        # + (unary)
 		  ::= ng	# - (unary)     
 		  ::= ad	# & (unary)     
@@ -4514,14 +4923,24 @@ where the final &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; 
 is replaced by one of the following:
 
 <pre><font color=blue><code>
-  &lt;<a name="mangle.ctor-dtor-name">ctor-dtor-name</a>&gt; ::= C1	# complete object constructor
-		   ::= C2	# base object constructor
-		   ::= C3	# complete object allocating constructor
-		   ::= D0	# deleting destructor
-		   ::= D1	# complete object destructor
-		   ::= D2	# base object destructor
-
+  &lt;<a name="mangle.ctor-dtor-name">ctor-dtor-name</a>&gt; ::= C1			# complete object constructor
+		   ::= C2			# base object constructor
+		   ::= C3			# complete object allocating constructor
+		   ::= CI1 &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt;	# complete object <a href="#inh-ctor">inheriting constructor</a>
+		   ::= CI2 &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt;	# base object <a href="#inh-ctor">inheriting constructor</a>
+		   ::= D0			# deleting destructor
+		   ::= D1			# complete object destructor
+		   ::= D2			# base object destructor
 </pre></font></code>
+
+<p>
+The &lt;<i>base class</i> <a href="#mangle.type">type</a>&gt; in an inheriting
+constructor mangling identifies the base class in which the inherited
+constructor was originally declared.
+
+<p>
+Some of the symbols for constructor and destructor variants are <a
+href="#vague-ctor">optional</a>.
 
 <p>
 <a name="mangling-special-guards">
@@ -4581,14 +5000,14 @@ B &temp = b&lt;void&gt;;
 
 <p>
 <a name="mangling-transaction-safe">
-<h5><a href="#mangling-transaction-safe"> 5.1.4.5 Transaction-Safe Function
+<h5><a href="#mangling-transaction-safe"> 5.1.4.6 Transaction-Safe Function
 Entry Points</a></h5> A function declared transaction-safe or
 [[optimize_for_synchronized]] has two entry points: the normal function
 mangling, used for calls from a non-transaction context, and another entry
 point used for calls during a transaction.  The mangled name of the transaction entry point is the normal mangling prefixed with GTt.
 
 <pre><font color=blue><code>
-  &lt;special_name> ::= GTt &lt;encoding>
+  &lt;special-name&gt; ::= GTt &lt;encoding&gt;
 </pre></font></code>
 
 <a name="mangling-type">
@@ -4687,18 +5106,20 @@ This ABI does not specify that choice.
 
 <ul compact>
 <li>
-The GNU <code>address_space(N)</code> qualifier is mangled using the
-name <code>AS</code>.  For historical reasons, if the argument expression
-is not instantiation-dependent, its value is incorporated directly into
-the &lt;<a href="#mangle.source-name">source-name</a>&gt; of the qualifier;
-otherwise it is encoded as a qualifier argument.
+The GNU <code>address_space(N)</code> qualifier is mangled
+using the name <code>AS</code>.  For historical reasons, if
+the argument expression is not
+<a href="#instantiation-dependent">instantiation-dependent</a>,
+its value is incorporated directly into the
+&lt;<a href="#mangle.source-name">source-name</a>&gt; of the
+qualifier; otherwise it is encoded as a qualifier argument.
 
 <p>
 For example, <code>int __attribute__((address_space(3))) *</code> is
 encoded as <code>PU3AS3i</code>, but
-<code>int __attribute__((address_space(K))) *</code> (given that
-<code>K</code> is a dependent reference to the first template parameter) is
-encoded as <code>PU2ASIT_Ei</code>.
+<code>int __attribute__((address_space(K))) *</code>
+(in which <code>K</code> is a reference to the first
+template parameter) is encoded as <code>PU2ASIT_Ei</code>.
 
 </ul>
 
@@ -4734,18 +5155,26 @@ Builtin types are represented by single-letter codes:
                  ::= De # IEEE 754r decimal floating point (128 bits)
                  ::= Df # IEEE 754r decimal floating point (32 bits)
                  ::= Dh # IEEE 754r half-precision floating point (16 bits)
-                 ::= DF &lt;<a href="#mangle.number">number</a>&gt; _ # ISO/IEC TS 18661 binary floating point type _FloatN (N bits)
+                 ::= DF &lt;<a href="#mangle.number">number</a>&gt; _ # ISO/IEC TS 18661 binary floating point type _FloatN (N bits), C++23 std::floatN_t
+                 ::= DF &lt;<a href="#mangle.number">number</a>&gt; x # IEEE extended precision formats, C23 _FloatNx (N bits)
+                 ::= DF16b # C++23 std::bfloat16_t
+                 ::= DB &lt;<a href="#mangle.number">number</a>&gt; _        # C23 signed _BitInt(N)
+                 ::= DB &lt;<i>instantiation-dependent</i> <a href="#mangle.expression">expression</a>&gt; _ # C23 signed _BitInt(N)
+                 ::= DU &lt;<a href="#mangle.number">number</a>&gt; _        # C23 unsigned _BitInt(N)
+                 ::= DU &lt;<i>instantiation-dependent</i> <a href="#mangle.expression">expression</a>&gt; _ # C23 unsigned _BitInt(N)
                  ::= Di # char32_t
                  ::= Ds # char16_t
+                 ::= Du # char8_t
                  ::= Da # auto
                  ::= Dc # decltype(auto)
                  ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
-		 ::= u &lt;<a href="#mangle.source-name">source-name</a>&gt;	# vendor extended type
+		 ::= u &lt;<a href="#mangle.source-name">source-name</a>&gt; [&lt;<a href="#mangle.template-args">template-args</a>&gt;] # vendor extended type
 </pre></font></code>
 
 <p>
 Vendors who define builtin extended types shall encode them
-as a 'u' prefix followed by the name in &lt;length,ID> form.
+as a 'u' prefix followed by the name in &lt;length,I&gt; form,
+followed by any arguments to the extended type.
 
 <a name="mangle.function-type">
 <h5><a href="#mangle.function-type">5.1.5.3 Function types</a></h5>
@@ -4842,10 +5271,10 @@ substitution candidate.
 </p>
 
 <p>
-When a function parameter is a C++0x function parameter pack, its type
+When a function parameter is a C++11 function parameter pack, its type
 is mangled with <code>Dp &lt;<a href="#mangle.type">type</a>&gt;</code>, i.e., its type is a pack
 expansion:
-<pre><font color="blue"><code> &lt;<a name="mangle.type">type</a>&gt;  ::= Dp &lt;<a href="#mangle.type">type</a>&gt;          # pack expansion (C++0x)
+<pre><font color="blue"><code> &lt;<a name="mangle.type">type</a>&gt;  ::= Dp &lt;<a href="#mangle.type">type</a>&gt;          # pack expansion (C++11)
 </code></font></pre>
 </p>
 
@@ -4858,8 +5287,8 @@ either <code>Dt</code> or <code>DT</code>, depending on how
 the <code>decltype</code> type was parsed.  (See farther <a href=#expressions>below</a> for
 the encoding of expressions.)
 
-<pre><font color="blue"><code> &lt;decltype&gt;  ::= Dt &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an id-expression or class member access (C++0x)
-             ::= DT &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an expression (C++0x)
+<pre><font color="blue"><code> &lt;decltype&gt;  ::= Dt &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an id-expression or class member access (C++11)
+             ::= DT &lt;<a href="#mangle.expression">expression</a>&gt; E  # decltype of an expression (C++11)
 </code></font></pre>
 If the operand expression of <code>decltype</code> is not
 <a href=#instantiation-dependent>instantiation-dependent</a>
@@ -4913,7 +5342,8 @@ the form
 </pre></font></code>
 
 The number is omitted for the first unnamed type in the class; it is
-n-2 for the nth unnamed type (in lexical order) otherwise.
+n-2 for the nth unnamed type (in <a href="#lexical-ordering">lexical order</a>)
+otherwise.
 <p>
 (The mangling of such unnamed types defined in namespace scope is
 generally unspecified because they do not have to match across
@@ -4936,25 +5366,26 @@ For example:
 <h5><a href="#mangle.array-type">5.1.5.6 Array types</a></h5>
 
 <p>
-Array types encode the dimension (number of elements) and the element type.
-Note that "array" parameters to functions are encoded as pointer types.
-For variable length arrays (C99 VLAs),
-the dimension (but not the '_' separator) is omitted.
+Array types encode their array bound and element type.  Note that
+"array" parameters to functions are encoded as pointer types.
+The array bound (but not the <code class=mangle>_</code> separator)
+is omitted for incomplete array types (e.g. <code>int[]</code>)
+and C99 variable-length array types.
 
 <pre><font color=blue><code>
-  &lt;array-type&gt; ::= A &lt;<i>positive dimension</i> <a href="#mangle.number">number</a>&gt; _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
-	       ::= A [&lt;<i>dimension</i> <a href="#mangle.expression">expression</a>&gt;] _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
-
+  &lt;array-type&gt; ::= A [&lt;<i>array bound</i> <a href="#mangle.number">number</a>&gt;] _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
+	       ::= A &lt;<i>instantiation-dependent array bound</i> <a href="#mangle.expression">expression</a>&gt; _ &lt;<i>element</i> <a href="#mangle.type">type</a>&gt;
 </pre></font></code>
 
 <p>
-When the dimension is an expression involving template parameters,
-the second production is used.
-Thus, the declarations:
+The second rule is used when the array bound is an
+<a href="#instantiation-dependent">instantiation-dependent</a>
+expression.  For example:
 <pre><code>    template&lt;int I&gt; void foo (int (&amp;)[I + 1]) { }
+
+    // Mangled as _Z3fooILi2EEvRAplT_Li1E_i
     template void foo&lt;2&gt; (int (&amp;)[3]);
 </pre></code>
-produce the mangled name "<code>_Z3fooILi2EEvRAplT_Li1E_i</code>".
 
 <a name="mangle.pointer-to-member-type">
 <h5><a href="#mangle.pointer-to-member-type">5.1.5.7 Pointer-to-member types</a></h5>
@@ -4972,32 +5403,32 @@ produces the mangled name "<code>_Z1fM1AKFvvRE</code>".
 <h5><a href="#mangle.template-param">5.1.5.8 Template parameters</a></h5>
 
 <p>
-When function and member function template instantiations reference
-the template parameters in their parameter or result types,
-the template parameter number is encoded,
-with the sequence T_, T0_, ...  For example:
-<pre><code>
-    template&lt;class T> void f(T) {}
-    template void f(int);
-      // Mangled as "_Z1fIiEvT_".
-</code></pre>
-
-Class template parameter references are mangled using the standard
-mangling for the actual parameter type,
-typically a substitution.
-Note that a template parameter reference is a substitution candidate,
-distinct from the type (or other substitutible entity)
-that is the actual parameter.
-</p>
+A reference to a template parameter is mangled using the index
+of the parameter, with a special mangling for the first parameter.
+The sequence of parameters is therefore <code class=mangle>T_</code>,
+<code class=mangle>T0_</code>, <code class=mangle>T1_</code>, and so on.
 
 <p>
+For example:
+<pre><code>
+    template&lt;class T&gt; void f(T) {}
+
+    // Mangled as "_Z1fIiEvT_"
+    template void f(int);
+
+</code></pre>
+
+<p>
+In some contexts, it is necessary to mangle references to template parameters
+that are not introduced by the innermost enclosing template parameter list.
 Let L be the number of template parameter scopes enclosing the
 template parameter scope in which the parameter is declared,
 excluding any template parameter scopes whose template arguments
 have already been substituted into the type or expression being mangled.
 Typically L will be zero, but can be nonzero when a generic lambda
-occurs within the signature of a function template or when mangling
-a template template parameter declaration. For example:
+occurs within the signature of a function template, when mangling
+a template template parameter declaration, or when mangling a constraint.
+For example:
 
 <pre><code>
 	template&lt;typename&gt; struct A {
@@ -5017,23 +5448,43 @@ a template template parameter declaration. For example:
 </font></code></pre>
 
 <p>
-Within a &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt;,
-explicit template parameter declarations are mangled.
-</p>
+Note that a template parameter reference is a
+<a href="#mangling-compression">substitution candidate</a>.
+As a substitution, it is treated as distinct from the actual
+template argument, including in recursive positions.
+For example, in the mangling of the following function template
+specialization, the first incidence of <code>T*</code> is not
+substituted despite being known (in this specialization) to be
+the same type as <code>int*</code>, and the second incidence
+is substituted with the substitution derived from the first
+incidence, not that from the incidence of <code>int*</code>.
 
-<a name="mangle.template-param-decl">
-<pre><code><font color=blue>
-  &lt;template-param-decl&gt; ::= Ty					# template type parameter
-			::= Tn &lt;<a href="#mangle.type">type</a>&gt;				# template non-type parameter
-			::= Tt &lt;<a href="#mangle.template-param-decl">template-param-decl</a>&gt;* E		# template template parameter
-			::= Tp &lt;<i>non-pack</i> <a href="#mangle.template-param-decl">template-param-decl</a>&gt;	# template parameter pack
-</font></code></pre>
+<pre><code>
+    template&lt;class T&gt; void f(int*, T*, T*) {}
+
+    // Mangled as "_Z1fIiEvPiPT_S2_"
+    template void f(int*, int*, int*);
+
+</code></pre>
 
 <p>
-(Note: the intent is to eventually use these template parameter
-manglings more broadly, to distinguish between function templates
-that are overloaded on template parameters but that are otherwise
-indistinguishable.)
+Typically, only references to function template parameters occurring
+within the dependent signature of the template are mangled this way.
+In other contexts, template instantiation replaces references
+to template parameters with the actual template arguments, and mangling
+should mangle such references exactly as if they were that template
+argument.  For example:
+
+<pre><code>
+    template&lt;class T&gt; class A {
+      template&lt;class U&gt; void f(T, U) {}
+    };
+
+    // Mangled as "_ZN1AIiE1fIfEEviT_"
+    template void A&lt;int&gt;::f(int, float);
+
+</code></pre>
+
 </p>
 
 <a name="mangle.function-param">
@@ -5065,6 +5516,7 @@ most common -- L can be zero).  For example:
 		   ::= fL &lt;L-1 non-negative <a href="#mangle.number">number</a>&gt; p &lt;<i>top-level</i> <a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt; _         # L > 0, first parameter
 		   ::= fL &lt;L-1 non-negative <a href="#mangle.number">number</a>&gt; p &lt;<i>top-level</i> <a href="#mangle.CV-qualifiers">CV-qualifiers</a>&gt;
                                                     &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _   # L > 0, second and later parameters
+		   ::= fpT                                                                # this
 </font></code></pre>
 Note that top-level cv-qualifiers specified on a parameter type do not
 affect the function type directly (i.e., <code>int(*)(T)</code> and
@@ -5113,18 +5565,29 @@ where the "N...E" construct is used to describe a qualified name.
 <h4><a href="#expressions">5.1.6 Expressions</a></h4>
 
 <p>
-Expressions must be mangled in several contexts.  When mangling the
-name of a specialized template, non-type template arguments are
-mangled as an expression; these expressions are typically very simple.
-However, when mangling the signature of a function template, any
-<a href="#instantiation-dependent">instantiation-dependent</a> expressions
-(e.g. in an array bound,
-<code>decltype</code> type, or template argument) must be mangled in
-order to properly distinguish templates that are different under the
-ODR and that can legally be differentiated by substitution failures.
-Therefore, nearly the entire expression grammar of C++ is subject
-to mangling, with only a few exceptions (like lambdas) that are
-explicitly disallowed in function signatures.
+Expressions must be mangled in several contexts.
+
+<p>
+When mangling the name of a specialized template, non-type
+template arguments are mangled as expressions.  These
+expressions are typically very simple, and they do not
+necessarily reflect any argument expression that was used
+in source.  See the section on mangling
+<a href="#mangle.template-args">template arguments</a> for
+more detail.
+
+<p>
+More generally, when mangling the signature of a function
+template, any
+<a href="#instantiation-dependent">instantiation-dependent</a>
+expressions (e.g. in an array bound, <code>decltype</code>,
+or template argument) must be mangled in order to properly
+distinguish templates that are different under the ODR.
+See the section on <a href="#mangling.dependent">dependent
+mangling</a>.  As a result, nearly the entire expression
+grammar of C++ is subject to mangling, with only a few
+exceptions (like lambdas) that are explicitly disallowed
+in function signatures.
 
 <p>
 In general, expression manglings reflect a prefix traversal of the
@@ -5135,8 +5598,7 @@ and typically do not affect semantics.  However, a parenthesized
 must be mangled differently because the parentheses act to suppress
 argument-dependent lookup.)  Unless explicitly stated otherwise, the
 expression is mangled without constant folding or other
-simplification.  Therefore this mangling is quite similar to the
-source token stream.  (C++ Standard reference 14.5.5.1p5.)
+simplification.
 
 <p>
 Each expression mangling begins with a code (typically two letters)
@@ -5209,8 +5671,13 @@ For example:
                ::= sZ &lt;<a href="#mangle.function-param">function-param</a>&gt;                                  # sizeof...(parameter), size of a function parameter pack
                ::= sP &lt;<a href="#mangle.template-arg">template-arg</a>&gt;* E                                 # sizeof...(T), size of a captured template parameter pack from an alias template
                ::= sp &lt;<a href="#mangle.expression">expression</a>&gt;                                      # expression..., pack expansion
+               ::= fl &lt;<i>binary</i> <a href="#mangle.operator-name">operator-name</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;               # (... operator expression), unary left fold
+               ::= fr &lt;<i>binary</i> <a href="#mangle.operator-name">operator-name</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;               # (expression operator ...), unary right fold
+               ::= fL &lt;<i>binary</i> <a href="#mangle.operator-name">operator-name</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;  # (expression operator ... operator expression), binary left fold
+               ::= fR &lt;<i>binary</i> <a href="#mangle.operator-name">operator-name</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;  # (expression operator ... operator expression), binary right fold
                ::= tw &lt;<a href="#mangle.expression">expression</a>&gt;                                      # throw expression
                ::= tr                                                   # throw with no operand (rethrow)
+               ::= u &lt;<a href="#mangle.source-name">source-name</a>&gt; &lt;<a href="#mangle.template-arg">template-arg</a>&gt;* E                    # vendor extended expression
                ::= &lt;<a href="#mangle.unresolved-name">unresolved-name</a>&gt;                                    # f(p), N::f(p), ::f(p),
                                                                         # freestanding dependent name (e.g., T::x),
                                                                         # objectless nonstatic member reference
@@ -5366,7 +5833,7 @@ is used even if the indicated member is actually known.  Similarly,
 an <code>&lt;<a href="#mangle.unresolved-qualifier-level">unresolved-qualifier-level</a>&gt;</code> may encode a known
 class type.
 That production is also used for references to nonstatic members with no
-associated expression designating the enclosing object (a C++0x feature).
+associated expression designating the enclosing object (a C++11 feature).
 For example:
 <code><pre>          struct Q { int x; } q;
           template&lt;class T> auto f(T p)->decltype(p.x + q.x);
@@ -5439,7 +5906,8 @@ be mangled with a &lt;<a href="#mangle.nested-name">nested-name</a>&gt;.
 within a function if they are declared in different scopes.  In this
 case, a discriminator must be added to the
 &lt;<a href="#mangle.local-name">local-name</a>&gt;.  Entities with
-the same "top-level" name are numbered in lexical order within
+the same "top-level" name are numbered in
+<a href="#lexical-ordering">lexical order</a> within
 the function definition.  A discriminator is added only for the second
 and later occurrences of the same name, and so the
 &lt;<a href="#mangle.number">number</a>&gt; in the discriminator
@@ -5460,8 +5928,8 @@ the form
 </pre></font></code>
 
 where the number is is omitted for the first unnamed type in the
-function, and <i>n</i>-2 for the <i>n</i>th unnamed type (in lexical
-order) otherwise.
+function, and <i>n</i>-2 for the <i>n</i>th unnamed type
+(in <a href="#lexical-ordering">lexical order</a>) otherwise.
 
 <p>
 For example:
@@ -5493,24 +5961,13 @@ The second production in &lt;<a href="#mangle.local-name">local-name</a>&gt;
 is used for string literals.  The discriminator is used only if there
 is more than one, for the second and subsequent ones.  In this case
 again &lt;<a href="#mangle.number">number</a>&gt; is <i>n</i>-2 for
-the <i>n</i>th distinct string literal, in lexical order, appearing in
+the <i>n</i>th distinct string literal, in
+<a href="#lexical-ordering">lexical order</a>, appearing in
 the function.  Multiple references to the same string literal produce
 one string object with one name in the sequence.  <i>Note that this
 assumes that the same string literal occurring twice in a given
 function in fact represents a single entity, i.e. has a unique
 address.</i>
-
-<p>
-In all cases, the numbering order is strictly lexical order based on
-the original token sequence.  All entities occurring in that sequence
-are to be numbered, even if subsequent optimization makes some of them
-unnecessary.  The ordering of literals appearing in a
-mem-initializer-list shall be the order that the literals appear in
-the source, which may be different from the order in which the
-initializers will be executed when the program runs.  It is expected
-that this will be the 'natural' order in most compilers.  In any case,
-conflicts would arise only if different compilation units including
-the same code were compiled by different compilers.
 
 <p>
 For entities in constructors and destructors, the mangling of the
@@ -5586,7 +6043,8 @@ with
 </pre></font></code>
 The number is omitted for the first closure type with a given
 &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; in a given context; it is n-2 for the nth closure
-type (in lexical order) with that same &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; and context.
+type (in <a href="#lexical-ordering">lexical order</a>)
+with that same &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; and context.
 <p>
 
 <p>
@@ -5638,16 +6096,15 @@ not affect its encoding.
 </pre></code>
 
 
-<a name="mangle.data-member-prefix"><p>
+<a name="mangle.closure-prefix"><p>
 If the context of a closure type is an initializer for a class
 member (static or nonstatic), inline variable, or variable template,
 it is encoded in a qualified name with a
-final <code>&lt;<a href="#mangle.prefix">prefix</a>&gt;</code> of the form:
-<code><pre><font color=blue>  &lt;data-member-prefix&gt; ::= &lt;<i>member</i> <a href="#mangle.source-name">source-name</a>&gt; [&lt;<a href="#mangle.template-args">template-args</a>&gt;] M
+<code>&lt;<a href="#mangle.prefix">prefix</a>&gt;</code> of the form:
+<code><pre><font color=blue>
+    &lt;closure-prefix&gt; ::= [ &lt;<a href="#mangle.prefix">prefix</a>&gt; ] &lt;<i>variable or member</i> <a href="#mangle.unqualified-name">unqualified-name</a>&gt; M
+                     ::= &lt;<i>variable template</i> <a href="#mangle.template-prefix">template-prefix</a>&gt; &lt;<a href="#mangle.template-args">template-args</a>&gt; M
 </font></pre></code>
-where the <code>&lt;<a href="#mangle.template-args">template-args</a>&gt;</code>
-is present for a closure type within a variable template specialization
-and absent otherwise.
 For example:
 <code><pre>
 	template&lt;typename T> struct S {
@@ -5702,8 +6159,97 @@ translation units, perhaps by giving affected symbols internal linkage.
 </p>
 
 <p>
+<a name="lexical-ordering">
+<h4><a href="#lexical-ordering">5.1.9 Lexical ordering</a></h4>
+
+<p>
+Lexical ordering is used for numbering local entities (named and unnamed
+local classes and enumerations, closure types, and static local variables)
+when there is no other way of distinguishing them.  Except as described below,
+all local entities are to be numbered, even if subsequent optimization makes
+some of them unnecessary, or no mangled name is actually required for
+some of them.
+
+<p>
+The order of entities is the source order of a key token unique to the
+entity as if:
+
+<ul>
+<li>the discarded sub-statements of <tt>if constexpr</tt> within a
+template did not exist and
+<li>pack expansions were lexically expanded.
+</ul>
+
+<p>In all cases, this is meant to imitate the numbering that would
+be produced by a simple implementation which numbered entities as it
+processed the source and recursively expanded packs.  Since discarded
+substatements of <tt>if constexpr</tt> are still processed in
+non-template code, entities within them are still numbered.
+
+<p>Entities may be lexically nested without being in different
+contexts for the purposes of mangling.  For example, the lambdas in
+<code>[x = []{}]{}</code> are both part of the enclosing context.
+The order of such entities is determined by the source order of a key
+token in the entity.  In general, this token is the first token
+past which the signature of the entity (as is necessary to mangle it)
+is known:
+
+<ul>
+<li>The key token of a class or enum is the end of the
+  <code>enum-head-name</code> (<code>enum-key</code> if unnamed) or
+  <code>class-head-name</code> (<code>class-key</code> if unnamed)
+  in its first declaration.
+<li>The key token of a lambda is its closing brace (<code>}</code>).
+<li>The key token of a static local variable is the last token of its
+  <code>declarator</code> (not its initializer).
+</ul>
+
+<p>
+All entities from one expansion of a pack are considered to occur
+lexically before any entities from the next expansion of the same pack,
+but the ordering is otherwise based on the original token sequence.
+This is expected to match the numbering that would be established for
+the corresponding non-template generated by substitution into the template.
+As a consequence of these rules, the entity instantiated for a particular
+source construct can have a different mangling number in different
+instantiations of the same template.  An entity appearing in the original
+source may also go entirely un-numbered if it appears in a discarded
+sub-statement of <code>if constexpr</code> or in a pack expansion of an
+empty pack.  For example:
+
+<code><pre>
+void g(...);
+template&lt;bool b, typename ...T> void f() {
+  if constexpr(b) { []{}; }
+  g(([]{}, []{ static T n; return &amp;n; }())...);
+}
+
+// The first lambda is discarded and does not receive a number.
+// The variables passed to g are therefore mangled as
+// _ZZZ1fILb0EJiiEEvvENKUlvE0_clEvE1n and
+// _ZZZ1fILb0EJiiEEvvENKUlvE2_clEvE1n.
+template void f&lt;false, int, int>();
+
+// The variable passed to g is mangled as
+// _ZZZ1fILb1EJiEEvvENKUlvE1_clEvE1n and
+template void f&lt;true, int>();
+
+// Both lambdas are numbered; returns _ZZZ1hvENKUlvE0_clEvE1n.
+inline int *h() {
+  if constexpr(false) { []{}; }
+  return []{ static int n; return &amp;n; }();
+}
+</pre></code>
+
+<p>
+Note that the numbering of entities appearing within a
+<code>mem-initializer-list</code> reflects the order that the
+initializers appear in the source, which may be different from the
+order in which the initializers will be executed when the program runs.
+
+<p>
 <a name="mangling-compression">
-<h4><a href="#mangling-compression">5.1.9 Compression</a></h4>
+<h4><a href="#mangling-compression">5.1.10 Compression</a></h4>
 
 <p>
 To minimize the length of external names,
@@ -5832,17 +6378,9 @@ the following catalog of abbreviations of the form "Sx" are used:
 </pre></font></code>
 
 <p>
-The abbreviation St is always an initial qualifier,
-i.e. appearing as the first element of a compound name.
-It does not require N...E delimiters unless
+Note that the abbreviation St does not require N...E delimiters unless
 either followed by more than one additional composite name component,
 or preceded by CV-qualifiers or a ref-qualifier for a member function.
-This adds the case:
-<pre><font color=blue><code>
-   &lt;<a name="mangle.name">name</a>&gt; ::= St &lt;<a href="#mangle.unqualified-name">unqualified-name</a>&gt; # ::std::
-
-</pre></font></code>
-
 For example:
 <code><pre>
    "_ZSt5state": ::std::state
@@ -5921,7 +6459,7 @@ to the symbol for the object it contains, whether inline or out-of-line.
 <p>
 Some objects with static storage duration have associated guard variables
 used to ensure that they are initialized only once
-(see <a href=once-ctor>3.3.2</a>).
+(see <a href=once-ctor>3.3.3</a>).
 If the object is emitted using a COMDAT group,
 the guard variable must be too.
 It is suggested that it be emitted in the same COMDAT group as the
@@ -5950,6 +6488,8 @@ with the virtual table mangled name as the identifying symbol.
 Note that if the key function is not declared inline in the class definition,
 but its definition later is always declared inline,
 it will be emitted in every object containing the definition.</i>
+A constexpr or consteval function is always declared constexpr or consteval on
+its first declaration, and is implicitly inline, so is never a key function.
 
 <p>
 <img src=warning.gif alt="<b>NOTE</b>:">
@@ -6005,12 +6545,13 @@ referenced, each in its own COMDAT group identified by the constructor
 or destructor name.
 
 <p>
-This ABI does not require the generation or use of allocating
-constructors or deleting destructors for classes without a virtual
-destructor.  However, if an implementation emits such functions, it
-must use the external names specified in this ABI.  If such a function
-has external linkage, it must be emitted wherever referenced, in a
-COMDAT group whose name is the external name of the function.
+This ABI does not require the generation or use of allocating constructors or
+inheriting constructors, and does not require the generation or use of deleting
+destructors for classes without a virtual destructor.  However, if an
+implementation emits such functions, it must use the external names specified
+in this ABI.  If such a function has external linkage, it must be emitted
+wherever referenced, in a COMDAT group whose name is the external name of the
+function.
 
 <p>
 <a name="vague-itemplate">
@@ -6337,7 +6878,7 @@ unwind table location.
   Note about locating virtual bases statically during
   construction (2.6.1).
   Rename IA-64 to Itanium throughout.
-  Add __cxa_vec_cleanup (3.3.3).</p>
+  Add __cxa_vec_cleanup (3.3.4).</p>
 
 <p class="revision"><span class="date">[000817]</span>
   Updates from 17 August meeting, email.</p>
@@ -6345,24 +6886,24 @@ unwind table location.
 <p class="revision"><span class="date">[000807]</span>
   Added base document section (1.5).
   Further RTTI field name cleanup (2.9.4).
-  Update proposed one-time construction API (3.3.2).
-  Update proposed object construction priority API (3.3.4).
+  Update proposed one-time construction API (3.3.3).
+  Update proposed object construction priority API (3.3.5).
   Removed &lt;name&gt; substitution (5.1.2).
   COMDAT not generally necessary for internal linkage (5.2).
   COMDAT for local static guard variables (5.2.2).</p>
 
 <p class="revision"><span class="date">[000727]</span>
   Updates from 20 July meeting.
-  Added section on controlling object construction order (3.3.4).</p>
+  Added section on controlling object construction order (3.3.5).</p>
 
 <p class="revision"><span class="date">[000707]</span>
   Introduce consistent type_info field names (2.9.4).
   Removed vmi flags for publicly/non-publicly inherited bases (2.9.4).
   Collect all construction/destruction APIs in one section (3.3).
-  Added one-time initialization API (3.3.2).
-  Vector construction/destruction routines are extern "C" (3.3.3).
-  Added routines for vector construction/destruction (3.3.3).
-  Added copy construction runtime API (3.3.3).
+  Added one-time initialization API (3.3.3).
+  Vector construction/destruction routines are extern "C" (3.3.4).
+  Added routines for vector construction/destruction (3.3.4).
+  Added copy construction runtime API (3.3.4).
   Make Alex's changes in mangling grammar (5.1).
   Add &lt;special-name&gt; cases for covariant override thunks (5.1.4).
   Allow expressions as array type dimensions (5.1.5).

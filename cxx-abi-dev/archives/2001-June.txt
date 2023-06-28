@@ -1,0 +1,361 @@
+From jason_merrill at redhat.com  Wed Jun  6 11:43:21 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 06 Jun 2001 12:43:21 +0100
+Subject: What thunks are needed?
+Message-ID: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+
+Consider:
+
+       class A { virtual void f (); };
+       class B1 : virtual public A { virtual void f (); };
+       class B2 : virtual public A { virtual void f (); };
+       class C: public B1, public B2 { virtual void f (); };
+
+The ABI spec currently says that we need a thunk for every base, period.
+Clearly this is wrong; we only need thunks for bases which define the
+function (i.e. vtables for them to go in).  Furthermore, we only need one
+thunk per adjustment, since that's what is mangled.  Nor do we need thunks
+that adjust by 0; we can just point to the function itself.  I'll write up
+a patch for these soon.
+
+So: For C::f, we need a virtual thunk for A, no thunk for B1, and a 
+non-virtual thunk for B2.  But it occurs to me that since the B2 vtable
+already has a vcall slot for f, we can use the virtual thunk there, too,
+so we only really need one thunk.
+
+Thoughts?  The current g++ implementation doesn't generate the non-virtual
+thunk, so this change would actually improve compatibility between a
+compliant compiler and the current one.  What do other implementations
+currently do for this testcase?
+
+Jason
+
+
+
+From nathan at codesourcery.com  Wed Jun  6 12:51:27 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Wed, 06 Jun 2001 13:51:27 +0100
+Subject: [cxx-abi-dev] What thunks are needed?
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3B1E274F.9D304474@codesourcery.com>
+
+Jason Merrill wrote:
+> 
+> Consider:
+> 
+>        class A { virtual void f (); };
+>        class B1 : virtual public A { virtual void f (); };
+>        class B2 : virtual public A { virtual void f (); };
+>        class C: public B1, public B2 { virtual void f (); };
+> 
+> The ABI spec currently says that we need a thunk for every base, period.
+> Clearly this is wrong; we only need thunks for bases which define the
+> function (i.e. vtables for them to go in).  Furthermore, we only need one
+> thunk per adjustment, since that's what is mangled.  Nor do we need thunks
+> that adjust by 0; we can just point to the function itself.  I'll write up
+Agreed.
+
+> So: For C::f, we need a virtual thunk for A, no thunk for B1, and a
+> non-virtual thunk for B2. 
+Disagree.
+C::f needs a virtual thunk for A, no thunk for B1 no thunk for B2.
+In C's vtable there will be a subvtable for B1 which contains a sub
+vtable for A. There will be a secondary vtable for B2, which will
+contain a sub vtable for the A base of B2. There is no A base inside
+the B2 base in an object, but B2's vtable will need space allocating
+as if there was one. Also it has to be set up correctly, so that if
+we have a pointer to the B2 base in C, a call to f will correctly
+adjust. (As B2 also defines an f, we don't have to convert the pointer
+down to an A * before the virtual function call.)
+
+> But it occurs to me that since the B2 vtable
+> already has a vcall slot for f, we can use the virtual thunk there, too,
+> so we only really need one thunk.
+agreed.
+
+> Thoughts?  The current g++ implementation doesn't generate the non-virtual
+> thunk, so this change would actually improve compatibility between a
+The current g++ implementation is wrong in this regard. I've
+just fixed some stuff concerning nearly-empty virtual primary base
+classes that g++ was getting wrong. Mark's looking at that patch
+at the moment, and, if he doesn't find anything amiss, it'll go in
+tomorrow.
+
+This is what g++ currently thinks C's vtable should be
+Vtable for C
+C::_ZTV1C: 10 entries
+0     0
+4     0
+8     0
+12    &_ZTI1C
+16    C::_ZTv0_n12_N1C1fEv
+20    -4
+24    0			<- vcall adjust from B2 to C claimed to be zero
+28    -4
+32    &_ZTI1C
+36    C::_ZTvn4_n12_N1C1fEv <- const adjust of -4 then virt adjust 
+
+here is what C's vtable should look like (and does with my patch)
+Vtable for C
+C::_ZTV1C: 10 entries
+0     0
+4     0
+8     0
+12    &_ZTI1C
+16    C::_ZTv0_n12_N1C1fEv
+20    -4
+24    -4		<- vcall adjust from B2 to C is -4
+28    -4
+32    &_ZTI1C
+36    C::_ZTv0_n12_N1C1fEv <- virtual adjust
+
+I agree with your conclusion, but not with your intermediate step of
+the B2 vtable in C being permitted to have a constant adjusting thunk.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From jason_merrill at redhat.com  Wed Jun  6 14:16:58 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 06 Jun 2001 15:16:58 +0100
+Subject: [cxx-abi-dev] What thunks are needed?
+In-Reply-To: <3B1E274F.9D304474@codesourcery.com> (Nathan Sidwell's message of "Wed, 06 Jun 2001 13:51:27 +0100")
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+	<3B1E274F.9D304474@codesourcery.com>
+Message-ID: <m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> Jason Merrill wrote:
+>> 
+>> Consider:
+>> 
+>> class A { virtual void f (); };
+>> class B1 : virtual public A { virtual void f (); };
+>> class B2 : virtual public A { virtual void f (); };
+>> class C: public B1, public B2 { virtual void f (); };
+
+>> So: For C::f, we need a virtual thunk for A, no thunk for B1, and a
+>> non-virtual thunk for B2. 
+
+> Disagree.
+
+> C::f needs a virtual thunk for A, no thunk for B1 no thunk for B2.
+> In C's vtable there will be a subvtable for B1 which contains a sub
+> vtable for A. There will be a secondary vtable for B2, which will
+> contain a sub vtable for the A base of B2. There is no A base inside
+> the B2 base in an object, but B2's vtable will need space allocating
+> as if there was one.
+
+Yes.
+
+> Also it has to be set up correctly, so that if we have a pointer to the
+> B2 base in C, a call to f will correctly adjust. (As B2 also defines an
+> f, we don't have to convert the pointer down to an A * before the virtual
+> function call.)
+
+Yes.  But B2 is not a virtual base, so according to the current ABI
+converting from B2 to C should use a non-virtual thunk.
+
+>> But it occurs to me that since the B2 vtable
+>> already has a vcall slot for f, we can use the virtual thunk there, too,
+>> so we only really need one thunk.
+
+> agreed.
+
+But this is a change from what the ABI currently says.
+
+>> Thoughts?  The current g++ implementation doesn't generate the non-virtual
+>> thunk, so this change would actually improve compatibility between a
+> The current g++ implementation is wrong in this regard. I've
+> just fixed some stuff concerning nearly-empty virtual primary base
+> classes that g++ was getting wrong. Mark's looking at that patch
+> at the moment, and, if he doesn't find anything amiss, it'll go in
+> tomorrow.
+
+Ack!  Please don't put it in; I've just overhauled this stuff, which is why
+I'm thinking about it.  Didn't he mention to you that I was working on
+this?  Sorry I didn't cc you on the heads-up I sent him.
+
+Please send your patch to me, and I'll integrate any bits I missed.
+
+> here is what C's vtable should look like (and does with my patch)
+
+> Vtable for C
+> C::_ZTV1C: 10 entries
+> 0     0
+> 4     0
+> 8     0
+> 12    &_ZTI1C
+> 16    C::_ZTv0_n12_N1C1fEv
+> 20    -4
+> 24    -4		<- vcall adjust from B2 to C is -4
+> 28    -4
+> 32    &_ZTI1C
+> 36    C::_ZTv0_n12_N1C1fEv <- virtual adjust
+
+With my patch, it looks like
+
+Vtable for C
+C::_ZTV1C: 10 entries
+0     0
+4     0
+8     0
+12    &_ZTI1C
+16    C::f              <- no thunk necessary
+20    -4
+24    -4		<- vcall adjust from B2 to C is -4
+28    -4
+32    &_ZTI1C
+36    C::_ZTv0_n12_N1C1fEv <- virtual adjust
+
+Jason
+
+
+
+From mark at codesourcery.com  Thu Jun  7 15:45:01 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 07 Jun 2001 08:45:01 -0700
+Subject: [cxx-abi-dev] What thunks are needed?
+In-Reply-To: <m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+	<3B1E274F.9D304474@codesourcery.com>
+	<m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010607084501J.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+    Jason> Ack!  Please don't put it in; I've just overhauled this
+    Jason> stuff, which is why I'm thinking about it.  Didn't he
+    Jason> mention to you that I was working on this?  Sorry I didn't
+    Jason> cc you on the heads-up I sent him.
+
+Sorry -- I thought you were only working on linkage issues for some
+reason.  I didn't think it through well enough to see that they would
+conflict.  My mistake.
+
+Thanks to both,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun  7 15:45:01 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 07 Jun 2001 08:45:01 -0700
+Subject: [cxx-abi-dev] What thunks are needed?
+In-Reply-To: <m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+	<3B1E274F.9D304474@codesourcery.com>
+	<m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010607084501J.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+    Jason> Ack!  Please don't put it in; I've just overhauled this
+    Jason> stuff, which is why I'm thinking about it.  Didn't he
+    Jason> mention to you that I was working on this?  Sorry I didn't
+    Jason> cc you on the heads-up I sent him.
+
+Sorry -- I thought you were only working on linkage issues for some
+reason.  I didn't think it through well enough to see that they would
+conflict.  My mistake.
+
+Thanks to both,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun  7 15:45:01 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 07 Jun 2001 08:45:01 -0700
+Subject: [cxx-abi-dev] What thunks are needed?
+In-Reply-To: <m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+	<3B1E274F.9D304474@codesourcery.com>
+	<m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010607084501J.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+    Jason> Ack!  Please don't put it in; I've just overhauled this
+    Jason> stuff, which is why I'm thinking about it.  Didn't he
+    Jason> mention to you that I was working on this?  Sorry I didn't
+    Jason> cc you on the heads-up I sent him.
+
+Sorry -- I thought you were only working on linkage issues for some
+reason.  I didn't think it through well enough to see that they would
+conflict.  My mistake.
+
+Thanks to both,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Jun  7 15:45:01 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 07 Jun 2001 08:45:01 -0700
+Subject: [cxx-abi-dev] What thunks are needed?
+In-Reply-To: <m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+References: <m3snhd7s19.fsf@prospero.cambridge.redhat.com>
+	<3B1E274F.9D304474@codesourcery.com>
+	<m3y9r54ruu.fsf@prospero.cambridge.redhat.com>
+Message-ID: <20010607084501J.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason_merrill at redhat.com> writes:
+
+    Jason> Ack!  Please don't put it in; I've just overhauled this
+    Jason> stuff, which is why I'm thinking about it.  Didn't he
+    Jason> mention to you that I was working on this?  Sorry I didn't
+    Jason> cc you on the heads-up I sent him.
+
+Sorry -- I thought you were only working on linkage issues for some
+reason.  I didn't think it through well enough to see that they would
+conflict.  My mistake.
+
+Thanks to both,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Mon Jun 11 00:24:57 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 10 Jun 2001 17:24:57 -0700
+Subject: Mailing list archives
+Message-ID: <20010610172457X.mitchell@codesourcery.com>
+
+
+I've (finally) incorporated Jason's archive for ABI mailing list into
+the on-line mailing list archives.  I think we have roughly every
+message from May 1999 onwards, probably with a few minor warts due to
+the way in which I shoved the mail messages into the archive.
+
+The URL is:
+
+  http://www.codesourcery.com/lists?2
+
+which is linked to from the main ABI page as well.
+
+Enjoy,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+

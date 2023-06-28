@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] abi_tag mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCED86DA6-4B04-45E2-9A1E-5B764647358D%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002921.html">
+   <LINK REL="Next"  HREF="002923.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] abi_tag mangling</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20abi_tag%20mangling&In-Reply-To=%3CCED86DA6-4B04-45E2-9A1E-5B764647358D%40apple.com%3E"
+       TITLE="[cxx-abi-dev] abi_tag mangling">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Jun  3 17:38:27 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002921.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+        <LI>Next message: <A HREF="002923.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2922">[ date ]</a>
+              <a href="thread.html#2922">[ thread ]</a>
+              <a href="subject.html#2922">[ subject ]</a>
+              <a href="author.html#2922">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> On Jun 2, 2016, at 4:22 PM, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On Jun 2, 2016, at 3:01 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> Thank you for writing this up!
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> If a type is not part of the regular mangling, and it contains an ABI tag in its mangling but not as part of its type (for instance, a dependent expression in a template argument references an entity with an ABI tag), does that appear in the resulting mangling?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> (That is, is an implementation required to effectively mangle the return type and throw it away, or is some walk over the top-level type required instead?)
+</I>&gt;&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Do templates have ABI tags, or are the tags only properties of template specializations?  How does that play into mangling and/or substitutability?
+</I>
+To answer my own question here, tags must be associated with the class template, not with its specific specializations, because a template specialization can be used as an incomplete type without requiring explicit specializations etc. to have already been declared.  So you cannot e.g. tag a specific explicit specialization (e.g. std::vector&lt;bool&gt;) or template &quot;pattern&quot; as having been ABI-updated; you have to tag the entire template.  Uses of the template as e.g. a template template argument must include the tag as well.
+
+&gt;<i> I assume ABI tags can apply to unions as well.  (The standard's definition of &quot;compound type&quot; distinguishes classes and unions.)
+</I>&gt;<i> 
+</I>&gt;<i> It's probably worth spelling out that tags do not apply to enumerators.
+</I>&gt;<i> 
+</I>&gt;<i> Are ABI tags mangled in the &lt;prefix&gt;, or just on the entity &lt;name&gt;?  What happens if the same tag is applied to multiple places in the lexical hierarchy, e.g. to both a class and one of its member functions?
+</I>&gt;<i> 
+</I>&gt;<i> I guess an inline friend function definition doesn't implicitly use the tags of its defining class, but presumably has them anyway because of their presence in the function signature.
+</I>&gt;<i> 
+</I>&gt;<i> Can you clarify which things in the Clang description are no longer correct?  I assume that a type used in the name of a conversion function should be mangled with its ABI tag.  Also, I don't see anything in your proposed wording that talks about not mangling ABI tags on an entity that appear in its type.
+</I>
+I wonder if we should include a rationale for this feature.  At a first glance, it's tempting to say that it's largely redundant with inline namespaces.  The main differences are:
+
+  - You can pile up multiple tags on an entity.  It's possible to stack inline namespaces, but that seems unappealing, and it wouldn't be as easy for other language features to help with the tagging problem.
+
+    Piling tags on an entity is useful when you've made several orthogonal revisions to it, e.g. when a member variable of a struct has a type that changes ABI.  Now, that's a case that doesn't propagate out implicitly because of the incomplete-type problem, but it can still propagate out explicitly, e.g. using a compiler feature that warns about &quot;public&quot; types that don't declare all the tags of their member variables.  You'd probably want some way to explicitly propagate the tags of a declaration, e.g. __attribute__((abi_tag(std::string))) to give an entity all the tags that std::string has.
+
+  - You can tag a member function, member type, or static member variable independently of the enclosing type.
+
+  - Tags are mangled even for component types that aren't mangled, like the types of variables and the return types of non-template functions.
+
+John.
+
+&gt;<i> John.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> On 2 Jun 2016 2:33 p.m., &quot;Jason Merrill&quot; &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt;&gt; wrote:
+</I>&gt;&gt;<i> I've finally written up a specification for abi_tag mangling for the ABI standard:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> <A HREF="https://github.com/jicama/cxx-abi/commit/69cea3c9caf76cb308e35c66f4516f54973b6412">https://github.com/jicama/cxx-abi/commit/69cea3c9caf76cb308e35c66f4516f54973b6412</A> &lt;<A HREF="https://github.com/jicama/cxx-abi/commit/69cea3c9caf76cb308e35c66f4516f54973b6412">https://github.com/jicama/cxx-abi/commit/69cea3c9caf76cb308e35c66f4516f54973b6412</A>&gt;
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Note that some of the subtleties with local scopes described in the clang ABI tag documentation (<A HREF="http://clang.llvm.org/docs/ItaniumMangleAbiTags.html">http://clang.llvm.org/docs/ItaniumMangleAbiTags.html</A> &lt;<A HREF="http://clang.llvm.org/docs/ItaniumMangleAbiTags.html">http://clang.llvm.org/docs/ItaniumMangleAbiTags.html</A>&gt;) are due to bugs in GCC 5 that are fixed in GCC 6.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Jason
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> cxx-abi-dev mailing list
+</I>&gt;&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>&gt;
+</I>&gt;&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A> &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>&gt;
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> cxx-abi-dev mailing list
+</I>&gt;&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A> &lt;mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>&gt;
+</I>&gt;&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160603/e161b625/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160603/e161b625/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002921.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+	<LI>Next message: <A HREF="002923.html">[cxx-abi-dev] abi_tag mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2922">[ date ]</a>
+              <a href="thread.html#2922">[ thread ]</a>
+              <a href="subject.html#2922">[ subject ]</a>
+              <a href="author.html#2922">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

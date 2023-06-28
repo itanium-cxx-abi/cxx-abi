@@ -1,0 +1,1403 @@
+From rearnsha at arm.com  Thu May  9 16:35:23 2013
+From: rearnsha at arm.com (Richard Earnshaw)
+Date: Thu, 09 May 2013 17:35:23 +0100
+Subject: [cxx-abi-dev] Empty Classes and data layout
+Message-ID: <518BD04B.2010108@arm.com>
+
+We've been looking into a defect that's been raised on our C++ Binding
+for ARM relating to the handling of empty classes, that is, something like
+
+struct S {};
+
+In C this is not legal, and our C ABI defines no mechanism for passing
+such an object as a function parameter.  However, in C++ this is valid
+and at least at first reading matches the definition of a POD class.
+
+However, the C++(98) states (clause 9 [class] para 3) that complete
+objects and member sub-objects of class type have non-zero size; which
+means that such a class, despite matching the GC++ABI rule for a POD for
+the Purposes of Layout definition fails to meet the condition in clause
+2.2 that "All of these types have data size and non-virtual size equal
+to their size", since the size is one, but the data-size is zero.
+
+It would appear from the rules in clause 2.4 (Non-POD layout) that
+treating such classes according to the non-POD rules would lead to the
+desired behaviour (size = 1, and base class optimisation happens when
+the type is used as a base class); but that would mean that the
+definition of POD for the Purposes of Layout would need to be amended to
+exclude empty classes that are also POD from the list of matching types.
+
+Have we missed something?  or is this a change/clarification that could
+viably be made?
+
+R.
+
+
+From rjmccall at apple.com  Thu May  9 18:10:21 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 09 May 2013 11:10:21 -0700
+Subject: [cxx-abi-dev] Empty Classes and data layout
+In-Reply-To: <518BD04B.2010108@arm.com>
+References: <518BD04B.2010108@arm.com>
+Message-ID: <EF60751C-BAD5-4455-8DA4-D1980FD904A9@apple.com>
+
+On May 9, 2013, at 9:35 AM, Richard Earnshaw <rearnsha at arm.com> wrote:
+> We've been looking into a defect that's been raised on our C++ Binding
+> for ARM relating to the handling of empty classes, that is, something like
+> 
+> struct S {};
+> 
+> In C this is not legal, and our C ABI defines no mechanism for passing
+> such an object as a function parameter.  However, in C++ this is valid
+> and at least at first reading matches the definition of a POD class.
+> 
+> However, the C++(98) states (clause 9 [class] para 3) that complete
+> objects and member sub-objects of class type have non-zero size; which
+> means that such a class, despite matching the GC++ABI rule for a POD for
+> the Purposes of Layout definition fails to meet the condition in clause
+> 2.2 that "All of these types have data size and non-virtual size equal
+> to their size", since the size is one, but the data-size is zero.
+
+This isn't a condition, it's a statement:  it specifies that the data size and
+non-virtual size of these types is equal to their size.  This is necessary
+because those values are otherwise computed by the layout algorithm,
+and, well, we don't run the layout algorithm on types that are POD for
+the purposes of layout.
+
+The data size and non-virtual size of an empty class are ignored by the
+layout algorithm.  When laying out a data member, only sizeof(D) and
+alignof(D) are ever considered.  When laying out an *empty* base class,
+only nvalign(D) (assumed to be 1) is ever considered.
+
+The empty base class optimization applies to types regardless of whether
+they're POD for the purposes of layout.  Being POD only affects the sizeof
+vs. dsize/nvsize distinction.  This is permitted because base class
+subobjects are explicitly permitted to have zero size, and the rules for
+copying in and out of them are different.
+
+I agree that a clarification is in order because the base C ABI doesn't
+necessarily specify a layout for empty classes.  We should specify that
+empty classes have a size of 1 by definition.
+
+John.
+
+From rearnsha at arm.com  Fri May 10 08:43:10 2013
+From: rearnsha at arm.com (Richard Earnshaw)
+Date: Fri, 10 May 2013 09:43:10 +0100
+Subject: [cxx-abi-dev] Empty Classes and data layout
+In-Reply-To: <EF60751C-BAD5-4455-8DA4-D1980FD904A9@apple.com>
+References: <518BD04B.2010108@arm.com>
+	<EF60751C-BAD5-4455-8DA4-D1980FD904A9@apple.com>
+Message-ID: <518CB31E.1090909@arm.com>
+
+On 09/05/13 19:10, John McCall wrote:
+> On May 9, 2013, at 9:35 AM, Richard Earnshaw <rearnsha at arm.com> wrote:
+>> We've been looking into a defect that's been raised on our C++ Binding
+>> for ARM relating to the handling of empty classes, that is, something like
+>>
+>> struct S {};
+>>
+>> In C this is not legal, and our C ABI defines no mechanism for passing
+>> such an object as a function parameter.  However, in C++ this is valid
+>> and at least at first reading matches the definition of a POD class.
+>>
+>> However, the C++(98) states (clause 9 [class] para 3) that complete
+>> objects and member sub-objects of class type have non-zero size; which
+>> means that such a class, despite matching the GC++ABI rule for a POD for
+>> the Purposes of Layout definition fails to meet the condition in clause
+>> 2.2 that "All of these types have data size and non-virtual size equal
+>> to their size", since the size is one, but the data-size is zero.
+>
+> This isn't a condition, it's a statement:  it specifies that the data size and
+> non-virtual size of these types is equal to their size.  This is necessary
+> because those values are otherwise computed by the layout algorithm,
+> and, well, we don't run the layout algorithm on types that are POD for
+> the purposes of layout.
+>
+
+But that's my point, an Empty class doesn't have it's size equal to it's 
+data size, since the latter is zero, and the former must be non-zero. 
+However, it does currently fit the rule of being POD for the purpose of 
+Layout, so there's a contradiction in the specification.
+
+R.
+
+> The data size and non-virtual size of an empty class are ignored by the
+> layout algorithm.  When laying out a data member, only sizeof(D) and
+> alignof(D) are ever considered.  When laying out an *empty* base class,
+> only nvalign(D) (assumed to be 1) is ever considered.
+>
+> The empty base class optimization applies to types regardless of whether
+> they're POD for the purposes of layout.  Being POD only affects the sizeof
+> vs. dsize/nvsize distinction.  This is permitted because base class
+> subobjects are explicitly permitted to have zero size, and the rules for
+> copying in and out of them are different.
+>
+> I agree that a clarification is in order because the base C ABI doesn't
+> necessarily specify a layout for empty classes.  We should specify that
+> empty classes have a size of 1 by definition.
+>
+> John.
+>
+>
+
+
+
+From jason at redhat.com  Fri May 10 12:29:42 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 10 May 2013 08:29:42 -0400
+Subject: [cxx-abi-dev] Empty Classes and data layout
+In-Reply-To: <518CB31E.1090909@arm.com>
+References: <518BD04B.2010108@arm.com>	<EF60751C-BAD5-4455-8DA4-D1980FD904A9@apple.com>
+	<518CB31E.1090909@arm.com>
+Message-ID: <518CE836.3090401@redhat.com>
+
+On 05/10/2013 04:43 AM, Richard Earnshaw wrote:
+> But that's my point, an Empty class doesn't have it's size equal to it's
+> data size, since the latter is zero, and the former must be non-zero.
+
+John's point is that for a POD for the purpose of layout, "data size" is 
+*defined* by the ABI to include the tail padding.  So for the purpose of 
+layout, the "data size" of an empty class is 1 even though there's no 
+actual data.
+
+Jason
+
+
+From rjmccall at apple.com  Fri May 10 17:01:01 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 10 May 2013 10:01:01 -0700
+Subject: [cxx-abi-dev] Empty Classes and data layout
+In-Reply-To: <518CB31E.1090909@arm.com>
+References: <518BD04B.2010108@arm.com>
+	<EF60751C-BAD5-4455-8DA4-D1980FD904A9@apple.com>
+	<518CB31E.1090909@arm.com>
+Message-ID: <039B11F2-4A4E-4E96-8DB4-4F71ECF58B11@apple.com>
+
+On May 10, 2013, at 1:43 AM, Richard Earnshaw <rearnsha at arm.com> wrote:
+> On 09/05/13 19:10, John McCall wrote:
+>> On May 9, 2013, at 9:35 AM, Richard Earnshaw <rearnsha at arm.com> wrote:
+>>> We've been looking into a defect that's been raised on our C++ Binding
+>>> for ARM relating to the handling of empty classes, that is, something like
+>>> 
+>>> struct S {};
+>>> 
+>>> In C this is not legal, and our C ABI defines no mechanism for passing
+>>> such an object as a function parameter.  However, in C++ this is valid
+>>> and at least at first reading matches the definition of a POD class.
+>>> 
+>>> However, the C++(98) states (clause 9 [class] para 3) that complete
+>>> objects and member sub-objects of class type have non-zero size; which
+>>> means that such a class, despite matching the GC++ABI rule for a POD for
+>>> the Purposes of Layout definition fails to meet the condition in clause
+>>> 2.2 that "All of these types have data size and non-virtual size equal
+>>> to their size", since the size is one, but the data-size is zero.
+>> 
+>> This isn't a condition, it's a statement:  it specifies that the data size and
+>> non-virtual size of these types is equal to their size.  This is necessary
+>> because those values are otherwise computed by the layout algorithm,
+>> and, well, we don't run the layout algorithm on types that are POD for
+>> the purposes of layout.
+>> 
+> 
+> But that's my point, an Empty class doesn't have it's size equal to it's data size, since the latter is zero, and the former must be non-zero. However, it does currently fit the rule of being POD for the purpose of Layout, so there's a contradiction in the specification.
+
+Why is the data size zero?  You seem to be assuming that the data size is
+some emergent property that you can deduce directly from the fact that the
+type has no fields.  It is not.  It is defined, directly, by this very sentence, to
+be equal to the size of the type.  You should be reading this sentence as:
+  "When it matters, all of these types are defined to have a data size and
+  non-virtual size equal to their size."
+
+The data size is also *completely irrelevant*, because nothing in the ABI
+ever requests the data size of an empty class.
+
+John.
+
+From richardsmith at google.com  Fri May 10 19:47:10 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 10 May 2013 12:47:10 -0700
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+In-Reply-To: <201304222326.r3MNQsf09804@adlwrk05.cce.hp.com>
+References: <201304222326.r3MNQsf09804@adlwrk05.cce.hp.com>
+Message-ID: <CAGL0aWfJxz72JPy=hVUYgD2jNk0ju8oR-oT9z9pmC4uCa5vfNg@mail.gmail.com>
+
+On Mon, Apr 22, 2013 at 4:26 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+
+> >From: Richard Smith <richardsmith at google.com>
+> >N3639, which was voted into the C++14 committee draft today, adds a
+> >std::bad_array_length exception which an implementation is required to
+> >throw if the computed bound for a VLA ("array of runtime bound") is
+> >"erroneous".
+> > - bound <= 0
+> > - bound > some implementation-defined limit
+> > - bound < number of initializers provided
+>
+> >I propose we don't try to encode what went wrong and just use
+> >  extern "C" void __cxa_throw_bad_array_length();
+>
+> Any reason we don't try to pass in one of the above three?
+> Do we want to enable a useful what() string?
+>
+
+Consistency with __cxa_throw_bad_array_new_length, simplicity of
+implementation, slightly reduced code size.
+
+
+> >From: Florian Weimer <fweimer at redhat.com>
+> >Do we want to throw an exception if the stack hasn't got sufficient
+> >space for the array?
+>
+> Or is this just some "small" implementation-defined limit that is mentioned
+> in N3639?
+>
+> I assume this limit is really based on total size and not on a bound?
+>
+
+The limit is implementation-defined, which I interpret to mean that we can
+do whatever we like, so long as we document what we do.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130510/2eb88452/attachment.html>
+
+From rjmccall at apple.com  Fri May 10 22:25:51 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 10 May 2013 15:25:51 -0700
+Subject: [cxx-abi-dev] POD types
+Message-ID: <F8BB5D7D-19F9-4C2D-870C-909660F01CFF@apple.com>
+
+Apropos of the recent discussion, I'd like to propose a small number of related changes to our description of POD types and layout.
+
+1.  bool
+
+We should specify that bool is the same type as the C99 type _Bool if the base ABI supports that.  This matters for, e.g., PPC32, where _Bool is sometimes 32 bits.
+
+2.  Empty classes
+
+We should specify the size and alignment of empty classes in case the base ABI does not.
+
+I'll just note here that the entire ABI generally has not kept up with the reality of explicit alignment attributes, but that's a topic for another time.
+
+3.  Discussion of language revisions
+
+I'd like to change the wording of the note in the definition of "POD for the purposes of layout" to clarify that the ABI has permanently adopted the C++03 definition of POD and will not adopt the C++11 definition.  I believe that's still the consensus position of this list.
+
+I would like to note that, contra previous discussion on this list, this does not appear to affect formal language compliance.  Specifically, a compiler which allocates other objects into the tail-padding of a base-class subobject is still fully compliant with the standard, even if that subobject has POD type.  The reason is that, while the language does make guarantees about copying the bytes of POD types (trivially-copyable types in C++11), these guarantees specifically should not apply to base-class subobjects.  Lawyering follows.
+
+Here are all the guarantees I can find about the underlying byte representation of POD types in all three published standards.  I don't *think* the memory model changes anything here.
+
+C++11 [basic.type]p2:
+  For any object (other than a base-class subobject) of trivially copyable type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+C++03 [basic.type]p2:
+  For any object (other than a base-class subobject) of POD type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+C++98 [basic.type]p2:
+  For any complete POD object type T, whether or not the object holds a valid value of type T, the underlying bytes making up the object can be copied into an array of char or unsigned char. If the content of the array of char or unsigned char is copied back into the object, the object shall subsequently hold its original value.
+
+C++11 [basic.type]p3:
+  For any trivially copyable type T, if two pointers to T point to distinct T objects obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if the underlying bytes making up obj1 are copied into obj2, obj2 shall subsequently hold the same value as obj1.
+C++03 [basic.type]p3:
+  For any POD type T, if two pointers to T point to distinct T objects obj1 and obj2, where neither obj1 nor obj2 is a base-class subobject, if the value of obj1 is copied into obj2, using the memcpy library function, obj2 shall subsequently hold the same value as obj1.
+C++98 [basic.type]p3:
+ For any POD type T, if two pointers to T point to distinct T objects obj1 and obj2, if the value of obj1 is copied into obj2, using the memcpy library function, obj2 shall subsequently hold the same value as obj1.
+
+Note that while C++98 extended these guarantees to all objects, both were limited to most-derived objects by C++03, a restriction which persists into C++11.
+
+I feel that this is clearly just a corrected oversight in the specification, but even an implementation that wished to pedantically hew to the C++98 rules would only need to avoid allocating objects in the tail-padding of types that were POD in C++98.  Since the generic ABI avoids this for the broader set of types that were POD in C++03, we're fully in compliance.
+
+That said, tail-allocating more objects involves a potential time/space trade-off.  It may be undefined behavior to use memcpy to read or write to a trivially-copyable base-class subobject, but it's perfectly legal to copy them with a constructor or assignment operator.  Those operations generally compile to memcpy, but if the type can have objects allocated in its tail padding, that memcpy frequently has to be restricted to the data size of the type instead of its full size, which generally makes for a less efficient memcpy.  So it can be a performance win to disallow tail-allocation for a type if it's likely to be copied a lot and rarely if ever used as a base-class subobject.
+
+4.  Proposal
+
+Here is my proposed patch:
+
+diff --git a/abi.html b/abi.html
+index e0ce972..c8f3c68 100644
+--- a/abi.html
++++ b/abi.html
+@@ -256,18 +256,32 @@ array type is not a POD for the purpose of layout if the element type
+ of the array is not a POD for the purpose of layout.  Where references
+ to the ISO C++ are made in this paragraph, the Technical Corrigendum 1
+ version of the standard is intended.
++</p>
+ 
+ <p>
+-<img src=warning.gif alt="<b>NOTE</b>:">
+-The ISO C++ standard published in 1998 had a different definition of
+-POD types.  In particular, a class with a non-static data member of
+-pointer-to-member type was not considered a POD in C++98, but is
+-considered a POD in TC1.  Because the C++ standard requires that
+-compilers not overlay the tail padding in a POD, using the C++98
+-definition in this ABI would prevent a conforming compiler from
+-correctly implementing the TC1 version of the C++ standard.
+-Therefore, this ABI uses the TC1 definition of POD.</dd>
++<img src="warning.gif" alt="<b>NOTE</b>:">
++There have been multiple published revisions to the ISO C++ standard,
++and each one has included a different definition of POD.  To ensure
++interoperation of code compiled according to different revisions of
++the standard, it is necessary to settle on a single definition for a
++platform.  A platform vendor may choose to follow a different revision
++of the standard, but by default, the definition of POD under this ABI
++is the definition from the 2003 revision (TC1).
++</p>
++
++<p>
++Being tied to the TC1 definition of POD does not prevent compilers
++from being fully compliant with later revisions.  This ABI uses the
++definition of POD only to decide whether to allocate objects in the
++tail-padding of a base-class subobject.  While the standards have
++broadened the definition of POD over time, they have also forbidden
++the programmer from directly reading or writing the underlying bytes
++of a base-class subobject with, say, <tt>memcpy</tt>.  Therefore,
++even in the most conservative interpretation, implementations may
++freely allocate objects in the tail padding of any class which would
++not have been POD in C++98.  This ABI is in compliance with that.
+ </p>
++</dd>
+ 
+ <p>
+ <dt> <i>primary base class</i> </dt> <dd> For a dynamic class, the
+@@ -578,17 +592,34 @@ without virtual bases.
+ <h3> 2.2 POD Data Types </h3>
+ 
+ <p>
+-
+ The size and alignment of a type which is a <a href="#POD">POD for the
+-purpose of layout<a> is as specified by the base (C) ABI.  Type bool
+-has size and alignment 1.  All of these types have data size and
+-non-virtual size equal to their size.  (We ignore tail padding for
+-PODs because the Standard does not allow us to use it for anything
+-else.)
++purpose of layout<a> is as specified by the base (C) ABI, with the
++following provisos:
++</p>
+ 
++<ul>
++<li>If the base ABI specifies rules for the C99 type <code>_Bool</code>,
++then <code>bool</code> follows those rules.  Otherwise, it has size
++and alignment 1.</li>
++
++<li>If the base ABI does not specify rules for empty classes, then an
++empty class has size and alignment 1.</li>
++
++<li>A member pointer type is treated exactly as if it were the C type
++<a href="#member-pointers">described below</a>.</li>
++</ul>
++
++<p>
++The <i>dsize</i>, <i>nvsize</i>, and <i>nvalign</i> of these types are
++defined to be their ordinary size and alignment.  These properties
++only matter for non-empty class types that are used as base classes.
++We ignore tail padding for PODs because an early version of the
++standard did not allow us to use it for anything else and because it
++sometimes permits faster copying of the type.
++</p>
+ 
+ <p> <hr> <p>
+-<a name=member-pointers></a>
++<a name="member-pointers"></a>
+ <h3> 2.3 Member Pointers </h3>
+ 
+ <p>
+
+
+John.
+
+From jason at redhat.com  Sat May 11 13:37:59 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Sat, 11 May 2013 09:37:59 -0400
+Subject: [cxx-abi-dev] POD types
+In-Reply-To: <F8BB5D7D-19F9-4C2D-870C-909660F01CFF@apple.com>
+References: <F8BB5D7D-19F9-4C2D-870C-909660F01CFF@apple.com>
+Message-ID: <518E49B7.8040809@redhat.com>
+
+On 05/10/2013 06:25 PM, John McCall wrote:
+> Note that while C++98 extended these guarantees to all objects, both were limited to most-derived objects by C++03, a restriction which persists into C++11.
+
+Ah, good catch.  I don't remember that change, but it does indeed make 
+our lives easier.
+
+The patch looks good to me.
+
+Jason
+
+
+From fweimer at redhat.com  Mon May 13 11:09:49 2013
+From: fweimer at redhat.com (Florian Weimer)
+Date: Mon, 13 May 2013 13:09:49 +0200
+Subject: [cxx-abi-dev] N3639 (arrays of runtime bound):
+	__cxa_bad_array_length
+In-Reply-To: <CAGL0aWfJxz72JPy=hVUYgD2jNk0ju8oR-oT9z9pmC4uCa5vfNg@mail.gmail.com>
+References: <201304222326.r3MNQsf09804@adlwrk05.cce.hp.com>
+	<CAGL0aWfJxz72JPy=hVUYgD2jNk0ju8oR-oT9z9pmC4uCa5vfNg@mail.gmail.com>
+Message-ID: <5190C9FD.9050109@redhat.com>
+
+On 05/10/2013 09:47 PM, Richard Smith wrote:
+>      >From: Florian Weimer <fweimer at redhat.com <mailto:fweimer at redhat.com>>
+>      >Do we want to throw an exception if the stack hasn't got sufficient
+>      >space for the array?
+>
+>     Or is this just some "small" implementation-defined limit that is
+>     mentioned
+>     in N3639?
+>
+>     I assume this limit is really based on total size and not on a bound?
+>
+>
+> The limit is implementation-defined, which I interpret to mean that we
+> can do whatever we like, so long as we document what we do.
+
+After asking on the std-proposals list, the consensus seems to be that 
+there's no requirement to actually implement the check because you can 
+just decide that undefined behavior due to stack overflow kicks in 
+before the check has a chance to fire.
+
+-- 
+Florian Weimer / Red Hat Product Security Team
+
+From kevin at kpfleming.us  Wed May 15 02:38:24 2013
+From: kevin at kpfleming.us (Kevin Fleming)
+Date: Tue, 14 May 2013 22:38:24 -0400
+Subject: [cxx-abi-dev] Adding consistency check for C++11 forward-declared
+	enums?
+Message-ID: <CAE+UdooXhpAbotCM=DkVhUoTZZVtQD99+7z8XjhMVXoK4QhF3Q@mail.gmail.com>
+
+A discussion cropped up at C++Now today about the new forward declarations
+of enumerations in C++11. Much like forward declarations of functions, a
+forward declared enumeration consists of more than just a name; it also has
+an underlying storage type. This provides an opportunity for the
+enumeration's underlying type to be mismatch between a pair of TUs. If a
+translation unit forward-declares the enumeration with a different
+underlying type than the translation unit that defines the enumeration, any
+functions in in the interface between those TUs will disagree on the amount
+of data to be passed.
+
+Even though there is no linker action require to 'resolve' forward-declared
+enumerations, it seems like the existing name mangling mechanisms and
+linker symbol resolution could be employed to provide a way for this
+situation to be identified. If the enum-defining TU exported a symbol with
+a suitably-mangled name of the enumeration, and the enum-consuming TU
+attempted to import such a suitably-mangled name (even though none of the
+object code in the consuming TU would ever reference the resolved symbol
+address), the linker would be able to notify the developer of the
+underlying type mismatch.
+
+I see a long-tabled 'consistency checks' issue on the CXX-ABI pages that
+seems to address similar issues, but I figured I'd at least broach the
+subject to see if this is worth consideration.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130514/4bf43fa5/attachment.html>
+
+From rjmccall at apple.com  Thu May 16 04:58:48 2013
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 15 May 2013 21:58:48 -0700
+Subject: [cxx-abi-dev] Adding consistency check for C++11
+ forward-declared enums?
+In-Reply-To: <CAE+UdooXhpAbotCM=DkVhUoTZZVtQD99+7z8XjhMVXoK4QhF3Q@mail.gmail.com>
+References: <CAE+UdooXhpAbotCM=DkVhUoTZZVtQD99+7z8XjhMVXoK4QhF3Q@mail.gmail.com>
+Message-ID: <50F45B35-B427-4001-BB44-AE4BDC3C03A3@apple.com>
+
+On May 14, 2013, at 7:38 PM, Kevin Fleming <kevin at kpfleming.us> wrote:
+> A discussion cropped up at C++Now today about the new forward declarations of enumerations in C++11. Much like forward declarations of functions, a forward declared enumeration consists of more than just a name; it also has an underlying storage type. This provides an opportunity for the enumeration's underlying type to be mismatch between a pair of TUs. If a translation unit forward-declares the enumeration with a different underlying type than the translation unit that defines the enumeration, any functions in in the interface between those TUs will disagree on the amount of data to be passed.
+> 
+> Even though there is no linker action require to 'resolve' forward-declared enumerations, it seems like the existing name mangling mechanisms and linker symbol resolution could be employed to provide a way for this situation to be identified. If the enum-defining TU exported a symbol with a suitably-mangled name of the enumeration, and the enum-consuming TU attempted to import such a suitably-mangled name (even though none of the object code in the consuming TU would ever reference the resolved symbol address), the linker would be able to notify the developer of the underlying type mismatch.
+> 
+> I see a long-tabled 'consistency checks' issue on the CXX-ABI pages that seems to address similar issues, but I figured I'd at least broach the subject to see if this is worth consideration.
+
+Since the linker would need custom logic for this anyway, it would make more sense to just add a special section to object files with a bunch of key-value pairs in it instead of shoe-horning this into the symbol-resolution machinery.
+
+It would be logical to use mangled names in the keys, of course.
+
+That said, since the underlying type has to appear and match on every declaration of the enum (including the eventual definition), ABI mismatches on this feature seem comparatively unlikely.
+
+John.
+
+From dhandly at cup.hp.com  Thu May 16 05:19:24 2013
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Wed, 15 May 2013 22:19:24 -0700 (PDT)
+Subject: [cxx-abi-dev] Adding consistency check for C++11
+	forward-declared enums?
+Message-ID: <201305160519.r4G5JOv09703@adlwrk05.cce.hp.com>
+
+>From: Kevin Fleming <kevin at kpfleming.us>
+>A discussion cropped up at C++Now today about the new forward declarations
+>of enumerations in C++11.
+
+Perhaps they should also discuss how to mangle them?
+
+Are these forwards, in that they have to be defined in the file later?
+Or incompletes?
+
+The reminds me of cfront and how to mangle a typedef for a tagless class.
+This was only solved by the Standards saying the mangling used the typedef
+name.
+
+>Much like forward declarations of functions, a
+>forward declared enumeration consists of more than just a name; it also has
+>an underlying storage type.
+
+(I'm thinking only if the enum is used as a function parm, namespace or
+global.)
+
+Obviously one side will know it is forward but if the other isn't, what
+mangling style to use?  This would be incompatible.
+
+And in one file it could be complete and the other not.
+
+>and the enum-consuming TU
+>attempted to import such a suitably-mangled name (even though none of the
+>object code in the consuming TU would ever reference the resolved symbol
+>address), the linker would be able to notify the developer of the
+>underlying type mismatch.
+
+Why wouldn't the consuming TU use it?  Or are you saying it possibly
+may not?
+
+>I see a long-tabled 'consistency checks' issue on the CXX-ABI pages that
+>seems to address similar issues
+
+Do you have a pointer?
+
+From richardsmith at google.com  Fri May 24 04:56:31 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 23 May 2013 21:56:31 -0700
+Subject: [cxx-abi-dev] Fwd: need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+Message-ID: <CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+
+Consider:
+
+// tu1
+struct A { static constexpr const char *p = "foo"; };
+const char *q = A::p;
+// tu2
+struct A { static constexpr const char *p = "foo"; };
+const char *r = A::p;
+
+We are required to ensure that q == r, but gcc, clang, and EDG all fail to
+do so. Therefore we presumably need to give the string literal a mangled
+name. Likewise for string literals which appear within constexpr function
+bodies:
+
+// tu1
+constexpr const char *get() { return "bar"; }
+const char *a = get();
+// tu2
+constexpr const char *get() { return "bar"; }
+const char *b = get();
+
+... and also for lifetime-extended temporaries:
+
+struct X { int n; };
+struct B { static constexpr X &&x = {0}; };
+X &y = B::x; // must be same X object in all TUs
+
+(Both Clang and g++ have a rejects-valid on this, but EDG accepts it.)
+
+... and likewise for lifetime-extended arrays underlying
+std::initializer_list objects.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130523/53db991a/attachment.html>
+
+From richardsmith at google.com  Fri May 24 05:23:19 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 23 May 2013 22:23:19 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+Message-ID: <CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+
+So... this problem was not really new in C++11. In C++98 it can be
+witnessed for an inline function such as:
+
+inline const char *get() {
+  static const char *str = "foo";
+  return str;
+}
+
+And for lifetime-extended temporaries:
+
+inline const int *get() {
+  static const int &n = 0;
+  return &n;
+}
+
+In the latter case, both GCC and Clang have manglings for the
+lifetime-extended temporary (although they both give it internal linkage),
+following the pattern for GV manglings. They are:
+
+Clang mangling:
+  <special-name> ::= GR <object name>
+This doesn't work, because a single object can lifetime extend multiple
+entities (Clang does not model that situation correctly at the moment).
+
+GCC mangling:
+  <special-name> ::= GR <object name> <index>
+... where <index> is the index of the lifetime-extended temporary *within
+the TU*.
+
+I suggest we adopt the GCC model for these cases, but specify how to count
+the <index> within the object.
+
+On Thu, May 23, 2013 at 9:56 PM, Richard Smith <richardsmith at google.com>wrote:
+
+> Consider:
+>
+> // tu1
+> struct A { static constexpr const char *p = "foo"; };
+> const char *q = A::p;
+> // tu2
+> struct A { static constexpr const char *p = "foo"; };
+> const char *r = A::p;
+>
+> We are required to ensure that q == r, but gcc, clang, and EDG all fail to
+> do so. Therefore we presumably need to give the string literal a mangled
+> name. Likewise for string literals which appear within constexpr function
+> bodies:
+>
+> // tu1
+> constexpr const char *get() { return "bar"; }
+> const char *a = get();
+> // tu2
+> constexpr const char *get() { return "bar"; }
+> const char *b = get();
+>
+> ... and also for lifetime-extended temporaries:
+>
+> struct X { int n; };
+> struct B { static constexpr X &&x = {0}; };
+> X &y = B::x; // must be same X object in all TUs
+>
+> (Both Clang and g++ have a rejects-valid on this, but EDG accepts it.)
+>
+> ... and likewise for lifetime-extended arrays underlying
+> std::initializer_list objects.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130523/6ac3c3d7/attachment.html>
+
+From rjmccall at apple.com  Fri May 24 05:41:15 2013
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 23 May 2013 22:41:15 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+Message-ID: <DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+
+On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com> wrote:
+> So... this problem was not really new in C++11. In C++98 it can be witnessed for an inline function such as:
+> 
+> inline const char *get() {
+>   static const char *str = "foo";
+>   return str;
+> }
+
+How is this different from the following?
+
+  inline const char *get_nostatic() { return "foo"; }
+
+or
+
+  inline const char *get_separate() {
+    const char *temp = "foo";
+    static const char *str = tmp;
+    return str;
+  }
+
+Please find or add something in the standard which will allow us to
+not export a symbol for every string literal(*) that happens to be used
+in a function with weak linkage.
+
+John.
+
+From richardsmith at google.com  Fri May 24 06:29:56 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 23 May 2013 23:29:56 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+Message-ID: <CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+
+On Thu, May 23, 2013 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > So... this problem was not really new in C++11. In C++98 it can be
+> witnessed for an inline function such as:
+> >
+> > inline const char *get() {
+> >   static const char *str = "foo";
+> >   return str;
+> > }
+>
+> How is this different from the following?
+>
+>   inline const char *get_nostatic() { return "foo"; }
+>
+> or
+>
+>   inline const char *get_separate() {
+>     const char *temp = "foo";
+>     static const char *str = tmp;
+>     return str;
+>   }
+>
+> Please find or add something in the standard which will allow us to
+> not export a symbol for every string literal(*) that happens to be used
+> in a function with weak linkage.
+
+
+Finding failed. In addition to the implications of the ODR, we have this:
+
+[dcl.fct.spec]p4: "A string literal in the body of an extern inline
+function is the same object in different translation units."
+
+On the adding front, perhaps the simplest way to avoid generating such
+extra symbols (at least, in most cases) would be to specify that a string
+literal expression may produce the address of a different (static storage
+duration) object each time it is evaluated.  However, even if we allow
+that, I don't think it's reasonable for an unchanging static storage
+duration pointer or reference to point at different objects depending on
+who is asking.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130523/4ac754b3/attachment-0001.html>
+
+From rjmccall at apple.com  Fri May 24 08:10:43 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 24 May 2013 01:10:43 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+Message-ID: <92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+
+On May 23, 2013, at 11:29 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, May 23, 2013 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+> On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com> wrote:
+> > So... this problem was not really new in C++11. In C++98 it can be witnessed for an inline function such as:
+> >
+> > inline const char *get() {
+> >   static const char *str = "foo";
+> >   return str;
+> > }
+> 
+> How is this different from the following?
+> 
+>   inline const char *get_nostatic() { return "foo"; }
+> 
+> or
+> 
+>   inline const char *get_separate() {
+>     const char *temp = "foo";
+>     static const char *str = tmp;
+>     return str;
+>   }
+> 
+> Please find or add something in the standard which will allow us to
+> not export a symbol for every string literal(*) that happens to be used
+> in a function with weak linkage.
+> 
+> Finding failed. In addition to the implications of the ODR, we have this:
+> 
+> [dcl.fct.spec]p4: "A string literal in the body of an extern inline function is the same object in different translation units."
+
+This is a really terrible language requirement.  Does anyone actually do what's necessary for this?  I really can't imagine actually implementing it;  it would be a *ton* of new extern symbols.
+
+> On the adding front, perhaps the simplest way to avoid generating such extra symbols (at least, in most cases) would be to specify that a string literal expression may produce the address of a different (static storage duration) object each time it is evaluated.  However, even if we allow that, I don't think it's reasonable for an unchanging static storage duration pointer or reference to point at different objects depending on who is asking.
+
+I agree;  I just really don't want to have to export unique symbols for every logging statement in an inline function.
+
+So, let's see.  I see two basic language designs and implementation strategies.
+
+1.  The first is that the source location of a string literal (function / initializer where it appears and its source order therewithin) is actually a crucial semantic property that compilers have to track/update through everything.  (Source order becomes a really interesting question when you consider default argument expressions.)  Not every string literal is blessed this way;  just the ones that show up in (1) inline functions or (2) initializers of (weak-linkage) constexpr variables with static storage duration.  This is a major implementation pain, and it becomes a bizarre new pervasive cost of C++ just to satisfy a requirement that very, very few people care about.  Hooray.
+
+2.  The second is that we somehow limit this problem to just initializing an object of static storage duration.
+
+There are three places where we can have initializers for the same object in different translation units:
+  - constexpr static data members
+  - static data members of a class template
+  - static local variables in inline functions
+
+The constexpr and non-constexpr cases are subtly different.
+
+In the constexpr case, we know that everybody agrees that the initializer can be constant-evaluated, and we can assume that everybody evaluates it to the same constant.  This gives us a number of ways to stably identify sub-objects in the variable.  If we actually have to emit the definition, that's easy enough, too.
+
+In the non-constexpr case, we don't know that, and we have to compile the code as if there was a possibility that somebody might have emitted as a dynamic initializer.  So I think we can't make any assumptions about string-literal pointer values stored in the variable;  we always have to load them out, which is really unfortunate.
+
+Also, this entire approach seems to make the presence of 'constexpr' affect ABI.  (It does get caught by ODR, so that's *legal*, but I don't know that it's *a good idea*.)
+
+It's also unclear what *parts* of any given initializer will be constant-initialized vs. dynamically-initialized;  consider:
+  inline const char *second(const char *a, const char *b) { return b; }
+  inline const char *ident(const char *s) { return s; }
+  ...
+  inline void test() {
+    static const char *strs[] = { second("a", "b"), ident("c"), "d" };
+  }
+The only part that's "guaranteed" to be constant-initialized is the third element, but a compiler which does constant-initialize this can get both of the others.  And note that the string literals we use aren't 1-1 with the string literals in the initializer;  the uniquing scheme needs to be positional within the initialized object to ensure that different translation units use the same thing.  (That is, "d" would have to mangled as "_Z4testEv::strs[2]".)
+
+
+I think the right solution is to:
+  - concede that (1) is the simpler language and implementation design but
+  - nonetheless refuse to implement it due to an insufficient indignant-user count (and a reasonable suspicion of seeing a higher indignant-user count if we did).
+
+In practice, I believe most linkers will coalesce common string values within a linkage unit, which is all that even the few people who care about this actually want.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130524/7d55e464/attachment.html>
+
+From gdr at integrable-solutions.net  Fri May 24 09:21:36 2013
+From: gdr at integrable-solutions.net (Gabriel Dos Reis)
+Date: Fri, 24 May 2013 04:21:36 -0500
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+	<92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+Message-ID: <CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>
+
+On Fri, May 24, 2013 at 3:10 AM, John McCall <rjmccall at apple.com> wrote:
+> On May 23, 2013, at 11:29 PM, Richard Smith <richardsmith at google.com> wrote:
+>
+> On Thu, May 23, 2013 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+>>
+>> On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > So... this problem was not really new in C++11. In C++98 it can be
+>> > witnessed for an inline function such as:
+>> >
+>> > inline const char *get() {
+>> >   static const char *str = "foo";
+>> >   return str;
+>> > }
+>>
+>> How is this different from the following?
+>>
+>>   inline const char *get_nostatic() { return "foo"; }
+>>
+>> or
+>>
+>>   inline const char *get_separate() {
+>>     const char *temp = "foo";
+>>     static const char *str = tmp;
+>>     return str;
+>>   }
+>>
+>> Please find or add something in the standard which will allow us to
+>> not export a symbol for every string literal(*) that happens to be used
+>> in a function with weak linkage.
+>
+>
+> Finding failed. In addition to the implications of the ODR, we have this:
+>
+> [dcl.fct.spec]p4: "A string literal in the body of an extern inline function
+> is the same object in different translation units."
+>
+>
+> This is a really terrible language requirement.  Does anyone actually do
+> what's necessary for this?
+
+It has been in C++ for over 2 decades, if I remember correctly.
+
+Here is a testcase -- which is handled properly by G++.
+There are 4 translation units involved.
+
+1.  a.h contains only
+
+inline const char*
+get_sptr() {
+   static const char* s = "foo";
+   return s;
+}
+
+2. a1.C includes a.h and defines f1:
+#include "a.h"
+
+const char* f1() {
+   return get_sptr();
+}
+
+
+3. a2.C includes a.h and defines f2:
+#include "a.h"
+
+const char* f2() {
+   return get_sptr();
+}
+
+
+4. b.C includes <assert.h> but not a.h, calls f1, f2 in main() with an
+assertion:
+#include <assert.h>
+
+const char* f1();
+const char* f2();
+
+int main() {
+   assert(f1() == f2());
+}
+
+
+Now, compile the translation units obtained form a1.C, a2.C, and b.C
+separately, and link them.  The assertion should pass.  G++ on x86
+and x86_64 handles that properly.
+
+
+> I really can't imagine actually implementing it;
+> it would be a *ton* of new extern symbols.
+
+Only if the string literals escape their enclosing functions.
+
+-- Gaby
+
+From jason at redhat.com  Fri May 24 13:23:39 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 24 May 2013 09:23:39 -0400
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+Message-ID: <519F69DB.70905@redhat.com>
+
+On 05/24/2013 01:23 AM, Richard Smith wrote:
+> So... this problem was not really new in C++11. In C++98 it can be
+> witnessed for an inline function such as:
+>
+> inline const char *get() {
+>    static const char *str = "foo";
+>    return str;
+> }
+
+The ABI already deals with this case:
+
+---
+
+Occasionally entities in local scopes must be mangled too (e.g. because 
+inlining or template compilation causes multiple translation units to 
+require access to that entity). The encoding for such entities is as 
+follows:
+
+   <local-name> := Z <function encoding> E <entity name> [<discriminator>]
+                := Z <function encoding> E s [<discriminator>]
+
+   <discriminator> := _ <non-negative number>      # when number < 10
+                   := __ <non-negative number> _   # when number >= 10
+
+...
+---
+
+We just need to specify how lifetime-extended temporaries fit into this. 
+  And, I suppose, that we need to use <data-member-prefix> for strings 
+in the various lambda contexts.
+
+Jason
+
+
+From rjmccall at apple.com  Fri May 24 19:53:38 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 24 May 2013 12:53:38 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+	<92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+	<CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>
+Message-ID: <3099E0C0-34C5-4558-90AE-CBD5A09AF35E@apple.com>
+
+On May 24, 2013, at 2:21 AM, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+> On Fri, May 24, 2013 at 3:10 AM, John McCall <rjmccall at apple.com> wrote:
+>> On May 23, 2013, at 11:29 PM, Richard Smith <richardsmith at google.com> wrote:
+>> 
+>> On Thu, May 23, 2013 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+>>> 
+>>> On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>>> So... this problem was not really new in C++11. In C++98 it can be
+>>>> witnessed for an inline function such as:
+>>>> 
+>>>> inline const char *get() {
+>>>>  static const char *str = "foo";
+>>>>  return str;
+>>>> }
+>>> 
+>>> How is this different from the following?
+>>> 
+>>>  inline const char *get_nostatic() { return "foo"; }
+>>> 
+>>> or
+>>> 
+>>>  inline const char *get_separate() {
+>>>    const char *temp = "foo";
+>>>    static const char *str = tmp;
+>>>    return str;
+>>>  }
+>>> 
+>>> Please find or add something in the standard which will allow us to
+>>> not export a symbol for every string literal(*) that happens to be used
+>>> in a function with weak linkage.
+>> 
+>> 
+>> Finding failed. In addition to the implications of the ODR, we have this:
+>> 
+>> [dcl.fct.spec]p4: "A string literal in the body of an extern inline function
+>> is the same object in different translation units."
+>> 
+>> 
+>> This is a really terrible language requirement.  Does anyone actually do
+>> what's necessary for this?
+> 
+> It has been in C++ for over 2 decades, if I remember correctly.
+> 
+> Here is a testcase -- which is handled properly by G++.
+> There are 4 translation units involved.
+
+Three, sir.
+
+> 1.  a.h contains only
+> 
+> inline const char*
+> get_sptr() {
+>   static const char* s = "foo";
+>   return s;
+> }
+> 
+> 2. a1.C includes a.h and defines f1:
+> #include "a.h"
+> 
+> const char* f1() {
+>   return get_sptr();
+> }
+> 
+> 
+> 3. a2.C includes a.h and defines f2:
+> #include "a.h"
+> 
+> const char* f2() {
+>   return get_sptr();
+> }
+> 
+> 
+> 4. b.C includes <assert.h> but not a.h, calls f1, f2 in main() with an
+> assertion:
+> #include <assert.h>
+> 
+> const char* f1();
+> const char* f2();
+> 
+> int main() {
+>   assert(f1() == f2());
+> }
+> 
+> 
+> Now, compile the translation units obtained form a1.C, a2.C, and b.C
+> separately, and link them.  The assertion should pass.  G++ on x86
+> and x86_64 handles that properly.
+
+See, this is tricky.  Does it handle it properly, or does it happen to work
+because the linker combines strings within a linkage unit?
+
+>> I really can't imagine actually implementing it;
+>> it would be a *ton* of new extern symbols.
+> 
+> Only if the string literals escape their enclosing functions.
+
+In practice, almost every string literal escapes its enclosing function.
+  printf("foo\n"); // <-- unless the compiler hard-codes printf, this is an escape
+
+John.
+
+From rjmccall at apple.com  Fri May 24 19:57:06 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 24 May 2013 12:57:06 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <3099E0C0-34C5-4558-90AE-CBD5A09AF35E@apple.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+	<92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+	<CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>
+	<3099E0C0-34C5-4558-90AE-CBD5A09AF35E@apple.com>
+Message-ID: <1B0577BB-E49C-43F1-80A1-9900178666D0@apple.com>
+
+On May 24, 2013, at 12:53 PM, John McCall <rjmccall at apple.com> wrote:
+> On May 24, 2013, at 2:21 AM, Gabriel Dos Reis <gdr at integrable-solutions.net> wrote:
+>> On Fri, May 24, 2013 at 3:10 AM, John McCall <rjmccall at apple.com> wrote:
+>>> On May 23, 2013, at 11:29 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> 
+>>> On Thu, May 23, 2013 at 10:41 PM, John McCall <rjmccall at apple.com> wrote:
+>>>> 
+>>>> On May 23, 2013, at 10:23 PM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>> So... this problem was not really new in C++11. In C++98 it can be
+>>>>> witnessed for an inline function such as:
+>>>>> 
+>>>>> inline const char *get() {
+>>>>> static const char *str = "foo";
+>>>>> return str;
+>>>>> }
+>>>> 
+>>>> How is this different from the following?
+>>>> 
+>>>> inline const char *get_nostatic() { return "foo"; }
+>>>> 
+>>>> or
+>>>> 
+>>>> inline const char *get_separate() {
+>>>>   const char *temp = "foo";
+>>>>   static const char *str = tmp;
+>>>>   return str;
+>>>> }
+>>>> 
+>>>> Please find or add something in the standard which will allow us to
+>>>> not export a symbol for every string literal(*) that happens to be used
+>>>> in a function with weak linkage.
+>>> 
+>>> 
+>>> Finding failed. In addition to the implications of the ODR, we have this:
+>>> 
+>>> [dcl.fct.spec]p4: "A string literal in the body of an extern inline function
+>>> is the same object in different translation units."
+>>> 
+>>> 
+>>> This is a really terrible language requirement.  Does anyone actually do
+>>> what's necessary for this?
+>> 
+>> It has been in C++ for over 2 decades, if I remember correctly.
+>> 
+>> Here is a testcase -- which is handled properly by G++.
+>> There are 4 translation units involved.
+> 
+> Three, sir.
+> 
+>> 1.  a.h contains only
+>> 
+>> inline const char*
+>> get_sptr() {
+>>  static const char* s = "foo";
+>>  return s;
+>> }
+>> 
+>> 2. a1.C includes a.h and defines f1:
+>> #include "a.h"
+>> 
+>> const char* f1() {
+>>  return get_sptr();
+>> }
+>> 
+>> 
+>> 3. a2.C includes a.h and defines f2:
+>> #include "a.h"
+>> 
+>> const char* f2() {
+>>  return get_sptr();
+>> }
+>> 
+>> 
+>> 4. b.C includes <assert.h> but not a.h, calls f1, f2 in main() with an
+>> assertion:
+>> #include <assert.h>
+>> 
+>> const char* f1();
+>> const char* f2();
+>> 
+>> int main() {
+>>  assert(f1() == f2());
+>> }
+>> 
+>> 
+>> Now, compile the translation units obtained form a1.C, a2.C, and b.C
+>> separately, and link them.  The assertion should pass.  G++ on x86
+>> and x86_64 handles that properly.
+> 
+> See, this is tricky.  Does it handle it properly, or does it happen to work
+> because the linker combines strings within a linkage unit?
+
+Also, the requirement I'm complaining about here is *not* the
+"static local in an inline context" requirement.  Obviously that's
+crucial to implement correctly.
+
+The requirement I'm complaining about is that arguably your
+example is guaranteed to work even if get_sptr() is implemented
+thusly:
+
+  inline const char *get_sptr() { return "foo"; }
+
+Because it's a string literal in an extern inline function and so it's
+the same object.
+
+John.
+
+From jason at redhat.com  Fri May 24 20:10:43 2013
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 24 May 2013 16:10:43 -0400
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <1B0577BB-E49C-43F1-80A1-9900178666D0@apple.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>	<92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>	<CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>	<3099E0C0-34C5-4558-90AE-CBD5A09AF35E@apple.com>
+	<1B0577BB-E49C-43F1-80A1-9900178666D0@apple.com>
+Message-ID: <519FC943.9030200@redhat.com>
+
+On 05/24/2013 03:57 PM, John McCall wrote:
+> The requirement I'm complaining about is that arguably your
+> example is guaranteed to work even if get_sptr() is implemented
+> thusly:
+>
+>    inline const char *get_sptr() { return "foo"; }
+>
+> Because it's a string literal in an extern inline function and so it's
+> the same object.
+
+Yes, and the ABI already specifies mangling for such a string literal:
+
+   <local-name> := Z <function encoding> E s [<discriminator>]
+
+Jason
+
+
+From rjmccall at apple.com  Fri May 24 21:31:41 2013
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 24 May 2013 14:31:41 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <519FC943.9030200@redhat.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<DF7FEE64-DCE2-4638-951A-6B5EE840BB5C@apple.com>
+	<CAGL0aWf8-gJ3PzX2XzB_iUNf3daP_KRF+V746W-H+EKs5fB_kA@mail.gmail.com>
+	<92FF348B-CE2E-479C-8601-FFA0480DB2D0@apple.com>
+	<CAAiZkiDR48XifHcAL6qsWGoJWtw+NJZU_oxezqoewV4x4T2+HQ@mail.gmail.com>
+	<3099E0C0-34C5-4558-90AE-CBD5A09AF35E@apple.com>
+	<1B0577BB-E49C-43F1-80A1-9900178666D0@apple.com>
+	<519FC943.9030200@redhat.com>
+Message-ID: <E90FFE2C-D736-4E67-9300-85585845453A@apple.com>
+
+On May 24, 2013, at 1:10 PM, Jason Merrill <jason at redhat.com> wrote:
+> On 05/24/2013 03:57 PM, John McCall wrote:
+>> The requirement I'm complaining about is that arguably your
+>> example is guaranteed to work even if get_sptr() is implemented
+>> thusly:
+>> 
+>>   inline const char *get_sptr() { return "foo"; }
+>> 
+>> Because it's a string literal in an extern inline function and so it's
+>> the same object.
+> 
+> Yes, and the ABI already specifies mangling for such a string literal:
+> 
+>  <local-name> := Z <function encoding> E s [<discriminator>]
+
+Ah, so we do, thanks.
+
+John.
+
+From richardsmith at google.com  Thu May 30 00:48:55 2013
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 29 May 2013 17:48:55 -0700
+Subject: [cxx-abi-dev] need mangling for string literals and
+ lifetime-extended temporaries used in static constexpr member initializers
+ and for string literals in constexpr functions
+In-Reply-To: <519F69DB.70905@redhat.com>
+References: <CAGL0aWfo3xzc18mSV8Eox2KnoB42TxF98wOZ+jMFM2FbebOtZw@mail.gmail.com>
+	<CAGL0aWfgbG8JxV-SETWmG2+XVzWtUdeK7jQ1sMdoiv5ETnvy_A@mail.gmail.com>
+	<CAGL0aWdY1q5KL-zQNXSf-tzAK0FV5MpmwxEUYRZJR1bzxoPL=g@mail.gmail.com>
+	<519F69DB.70905@redhat.com>
+Message-ID: <CAGL0aWch+xdf6NPKUCiG_P7UFfyxz1UE1d78rcw36QJCtCk_tg@mail.gmail.com>
+
+On Fri, May 24, 2013 at 6:23 AM, Jason Merrill <jason at redhat.com> wrote:
+
+> On 05/24/2013 01:23 AM, Richard Smith wrote:
+>
+>> So... this problem was not really new in C++11. In C++98 it can be
+>> witnessed for an inline function such as:
+>>
+>> inline const char *get() {
+>>    static const char *str = "foo";
+>>    return str;
+>> }
+>>
+>
+> The ABI already deals with this case:
+>
+> ---
+>
+> Occasionally entities in local scopes must be mangled too (e.g. because
+> inlining or template compilation causes multiple translation units to
+> require access to that entity). The encoding for such entities is as
+> follows:
+>
+>   <local-name> := Z <function encoding> E <entity name> [<discriminator>]
+>                := Z <function encoding> E s [<discriminator>]
+>
+>   <discriminator> := _ <non-negative number>      # when number < 10
+>                   := __ <non-negative number> _   # when number >= 10
+>
+> ...
+> ---
+>
+> We just need to specify how lifetime-extended temporaries fit into this.
+>  And, I suppose, that we need to use <data-member-prefix> for strings in
+> the various lambda contexts.
+>
+
+This may mean that copy-elision becomes part of the ABI in some cases. For
+instance...
+
+struct A { int &&r1; };
+struct B { A &&a; char &&r2; };
+char *f() {
+  static B c = { A(A{0}), 'x' };
+  return &c.r2;
+};
+
+Do we assign a mangling to the int temporary or not? It is
+lifetime-extended if and only if the A copy is elided. For instance, g++
+returns _ZGRZ1fvE1c1 with -fno-elide-constructors and _ZGRZ1fvE1c2 with
+-felide-constructors.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20130529/e86b3adb/attachment.html>
+

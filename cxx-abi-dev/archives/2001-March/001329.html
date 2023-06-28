@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [C++ PATCH] ctor vtable vcall offsets
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3C3A9FB326.F1A37301%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001330.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[C++ PATCH] ctor vtable vcall offsets</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3C3A9FB326.F1A37301%40codesourcery.com%3E"
+       TITLE="[C++ PATCH] ctor vtable vcall offsets">nathan at codesourcery.com
+       </A><BR>
+    <I>Fri Mar  2 14:50:14 UTC 2001</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001330.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1329">[ date ]</a>
+              <a href="thread.html#1329">[ thread ]</a>
+              <a href="subject.html#1329">[ subject ]</a>
+              <a href="author.html#1329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+
+&gt;<i> But with Java interfaces we can assume no adjustment is necessary, since no
+</I>&gt;<i> adjustment is ever necessary.  With C++ virtual bases, we can't.
+</I>You'll need to adjust to the (virtual) base that is the interface class, 
+in order to lookup the function in that vtable. However, you know that the
+function will have been overridden by the class providing the implementation
+and that'll adjust the self pointer back again. Interesting.
+
+&gt;<i> I assume it means that A may not be a proper base of B; that is, it may be
+</I>&gt;<i> B itself.  Since that is also said by the second parenthetical note, the
+</I>&gt;<i> first should probably be removed.
+</I>oh yes - still should be removed, because the abi glossary says 'base' can mean
+the class itself, `proper base' excludes the class.
+
+&gt;<i> Yes, but if it isn't overridden, going through the thunk you propose is
+</I>&gt;<i> also a waste of time--and a *lot* more time than the adjustment in the
+</I>&gt;<i> caller, which can often be scheduled away.
+</I>ok.
+
+&gt;<i> And I believe the time savings you mention are not significant enough to
+</I>&gt;<i> justify complicating the implementation to deal with this special case,
+</I>&gt;<i> especially given the problems with third-party thunks.
+</I>ok. I think we've got the position that there is insufficient data to be
+convinced either way. However, if we do emit a third party thunk and have
+the base part of the vtable set up correctly, we can leave it to the calling
+code to make the choice. It can either convert to the last base which
+overrode, thereby guaranteeing no use of a third party thunk, or it can
+just use the base part of the vtable and risk it. Different architectures
+will have different costs for either choice - we shouldn't constrain
+implementations unnecessarily. A compiler could add profiling
+feedback to determine if a third party thunk caused a performance penalty for
+each call site.
+
+So, here is my proposal.
+1) When a class hierarchy has multiple uses of a primary virtual base, the
+(secondary or virtual) bases which lose that primary fill in the base part of
+their vtables completely, referencing (third-party) vcall thunks, if needed.
+2) 3.2.4 is amended to indicate that where a virtual primary base is involved,
+there is a choice. Either convert to the virtual base that exists in the
+complete object, or simply use the sub vtable.
+3) Where does the third party thunk get emitted? We could leave it to the
+usage point, or we could force its emission when emitting the vtable of the
+class which has the virtual primary base (that class won't use the thunk, but
+any class deriving from it might need the thunk). I have no strong opinion
+either way, though emitting with the first use vtable seems neater.
+
+Does this work for everybody?
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A> : <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A> : <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001330.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1329">[ date ]</a>
+              <a href="thread.html#1329">[ thread ]</a>
+              <a href="subject.html#1329">[ subject ]</a>
+              <a href="author.html#1329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

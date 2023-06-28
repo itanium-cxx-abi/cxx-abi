@@ -1,0 +1,1432 @@
+From jason at redhat.com  Wed May  7 18:08:47 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 07 May 2008 14:08:47 -0400
+Subject: [cxx-abi-dev] Discuss DFP mangling was(Re: [cxx-abi-dev] C++0x:
+ mangling of char16_t and char32_t)
+In-Reply-To: <OF337F926D.CE98351E-ON85257418.007153B7-85257418.007198C9@ca.ibm.com>
+References: <OF337F926D.CE98351E-ON85257418.007153B7-85257418.007198C9@ca.ibm.com>
+Message-ID: <4821F02F.6030700@redhat.com>
+
+What came out of this discussion?
+
+Jason
+
+
+
+From michaelw at ca.ibm.com  Thu May  8 05:29:48 2008
+From: michaelw at ca.ibm.com (Michael Wong)
+Date: Thu, 8 May 2008 01:29:48 -0400
+Subject: [cxx-abi-dev] Discuss DFP mangling was(Re: [cxx-abi-dev] C++0x: mangling
+ of char16_t and char32_t)
+In-Reply-To: <4821F02F.6030700@redhat.com>
+Message-ID: <OF6EE9F411.1E71E06E-ON85257443.001E0B48-85257443.001E3221@ca.ibm.com>
+
+
+I will be sending a document for comment shortly. We believe we have
+general agreement, and will do fine tuning through the document. Look for
+it soon.
+Thanks.
+
+Michael Wong
+XL C++ Compiler kernel Development
+IBM Canada Ltd., C2/KD2/8200/MKM
+8200 Warden Avenue
+Markham, Ontario  L6G 1C7
+W:905-413-3283 F:905-413-4839
+Boost test results
+http://www-1.ibm.com/support/docview.wss?rs=2239&context=SSJT9L&uid=swg27006911
+
+C/C++ Compilers Support Page
+http://www.ibm.com/software/awdtools/ccompilers/support/
+C/C++ Feature Request Interface
+http://www.ibm.com/support/docview.wss?uid=swg27005811
+XL Fortran Compiler Support Page
+http://www.ibm.com/software/awdtools/fortran/xlfortran/support/
+XL Fortran Feature Request Interface
+http://www.ibm.com/support/docview.wss?uid=swg27005812
+
+
+                                                                           
+             Jason Merrill                                                 
+             <jason at redhat.com                                             
+             >                                                          To 
+                                       Michael Wong/Toronto/IBM at IBMCA      
+             05/07/2008 02:08                                           cc 
+             PM                        "cxx-abi-dev at codesourcery.com"      
+                                       <cxx-abi-dev at codesourcery.com>      
+                                                                   Subject 
+                                       Re: [cxx-abi-dev] Discuss DFP       
+                                       mangling was(Re: [cxx-abi-dev]      
+                                       C++0x: mangling of char16_t and     
+                                       char32_t)                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+
+
+
+
+What came out of this discussion?
+
+Jason
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20080508/0d1b91f6/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: graycol.gif
+Type: image/gif
+Size: 105 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20080508/0d1b91f6/attachment.gif>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: pic09445.gif
+Type: image/gif
+Size: 1255 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20080508/0d1b91f6/attachment-0001.gif>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: ecblank.gif
+Type: image/gif
+Size: 45 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20080508/0d1b91f6/attachment-0002.gif>
+
+From sebastian.redl at getdesigned.at  Sun May 25 22:25:29 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Mon, 26 May 2008 00:25:29 +0200
+Subject: ABI modification for exception propagation
+Message-ID: <4839E759.9080005@getdesigned.at>
+
+Hi,
+
+I experimentally implemented N2197 "Exception Propagation" in GCC and 
+came to the conclusion that the current exception handling ABI 
+specification is insufficient. It needs to be changed in order to make 
+exception propagation possible.
+
+I wrote up a proposal for the changes. My current implementation doesn't 
+quite follow this proposal, since I came up with some of the ideas while 
+writing the document, but I will change it.
+
+The proposal is copied below.
+
+Sebastian Redl
+
+--------------------------------
+
+With the integration of N2197 "Exception Propagation" into the C++0x working
+paper, the C++ ABI described at 
+http://www.codesourcery.com/cxx-abi/abi-eh.html
+has unfortunately become insufficient. It describes a model where exceptions
+are bound to a single thread and cannot be copied.
+
+In order to allow implementation of exception propagation, I propose the
+following changes to the ABI. These changes have been successfully 
+implemented
+in the G++ compiler.
+
+The Level I ABI remains unchanged.
+
+
+Level II: C++ ABI
+
+The current C++ ABI is structured like this: the exception data lies in 
+a single
+block of memory, starting with C++-specific information (the __cxa_exception
+object), then the general unwind header (the unwindHeader field of the
+__cxa_exception object), and finally the actual C++ exception object. 
+Neither
+the __cxa_exception object nor the unwind header can be used concurrently in
+more than one thread. Therefore, the exception data must be copied in 
+order to
+implement N2197.
+Since the exception data contains the exception object, copying the data 
+implies
+copying the exception object, unless the object is separated from the 
+data. Both
+approaches are possible. In this proposal, I've chosen the separation 
+approach,
+because it requires fewer changes to the compiler itself. In the old 
+model, a
+copy constructor was not necessary. Were the new model to require 
+copying of the
+exception object, a copy constructor would have to be stored in the 
+data. In the
+case of G++, this would mean that a copy constructor would have to be 
+looked up
+and (because of inconsistent signatures allowed for copy constructors) 
+possibly
+even generated.
+
+This proposal therefore suggests splitting the data transported for a C++
+exception into two parts. The first part is the current __cxa_exception 
+object,
+slightly changed. There is one such object for every exception actually 
+thrown.
+The second part is the actual exception object, plus some type information
+(the exceptionType and exceptionDestructor fields of the current 
+__cxa_exception
+structure). This block is reference-counted and shared between all 
+exceptions
+that are really the same exception object, as well as all exception_ptrs
+referring to the exception.
+
+Because of the incompatible changes with earlier versions, the proposal 
+suggests
+changing the language-specific exception identifier to C+09. 
+Implementations may
+treat legacy C++ exceptions as foreign, or they may branch on the 
+exception type
+in order to support both.
+
+2.2.1 C++ Exception Objects
+
+The __cxa_exception is renamed and looks like this in the new scheme:
+
+    struct __cxa_unwind_header {
+        void *             exceptionObject;
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The name is changed because the object no longer represents the entire
+exception, but really a language-specific extension of the _Unwind_Exception
+structure.
+
+The new field exceptionObject points to the actual exception object.
+The exception object is prepended the type information and reference count.
+
+    struct __cxa_exception_info {
+        std::size_t        referenceCount;
+        std::type_info *   exceptionType;
+        void (*exceptionDestructor) (void *):
+    };
+
+The memory layout of a complete exception looks like this:
+
++--------------------------------+-------------------+
+| __cxa_unwind_header            | _Unwind_Exception |
++--------------------------------+-------------------+
+ |
+ +---------------------+
+                       |
+                      \|/
++----------------------+-----------------------------+
+| __cxa_exception_info | actual exception object     |
++----------------------+-----------------------------+
+
+Note that __cxa_unwind_header::exceptionObject points at the start of the
+exception object, not the additional information. This, plus the fact that
+exceptionObject is the first field of __cxa_unwind_header, allows the 
+compiler
+to treat a pointer to a __cxa_unwind_header as a double pointer to the 
+exception
+object.
+
+The referenceCount field of __cxa_exception_info counts the number of both
+__cxa_unwind_header and std::exception_ptr objects referring to the 
+exception.
+Working with this count must happen in a thread-safe manner.
+
+The meaning of all other fields remains unchanged.
+
+The convention that a __cxa_exception pointer points to behind the header is
+abandoned. Since the exception object is no longer there, the header 
+object can
+be freely extended in this direction, making the convention no longer 
+useful.
+
+The convention is instead adopted for __cxa_exception_info pointers.
+
+
+2.4.1 Overview of Throw Processing
+
+__cxa_allocate_exception cannot return a pointer to the exception 
+object, since
+this would mean that the unwind header is unreachable. It is therefore 
+changed
+to return a pointer to the beginning of the __cxa_unwind_header. Since 
+the first
+field of that structure is a pointer to the exception object, the 
+generated code
+need merely add a dereference operation. The produced code should look like
+this:
+
+    // Allocate -- never throws:
+    temp1 = __cxa_allocate_exception(sizeof(X));
+
+    // Construct the exception object:
+    #if COPY_ELISION
+        [evaluate X into *temp1]
+    #else
+        [evaluate X into temp2]
+        copy-constructor(*temp1, temp2)
+        // Landing Pad L1 if this throws
+    #endif
+
+    // Pass the exception object to unwind library:
+    __cxa_throw(temp1, type_info<X>, destructor<X>); // Never returns
+
+    // Landing pad for copy constructor:
+    L1: __cxa_free_exception(temp1) // never throws
+
+
+2.4.2 Allocating the Exception Object
+
+Memory for the exception is still allocated by __cxa_allocate_exception.
+However, the return value now points to the start of the __cxa_unwind_header
+instead of past the end.
+__cxa_allocate_exception allocates memory for both the 
+__cxa_unwind_header and
+the __cxa_exception_info with the associated exception. The 
+__cxa_unwind_header
+refers to the __cxa_exception_info, whose reference count is 1.
+
+However, there is now also the need to allocate a __cxa_unwind_header for an
+existing __cxa_exception_info. A new function is specified for this:
+
+    __cxa_unwind_header*
+    __cxa_allocate_unwind_header(void *obj) throw();
+
+obj points behind a __cxa_exception_info; the allocated 
+__cxa_unwind_header's
+exceptionObject contains this value unchanged.
+The __cxa_exception_info's reference count is increased by 1.
+
+Finally, to facilitate an implementation of copy_exception that is more
+efficient than throwing and catching an exception, a third function is 
+supplied:
+
+    void* __cxa_allocate_exception_object(size_t thrown_size) throw();
+
+This function allocates a __cxa_exception_info and thrown_size bytes of
+additional space. All fields of the object are set to zero/null.
+It returns a pointer behind the __cxa_exception_info, to the start of the
+additional space.
+
+The three allocation functions have their counterparts in only two 
+deallocation
+functions. One is __cxa_free_exception, which has slightly changed 
+semantics.
+
+__cxa_free_exception takes a pointer to the start of a __cxa_unwind_header,
+instead of the end. It deallocates the object and decreases the 
+reference count
+of the pointed-to __cxa_exception_info by 1. If the reference count 
+drops to zero, it calls __cxa_free_exception_object.
+
+    void __cxa_free_exception_object(void *obj) throw();
+
+__cxa_free_exception_object takes a pointer to the end of a
+__cxa_exception_info. It calls the destructor for the exception object and
+frees the memory unconditionally.
+
+
+2.4.3 Throwing the Exception Object
+
+__cxa_throw remains nearly unchanged, except for two details: the first
+parameter points to the start of the __cxa_unwind_header instead of the 
+end, and
+tinfo and dest are stored in the __cxa_exception_info.
+
+
+2.5.3 Exception Handlers
+
+The semantics of __cxa_begin_catch and __cxa_end_catch remain unchanged. 
+Note
+that __cxa_end_catch does not destroy the exception object unless its 
+reference
+count drops to zero.
+
+With std::current_exception() available, it would be possible to add an
+ABI-specific extension to exception_ptr with equivalent functionality as
+__cxa_current_exception_type(). For example:
+
+    exception_ptr ep = current_exception();
+    std::type_info *ti = ep.__cxa_exception_type();
+
+
+2.5.4 Rethrowing Exceptions
+
+The semantics of __cxa_rethrow are unchanged. std::rethrow_exception is
+described separately.
+
+
+2.5.5 Finishing and Destroying the Exception
+
+An exception object is considered unreferenced:
+* When all exceptions using the object are finished AND
+* When there are no more exception_ptr instances referring to the object.
+
+The actual exception object must not be destroyed before it is unreferenced,
+whereas the unwind header will be freed when the exception is finished.
+
+When the exception is finished, __cxa_free_exception shall be called, 
+but the
+destructor is not explicitly called. This is left to
+__cxa_free_exception_object.
+
+
+2.7 Exception Propagation
+
+Since exception_ptr provides a mechanism to influence the lifetime of
+exceptions, I consider it part of this machinery and will describe it in 
+short
+here.
+
+exception_ptr is a smart pointer. Its only data member is a pointer past the
+__cxa_exception_info it refers to. Upon construction, exception_ptr 
+increments
+the reference count. Upon destruction, it decrements it, and calls
+__cxa_free_exception_object if the count drops to zero. exception_ptr 
+does not
+manage a __cxa_unwind_header.
+
+std::current_exception() shall construct an exception_ptr referring to the
+exceptionObject field of the __cxa_unwind_header that is the head of the 
+current
+thread's exception chain. If there is no such exception, or if that 
+exception
+is foreign, current_exception returns the null pointer. Note that, if the
+implementation switches on the exception class to handle legacy code, it 
+still
+cannot return an exception_ptr for such exceptions.
+Because the function does not allocate memory, it will never return a 
+pointer
+to a std::bad_alloc object.
+
+std::rethrow_exception() shall call __cxa_allocate_exception_wrapper() 
+and pass
+the pointer of the exception_ptr. It then behaves like __cxa_throw: it 
+stores
+the unexpected and terminate handlers, sets the exception_class field,
+increments the uncaught_exception flag and calls _Unwind_RaiseException.
+
+
+
+From mark at codesourcery.com  Mon May 26 16:41:16 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 26 May 2008 09:41:16 -0700
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <4839E759.9080005@getdesigned.at>
+References: <4839E759.9080005@getdesigned.at>
+Message-ID: <483AE82C.2000405@codesourcery.com>
+
+Sebastian Redl wrote:
+
+> I experimentally implemented N2197 "Exception Propagation" in GCC and 
+> came to the conclusion that the current exception handling ABI 
+> specification is insufficient. It needs to be changed in order to make 
+> exception propagation possible.
+
+Do you have a URL for this paper?
+
+> I wrote up a proposal for the changes. My current implementation doesn't 
+> quite follow this proposal, since I came up with some of the ideas while 
+> writing the document, but I will change it.
+
+It looks like your proposal is not backwards-compatible with the current 
+ABI.  I think we should try very hard to avoid breaking compatibility. 
+If that means that we need to create new functions (like 
+__cxa_throw_exception_0x) or accept some performance tradeoffs, we 
+should do so.  But, it should be possible to link old C++ binaries with 
+the new C++ library, and, ideally, to mix object files from old and new 
+versions of C++ and the run-time library.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From sebastian.redl at getdesigned.at  Mon May 26 17:03:04 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Mon, 26 May 2008 19:03:04 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483AE82C.2000405@codesourcery.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com>
+Message-ID: <483AED48.2060705@getdesigned.at>
+
+Mark Mitchell wrote:
+> Sebastian Redl wrote:
+>
+>> I experimentally implemented N2197 "Exception Propagation" in GCC and 
+>> came to the conclusion that the current exception handling ABI 
+>> specification is insufficient. It needs to be changed in order to 
+>> make exception propagation possible.
+>
+> Do you have a URL for this paper?
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html
+>
+>> I wrote up a proposal for the changes. My current implementation 
+>> doesn't quite follow this proposal, since I came up with some of the 
+>> ideas while writing the document, but I will change it.
+>
+> It looks like your proposal is not backwards-compatible with the 
+> current ABI.  I think we should try very hard to avoid breaking 
+> compatibility. If that means that we need to create new functions 
+> (like __cxa_throw_exception_0x) or accept some performance tradeoffs, 
+> we should do so.  But, it should be possible to link old C++ binaries 
+> with the new C++ library, and, ideally, to mix object files from old 
+> and new versions of C++ and the run-time library.
+So basically, no symbol conflicts? Or does the backwards compatibility 
+go further than that?
+
+Sebastian
+
+
+From mark at codesourcery.com  Mon May 26 17:18:15 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 26 May 2008 10:18:15 -0700
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483AED48.2060705@getdesigned.at>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at>
+Message-ID: <483AF0D7.2060706@codesourcery.com>
+
+Sebastian Redl wrote:
+
+> http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html
+
+Thanks.
+
+> So basically, no symbol conflicts? Or does the backwards compatibility 
+> go further than that?
+
+Ideally, it should be possible to freely mix old and new object files in 
+a single application.  It should be possible to throw an exception in an 
+old file and catch it in a new one, and vice versa.  If you have to 
+recompile any existing code, then it's not compatible.
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From sebastian.redl at getdesigned.at  Mon May 26 21:11:45 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Mon, 26 May 2008 23:11:45 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483AF0D7.2060706@codesourcery.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com>
+Message-ID: <483B2791.1000304@getdesigned.at>
+
+Mark Mitchell wrote:
+> Ideally, it should be possible to freely mix old and new object files 
+> in a single application.  It should be possible to throw an exception 
+> in an old file and catch it in a new one, and vice versa.
+Hmm, I think that's not possible. Definitely not in the separation 
+model. It might be possible in the other approach, where the exception 
+object plus the __cxa_exception are copied whole, but I'm doubtful even 
+of that. That was a chance that was missed when it was decided that the 
+exception class gave sufficient version information. That was a mistake. 
+There is simply no way for the new code to know whether the new, 
+additional fields are present or not unless the exception class is 
+changed, in which case the old code will reject the exceptions. Unless 
+the vendor was smart enough to build the class test with versioning in 
+mind, but at least GCC didn't.
+
+Old code can obviously catch exceptions from new code as foreign 
+exceptions. What is also possible is to make it so that new code can 
+catch exceptions from the old code.
+However, even that is problematic. Consider:
+
+old.cpp:
+void oldfun() { if(rand() % 2) throw foo(); }
+
+new.cpp:
+void newfun() { throw foo(); }
+
+main.cpp:
+int main()
+{
+  try {
+    oldfun();
+    newfun();
+  } catch(foo&) {
+    exception_ptr ep = current_exception();
+    if(ep) std::cout << "yes\n";
+    else std::cout << "no\n";
+  }
+}
+
+Suppose that old.cpp was compiled with an old compiler, and new.cpp and 
+main.cpp with a new compiler. Because the ABI change is necessary to 
+make exception_ptr work, obviously you can't get an exception_ptr for an 
+old exception. But this means
+a) that current_exception() can fail for - to normal users - completely 
+impenetrable reasons and
+b) that the code is not standards-compliant (if there's a current 
+exception, current_exception must return a pointer to that or to a 
+bad_alloc).
+
+Basically, the code would print "yes" half the time. This is such a 
+gross violation of the principle of least surprise that I honestly would 
+consider not providing this half-compatibility at all the better choice. 
+Let these exceptions be caught only as foreign exceptions, which lie 
+outside the realm of the C++ standard and where current_exception can 
+return null without causing a headache.
+
+Sebastian
+
+
+From mark at codesourcery.com  Tue May 27 01:26:47 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 26 May 2008 18:26:47 -0700
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483B2791.1000304@getdesigned.at>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at>
+Message-ID: <483B6357.4060908@codesourcery.com>
+
+Sebastian Redl wrote:
+> Mark Mitchell wrote:
+>> Ideally, it should be possible to freely mix old and new object files 
+>> in a single application.  It should be possible to throw an exception 
+>> in an old file and catch it in a new one, and vice versa.
+> Hmm, I think that's not possible. Definitely not in the separation 
+> model.
+
+If true, that's very unfortunate.  C++ has gotten a somewhat 
+well-deserved black eye by not maintaining binary compatibility over 
+time.  If you've needed about long-term binary compatibility, C has been 
+a better choice for a long time.  The C++ ABI was designed in part to 
+put an end to that problem.  I would hope that we could extend the ABI 
+in a way that would permit old code to continue to work, without
+
+Is the issue that current_exception may need additional information in 
+order to locate the copy constructor for the thrown object.  Is that the 
+issue?
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Tue May 27 02:15:01 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 26 May 2008 22:15:01 -0400
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483B6357.4060908@codesourcery.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com>
+Message-ID: <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com>
+
+
+On May 26, 2008, at 9:26 PM, Mark Mitchell wrote:
+> Sebastian Redl wrote:
+>> Mark Mitchell wrote:
+>>> Ideally, it should be possible to freely mix old and new object  
+>>> files in a single application.  It should be possible to throw an  
+>>> exception in an old file and catch it in a new one, and vice versa.
+>> Hmm, I think that's not possible. Definitely not in the separation  
+>> model.
+>
+> If true, that's very unfortunate.  C++ has gotten a somewhat well- 
+> deserved black eye by not maintaining binary compatibility over  
+> time.  If you've needed about long-term binary compatibility, C has  
+> been a better choice for a long time.  The C++ ABI was designed in  
+> part to put an end to that problem.  I would hope that we could  
+> extend the ABI in a way that would permit old code to continue to  
+> work, without
+>
+> Is the issue that current_exception may need additional information  
+> in order to locate the copy constructor for the thrown object.  Is  
+> that the issue?
+
+
+Note that it doesn't have to copy the thrown object: It can  
+essentially return a smartptr<__cxa_exception> (which is what  
+std::exception_ptr would be) for the top exception.  The constructor  
+for this smart pointer must behave a bit like __cxa_rethrow() in that  
+it must avoid having __cxa_end_catch destroy the exception.  Instead,  
+that destruction must now be handled by the destructor of  
+smartptr<__cxa_exception> (when the reference count goes to zero).
+
+	Daveed
+
+
+
+From daveed at edg.com  Tue May 27 01:27:06 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 26 May 2008 21:27:06 -0400
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483AE82C.2000405@codesourcery.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com>
+Message-ID: <752DA746-0156-4F33-817B-26732A7E35B7@edg.com>
+
+
+On May 26, 2008, at 12:41 PM, Mark Mitchell wrote:
+> Sebastian Redl wrote:
+>
+>> I experimentally implemented N2197 "Exception Propagation" in GCC  
+>> and came to the conclusion that the current exception handling ABI  
+>> specification is insufficient. It needs to be changed in order to  
+>> make exception propagation possible.
+>
+> Do you have a URL for this paper?
+
+
+Note: The correct paper number is N2179.
+
+
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html
+
+>
+>
+>> I wrote up a proposal for the changes. My current implementation  
+>> doesn't quite follow this proposal, since I came up with some of  
+>> the ideas while writing the document, but I will change it.
+>
+> It looks like your proposal is not backwards-compatible with the  
+> current ABI.  I think we should try very hard to avoid breaking  
+> compatibility. If that means that we need to create new functions  
+> (like __cxa_throw_exception_0x) or accept some performance  
+> tradeoffs, we should do so.  But, it should be possible to link old C 
+> ++ binaries with the new C++ library, and, ideally, to mix object  
+> files from old and new versions of C++ and the run-time library.
+
+
+Indeed.  And my understanding of the discussions was that the  
+transportation protocol was designed to allow for backward  
+compatibility.
+
+	Daveed
+
+
+
+From sebastian.redl at getdesigned.at  Tue May 27 08:39:10 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Tue, 27 May 2008 10:39:10 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com>
+Message-ID: <483BC8AE.8010108@getdesigned.at>
+
+David Vandevoorde wrote:
+>
+> Note that it doesn't have to copy the thrown object: It can 
+> essentially return a smartptr<__cxa_exception> (which is what 
+> std::exception_ptr would be) for the top exception.  The constructor 
+> for this smart pointer must behave a bit like __cxa_rethrow() in that 
+> it must avoid having __cxa_end_catch destroy the exception.  Instead, 
+> that destruction must now be handled by the destructor of 
+> smartptr<__cxa_exception> (when the reference count goes to zero).
+I have tried that. It doesn't work. Yes, I can make an exception_ptr 
+that refers to an existing __cxa_exception, but I can't rethrow it. That 
+would mean allowing a single __cxa_exception to be in multiple throws at 
+once, and _Unwind_Exception cannot handle that. Also, __cxa_exception 
+cannot handle having been caught by several threads at once. It would 
+mess up the nextException chain.
+I HAVE to duplicate the __cxa_exception, and as long as the 
+__cxa_exception and the exception object are in the same memory block, 
+that means copying the exception object too.
+
+You can read my rationale in the thread at the libstdc++ mailing list.
+http://gcc.gnu.org/ml/libstdc++/2008-05/msg00079.html
+
+
+Although, thinking about it some more, there might be a way. There could 
+be essentially two kinds of __cxa_exception. One looks like the old one, 
+with an added reference count. The other holds a pointer to the first 
+kind instead. All exception_ptrs refer to the primary __cxa_exception, 
+but on rethrow they allocate a secondary that also refers to the first.
+
+This might work. But *only* if all modules link to the support library 
+dynamically, of course. If any of them links statically, it would keep 
+the old implementation, which would wreak havoc.
+
+I'll look into implementing that.
+
+Sebastian
+
+
+From daveed at edg.com  Tue May 27 18:29:09 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 27 May 2008 14:29:09 -0400
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483BC8AE.8010108@getdesigned.at>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com> <483BC8AE.8010108@getdesigned.at>
+Message-ID: <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com>
+
+
+On May 27, 2008, at 4:39 AM, Sebastian Redl wrote:
+> David Vandevoorde wrote:
+>>
+>> Note that it doesn't have to copy the thrown object: It can  
+>> essentially return a smartptr<__cxa_exception> (which is what  
+>> std::exception_ptr would be) for the top exception.  The  
+>> constructor for this smart pointer must behave a bit like  
+>> __cxa_rethrow() in that it must avoid having __cxa_end_catch  
+>> destroy the exception.  Instead, that destruction must now be  
+>> handled by the destructor of smartptr<__cxa_exception> (when the  
+>> reference count goes to zero).
+> I have tried that. It doesn't work. Yes, I can make an exception_ptr  
+> that refers to an existing __cxa_exception, but I can't rethrow it.  
+> That would mean allowing a single __cxa_exception to be in multiple  
+> throws at once, and _Unwind_Exception cannot handle that. Also,  
+> __cxa_exception cannot handle having been caught by several threads  
+> at once. It would mess up the nextException chain.
+> I HAVE to duplicate the __cxa_exception, and as long as the  
+> __cxa_exception and the exception object are in the same memory  
+> block, that means copying the exception object too.
+>
+> You can read my rationale in the thread at the libstdc++ mailing list.
+> http://gcc.gnu.org/ml/libstdc++/2008-05/msg00079.html
+
+
+Thanks -- that's a nice write-up!
+
+
+> Although, thinking about it some more, there might be a way. There  
+> could be essentially two kinds of __cxa_exception. One looks like  
+> the old one, with an added reference count. The other holds a  
+> pointer to the first kind instead. All exception_ptrs refer to the  
+> primary __cxa_exception, but on rethrow they allocate a secondary  
+> that also refers to the first.
+
+
+That's an interesting idea.
+
+
+> This might work. But *only* if all modules link to the support  
+> library dynamically, of course. If any of them links statically, it  
+> would keep the old implementation, which would wreak havoc.
+
+
+What sort of failure modes would we expect.  Could the  
+"__cxa_exception by reference" be made to look like std::bad_exception  
+to an old runtime support library?
+
+> I'll look into implementing that.
+
+
+FWIW, I've contacted Peter Dimov about this issue, and he seems  
+agreeable to prohibit rethrowing an exception captured with  
+current_exception() using "throw;" (until it has been rethrown with  
+rethrow_exception, at which point it can be caught/rethrown the usual  
+way).
+
+Note that we're still dealing with a working paper, not a frozen draft  
+or standard.  So if this kind of tricky issues arise, there may be  
+wiggle room left to fix the spec.  (But not for long.)
+
+	Daveed
+
+
+
+From sebastian.redl at getdesigned.at  Tue May 27 20:02:53 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Tue, 27 May 2008 22:02:53 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com> <483BC8AE.8010108@getdesigned.at> <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com>
+Message-ID: <483C68ED.4020401@getdesigned.at>
+
+David Vandevoorde wrote:
+>
+> On May 27, 2008, at 4:39 AM, Sebastian Redl wrote:
+>> This might work. But *only* if all modules link to the support 
+>> library dynamically, of course. If any of them links statically, it 
+>> would keep the old implementation, which would wreak havoc.
+>
+>
+> What sort of failure modes would we expect.  Could the 
+> "__cxa_exception by reference" be made to look like std::bad_exception 
+> to an old runtime support library?
+The __cxa_exception by reference (I've called it "dependent exception" 
+in my new writeup) could indeed be made to look like that, but that's 
+not the real problem. The real problem is code using the old library 
+catching a primary exception to which exception_ptrs refer. The old 
+support library might disrespect the reference counting necessary to 
+keep the object alive, and would delete it, leaving the exception_ptrs 
+dangling. (I say "might", because if the library uses 
+_Unwind_DeleteException to delete native exceptions, like G++ does, the 
+reference counting could be put there.)
+That said, this shouldn't be that much of a problem. Strictly speaking, 
+G++ already doesn't allow cross-module throwing if a static support 
+library is used. The reason is that in static links, there would be 
+multiple emergency memory pools. An exception allocated in the emergency 
+pool of one module and caught in a different module would then be 
+incorrectly passed to free() for deletion, which would crash anyway. And 
+that's with all code compiled with exactly the same compiler version.
+
+> FWIW, I've contacted Peter Dimov about this issue, and he seems 
+> agreeable to prohibit rethrowing an exception captured with 
+> current_exception() using "throw;" (until it has been rethrown with 
+> rethrow_exception, at which point it can be caught/rethrown the usual 
+> way).
+I don't see a particular reason to prohibit this. At least, I don't 
+foresee any implementation problems that would be solved this way. (Put 
+it this way: of all the crazy things you can do with exception_ptrs - 
+and you can do very crazy things - this is on the mild side.)
+
+Sebastian
+
+
+From mark at codesourcery.com  Tue May 27 21:16:36 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 27 May 2008 14:16:36 -0700
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483C68ED.4020401@getdesigned.at>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com> <483BC8AE.8010108@getdesigned.at> <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com> <483C68ED.4020401@getdesigned.at>
+Message-ID: <483C7A34.9040003@codesourcery.com>
+
+Sebastian Redl wrote:
+> David Vandevoorde wrote:
+>>
+>> On May 27, 2008, at 4:39 AM, Sebastian Redl wrote:
+>>> This might work. But *only* if all modules link to the support 
+>>> library dynamically, of course. If any of them links statically, it 
+>>> would keep the old implementation, which would wreak havoc.
+
+That seems a reasonable restriction to me.  Linking an application or 
+shared library statically with the C++ run-time library -- and then 
+trying to combine that with some other C++ shared library or 
+application, also linked with the run-time library -- seems very dodgy 
+to me.  After all, there's global data in there.  The cases that concern 
+me are object files, or existing shared libraries linked dynamically 
+against the C++ run-time library.
+
+I don't think G++ static links the C++ run-time library into a shared 
+library if you just do "g++ -shared -o libfoo.so x.cpp", does it?
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From sebastian.redl at getdesigned.at  Tue May 27 21:54:00 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Tue, 27 May 2008 23:54:00 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <483C7A34.9040003@codesourcery.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com> <483BC8AE.8010108@getdesigned.at> <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com> <483C68ED.4020401@getdesigned.at> <483C7A34.9040003@codesourcery.com>
+Message-ID: <483C82F8.6090703@getdesigned.at>
+
+Mark Mitchell wrote:
+> I don't think G++ static links the C++ run-time library into a shared 
+> library if you just do "g++ -shared -o libfoo.so x.cpp", does it?
+G++ always wants to dynamically link to libstdc++. (There is no dynamic 
+version of libsupc++; it's integrated.) You have to pass -static in 
+order to link against the static runtimes.
+And at least in x86-64, it's impossible to link a shared object against 
+the static runtimes, because they're not compiled with -fPIC. I have 
+tried and found it impossible to somehow get a .so and a main executable 
+with mismatching runtime linkage work together.
+
+So I think we're pretty safe on this front.
+
+(By the way, I've finished the implementation using my newest model, but 
+it's late. I'll compile it and the write about it tomorrow.)
+
+Sebastian
+
+
+From dhandly at cup.hp.com  Wed May 28 04:15:57 2008
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 27 May 2008 21:15:57 -0700 (PDT)
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+Message-ID: <200805280415.VAA00185@hpcll183.cup.hp.com>
+
+>From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>I experimentally implemented N2197 "Exception Propagation" in GCC and 
+>came to the conclusion that the current exception handling ABI 
+>specification is insufficient.
+
+Any reason we don't reject N2197 out of hand then?
+
+>It describes a model where exceptions are bound to a single thread and
+>cannot be copied.
+
+Yes, for HP-UX, each thread has a TLS state.
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>It looks like your proposal is not backwards-compatible with the current 
+>ABI.  I think we should try very hard to avoid breaking compatibility. 
+
+The only reason to break it is if the C++0x requires a new incompatible
+C++ Standard Library.
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>Is the issue that current_exception may need additional information in 
+>order to locate the copy constructor for the thrown object.
+
+Any way we can say that current_exception doesn't work if a copy constructor
+is needed?
+
+>From: David Vandevoorde <daveed at edg.com>
+>What sort of failure modes would we expect.  Could the  
+>"__cxa_exception by reference" be made to look like std::bad_exception  
+>to an old runtime support library?
+
+Would that be acceptable?
+
+>From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>The reason is that in static links, there would be 
+>multiple emergency memory pools. An exception allocated in the emergency 
+>pool of one module and caught in a different module would then be 
+>incorrectly passed to free() for deletion
+
+You don't make the emergency memory pools global and exported so it is
+all the same one?
+We only hide symbols in our shared lib.
+
+
+From sebastian.redl at getdesigned.at  Wed May 28 09:54:40 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Wed, 28 May 2008 11:54:40 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <200805280415.VAA00185@hpcll183.cup.hp.com>
+References: <200805280415.VAA00185@hpcll183.cup.hp.com>
+Message-ID: <483D2BE0.9080004@getdesigned.at>
+
+Dennis Handly wrote:
+>> From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>> I experimentally implemented N2197 "Exception Propagation" in GCC and 
+>> came to the conclusion that the current exception handling ABI 
+>> specification is insufficient.
+>>     
+>
+> Any reason we don't reject N2197 out of hand then?
+>   
+Exception propagation is very important. C++ got away with it so far 
+most because, IMO, threading already had an unnatural feel in C++. Now 
+that it has become part of the language, not being able to transfer 
+exceptions would be a very sore point.
+Also, the API is good and minimal. I don't think we'd be able to find a 
+better alternative within reasonable time.
+>> It describes a model where exceptions are bound to a single thread and
+>> cannot be copied.
+>>     
+>
+> Yes, for HP-UX, each thread has a TLS state.
+>   
+In GCC, the __cxa_eh_globals struct is thread-local. Is there anything 
+else in HP-UX that's also thread-local?
+>> From: Mark Mitchell <mark at codesourcery.com>
+>> It looks like your proposal is not backwards-compatible with the current 
+>> ABI.  I think we should try very hard to avoid breaking compatibility. 
+>>     
+>
+> The only reason to break it is if the C++0x requires a new incompatible
+> C++ Standard Library.
+>   
+I've done my best to avoid breaking the ABI this time around.
+>> From: Mark Mitchell <mark at codesourcery.com>
+>> Is the issue that current_exception may need additional information in 
+>> order to locate the copy constructor for the thrown object.
+>>     
+>
+> Any way we can say that current_exception doesn't work if a copy constructor
+> is needed?
+>   
+No. std::exception requires a copy constructor (to initialize the vptr, 
+if nothing else). std::runtime_error needs it even more. We'd be 
+rejecting the entire C++ exception hierarchy, and probably every other 
+hierarchy too. In fact, because we'd have to transfer values somehow, 
+we'd be bound to use memcpy, which would mean that current_exception 
+could only be used when throwing PODs.
+>> From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>> The reason is that in static links, there would be 
+>> multiple emergency memory pools. An exception allocated in the emergency 
+>> pool of one module and caught in a different module would then be 
+>> incorrectly passed to free() for deletion
+>>     
+>
+> You don't make the emergency memory pools global and exported so it is
+> all the same one?
+> We only hide symbols in our shared lib.
+>   
+In GCC's source, the emergency pool is unconditionally a static global. 
+So no, they won't get merged. But I might have been wrong about the 
+wrong one being used. Since destruction is done via 
+_Unwind_DeleteException, the call goes back to the library that 
+allocated the exception.
+
+Sebastian
+
+
+From sebastian.redl at getdesigned.at  Wed May 28 21:02:26 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Wed, 28 May 2008 23:02:26 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com>
+References: <4839E759.9080005@getdesigned.at> <483AE82C.2000405@codesourcery.com> <483AED48.2060705@getdesigned.at> <483AF0D7.2060706@codesourcery.com> <483B2791.1000304@getdesigned.at> <483B6357.4060908@codesourcery.com> <7565E69C-E616-4FC6-99BB-B942547DFF95@edg.com> <483BC8AE.8010108@getdesigned.at> <1EC8A6A1-DA21-49FD-9A3E-EF592BAE5C26@edg.com>
+Message-ID: <483DC862.7070608@getdesigned.at>
+
+David Vandevoorde wrote:
+>
+> On May 27, 2008, at 4:39 AM, Sebastian Redl wrote:
+>> Although, thinking about it some more, there might be a way. There 
+>> could be essentially two kinds of __cxa_exception. One looks like the 
+>> old one, with an added reference count. The other holds a pointer to 
+>> the first kind instead. All exception_ptrs refer to the primary 
+>> __cxa_exception, but on rethrow they allocate a secondary that also 
+>> refers to the first.
+>
+>
+> That's an interesting idea.
+OK, here's the write-up of my new approach.
+
+Sebastian
+
+-----------------------------
+
+With the integration of N2179 "Exception Propagation"
+(http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2179.html)
+into the C++0x working paper, the C++ ABI described at
+http://www.codesourcery.com/cxx-abi/abi-eh.html has unfortunately become
+insufficient. It describes a model where exceptions are bound to a single
+thread and cannot be copied, whereas exception propagation was introduced
+for the specific purpose of transferring exceptions between threads.
+
+In order to allow implementation of exception propagation, I propose the
+following changes to the ABI. These changes have been successfully 
+implemented
+in the G++ compiler.
+
+This version of the draft takes binary compatibility very seriously. The 
+goal is
+to have only a single restriction on backward compatibility, which is 
+that all
+code must run with an updated version of the support library. Code linking
+statically against the old library must be relinked. It is possible to 
+link code
+compiled with a new compiler to an old support library, unless 
+exception_ptr is
+used. (In that case, there would be unresolved symbols from exception_ptr.)
+
+
+The Level I ABI remains unchanged.
+
+
+Level II: C++ ABI
+
+The current C++ ABI is structured like this: the exception data lies in 
+a single
+block of memory, starting with C++-specific information (the __cxa_exception
+object), then the general unwind header (the unwindHeader field of the
+__cxa_exception object), and finally the actual C++ exception object. 
+Neither
+the __cxa_exception object nor the unwind header can be used concurrently in
+more than one thread. Therefore, these parts of the data must be copied 
+in order
+to implement N2179.
+The previous proposal advertised an approach that separated the 
+exception object
+from the __cxa_exception object. There were serious concerns regarding 
+the ABI-
+breaking nature of this change.
+
+This proposal instead follows this approach: there is one primary exception
+object, which has the same layout as in the old ABI, with a reference count
+prepended. There can be multiple dependent exception objects referring 
+to the
+primary, which duplicate the necessary information. The primary and 
+dependent
+exception objects use different exception class identifiers in order to 
+have the
+support library be able to distinguish them. A throw-expression with an 
+argument
+allocates a primary exception object. Calling std::rethrow_exception() 
+with an
+exception_ptr allocates a dependent exception object.
+
+The primary exception object continues to use the exception identifier 
+"C++\0".
+The dependent exception object uses "C++\x01".
+
++-----------------------------+------------------+
+| __cxa_exception "VENDC++\0" | exception object |
++-----------------------------+------------------+
+                              ^
+  +---------------------------+
+  |
++-----------------------------------------+
+| __cxa_dependent_exception "VENDC++\x01" |
++-----------------------------------------+
+
+2.2.1 C++ Exception Objects
+
+The __cxa_exception is prepended a reference count:
+
+    struct __cxa_exception {
+        std::size_t        referenceCount;
+        std::type_info *   exceptionType;
+        void (*exceptionDestructor) (void *):
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The referenceCount field counts the dependent exceptions and exception_ptrs
+referring to this primary exception.
+
+In addition, a new struct __cxa_dependent_exception is introduced:
+
+    struct __cxa_dependent_exception {
+        void *             primaryException;
+
+        unexpected_handler unexpectedHandler;
+        terminate_handler  terminateHandler;
+        __cxa_exception *  nextException;
+        int                handlerCount;
+
+        int                handlerSwitchValue;
+        const char *       actionRecord;
+        const char *       languageSpecificData;
+        void *             catchTemp;
+        void *             adjustedPtr;
+
+        _Unwind_Exception  unwindHeader;
+    };
+
+The primaryException field of a dependent exception shall always point at a
+primary exception (just after the __cxa_exception, as per convention).
+
+The nextException field of the structures can point either at a 
+__cxa_exception
+or a __cxa_dependent_exception. However, it shall point to a dependent 
+exception
+such that the offset to the unwindHeader field is the same. In other 
+words, the
+field (and caughtExceptions of __cxa_eh_globals) shall be used like this:
+
+    __cxa_eh_globals *globals = __cxa_get_globals();
+    __cxa_exception *eh = globals->caughtExceptions;
+    __cxa_dependent_exception *deh = 0;
+    if (eh->unwindHeader.exception_class == dependent_exception_class) {
+        deh = reinterpret_cast<__cxa_dependent_exception*>(eh + 1) - 1;
+        eh = static_cast<__cxa_exception*>(deh->primaryException) - 1;
+    }
+
+Note that, since the tail of primary and dependent exception are 
+identical, it
+is not actually necessary to cast to access these fields, as long as the 
+offset
+to the unwindHeader is the same. For example, you can access
+the nextException field of globals->caughtException without casting, and it
+will give the correct result whether you're dealing with a primary or a
+dependent exception.
+
+2.4.1 Overview of Throw Processing
+
+Throw processing remains the same, for primary throw expressions. For
+rethrow_exception(), the process obviously differs, and is described below.
+
+2.4.2 Allocating the Exception Object
+
+__cxa_allocate_exception remains the same. __cxa_free_exception remains the
+same.
+
+To create dependent exceptions, two new functions are introduced.
+
+    __cxa_dependent_exception*
+    __cxa_allocate_dependent_exception() throw();
+
+This function shall allocate a __cxa_dependent_exception and return a 
+pointer
+to it. (Really to the object, not past its end.) The function shall 
+otherwise
+behave as __cxa_allocate_exception.
+
+    void __cxa_free_dependent_exception(__cxa_dependent_exception*) throw();
+
+This function shall free a __cxa_dependent_exception. It does not affect the
+reference count of the primary exception.
+
+2.4.3 Throwing the Exception Object
+
+The first argument passed to __cxa_throw shall refer to a primary exception,
+not a dependent one. __cxa_throw shall set the reference count of the 
+primary
+to 1. (It works under the assumption that the __cxa_exception was newly
+allocated and its reference count was 0.)
+
+2.5.3 Exception Handlers
+
+__cxa_begin_catch has unchanged behaviour.
+
+__cxa_end_catch has modified behaviour:
+* It locates the most recently caught exception and decrements its handler
+count.
+* If the handler count goes to zero, it removes the exception from the
+caughtExceptions stack.
+* If the handler count goes down to zero, and the exception was not 
+re-thrown
+by throw, it locates the primary exception (which may be the same as the one
+it's handling) and decrements its reference count. If that reference count
+goes to zero, the function destroys the exception. In any case, if the 
+current
+exception is a dependent exception, it destroys that.
+
+With std::current_exception() available, it would be possible to add an
+ABI-specific extension to exception_ptr with equivalent functionality as
+__cxa_current_exception_type(). For example:
+
+    exception_ptr ep = current_exception();
+    std::type_info *ti = ep.__cxa_exception_type();
+
+2.5.4 Rethrowing Exceptions
+
+The semantics of __cxa_rethrow are unchanged. std::rethrow_exception is
+described separately.
+
+On a side note, __cxa_rethrow may have to update the terminate and 
+unexpected
+handler. Clarification from the Core Working Group on this issue would be
+appreciated.
+
+2.5.5 Finishing and Destroying the Exception
+
+__cxa_end_catch must observe the restrictions as detailed in 2.5.3.
+
+2.7 Exception Propagation
+
+Since exception_ptr provides a mechanism to influence the lifetime of
+exceptions, I consider it part of this machinery and will describe it in 
+short
+here.
+
+exception_ptr is a smart pointer. Its only member is a pointer to a primary
+exception. It uses this exception's reference count, incrementing upon 
+taking
+ownership and decrementing and potentially destroying upon releasing it.
+
+std::current_exception() examines the current exception. If there is 
+none, or
+it is foreign, it returns null. If the current exception is dependent, it
+obtains the primary exception and returns a pointer to that. If the current
+exception is primary, it is returned directly.
+Because the function does not allocate memory, it will never return a 
+pointer
+to a std::bad_alloc object.
+
+std::rethrow_exception() shall call __cxa_allocate_dependent_exception() and
+make it reference the primary exception pointed to by the exception_ptr. It
+shall increment the reference count of the primary exception. It then 
+behaves
+like __cxa_throw: it stores the unexpected and terminate handlers, sets the
+exception_class field (to the dependent class name, of course), 
+increments the
+uncaught_exception flag and calls _Unwind_RaiseException.
+
+std::copy_exception() can be implemented like the standard says, or it can
+call __cxa_allocate_exception() and initialize the exception object, 
+then return
+a pointer to that.
+
+
+
+From dhandly at cup.hp.com  Sat May 31 05:21:28 2008
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 30 May 2008 22:21:28 -0700 (PDT)
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+Message-ID: <200805310521.WAA17462@hpcll183.cup.hp.com>
+
+>From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>__cxa_end_catch has modified behaviour:
+>* It locates the most recently caught exception and decrements its handler
+>count.
+
+This now has to be atomic since threaded, right?
+Or is this still local to the thread but the next is atomic?
+
+>* If the handler count goes down to zero, and the exception was not
+>re-thrown by throw, it locates the primary exception (which may be the
+>same as the one it's handling) and decrements its reference count.
+
+Ok, this needs to be atomic.
+
+>2.7 Exception Propagation
+>exception_ptr is a smart pointer.  Its only member is a pointer to a
+>primary exception.  It uses this exception's reference count,
+>incrementing upon taking ownership and decrementing and potentially
+>destroying upon releasing it.
+
+And this would need to be atomic?
+
+>std::rethrow_exception() shall call __cxa_allocate_dependent_exception()
+>and make it reference the primary exception pointed to by the
+>exception_ptr.  It shall increment the reference count of the primary
+>exception.
+
+Again atomic?
+
+
+From sebastian.redl at getdesigned.at  Sat May 31 07:24:50 2008
+From: sebastian.redl at getdesigned.at (Sebastian Redl)
+Date: Sat, 31 May 2008 09:24:50 +0200
+Subject: [cxx-abi-dev] ABI modification for exception propagation
+In-Reply-To: <200805310521.WAA17462@hpcll183.cup.hp.com>
+References: <200805310521.WAA17462@hpcll183.cup.hp.com>
+Message-ID: <4840FD42.7000301@getdesigned.at>
+
+Dennis Handly wrote:
+>> From: Sebastian Redl <sebastian.redl at getdesigned.at>
+>> __cxa_end_catch has modified behaviour:
+>> * It locates the most recently caught exception and decrements its handler
+>> count.
+>>     
+>
+> This now has to be atomic since threaded, right?
+> Or is this still local to the thread but the next is atomic?
+>   
+This one is local. The handler count and handler chain are duplicated in
+every __cxa_exception and __cxa_dependent_exception, and only one thread
+ever uses these fields. The reference count is the only thing that will
+be modified from multiple threads with potential concurrency. (And the
+exception object, but I think the intent of N2179 is to make that the
+programmer's problem.)
+
+All modifications of the referenceCount field must be atomic.
+
+I've thought about providing functions that do the incrementing and
+decrementing, but I'm pretty sure this makes no actual difference in
+compatibility.
+
+Sebastian
+
+
+

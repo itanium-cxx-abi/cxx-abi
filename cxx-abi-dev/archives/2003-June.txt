@@ -1,0 +1,396 @@
+From zack at codesourcery.com  Sun Jun  8 21:26:50 2003
+From: zack at codesourcery.com (Zack Weinberg)
+Date: Sun, 08 Jun 2003 14:26:50 -0700
+Subject: Request for clarification: floating point literal mangling
+Message-ID: <87fzmkxntx.fsf@egil.codesourcery.com>
+
+
+The current text referring to the mangling of floating-point literals
+in template parameters has a number of ambiguities.  Here's what it
+says:
+
+     Floating-point literals are encoded using a fixed-length lowercase
+     hexadecimal string corresponding to the internal representation
+     (IEEE on Itanium), high-order bytes first, without leading
+     zeroes. For example: "Lf bf800000 E" is -1.0f on Itanium.
+
+I see four problems:
+
+1) It is not clear what "internal representation" means.  The example
+   suggests that the intent is to use the bit pattern that the
+   processor would store in memory, considered as an integer.
+   However, it might also refer to the compiler's internal
+   representation of floating point numbers, which may or may not be
+   the same thing.
+
+2) "Fixed length" and "without leading zeroes" contradict each other.
+
+3) Assuming that "without leading zeroes means, e.g. that the mangling
+   of the denormalized single precision float 1.40129846e-45f is
+   "Lf 1 E", it is not clear whether 0.0f should be mangled as
+   "Lf 0 E" or "Lf E".
+
+4) The example indicates that the "n" prefix is not used for negative
+   floating point literals, but the text doesn't make that clear.
+
+I would like to propose the following reworded text.
+
+     Floating-point literals are encoded using the bit pattern of the
+     target processor's internal representation of that number, as a
+     lowercase hexadecimal string, high-order bytes first (even if the
+     target processor would store low-order bytes first).  Leading
+     zeroes are not included; if the pattern is all bits zero, the
+     encoding is the empty string.  The "n" prefix is not used for
+     floating-point literals; the sign bit is encoded with the rest of
+     the number.
+
+     Here are some examples, assuming the IEEE standard representation
+     for floating point numbers.  (Spaces are for readability, not
+     part of the encoding.)
+
+         1.0f                    Lf 3f80 0000 E
+        -1.0f                    Lf bf80 0000 E
+         1.17549435e-38f         Lf   80 0000 E
+         1.40129846e-45f         Lf         1 E
+         0.0f                    Lf           E
+
+
+Alternatively, we could abandon the leading zero stripping, which does
+make life a bit easier on an implementation; it's not much of an
+optimization considering that almost all floating point numbers have a
+nonzero exponent field.  In that case, my proposed wording would be
+
+     Floating-point literals are encoded using the bit pattern of the
+     target processor's internal representation of that number, as a
+     fixed-length lowercase hexadecimal string, high-order bytes first
+     (even if the target processor would store low-order bytes first).
+     The "n" prefix is not used for floating-point literals; the sign
+     bit is encoded with the rest of the number.
+
+     Here are some examples, assuming the IEEE standard representation
+     for floating point numbers.  (Spaces are for readability, not
+     part of the encoding.)
+
+         1.0f                    Lf 3f80 0000 E
+        -1.0f                    Lf bf80 0000 E
+         1.17549435e-38f         Lf 0080 0000 E
+         1.40129846e-45f         Lf 0000 0001 E
+         0.0f                    Lf 0000 0000 E
+
+Does anyone have a preference for one or the other?  Objections to
+other clarifications?
+
+zw
+
+p.s. Please cc: me on replies, I'm not subscribed to this list.
+
+
+From dehnert at transmeta.com  Mon Jun  9 04:22:33 2003
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Sun, 08 Jun 2003 21:22:33 -0700
+Subject: [cxx-abi-dev] Request for clarification: floating point literal
+ mangling
+References: <87fzmkxntx.fsf@egil.codesourcery.com>
+Message-ID: <3EE40B89.1060800@transmeta.com>
+
+Zack Weinberg wrote:
+> The current text referring to the mangling of floating-point literals
+> in template parameters has a number of ambiguities.  Here's what it
+> says:
+> 
+>      Floating-point literals are encoded using a fixed-length lowercase
+>      hexadecimal string corresponding to the internal representation
+>      (IEEE on Itanium), high-order bytes first, without leading
+>      zeroes. For example: "Lf bf800000 E" is -1.0f on Itanium.
+> 
+> I see four problems:
+> 
+> 1) It is not clear what "internal representation" means.  The example
+>    suggests that the intent is to use the bit pattern that the
+>    processor would store in memory, considered as an integer.
+>    However, it might also refer to the compiler's internal
+>    representation of floating point numbers, which may or may not be
+>    the same thing.
+
+It was intended to mean the hardware memory representation.
+
+> 2) "Fixed length" and "without leading zeroes" contradict each other.
+> 
+> 3) Assuming that "without leading zeroes means, e.g. that the mangling
+>    of the denormalized single precision float 1.40129846e-45f is
+>    "Lf 1 E", it is not clear whether 0.0f should be mangled as
+>    "Lf 0 E" or "Lf E".
+
+I don't know what the existing implementations have done, but I suspect
+that this is a misstatement and that we meant without trailing zeroes,
+which makes much more sense for FP.  But at this point, the confusion
+should be resolved based on what the implementations do.
+
+> 4) The example indicates that the "n" prefix is not used for negative
+>    floating point literals, but the text doesn't make that clear.
+
+Right.
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+
+From sdouglass at arm.com  Mon Jun  9 08:12:16 2003
+From: sdouglass at arm.com (scott douglass)
+Date: Mon, 09 Jun 2003 09:12:16 +0100
+Subject: dso_handle parameter to __cxa_atexit/finalize
+Message-ID: <3EE44160.8000806@arm.com>
+
+Hi,
+
+In section 3.3.5.3 these prototypes are given:
+
+    extern "C" int __cxa_atexit ( void (*f)(void *), void *p, dso_handle d );
+    extern "C" void __cxa_finalize ( dso_handle d );
+
+I think the intention is that 'dso_handle' is
+
+    typedef const void* dso_handle;
+
+But the typedef is not given.  Can it be added?
+
+
+
+From mark at codesourcery.com  Mon Jun  9 14:56:59 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 09 Jun 2003 07:56:59 -0700
+Subject: [cxx-abi-dev] Request for clarification: floating point literal
+	mangling
+In-Reply-To: <3EE40B89.1060800@transmeta.com>
+References: <87fzmkxntx.fsf@egil.codesourcery.com> 
+	<3EE40B89.1060800@transmeta.com>
+Message-ID: <1055170619.23099.225.camel@doubledemon.codesourcery.com>
+
+> I don't know what the existing implementations have done, but I suspect
+> that this is a misstatement and that we meant without trailing zeroes,
+> which makes much more sense for FP.  But at this point, the confusion
+> should be resolved based on what the implementations do.
+
+The current GCC implementation is just plain wrong.
+
+The current EDG implementation is close -- but doesn't try to skip any
+leading zeros.  It does high-order bytes first, using the target
+representation.
+
+HP?  IBM?
+
+I suspect that the EDG implementation is what we want.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+
+From mark at codesourcery.com  Mon Jun  9 15:42:34 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 09 Jun 2003 08:42:34 -0700
+Subject: dso_handle elimination
+Message-ID: <1055173354.23062.235.camel@doubledemon.codesourcery.com>
+
+I checked in the attached patch to correct the problem Scott Douglas
+found, namely that the ABI referenced the type "dso_handle" which was
+never defined.
+
+If there are any objections, please let me know.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: diffs
+Type: text/x-patch
+Size: 2844 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20030609/86bfbd14/attachment.bin>
+
+From dehnert at transmeta.com  Mon Jun  9 21:18:28 2003
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Mon, 09 Jun 2003 14:18:28 -0700
+Subject: [cxx-abi-dev] dso_handle elimination
+References: <1055173354.23062.235.camel@doubledemon.codesourcery.com>
+Message-ID: <3EE4F9A4.7020309@transmeta.com>
+
+Mark Mitchell wrote:
+> I checked in the attached patch to correct the problem Scott Douglas
+> found, namely that the ABI referenced the type "dso_handle" which was
+> never defined.
+> 
+> If there are any objections, please let me know.
+
+IIRC, this was left deliberately unspecified on grounds that it might
+well be desirable for it to be platform-specific.  Of course, each
+platform-specific ABI needs a definition, and void* is the most likely.
+Rather than just replace "dso_handle" wholesale, it might be better to
+add an IA-64 typedef and verbiage to the effect that it might be
+different on other platforms.
+
+Jim
+
+
+
+
+
+From mark at codesourcery.com  Mon Jun  9 22:21:52 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 09 Jun 2003 15:21:52 -0700
+Subject: [cxx-abi-dev] dso_handle elimination
+In-Reply-To: <3EE4F9A4.7020309@transmeta.com>
+References: <1055173354.23062.235.camel@doubledemon.codesourcery.com>
+	 <3EE4F9A4.7020309@transmeta.com>
+Message-ID: <1055197312.3172.1.camel@minax.codesourcery.com>
+
+On Mon, 2003-06-09 at 14:18, Jim Dehnert wrote:
+> Mark Mitchell wrote:
+> > I checked in the attached patch to correct the problem Scott Douglas
+> > found, namely that the ABI referenced the type "dso_handle" which was
+> > never defined.
+> > 
+> > If there are any objections, please let me know.
+> 
+> IIRC, this was left deliberately unspecified on grounds that it might
+> well be desirable for it to be platform-specific.  
+
+G++ uses "void *" on all platforms and so does EDG, so I think this
+issue has been mooted.  Does anyone have a platform where "void *" is
+not the right type?
+
+Thanks,
+
+-- 
+Mark Mitchell <mark at codesourcery.com>
+CodeSourcery, LLC
+
+
+
+From dhandly at cup.hp.com  Mon Jun  9 23:26:29 2003
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 9 Jun 2003 16:26:29 -0700 (PDT)
+Subject: [cxx-abi-dev] Request for clarification: floating point literal mangling
+Message-ID: <200306092326.QAA29799@hpcll183.cup.hp.com>
+
+>HP?
+Mark Mitchell
+
+We currently don't allow it.
+How does EDG and g++ allow it, as a floating point literal?
+Or in some expression?
+
+
+From zack at codesourcery.com  Mon Jun  9 23:47:32 2003
+From: zack at codesourcery.com (Zack Weinberg)
+Date: Mon, 09 Jun 2003 16:47:32 -0700
+Subject: [cxx-abi-dev] Request for clarification: floating point literal
+ mangling
+In-Reply-To: <200306092326.QAA29799@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Mon, 9 Jun 2003 16:26:29 -0700 (PDT)")
+References: <200306092326.QAA29799@hpcll183.cup.hp.com>
+Message-ID: <87brx6u82z.fsf@egil.codesourcery.com>
+
+Dennis Handly <dhandly at cup.hp.com> writes:
+
+>>HP?
+> Mark Mitchell
+>
+> We currently don't allow it.
+> How does EDG and g++ allow it, as a floating point literal?
+> Or in some expression?
+
+template <int I> class A {};
+template <int I> void f(A<I+int(1.234)>) {}
+
+zw
+
+
+From kerch at cup.hp.com  Tue Jun 10 00:30:19 2003
+From: kerch at cup.hp.com (Kerch Holt)
+Date: Mon, 09 Jun 2003 17:30:19 -0700
+Subject: [cxx-abi-dev] Request for clarification: floating point literal
+ mangling
+In-Reply-To: <87brx6u82z.fsf@egil.codesourcery.com>
+References: <200306092326.QAA29799@hpcll183.cup.hp.com> <87brx6u82z.fsf@egil.codesourcery.com>
+Message-ID: <3EE5269B.30907@cup.hp.com>
+
+Zack Weinberg wrote:
+> Dennis Handly <dhandly at cup.hp.com> writes:
+> 
+> 
+>>>HP?
+>>
+>>Mark Mitchell
+>>
+>>We currently don't allow it.
+>>How does EDG and g++ allow it, as a floating point literal?
+>>Or in some expression?
+> 
+> 
+> template <int I> class A {};
+> template <int I> void f(A<I+int(1.234)>) {}
+> 
+Several compilers (including aCC) take the "int(1.234)"
+part and simply converted to "1" in the resulting signature.
+
+
+-- 
+Kerch Holt           kerch at cup.hp.com
+HP Cupertino Tools & Migration Lab
+11000 Wolfe Road, MS 4023
+Cupertino, CA 95014  Phone: 408-447-0421
+
+
+
+From mark at codesourcery.com  Tue Jun 10 01:01:41 2003
+From: mark at codesourcery.com (Mark Mitchell)
+Date: 09 Jun 2003 18:01:41 -0700
+Subject: [cxx-abi-dev] Request for clarification: floating point literal
+	mangling
+In-Reply-To: <3EE5269B.30907@cup.hp.com>
+References: <200306092326.QAA29799@hpcll183.cup.hp.com>
+	<87brx6u82z.fsf@egil.codesourcery.com>  <3EE5269B.30907@cup.hp.com>
+Message-ID: <1055206901.9370.1.camel@doubledemon.codesourcery.com>
+
+On Mon, 2003-06-09 at 17:30, Kerch Holt wrote:
+> Zack Weinberg wrote:
+> > Dennis Handly <dhandly at cup.hp.com> writes:
+> > 
+> > 
+> >>>HP?
+> >>
+> >>Mark Mitchell
+> >>
+> >>We currently don't allow it.
+> >>How does EDG and g++ allow it, as a floating point literal?
+> >>Or in some expression?
+> > 
+> > 
+> > template <int I> class A {};
+> > template <int I> void f(A<I+int(1.234)>) {}
+> > 
+> Several compilers (including aCC) take the "int(1.234)"
+> part and simply converted to "1" in the resulting signature.
+
+That, however, is clearly disallowed by the ABI.  (In the same way that
+transforming "1 + 2" into "3" is not allowed.)
+
+The mangling scheme is designed to be (essentially) a representation of
+the input token stream.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+

@@ -1,0 +1,163 @@
+From david.majnemer at gmail.com  Sat Jan 10 01:14:36 2015
+From: david.majnemer at gmail.com (David Majnemer)
+Date: Fri, 9 Jan 2015 17:14:36 -0800
+Subject: [cxx-abi-dev] Mangling of reference temporaries
+In-Reply-To: <CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+References: <CAL7bZ_eAQyMm-gFT582sM6NZcrNifvgL5x0n-N4-Hkug1xuGyQ@mail.gmail.com>
+	<30E56083-5E76-4D39-BA4B-AA477E93E36B@apple.com>
+	<CAGL0aWd+LrcGX_7NfBrmaiegkxirPhPK8Xrswmmk1HSyQrwqFA@mail.gmail.com>
+	<EC6FEA4C-1454-4DB9-8322-A81618B4337A@apple.com>
+	<CAGL0aWfoH6B7UbHz_0Z=xcA+qdF51o6GfJD2jQ_jBet170-Q0A@mail.gmail.com>
+	<41A87A23-895A-4429-89A2-0C04073BF39D@apple.com>
+	<CAGL0aWfsEOM8yK4_JQrn0SSajrjp314TTk+TcPih7NWJQBJQuA@mail.gmail.com>
+	<F7038293-AB6A-4009-B17A-8973DD34DC4C@apple.com>
+	<CAL7bZ_f9TF6z8nbi4BoDFXf+e3v16pLGktHgrbQ346YbYCxfRA@mail.gmail.com>
+Message-ID: <CAL7bZ_cMy4A5UBJEXzUtH2BrTrNmN6ZYZfFxmojPvNc2sgZPEA@mail.gmail.com>
+
+On Tue, May 6, 2014 at 4:46 PM, David Majnemer <david.majnemer at gmail.com>
+wrote:
+
+> On Mon, May 5, 2014 at 1:36 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On May 5, 2014, at 1:32 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On 5 May 2014 12:10, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On May 5, 2014, at 11:07 AM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>>
+>>> On 5 May 2014 10:14, John McCall <rjmccall at apple.com> wrote:
+>>>
+>>>> On May 5, 2014, at 10:02 AM, Richard Smith <richardsmith at google.com>
+>>>> wrote:
+>>>>
+>>>> On 5 May 2014 09:13, John McCall <rjmccall at apple.com> wrote:
+>>>>
+>>>>> On May 4, 2014, at 8:00 PM, David Majnemer <david.majnemer at gmail.com>
+>>>>> wrote:
+>>>>> > The Itanium ABI does not seem to provide a mangling for reference
+>>>>> temporaries.
+>>>>> >
+>>>>> > Consider the following:
+>>>>> > struct A { const int (&x)[3]; };
+>>>>> > struct B { const A (&x)[2]; };
+>>>>> > template <typename T> B &&b = { { { { 1, 2, 3 } }, { { 4, 5, 6 } } }
+>>>>> };
+>>>>> > B &temp = b<void>;
+>>>>> >
+>>>>> > The temporaries created by instantiating b<void> must be the same in
+>>>>> all translation units.
+>>>>> >
+>>>>> > To satisfy this requirement, I propose that we mangle the
+>>>>> temporaries in lexical order using a mangling similar to what GCC 4.9 uses
+>>>>> and identical to what trunk clang uses.
+>>>>>
+>>>>> What does GCC do?
+>>>>
+>>>>
+>>>> GCC trunk seems to use
+>>>>
+>>>>   <special-name> ::= GR <object name> <nonnegative number>
+>>>>
+>>>> where the first reference temporary gets number 0, and so on. It
+>>>> appears to number them through a post-order tree walk of the expression.
+>>>> Older versions of GCC did not add a number, IIRC.
+>>>>
+>>>>
+>>>> Okay.  So we have two different manglings out there that both look
+>>>> basically the same except for an off-by-one and a major semantic ordering
+>>>> difference.  I think we should either standardize on one or the other or
+>>>> switch to a different prefix entirely.
+>>>>
+>>>
+>>> Looking at the GCC output again, I see:
+>>>   * GCC actually does seem to be using lexical order (of the start of
+>>> the expression) after all (at least in the std::initializer_list array
+>>> temporary case).
+>>>   * GCC emits these symbols with internal linkage.
+>>>
+>>> So I don't think there's any compatibility problem with GCC.
+>>>
+>>>
+>>> Okay.
+>>>
+>>> Has the clang mangling actually been used in a released compiler, or did
+>>>> it just get implemented?
+>>>>
+>>>
+>>> Sort of? Until very recently, Clang used the same mangling for all the
+>>> temporaries, and added numbers to disambiguate, so we got the current
+>>> proposal by accident (except the numbering starts from 1 instead of from 0)
+>>> -- at least, in some cases: Clang would number the temporaries in a
+>>> different order if they were initialized by constant expressions (because
+>>> it happened to emit them in a different order).
+>>>
+>>>
+>>> Yeah, we don?t need to work to maintain compatibility with that.
+>>>
+>>> Hmm.  Putting a <number> after a <name> requires demangler lookahead,
+>>>> doesn?t it?
+>>>>
+>>>
+>>> <name> is self-delimiting, so a demangler can walk over it, then read
+>>> digits until it sees a non-digit or end-of-mangled-name. (<encoding>s are
+>>> only nested if they appear within a <local-name>, which has a terminating
+>>> E.) Not sure if that addresses your concern, though.
+>>>
+>>>
+>>> Ah, right, I was thinking of <encoding>.
+>>>
+>>> Let?s just follow the example of <susbtitution>, which is basically what
+>>> you?re proposing except a <seq-id> instead of a <number> and always
+>>> followed by a _.
+>>>
+>>
+>> Compared to the previous proposal (without the _), that's an ABI break
+>> for Clang in the overwhelmingly common case where a declaration
+>> lifetime-extends a single temporary, but I can live with it.
+>>
+>>
+>> Yeah, I?m comfortable with this.
+>>
+>> Do you want someone to provide wording for the ABI document?
+>>
+>>
+>> Sure, might as well re-submit the proposal.  It would be nice to get some
+>> feedback from someone not working on Clang, however.
+>>
+>
+> To implement support for mangling reference temporaries:
+>
+> 1. An additional <special-name> non-terminal production should be added:
+>
+> <special-name> ::= GR <object name> [ <seq-id> ] _   # Reference
+> temporaries
+>
+> The <seq-id> is strictly the lexical order in which the reference
+> temporary was written in the source.
+>
+> The following exists as a practical example:
+>
+> _ZGR1bIvE_ would be given to the 'B' object that 't' would refer to.
+> _ZGR1bIvE0_ would be given to the array of 'A' object references
+> _ZGR1bIvE1_ would be given to the object containing the first array of
+> ints, {1, 2, 3}
+> _ZGR1bIvE2_ would be given to the object containing the second array of
+> ints, {4, 5, 6}
+>
+> 2. The text describing <seq-id> should probably refrain from
+> mentioning substitutable entities.
+>
+
+Does anything else need to happen to get this added to the ABI document?
+
+
+>
+> --
+> David Majnemer
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20150109/05d420a2/attachment.html>
+

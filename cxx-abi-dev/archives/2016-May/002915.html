@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI for new inheriting constructor rules
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20for%20new%20inheriting%20constructor%20rules&In-Reply-To=%3CCAGL0aWdYs2per3f817V-isYa9BqROYc3o4s7xFNAJWeg%2BTgbUg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002914.html">
+   <LINK REL="Next"  HREF="002916.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI for new inheriting constructor rules</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20for%20new%20inheriting%20constructor%20rules&In-Reply-To=%3CCAGL0aWdYs2per3f817V-isYa9BqROYc3o4s7xFNAJWeg%2BTgbUg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] ABI for new inheriting constructor rules">richardsmith at google.com
+       </A><BR>
+    <I>Thu May 12 19:07:44 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002914.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+        <LI>Next message: <A HREF="002916.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2915">[ date ]</a>
+              <a href="thread.html#2915">[ thread ]</a>
+              <a href="subject.html#2915">[ subject ]</a>
+              <a href="author.html#2915">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 12 May 2016 at 11:45, John McCall &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">rjmccall at apple.com</A>&gt; wrote:
+
+&gt;<i> On May 6, 2016, at 2:29 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+</I>&gt;<i> Per <A HREF="http://wg21.link/p0136r1">http://wg21.link/p0136r1</A> an inheriting constructor declaration no
+</I>&gt;<i> longer results in the implicit synthesis of derived class constructors, and
+</I>&gt;<i> instead the behavior of a call to an inherited constructor is that:
+</I>&gt;<i>
+</I>&gt;<i>  1) the portion of a hypothetical defaulted default constructor prior to
+</I>&gt;<i> the base constructor invocation is executed, then
+</I>&gt;<i>  2) the inherited constructor is invoked, then
+</I>&gt;<i>  3) the portion of a hypothetical defaulted default constructor after the
+</I>&gt;<i> base constructor invocation is executed
+</I>&gt;<i>
+</I>&gt;<i> There are a couple of obvious ways we could avoid emitting the code for
+</I>&gt;<i> (1) and (3) in every inherited constructor call site:
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> This only affects interoperation to the extent that it's done with vague
+</I>&gt;<i> linkage, since as far as I know there's no way to give an inherited
+</I>&gt;<i> constructor a strong definition.
+</I>&gt;<i>
+</I>
+Yes.
+
+I think we should recommend using (A) in all cases where it's possible,
+&gt;<i> which as far as I know is everything except variadic constructors, and then
+</I>&gt;<i> just inline all the appropriate initialization for variadics.
+</I>&gt;<i>
+</I>
+OK, sounds fine to me. I don't really think the variadic case will come up
+enough to worry about it. The other benefit of the prefix/suffix functions
+is that we can factor out some of the duplication from the CI functions
+themselves, but that seems very much like a secondary benefit.
+
+(A) has to deal with both constructor variants, though.
+&gt;<i>
+</I>
+Good point. Maybe CI1&lt;type&gt; / CI2&lt;type&gt;?
+
+
+&gt;<i> Is there a reason we can't just continue to mangle the symbol as a C1 or
+</I>&gt;<i> C2 in the derived class?  Just concern about ODR differences when there
+</I>&gt;<i> happens to be a non-trivially-copyable type passed by value?
+</I>&gt;<i>
+</I>
+For a C2 constructor that inherits a constructor from a virtual base, the
+signature will be different from the old approach, because parameters will
+no longer be passed at all (whereas before they were passed and discarded).
+That's probably fine for most calling conventions, but seems risky in
+general. [As a further optimization, we could share the same C2 constructor
+for all inherited constructors that inherit from the same (set of) virtual
+base(s), but I'm not sure that's worth putting into the ABI.]
+
+I'm also concerned about there being edge cases where overload resolution
+could pick between constructors from two different base classes despite
+them mangling the same. Highly-contrived example:
+
+constexpr int f(), g();
+struct A { template&lt;int = f()&gt; A(int); };
+struct B { template&lt;int = g()&gt; B(int); };
+struct C : A, B {
+  using A::A;
+  using B::B;
+};
+
+TU1:
+constexpr int f() { return 0; }
+C c(0);
+constexpr int g() { return 0; }
+
+TU2:
+constexpr int g() { return 0; }
+C c(0);
+constexpr int f() { return 0; }
+
+I think this is valid, with TU1 calling A(int) and TU2 calling B(int).
+
+John.
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Approach A: synthesize a fake constructor of the derived class
+</I>&gt;<i>
+</I>&gt;<i> Strawman: add a new form of mangled name for a fake constructor that
+</I>&gt;<i> forwards to a base class constructor, whose &lt;encoding&gt; is that of the base
+</I>&gt;<i> class constructor, except that the &lt;nested name&gt; is that of the derived
+</I>&gt;<i> class and the &lt;unqualified-name&gt; is
+</I>&gt;<i>
+</I>&gt;<i>  &lt;ctor-dtor-name&gt; ::= CI &lt;base class type&gt;
+</I>&gt;<i>
+</I>&gt;<i>  This would give code largely similar to what we generate with the C++11
+</I>&gt;<i> inheriting constructor rules, except that the additional copy constructions
+</I>&gt;<i> and destructions for parameters would be removed. The downsides are that
+</I>&gt;<i> this only works if we can forward all the arguments (and in particular, we
+</I>&gt;<i> can't do this for varargs constructors), and generates one additional copy
+</I>&gt;<i> of the derived class default initialization code for each base class
+</I>&gt;<i> constructor.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Approach B: factor out the duplicated portion of the construction
+</I>&gt;<i>
+</I>&gt;<i> Strawman: add three new forms of mangled name for these constructor
+</I>&gt;<i> fragments:
+</I>&gt;<i>
+</I>&gt;<i>   &lt;ctor-dtor-name&gt; ::= CP [&lt;seq-id&gt;] _  # default constructor prefix
+</I>&gt;<i>   &lt;ctor-dtor-name&gt; ::= CS [&lt;seq-id&gt;] _  # default constructor suffix
+</I>&gt;<i>   &lt;ctor-dtor-name&gt; ::= DP [&lt;seq-id&gt;] _  # default constructor cleanup
+</I>&gt;<i> prefix
+</I>&gt;<i>
+</I>&gt;<i> where in the first and third case the &lt;seq-id&gt; represents the position of
+</I>&gt;<i> the last virtual or direct base class that is constructed or destroyed by
+</I>&gt;<i> the function, and in the second case it represents the position of the last
+</I>&gt;<i> virtual or direct base class that is not constructed by the function (where
+</I>&gt;<i> in each case the base classes are enumerated in the order in which they
+</I>&gt;<i> would be constructed).
+</I>&gt;<i>
+</I>&gt;<i> The CS symbols would destroy the entire class object if an exception is
+</I>&gt;<i> thrown. (I think it'd be fine except in pathological cases to provide only
+</I>&gt;<i> the CS symbols; maybe we could drop the CP/DP ones.)
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Or perhaps a hybrid of these (it may be reasonable for the constructors
+</I>&gt;<i> from approach A to call the fragments from approach B, especially when
+</I>&gt;<i> optimizing for code size). In any case, use of these new symbols would be
+</I>&gt;<i> optional; implementations could instead choose to emit the code inline.
+</I>&gt;<i> Thoughts?
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160512/5d74d8c0/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160512/5d74d8c0/attachment-0001.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002914.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+	<LI>Next message: <A HREF="002916.html">[cxx-abi-dev] ABI for new inheriting constructor rules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2915">[ date ]</a>
+              <a href="thread.html#2915">[ thread ]</a>
+              <a href="subject.html#2915">[ subject ]</a>
+              <a href="author.html#2915">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

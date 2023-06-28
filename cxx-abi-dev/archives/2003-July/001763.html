@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Name mangling for explicit overriders
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Name%20mangling%20for%20explicit%20overriders&In-Reply-To=%3C200307290922.CAA04040%40hpcll183.cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001764.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Name mangling for explicit overriders</H1>
+    <B>Dennis Handly</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Name%20mangling%20for%20explicit%20overriders&In-Reply-To=%3C200307290922.CAA04040%40hpcll183.cup.hp.com%3E"
+       TITLE="[cxx-abi-dev] Name mangling for explicit overriders">dhandly at cup.hp.com
+       </A><BR>
+    <I>Tue Jul 29 09:22:35 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001764.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1763">[ date ]</a>
+              <a href="thread.html#1763">[ thread ]</a>
+              <a href="subject.html#1763">[ subject ]</a>
+              <a href="author.html#1763">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>We recently implemented the Microsoft extension that allows explicit
+</I>&gt;<i>specification of overriding on derived class virtual functions.
+</I>&gt;<i>	struct D: B1, B2 {
+</I>&gt;<i>	  virtual void B1::f() {}  // Overrides B1::f (only)
+</I>&gt;<i>	  virtual void B2::f() {}  // Overrides B2::f (only)
+</I>&gt;<i>	};
+</I>
+&gt;<i>This has a name mangling implication: as shown in the above example,
+</I>&gt;<i>you can end up with two member functions in a given class that have
+</I>&gt;<i>the same name and signature, and differ only in the function that
+</I>&gt;<i>they override.
+</I>
+You can't just add mangling to the ABI, you'll also need to explain
+how the vtables (and which) are changed.
+
+&gt;<i>We added a rule for &lt;encoding&gt;:
+</I>&gt;<i>  &lt;encoding&gt; ::= &lt;function name&gt; O &lt;nested-name&gt; &lt;bare-function-type&gt;
+</I>
+&gt;<i>We also considered naming only the overridden class, not the function, but
+</I>&gt;<i>decided that other explicit-override extensions might allow overriding of
+</I>&gt;<i>differently-named functions, and therefore generality should be chosen over
+</I>&gt;<i>brevity.
+</I>&gt;<i>Any comments?
+</I>Steve Adamczyk
+
+And you can't substitute for f, since only D and D::f are known.
+
+&gt;<i>From: Christophe de Dinechin &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">ddd at cup.hp.com</A>&gt;
+</I>&gt;<i>Also, making the &quot;extension tag&quot; a prefix of the whole symbol means 
+</I>&gt;<i>that you can't demangle anything.
+</I>&gt;<i>the EDG approach and reserving &quot;O&quot; for extensions? So you'd have 
+</I>&gt;<i>something like Ov3EDG &lt;length&gt; &lt;vendor-specific&gt;, so that any demangler 
+</I>&gt;<i>could show something like &quot;D::f [with an EDG-specific extension]&quot;, and 
+</I>&gt;<i>the EDG demangler would show &quot;D::f [overriding B2::f]&quot; as proposed.
+</I>
+Right.  Except there is no connection with reserving &quot;O&quot; for extensions.
+
+&gt;<i>I also really appreciate that EDG tries to make sure that even their 
+</I>&gt;<i>proprietary extensions are known to the rest of the ABI users. I 
+</I>&gt;<i>recommend that we keep track of such extensions in the document when 
+</I>&gt;<i>vendors are kind enough to share them. What about an appendix to the ABI?
+</I>Christophe
+
+Would this be where the implementation info I asked for belong?
+
+&gt;<i>From: Daveed Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at vandevoorde.com</A>&gt;
+</I>&gt;<i>Note that this is in fact not an &quot;EDG extension&quot;: It is a
+</I>&gt;<i>Microsoft extension implemented in the EDG compiler.
+</I>
+So you're blaming it on Bill?  ;-)
+So the correct mangling is: _Zv3M$$
+
+&gt;<i>Also, this extension is going to be proposed to the evolution
+</I>&gt;<i>working group for inclusion in the next standard (including
+</I>&gt;<i>the ability to rename the overrider).
+</I>         Daveed
+
+OK, so the original idea is better.
+
+&gt;<i>From: Daveed Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt;
+</I>&gt;<i>I believe Bjarne is in favor of the proposal
+</I>&gt;<i>The issues are mostly syntactic.
+</I>
+So the semantics of what to do in the vtables is well defined?
+
+How do you call each directly?
+   D::B1::f() or D::B2::f()
+
+&gt;<i>From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i>I guess it makes sense to standardize it.  Does anyone object?
+</I>
+No.  Will Daveed document more than just the mangling part?
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001764.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1763">[ date ]</a>
+              <a href="thread.html#1763">[ thread ]</a>
+              <a href="subject.html#1763">[ subject ]</a>
+              <a href="author.html#1763">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

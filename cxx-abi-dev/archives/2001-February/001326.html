@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [C++ PATCH] ctor vtable vcall offsets
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3Cu9n1b7hu5b.fsf%40casey.cambridge.redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001325.html">
+   <LINK REL="Next"  HREF="001328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[C++ PATCH] ctor vtable vcall offsets</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5BC%2B%2B%20PATCH%5D%20ctor%20vtable%20vcall%20offsets&In-Reply-To=%3Cu9n1b7hu5b.fsf%40casey.cambridge.redhat.com%3E"
+       TITLE="[C++ PATCH] ctor vtable vcall offsets">jason at redhat.com
+       </A><BR>
+    <I>Wed Feb 28 12:25:04 UTC 2001</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001325.html">__cxa_rethrow
+</A></li>
+        <LI>Next message: <A HREF="001328.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1326">[ date ]</a>
+              <a href="thread.html#1326">[ thread ]</a>
+              <a href="subject.html#1326">[ subject ]</a>
+              <a href="author.html#1326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> &quot;Nathan&quot; == Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt; writes:
+</I>
+[ABI folks: We've been discussing whether or not the example in 5.2.6,
+
+  struct A { virtual void f(); };
+  struct B : virtual public A { int i; };
+  struct C : virtual public A { int j; };
+  struct D : public B, public C {};
+
+actually requires a third-party thunk.  I say it doesn't, since 3.2.4 says
+to call through a C* we must first convert to A*.  Nathan says we should
+just call through C's copy of the A vtable, saving the adjustment but
+requiring an additional, third-party thunk.  Mark was saying the same
+thing, but I appear to have convinced him.]
+
+&gt;<i> Mark Mitchell wrote:
+</I>
+&gt;&gt;<i>[I thought the advantages of taking a primary virtual base were]
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - Space (because we don't have to have another vptr)
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> - Time (because we don't have to convert to the virtual base to
+</I>&gt;&gt;<i> do a virtual call)
+</I>
+&gt;<i> This was my understanding too. I thought the primary motivation for the
+</I>&gt;<i> nearly-empty virtual base optimization was for things like Java interfaces
+</I>&gt;<i> which are such objects (or their equivalent in a C++ heirarchy).
+</I>
+But with Java interfaces we can assume no adjustment is necessary, since no
+adjustment is ever necessary.  With C++ virtual bases, we can't.
+
+&gt;<i> Indeed the
+</I>&gt;<i> ABI doc says as rationale in 2.4 II
+</I>
+&gt;<i> 	In case (2b) above, the use of the first indirect primary base
+</I>&gt;<i> 	class as the derived class' primary base does not save any space in
+</I>&gt;<i> 	the object, and will cause some duplication of virtual function
+</I>&gt;<i> 	pointers in the additional copy of the base classes virtual
+</I>&gt;<i> 	table. The benefit is that using the derived class virtual pointer
+</I>&gt;<i> 	as the base class virtual pointer will often save a load, and no
+</I>&gt;<i> 	adjustment to the this pointer will be required for calls to its
+</I>&gt;<i> 	virtual functions
+</I>
+Hmm, this does seem contradictory.  I suspect that people weren't thinking
+through the ramifications.  In fact, looking back over discussions, I think
+this was my fault; in mail from January of 2000 I suggested this sharing,
+making the same assumption I'm disagreeing with now.  I even claimed that
+converting to a primary virtual base would be a NOP in general.  Mea culpa.
+
+Anyway, my preference would be to change this bit, so that if all our
+nearly empty virtual bases are already indirect primary bases, we just give
+ourselves a new vtable (as Coleen had suggested in the message to which my
+erroneous mail was a response).
+
+Or we could just leave everything as is.  Is anyone from Compaq still on
+the list?  Have you (or anyone else) implemented this?  Who's still working
+on ABI-compliant compilers, anyway?
+
+&gt;<i> Also,
+</I>&gt;<i>     3.2.4 Caller
+</I>
+&gt;<i>    When calling a virtual function f, through a pointer of static type
+</I>&gt;<i>    B*, the caller
+</I>&gt;<i>      * Selects a (possibly improper) subobject A of B such that A
+</I>&gt;<i>        declares f. (In general, A may be the same as B.) (Note that A
+</I>&gt;<i>        need not define f; it may contain either a definition of f, or a
+</I>&gt;<i>        declaration of f as a pure virtual function.)
+</I>&gt;<i> What does 'improper base' mean here? There's no definition of that term.
+</I>&gt;<i> I took it to mean this virtual primary base thing which might have been
+</I>&gt;<i> lost to some other class in the heirarchy, but our vtable still has
+</I>&gt;<i> the right bits in it.
+</I>
+I assume it means that A may not be a proper base of B; that is, it may be
+B itself.  Since that is also said by the second parenthetical note, the
+first should probably be removed.
+
+Note that the conversion language has been in the description all along.
+It seems that Mark questioned it back in Feb 2000, but nobody responded to
+him (on the list, anyway).
+
+&gt;<i> Jason Merrill wrote:
+</I>&gt;&gt;<i> The main problem with third-party thunks is the time penalty for the
+</I>&gt;&gt;<i> indirect branch; that's why we've tried so hard to avoid requiring any.
+</I>
+&gt;<i> By indirect branch you mean you call the thunk which then has to branch
+</I>&gt;<i> to the function as it can't be laid out just before hand?
+</I>
+I'm sorry, my terminology was sloppy.  You always get the indirect branch
+in virtual function calls, and the resulting misprediction penalty.
+
+Third-party thunks have an additional penalty due to non-locality; in
+addition to the cache issues, the direct branch from the thunk to the
+function will also be mispredicted.  Thunks emitted with the function can
+use pc-relative forward branches or just fall through into the function,
+resulting in a much lower penalty.
+
+&gt;<i> If so, you *only* get that constraint on the thunk layout within heirarchies
+</I>&gt;<i> that have lost a primary virtual base.
+</I>
+Right.
+
+&gt;<i> Now, as Mark says, adjusting to the virtual base might well be a waste of
+</I>&gt;<i> time, if the function had been overridden further down the hierarchy - in
+</I>&gt;<i> that case, the overrider will have emitted vcall adjusting thunks for all
+</I>&gt;<i> the base vtables which contain the entry.
+</I>
+Yes, but if it isn't overridden, going through the thunk you propose is
+also a waste of time--and a *lot* more time than the adjustment in the
+caller, which can often be scheduled away.
+
+&gt;<i> As those can be emitted with the overriding function, they can run into
+</I>&gt;<i> that function have no second branch. If the function is not overridden
+</I>&gt;<i> down the heirarchy, then we have to have a vcall adjusting thunk which
+</I>&gt;<i> adjusts the this pointer to the real instance of the virtual base within
+</I>&gt;<i> the dynamic type of the object. The possibility of that thunk's existance
+</I>&gt;<i> known as soon as we have a class with a virtual primary base.  It can be
+</I>&gt;<i> emitted once there, but not sooner.
+</I>
+&gt;<i> Now back to the Java interface case. Interfaces have no implementation, so
+</I>&gt;<i> the virtual functions must be overridden in the class inheriting the
+</I>&gt;<i> interface - so the second half previous paragraph does not apply. That part
+</I>&gt;<i> can only apply in C++, and I believe it to be a sufficiently rare case as to
+</I>&gt;<i> not be a valid reason to forego the time saving the nearly empty
+</I>&gt;<i> virtual base class optimization gives you in the usual case.
+</I>
+And I believe the time savings you mention are not significant enough to
+justify complicating the implementation to deal with this special case,
+especially given the problems with third-party thunks.
+
+Jason
+
+P.S. Weren't we going to move the ABI stuff over to CodeSourcery?
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001325.html">__cxa_rethrow
+</A></li>
+	<LI>Next message: <A HREF="001328.html">[C++ PATCH] ctor vtable vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1326">[ date ]</a>
+              <a href="thread.html#1326">[ thread ]</a>
+              <a href="subject.html#1326">[ subject ]</a>
+              <a href="author.html#1326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

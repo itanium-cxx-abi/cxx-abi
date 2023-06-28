@@ -1,0 +1,201 @@
+From jason at redhat.com  Mon Jan 10 18:54:48 2005
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 10 Jan 2005 13:54:48 -0500
+Subject: __cxa_demangle of type manglings
+Message-ID: <xypmzvhjerr.fsf@miranda.boston.redhat.com>
+
+Between gcc 3.2 and 3.4, our demangler was rewritten.  The ABI
+specification says that the argument to __cxa_demangle can be 'either an
+external name, i.e. with a "_Z" prefix, or an internal NTBS mangling,
+e.g. of a type for type_info', and later that
+
+'Ambiguities are possible between extern "C" object names and internal
+built-in type names, e.g. "i" may be either an object named "i" or the
+built-in "int" type. Such ambiguities should be resolved to user names over
+built-in names.'
+
+Our old implementation ignored this rule, and preferred the type
+interpretation.  The new one still prefers the type interpretation for
+compound types such as PPv (void**), but returns "invalid mangled name" for
+built-in type names, which is clearly a bug.
+
+It seems to me that the specified behavior makes __cxa_demangle useless for
+type manglings, since most of them are also valid C++ identifiers, and
+therefore could be an extern "C" object name.  I think that the ambiguity
+should be resolved the other way by default, and that we should add another
+way to specify that the argument is an external name, probably via another
+entry point.
+
+Jason
+
+
+From dhandly at cup.hp.com  Tue Jan 11 01:20:38 2005
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 10 Jan 2005 17:20:38 -0800 (PST)
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+Message-ID: <200501110120.RAA28412@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>The ABI specification says that the argument to __cxa_demangle can be
+>'either an external name, i.e.  with a "_Z" prefix, or an internal NTBS
+>mangling, e.g.  of a type for type_info', and later that
+
+We had a customer that insisted that __cxa_demangle work for type_info
+so their code would be portable.
+
+>Such ambiguities should be resolved to user names over built-in names.'
+
+Darn, I can't read.  :-(
+I didn't implement this.  Probably this would have made the customer unhappy.
+Unfortunately making it a type caused a bunch of other components (debugger
+and compiler error messages) to change their code but we had them all change.
+
+>It seems to me that the specified behavior makes __cxa_demangle useless for
+>type manglings, since most of them are also valid C++ identifiers, and
+>therefore could be an extern "C" object name.
+
+Whether it is extern C or not, object names aren't mangled.  extern "C"
+is only important for functions.
+
+>I think that the ambiguity should be resolved the other way by default,
+
+Yes.  The ABI was broken.  There never should have been any ambiguity.
+I don't think the cost of 2 bytes per string was worth it.
+
+>and that we should add another way to specify that the argument is an
+>external name, probably via another entry point.
+Jason
+
+There is no need to have another entry.  If it doesn't start with "_Z"
+it is a type or a non-mangled object or function name.
+
+That was our solution to the debugger.  (They don't care about type_infos.)
+If it doesn't start with "_Z", then don't call __cxa_demangle.
+
+One other special thing I did for c++filt, where I added advanced AI
+technology, if you have a file, it only demangles tokens if it starts with
+"_Z".  If you provide the string on the command line, it assumes you want
+to demangle a type_info.
+
+(This seems to be what gnu c++filt (3.2) does.)
+
+
+From jason at redhat.com  Tue Jan 11 23:15:11 2005
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 11 Jan 2005 18:15:11 -0500
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+In-Reply-To: <200501110120.RAA28412@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Mon, 10 Jan 2005 17:20:38 -0800 (PST)")
+References: <200501110120.RAA28412@hpcll183.cup.hp.com>
+Message-ID: <xypacrfk16o.fsf@miranda.boston.redhat.com>
+
+On Mon, 10 Jan 2005 17:20:38 -0800 (PST), Dennis Handly <dhandly at cup.hp.com> wrote:
+>>From: Jason Merrill <jason at redhat.com>
+
+>>The ABI specification says that the argument to __cxa_demangle can be
+>>'either an external name, i.e.  with a "_Z" prefix, or an internal NTBS
+>>mangling, e.g.  of a type for type_info', and later that
+>
+> We had a customer that insisted that __cxa_demangle work for type_info
+> so their code would be portable.
+
+So your __cxa_demangle always interprets an argument as a type mangling if
+possible?  That's the behavior I'm advocating.
+
+>>and that we should add another way to specify that the argument is an
+>>external name, probably via another entry point.
+>
+> There is no need to have another entry.  If it doesn't start with "_Z"
+> it is a type or a non-mangled object or function name.
+
+Yes, but which?  Type or non-mangled name?  That's the ambiguity, and I
+think the user should be able to control how it is resolved.
+
+> One other special thing I did for c++filt, where I added advanced AI
+> technology, if you have a file, it only demangles tokens if it starts with
+> "_Z".  If you provide the string on the command line, it assumes you want
+> to demangle a type_info.
+>
+> (This seems to be what gnu c++filt (3.2) does.)
+
+Yep.
+
+Jason
+
+
+From dhandly at cup.hp.com  Wed Jan 12 04:34:08 2005
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Tue, 11 Jan 2005 20:34:08 -0800 (PST)
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+Message-ID: <200501120434.UAA29978@hpcll183.cup.hp.com>
+
+>From: Jason Merrill <jason at redhat.com>
+>So your __cxa_demangle always interprets an argument as a type mangling if
+>possible?  That's the behavior I'm advocating.
+
+Exactly.
+
+>> There is no need to have another entry.  If it doesn't start with "_Z"
+>> it is a type or a non-mangled object or function name.
+
+>Yes, but which?  Type or non-mangled name?  That's the ambiguity, and I
+>think the user should be able to control how it is resolved.
+Jason
+
+It should alway do the type.  If you don't want the type, don't call
+__cxa_demangle because it won't do anything anyway, if it followed
+the current ABI exactly.
+
+
+From jason at redhat.com  Wed Jan 12 05:47:08 2005
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 12 Jan 2005 00:47:08 -0500
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+In-Reply-To: <200501120434.UAA29978@hpcll183.cup.hp.com> (Dennis Handly's
+ message of "Tue, 11 Jan 2005 20:34:08 -0800 (PST)")
+References: <200501120434.UAA29978@hpcll183.cup.hp.com>
+Message-ID: <xypis63i4gz.fsf@miranda.boston.redhat.com>
+
+On Tue, 11 Jan 2005 20:34:08 -0800 (PST), Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>>Yes, but which?  Type or non-mangled name?  That's the ambiguity, and I
+>>think the user should be able to control how it is resolved.
+>
+> It should alway do the type.  If you don't want the type, don't call
+> __cxa_demangle because it won't do anything anyway, if it followed
+> the current ABI exactly.
+
+Ah, you're saying that any user can prefilter names by checking for _Z and
+not passing in other names.  Yes, that works, though I'd prefer not to
+require users to have that kind of detailed knowledge of the mangling
+scheme.
+
+Jason
+
+
+From mark at codesourcery.com  Tue Jan 18 06:03:10 2005
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 17 Jan 2005 22:03:10 -0800
+Subject: [cxx-abi-dev] __cxa_demangle of type manglings
+In-Reply-To: <xypmzvhjerr.fsf@miranda.boston.redhat.com>
+References: <xypmzvhjerr.fsf@miranda.boston.redhat.com>
+Message-ID: <41ECA69E.2050602@codesourcery.com>
+
+Jason Merrill wrote:
+
+> It seems to me that the specified behavior makes __cxa_demangle useless for
+> type manglings, since most of them are also valid C++ identifiers, and
+> therefore could be an extern "C" object name.  I think that the ambiguity
+> should be resolved the other way by default, and that we should add another
+> way to specify that the argument is an external name, probably via another
+> entry point.
+
+I agree.  Would you like to propose a change to the ABI document?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+(916) 791-8304
+
+

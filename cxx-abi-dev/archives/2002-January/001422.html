@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Pointer to member function mangling
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Pointer%20to%20member%20function%20mangling&In-Reply-To=%3C3C580414.472F585A%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001421.html">
+   <LINK REL="Next"  HREF="001423.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Pointer to member function mangling</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Pointer%20to%20member%20function%20mangling&In-Reply-To=%3C3C580414.472F585A%40edg.com%3E"
+       TITLE="[cxx-abi-dev] Pointer to member function mangling">daveed at edg.com
+       </A><BR>
+    <I>Wed Jan 30 14:32:52 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001421.html">Pointer to member function mangling
+</A></li>
+        <LI>Next message: <A HREF="001423.html">[cxx-abi-dev] Pointer to member function mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1422">[ date ]</a>
+              <a href="thread.html#1422">[ thread ]</a>
+              <a href="subject.html#1422">[ subject ]</a>
+              <a href="author.html#1422">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> The ABI says
+</I>&gt;<i> 
+</I>&gt;<i>   Names of objects nested in namespaces or classes are identified as a
+</I>&gt;<i>   delimited sequence of names identifying the enclosing scopes. In addition,
+</I>&gt;<i>   when naming a class member function, CV-qualifiers may be prefixed to the
+</I>&gt;<i>   compound name, encoding the this attributes. Note that if member function
+</I>&gt;<i>   CV-qualifiers are required, the delimited form must be used even if the
+</I>&gt;<i>   remainder of the name is a single substitution.
+</I>&gt;<i> 
+</I>&gt;<i>       &lt;nested-name&gt; ::= N [&lt;CV-qualifiers&gt;] &lt;prefix&gt; &lt;unqualified-name&gt; E
+</I>&gt;<i>                       ::= N [&lt;CV-qualifiers&gt;] &lt;template-prefix&gt; &lt;template-args&gt; E
+</I>&gt;<i> 
+</I>&gt;<i>   ...
+</I>&gt;<i> 
+</I>&gt;<i>   [in the function type section]
+</I>&gt;<i>   If there are any cv-qualifiers of this, they are encoded at the beginning
+</I>&gt;<i>   of the &lt;qualified-name&gt; as described above.
+</I>
+I don't think the latter was meant to apply to pointer-to-member types, which
+(as you quote below) disocciate the class (&quot;this&quot;) type from the member
+type.
+
+&gt;<i>   ...
+</I>&gt;<i> 
+</I>&gt;<i>   Pointer-to-member types encode the class and member types.
+</I>&gt;<i> 
+</I>&gt;<i>     &lt;pointer-to-member-type&gt; ::= M &lt;class type&gt; &lt;member type&gt;
+</I>&gt;<i> 
+</I>&gt;<i> Let me just start by saying that I think the first bit above was a mistake,
+</I>&gt;<i> as the CV-quals are an attribute of the function type, not the class or
+</I>&gt;<i> function name.  But I suppose that since we don't mention the function type
+</I>&gt;<i> directly, we can't qualify it. 
+</I>
+I remember we discussed that. I agree it's unfortunate, but I'm not
+sure it's a mistake.
+
+&gt;<i> In any case, a function like
+</I>&gt;<i> 
+</I>&gt;<i>   void A::f () const
+</I>&gt;<i> 
+</I>&gt;<i> would be encoded
+</I>&gt;<i> 
+</I>&gt;<i>   _ZNK1A1fEv
+</I>&gt;<i> 
+</I>&gt;<i> My question has to do with encoding a cv-qualified pointer to member
+</I>&gt;<i> function type, i.e.
+</I>&gt;<i> 
+</I>&gt;<i>   void (A::*)() const
+</I>&gt;<i> 
+</I>&gt;<i> g++ currently emits
+</I>&gt;<i> 
+</I>&gt;<i>   MK1AFvvE
+</I>&gt;<i> 
+</I>&gt;<i> or, member of class &quot;const A&quot; of type &quot;function of (void) returning void&quot;.
+</I>&gt;<i> I don't see how this can be deduced from the above text.  More consistent
+</I>&gt;<i> with the handling of function names, and suggested by the text in the
+</I>&gt;<i> function type section, would be
+</I>&gt;<i> 
+</I>&gt;<i>   MNK1AEFvvE
+</I>
+I don't see that: there is no &lt;nested-name&gt; in the pointer-to-member
+above.
+
+&gt;<i> or, member of &quot;A with member function-modifying const&quot; of type &quot;function of
+</I>&gt;<i> (void) returning void&quot;.
+</I>&gt;<i> 
+</I>&gt;<i> IMO more consistent with the language semantics would be
+</I>&gt;<i> 
+</I>&gt;<i>   M1AKFvvE
+</I>
+That is what I would expect and what I actually read in the specification
+if I squint right:
+	M &lt;class type&gt; &lt;member type&gt;
+	&lt;class type&gt; :: 1A
+	&lt;member type&gt; :: K FvvE
+
+&gt;<i> or, member of A of type &quot;function of (void) const returning void&quot;.  The C++
+</I>&gt;<i> standard states unambiguously that the cv-quals are part of the function
+</I>&gt;<i> type.
+</I>&gt;<i> 
+</I>&gt;<i> Looking over the mailing list archives, I was unable to find any discussion
+</I>&gt;<i> of this issue, though it was mentioned in passing a couple of times.
+</I>&gt;<i> 
+</I>&gt;<i> What do other compilers produce?  What do other demanglers expect?
+</I>
+As a human demangler, I expect your last form.
+
+	Daveed
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001421.html">Pointer to member function mangling
+</A></li>
+	<LI>Next message: <A HREF="001423.html">[cxx-abi-dev] Pointer to member function mangling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1422">[ date ]</a>
+              <a href="thread.html#1422">[ thread ]</a>
+              <a href="subject.html#1422">[ subject ]</a>
+              <a href="author.html#1422">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

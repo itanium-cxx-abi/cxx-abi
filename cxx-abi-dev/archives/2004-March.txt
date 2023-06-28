@@ -1,0 +1,383 @@
+From nathan at codesourcery.com  Mon Mar  1 10:48:17 2004
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Mon, 01 Mar 2004 10:48:17 +0000
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <uhdxcw394.fsf@boost-consulting.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>	<403F8037.9030004@codesourcery.com>	<58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> <uhdxcw394.fsf@boost-consulting.com>
+Message-ID: <404314F1.1080907@codesourcery.com>
+
+David Abrahams wrote:
+
+> I think it's probably more widely neededthan you'd guess, at the
+> boundary between statically and dynamically-typed systems.  I doubt
+> anyone else has had the insanity to try to simulate it in conforming
+> code, or the wherewithal to express to implementors what they were
+> trying to achieve, so most people who might've needed it probably just
+> gave up.  That's a long-winded way of saying this is the first time
+> I've ever heard that someone else besides me wanted it.  If it's
+> (almost) in cxx abi v1, and David B. wants it, and I want it, it seems
+> like a few people at least have decided it's important.
+
+One of the design goals of the __dynamic_cast API was to optimize the
+the time of the call -- in either producing a pointer to the target
+object, or NULL.  Therefore it should do the minimal tree walking
+to acheive that.  As dynamic casting needs to know whether it met
+the staticly typed object started from, it checks this and does not
+walk into that subtree. Hence the behaviour you have observed.
+
+We should not change the functionality of __dynamic_cast without
+also augmenting its API, so that we can maintain the above behaviour.
+
+One solution would be to allow NULL as the typeid of the static
+starting base.  In the cases shown, I believe this is what you want. The
+question you are asking is
+   given this complete type of dynamic type, find the unambiguous public
+   base of dynamicly determined type Foo.
+(By dynamically determined, I mean the compiler has no knowledge of the
+typeid that will be passed in -- because it's been squirrelled away by
+some other bit of code.) In fact I think the current GCC implementation
+will DWYW if you pass some unrelated third typeid as the static starting
+type.
+
+If the question you are asking is
+   given this complete type of dynamic type, find the unambigous public
+   dynamically determined base Baz and then find the unambigous public
+   dynamically determined base Foo of that intermediate base
+another solution is needed.
+
+nathan
+
+-- 
+Nathan Sidwell    ::   http://www.codesourcery.com   ::     CodeSourcery LLC
+nathan at codesourcery.com    ::     http://www.planetfall.pwp.blueyonder.co.uk
+
+
+
+
+From deb at pixar.com  Mon Mar  1 16:05:05 2004
+From: deb at pixar.com (David Baraff)
+Date: Mon, 1 Mar 2004 08:05:05 -0800
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <uy8qkbv77.fsf@boost-consulting.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com> <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> <uhdxcw394.fsf@boost-consulting.com> <57B29996-6B0A-11D8-8942-0003939BA2A6@pixar.com> <uy8qkbv77.fsf@boost-consulting.com>
+Message-ID: <3466042C-6B9A-11D8-9AA4-0003939BA2A6@pixar.com>
+
+
+
+Begin forwarded message:
+
+> From: David Abrahams <dave at boost-consulting.com>
+> Date: March 1, 2004 4:36:28 AM PST
+> To: David Baraff <deb at pixar.com>
+> Cc: Daveed Vandevoorde <daveed at edg.com>, cxx-abi-dev at codesourcery.com, 
+> Daniel Wallin <dalwan01 at student.umu.se>
+> Subject: Re: [cxx-abi-dev] trivial __dynamic_cast fails?
+>
+> David Baraff <deb at pixar.com> writes:
+>
+>>>
+>> David Abrahams wrote:
+>>> I think it's probably more widely neededthan you'd guess, at the
+>>> boundary between statically and dynamically-typed systems.  I doubt
+>>> anyone else has had the insanity to try to simulate it in conforming
+>>> code,
+>>
+>> I did it in standards-conforming code, so either doing it made me
+>> insane, or I am insane for doing it...
+>
+> Didn't you say that you were computing byte offsets for Base <-->
+> Derived translations?
+No, I instantiate a function templated on Base and Derived which does 
+the cast.
+
+( I was thinking of caching the offset after the first time I found it. 
+  That would be non-portable I guess.)
+
+>  If these classes can be non-POD, that's not
+> portable according to the standard.
+>
+> Incidentally, my system stores those offsets as an optimization for
+> all platforms that can handle it (which so far is everything) but if
+> you want to be strict about portable conformance you have to walk
+> through the cast graph.
+>
+I do, so I end up calling the synthesized cast functions several times 
+in a single cast.
+
+
+
+>
+> -- 
+> Dave Abrahams
+> Boost Consulting
+> www.boost-consulting.com
+>
+
+
+
+From dave at boost-consulting.com  Mon Mar  1 12:36:28 2004
+From: dave at boost-consulting.com (David Abrahams)
+Date: Mon, 01 Mar 2004 07:36:28 -0500
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <57B29996-6B0A-11D8-8942-0003939BA2A6@pixar.com> (David
+ Baraff's message of "Sun, 29 Feb 2004 14:55:17 -0800")
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+	<403F8037.9030004@codesourcery.com>
+	<58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+	<uhdxcw394.fsf@boost-consulting.com>
+	<57B29996-6B0A-11D8-8942-0003939BA2A6@pixar.com>
+Message-ID: <uy8qkbv77.fsf@boost-consulting.com>
+
+David Baraff <deb at pixar.com> writes:
+
+>>
+> David Abrahams wrote:
+>> I think it's probably more widely neededthan you'd guess, at the
+>> boundary between statically and dynamically-typed systems.  I doubt
+>> anyone else has had the insanity to try to simulate it in conforming
+>> code,
+>
+> I did it in standards-conforming code, so either doing it made me
+> insane, or I am insane for doing it...
+
+Didn't you say that you were computing byte offsets for Base <-->
+Derived translations?  If these classes can be non-POD, that's not
+portable according to the standard.
+
+Incidentally, my system stores those offsets as an optimization for
+all platforms that can handle it (which so far is everything) but if
+you want to be strict about portable conformance you have to walk
+through the cast graph.
+
+
+-- 
+Dave Abrahams
+Boost Consulting
+www.boost-consulting.com
+
+
+
+From dalwan01 at student.umu.se  Mon Mar  1 18:33:00 2004
+From: dalwan01 at student.umu.se (Daniel Wallin)
+Date: Mon, 01 Mar 2004 19:33:00 +0100
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <3466042C-6B9A-11D8-9AA4-0003939BA2A6@pixar.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com> <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> <uhdxcw394.fsf@boost-consulting.com> <57B29996-6B0A-11D8-8942-0003939BA2A6@pixar.com> <uy8qkbv77.fsf@boost-consulting.com> <3466042C-6B9A-11D8-9AA4-0003939BA2A6@pixar.com>
+Message-ID: <404381DC.9070402@student.umu.se>
+
+David Baraff wrote:
+>> David Baraff <deb at pixar.com> writes:
+>>
+>>>>
+>>> David Abrahams wrote:
+>>>
+>> <snip>
+>>
+>> Incidentally, my system stores those offsets as an optimization for
+>> all platforms that can handle it (which so far is everything) but if
+>> you want to be strict about portable conformance you have to walk
+>> through the cast graph.
+>>
+> I do, so I end up calling the synthesized cast functions several times 
+> in a single cast.
+
+Maybe irrelevant but...
+
+If you disregard strict conformance or are just interested in casting
+up, it is possible to use the exception trick Dave A demonstrated in the
+modified boost::any implementation to make the macro usage a little less
+verbose and a bit more robust by omitting the bases.
+
+   template<class T>
+   T* cast_up(void* p, std::type_info const& type)
+   {
+       try
+       {
+           // will throw static_cast<U*>(p), where type = typeid(U)
+           throw_registered_pointer(p, type);
+       }
+       catch (T* converted)
+       {
+           return converted;
+       }
+       catch (...)
+       {
+           return 0;
+       }
+   }
+
+   // Now we just need to register the throw functions:
+   struct A {};
+   REGISTER_CLASS(A);
+
+   struct B : A {};
+   REGISTER_CLASS(B);
+
+It should be possible to use the same trick to generate a cast graph
+with byte offsets in the edges, if strict conformance isn't important.
+
+-- 
+Daniel Wallin
+
+
+From austern at apple.com  Mon Mar  1 22:07:12 2004
+From: austern at apple.com (Matt Austern)
+Date: Mon, 1 Mar 2004 14:07:12 -0800
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+In-Reply-To: <403F99A9.9020808@codesourcery.com>
+References: <1336AC4B-68B1-11D8-832A-000A95AA5E5E@apple.com> <403F99A9.9020808@codesourcery.com>
+Message-ID: <CAD0CEAD-6BCC-11D8-AA90-000A95AA5E5E@apple.com>
+
+On Feb 27, 2004, at 11:25 AM, Mark Mitchell wrote:
+
+> Matt Austern wrote:
+>
+>> Maybe this is old news; I'm sure everyone who has implemented atexit 
+>> in terms of __cxa_atexit must have noticed it already.
+>
+> I believe that GNU libc implemented both atexit and __cxa_atexit atop 
+> some other interface, but I haven't looked in a long time.
+>
+>> The obvious fix would be to say that:
+>>  1. atexit(f) invokes __cxa_atexit((void(*)(void*)) f, 0, 0).
+>>  2. If you're passing __cxa_atexit a function that does take an 
+>> argument, the parameter may not be 0.
+>>  3. When __cxa_finalize invokes a function f on a parameter p, it 
+>> should do the equivalent of:
+>>      if (p)
+>>         (*f)(p);
+>>      else
+>>        (*((void (*)(void)) f))();
+>
+> That's a reasonable approach, but point (2) worries me -- that might 
+> represent a change for some existing implementations.
+>
+> An alternative would be to remove the explicit impliciation in the ABI 
+> that atexit is implemented atop __cxa_atexit, and just indicate that 
+> (a) the calls to the registered functions must be interleaved in the 
+> appropriate way, and (b) __cxa_finalize called with a NULL DSO 
+> parameter must call the functions registered with atexit.
+>
+> Thoughts?
+
+I'm mildly nervous about point (2) also, but only mildly.  The number 
+of compilers that use this ABI isn't huge, and it shouldn't be hard to 
+confirm that there are no compilers that use a NULL data pointer.  I 
+bet there are none.  And we now know there is one implementation that 
+uses this technique.  So this is my very-slightly-preferred option.
+
+But then, I also don't mind your alternative.  It's equally easy to 
+specify, and it's only slightly harder to implement.
+
+			--Matt
+
+
+
+From mark at codesourcery.com  Sat Mar  6 04:18:55 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 05 Mar 2004 20:18:55 -0800
+Subject: [cxx-abi-dev] Proposed clarification
+In-Reply-To: <4035C9C0.2090506@codesourcery.com>
+References: <4035C9C0.2090506@codesourcery.com>
+Message-ID: <4049512F.1070901@codesourcery.com>
+
+Mark Mitchell wrote:
+
+> Presently, the ABI is not 100% clear about whether two member function 
+> types for non-static member functions of different classes can be 
+> substitution candidates.  For example, given:
+> 
+>  struct S {  };
+>  struct T { };
+> 
+> would the function types pointed to be "void (S::*)()" and "void 
+> (T::*)()" be the same type, for the purposes of substitution.
+> 
+> The EDG front end and G++ agree that they are not the same type, for the 
+> purposes of substitution, and I believe that is consistent with the 
+> spirit of the ABI, which already says that the types pointed to be "void 
+> (*)()" and "void (S::*)()" are not the same type for the purposes of 
+> substitution.
+> 
+> Therefore, I intend to update the ABI document with the attached change, 
+> unless anyone objects.
+> 
+> Are there any objections?
+
+There were no objections, so I committed the patch below, after fixing a 
+typo therein.
+
+It's been pointed out to me that there is another problem with the 
+specification in this area, which I will attempt to address separately.
+
+
+> ------------------------------------------------------------------------
+> 
+> Index: abi.html
+> ===================================================================
+> RCS file: /home/cvs/Repository/cxx-abi/abi.html,v
+> retrieving revision 1.75
+> diff -c -5 -p -r1.75 abi.html
+> *** abi.html	28 Nov 2003 20:58:26 -0000	1.75
+> --- abi.html	20 Feb 2004 07:57:01 -0000
+> *************** No entity is added to the dictionary twi
+> *** 4593,4602 ****
+> --- 4593,4612 ----
+>   
+>   <p>
+>   The type of a non-static member function is considered to be
+>   different, for the purposes of substitution, from the type of a
+>   namespace-scope or static member function whose type appears similar.
+> + The types of two non-static member functions are considered to be
+> + different, for the purposes of substitution, if the functions are
+> + members of different classes.  In other words, for the purposes of
+> + substitution, the class of which the function is a member is
+> + considered part of the type of function.
+> + </p>
+> + 
+> + <p>
+> + <img src=warning.gif alt="<b>NOTE</b>:">
+> + <i>
+>   Therefore, in the following example:
+>   <blockquote><code><pre>
+>   typedef void T();
+>   struct S {};
+>   void f(T*, T (S::*)) {}
+> *************** the function <code>f</code> is mangled a
+> *** 4606,4615 ****
+> --- 4616,4626 ----
+>   to by the second parameter is not considered the same as the type of
+>   the function pointed to by the first parameter.  Both function types
+>   are, however, entered the substitution table; subsequent references to
+>   either variant of the function type will result in the use of
+>   substitutions.
+> + </i></p>
+>   
+>   <p>
+>   Substitution is according to the production:
+>   
+>   <pre><font color=blue><code>
+> *************** unwind table location.
+> *** 4913,4922 ****
+> --- 4924,4938 ----
+>   <p> <hr> <p>
+>   
+>   <p>This version of this document is $Revision: 1.75 $.  No special
+>   significance should be attached to the form of the revision number; it
+>   is simply a identifying number.</p>
+> + 
+> + <p>
+> + <font color=blue>[040219}</font>
+> + Clarify substition of member function types.
+> + </p>
+>   
+>   <p>
+>   <font color=blue>[031128]</font>
+>   Fix alphabetization of company names.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+

@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> incomplete rtti
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C38E344AD.128D8722%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000835.html">
+   <LINK REL="Next"  HREF="000836.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>incomplete rtti</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C38E344AD.128D8722%40codesourcery.com%3E"
+       TITLE="incomplete rtti">nathan at codesourcery.com
+       </A><BR>
+    <I>Thu Mar 30 12:12:29 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000835.html">incomplete rtti
+</A></li>
+        <LI>Next message: <A HREF="000836.html">IA-64 ABI meeting results
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#842">[ date ]</a>
+              <a href="thread.html#842">[ thread ]</a>
+              <a href="subject.html#842">[ subject ]</a>
+              <a href="author.html#842">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jim Dehnert wrote:
+
+&gt;<i>This assumption is untrue.  The problem is that weak types don't work
+</I>&gt;<i>like you assume on most systems.  With the exception of Linux and Irix,
+</I>&gt;<i>most systems do not distinguish between weak and &quot;strong&quot; symbols once
+</I>&gt;<i>an object is linked.  Therefore, given a weak RTTI in the main
+</I>&gt;<i>executable and a strong RTTI in a DSO, they would preempt the latter
+</I>&gt;<i>with the former.  As a result, it is necessary to make our incomplete
+</I>&gt;<i>class RTTI not just weak, but distinct.  Once it is distinct, the
+</I>&gt;<i>pointer RTTI referencing it must be distinct from one referencing the
+</I>&gt;<i>complete version, and so on up the pointer chain, and it is not
+</I>&gt;<i>possible to compare them at any level.
+</I>
+Ok, thanks for the clarification about that. Let me just see if I
+understand DSO linking properly. If we have a loaded object file which
+refered to a non-defined weakly declared symbol, that object file will
+have resolved the symbol to zero. Loading a DSO which defines that
+symbol will not affect the already loaded object file, which remains
+having the value zero. Ok?
+
+&gt;<i>Our solution is to use the ABI-defined external mangled RTTI name only
+</I>&gt;<i>for complete types.  RTTI generated for pointer-to-incomplete-type must
+</I>&gt;<i>be different.  We leave it to the implementation to decide how, but two
+</I>&gt;<i>workable approaches are (a) make it a local static, or (b) mangle it
+</I>&gt;<i>differently and use COMDAT to remove duplicates; but at least one
+</I>&gt;<i>incomplete RTTI would remain, and it would not be the same as the
+</I>&gt;<i>complete one even after preemption.
+</I>
+Ok, this needs more documentation. There are three uses for the rtti
+information, which we _don't_ have to solve with the same rtti object.
+We have attempted to use a single type_info for all three uses, but
+that is not necessary, and in some cases we have separate objects (of
+the same type, __pointer_type_info) for the same type (T *...*, for
+incomplete T).
+
+1) A distinct lvalue for the typeid operator
+2) A class heirarchy descriptor for dynamic_cast
+3) A class heirarchy and pointer qualification descriptor for catch
+matching.
+
+Consider a source file `foo' consisting of these snippets
+        struct A;
+        typeid (A *); //1
+        catch (A **); //2
+1 would produce a __pointer_type_info of the following shape
+tf_P1A: comdat  ; call this foo.tf_P1A
+        name = &quot;P1A&quot;
+        flags = 0
+        target = weak tf_1A
+
+The TU would not need to emit the (incomplete) type_info for A itself,
+but leave a dangling weak reference. That will become zero, unless
+another TU is linked in which provides it.
+
+2 must produce information about the entire pointer chain, from the
+layout doc that would be
+_tf_PP1A: static
+        name = &quot;PP1A&quot;
+        flags = 8
+        target = _tf_P1A
+_tf_P1A: static
+        name = &quot;P1A&quot;
+        flags = 8
+        target = _tf_1A
+_tf_1A: static
+        name = &quot;1A&quot;
+
+Ok?
+
+Now, if we another source `baz' with a definition of A,
+        struct B {};
+        struct A : B {};
+        typeid (A *); //1a
+        catch (A **); //2a
+        throw (A *)NULL;  //3a
+
+1a would produce the same __pointer_type_info as before, but this time
+we would emit comdat typeinfo for the catch clause 2a, and throw 3a is
+also permitted.
+tf_PP1A: comdat
+        name = &quot;PP1A&quot;
+        flags = 0
+        target = tf_P1A
+tf_P1A: comdat  ; call this baz.tf_P1A
+        name = &quot;P1A&quot;
+        flags = 0
+        target = tf_1A
+tf_1A: comdat
+        name = &quot;1A&quot;
+        base = tf_1B
+tf_1B: comdat
+        name = &quot;1B&quot;
+
+of course tf_P1A is the same object that 1a forced us to emit.
+
+Now the $BIGNUM dollar question. What if `foo' is our executable and
+`baz' is the DSO? foo.tf_P1A will be the `active' definition of tf_P1A,
+and it will have a NULL target value. Therefore baz.tf_P1A is not
+selected and baz.tf_PP1A's target will resolve to foo.tf_P1A. Also the
+throw 3a will refer to tf_P1A, which will be resolved by foo.tf_P1A.
+That has an incomplete target type, so 3a won't have information about
+A being derived from B, and thus won't match a catch (B *) clause.
+
+Perhaps I'm being dense, and there's still something about comdat
+linkage I don't understand. But to my understanding the previous
+paragraph is the same problem with DSO's I originally raised before
+this incomplete type info was addressed.
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A> : <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A> : <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000835.html">incomplete rtti
+</A></li>
+	<LI>Next message: <A HREF="000836.html">IA-64 ABI meeting results
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#842">[ date ]</a>
+              <a href="thread.html#842">[ thread ]</a>
+              <a href="subject.html#842">[ subject ]</a>
+              <a href="author.html#842">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

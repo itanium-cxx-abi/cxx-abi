@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> rtti data structures (again)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C38941AD6.D589FC40%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000519.html">
+   <LINK REL="Next"  HREF="000522.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>rtti data structures (again)</H1>
+    <B>Nathan Sidwell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20rtti%20data%20structures%20%28again%29&In-Reply-To=%3C38941AD6.D589FC40%40codesourcery.com%3E"
+       TITLE="rtti data structures (again)">sidwell at codesourcery.com
+       </A><BR>
+    <I>Sun Jan 30 11:04:54 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000519.html">rtti data structures (again)
+</A></li>
+        <LI>Next message: <A HREF="000522.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#521">[ date ]</a>
+              <a href="thread.html#521">[ thread ]</a>
+              <a href="subject.html#521">[ subject ]</a>
+              <a href="author.html#521">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">sidwell at codesourcery.com</A>&gt; writes:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; I fail to see how the catch matcher can get different results comparing
+</I>&gt;<i>  &gt; __tiPP1B to __tiPCPC1A as opposed to comparing __tiPP1B to __tiPCPC1B.
+</I>&gt;<i>  &gt; They both look like qualification conversions of pointers to pointers to
+</I>&gt;<i>  &gt; incomplete type.
+</I>&gt;<i> 
+</I>&gt;<i> Good point.  I was forgetting about multi-level qualification conversions.
+</I>&gt;<i> 
+</I>&gt;<i> I think that leaves us with something like what EDG does now: namely,
+</I>&gt;<i> comparisons are done by comparing the addresses of one-byte commons rather
+</I>&gt;<i> than of the type_info nodes themselves.  Then we could emit incomplete info
+</I>&gt;<i> in one file and complete info in another file and they would compare the
+</I>&gt;<i> same because both refer to the same ID proxy.
+</I>&gt;<i> 
+</I>&gt;<i> We could mangle the complete and incomplete versions differently, so they
+</I>&gt;<i> would not be combined by the linker.
+</I>This is essentially what I described in the first email I wrote about
+this problem (`RTTI data layout flaw'). I'm not quite sure what you mean by
+`one byte commons'. I would have thought the proxy would need a pointer to
+the complete type (weak linkage of course), and a vtable. Here's what I wrote
+before
+
+&gt;<i> One choice which might work is some kind of __class_proxy_type_info,
+</I>&gt;<i> which contains a single member pointing to the real __class_type_info
+</I>&gt;<i> object with weak linkage. The name mangling for a
+</I>&gt;<i> __class_proxy_type_info will be different to that of a __class_type_info
+</I>&gt;<i> object. In the above case, Foo ** would be represented as
+</I>&gt;<i> __pointer_type_info
+</I>&gt;<i> -&gt;__pointer_type_info
+</I>&gt;<i>   -&gt;__class_proxy_type_info
+</I>&gt;<i>     -&gt;(weakly)__class_type_info.
+</I>&gt;<i> The final __class_type_info object is not emitted in the compilation
+</I>&gt;<i> unit, as Foo's definition is never seen. Now, we can distinguish
+</I>&gt;<i> `Bar const *const *' from `Foo const *const *', as the inner pointers
+</I>&gt;<i> will point to different __class_proxy_type_info objects.
+</I>
+&gt;<i> In pointer_type_info's we do not need to go via a
+</I>&gt;<i> __class_proxy_type_info, if the compilation unit has seen the
+</I>&gt;<i> definition of the pointed-to class. The catch matching algorithm will
+</I>&gt;<i> need to be aware that it might be given two paths, one of which goes
+</I>&gt;<i> via a class_proxy_type_info, and one that does not. In this case, the
+</I>&gt;<i> class_proxy_type_info should point to the real class.
+</I>
+&gt;<i> type_info::operator == is not affected by proxies. Proxies are only
+</I>&gt;<i> important when traversing the pointer heirarchy in catch matching.
+</I>
+Is that what you had in mind? Martin wondered why we needed the proxy,
+wouldn't an __incomplete_type_info node be sufficient? But I think that
+would fail across multiple object files. I.e. fileA and fileB have
+`struct A' as incomplete and fileC has `struct A' as complete. The linker
+has to know that the objects named __ti1A in fileA and fileB must be
+discarded in favour of that in fileC, should all three be linked together.
+If only fileA and fileB are linked, then the two must be commonized. I
+don't think ELF can deal with that, can it?
+
+There's a bit of strangeness with loading &amp; unloading a DSO which contains
+the complete definition of `struct A', into an executable which has the
+incomplete info. That too is in the original email. If both DSO and
+executable have __tiP1A (struct A *), they'll be merged, presumably
+with the DSO's copy ignored. However, the __tiP1A in the executable
+will point at the proxy incomplete A type_info (which will have already
+been filled with a weak NULL for its target). Somehow we have to arrange
+that the proxy is altered to now point at the __ti1A (struct A) type_info
+that the DSO supplied. If we don't do that, throwing `struct A *' in the
+DSO (which is valid, `cos the DSO source had complete information), will
+throw the __tiP1A in the executable which points to incomplete. Hence
+we wont find any base conversions if we're trying to catch a base of A.
+
+I hope you see what I mean here -- I don't know enough about DSO loading
+details to know what'll happen.
+
+[I'll get to your other points when I've some more time, thanks]
+
+nathan
+-- 
+Dr Nathan Sidwell :: Computer Science Department :: Bristol University
+Never hand someone a gun unless you are sure where they will point it
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at acm.org</A>  <A HREF="http://www.cs.bris.ac.uk/~nathan/">http://www.cs.bris.ac.uk/~nathan/</A>  <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at cs.bris.ac.uk</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000519.html">rtti data structures (again)
+</A></li>
+	<LI>Next message: <A HREF="000522.html">rtti data structures (again)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#521">[ date ]</a>
+              <a href="thread.html#521">[ thread ]</a>
+              <a href="subject.html#521">[ subject ]</a>
+              <a href="author.html#521">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Automatic locking for C++ local static initialization
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C200008070949.LAA21861%40pandora.informatik.hu-berlin.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001103.html">
+   <LINK REL="Next"  HREF="001104.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Automatic locking for C++ local static initialization</H1>
+    <B>Martin von Loewis</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Automatic%20locking%20for%20C%2B%2B%20local%20static%20initialization&In-Reply-To=%3C200008070949.LAA21861%40pandora.informatik.hu-berlin.de%3E"
+       TITLE="Automatic locking for C++ local static initialization">loewis at informatik.hu-berlin.de
+       </A><BR>
+    <I>Mon Aug  7 09:49:55 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001103.html">Automatic locking for C++ local static initialization
+</A></li>
+        <LI>Next message: <A HREF="001104.html">Problem with the &quot;CONTINUE_UNWIND&quot; return code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1115">[ date ]</a>
+              <a href="thread.html#1115">[ thread ]</a>
+              <a href="subject.html#1115">[ subject ]</a>
+              <a href="author.html#1115">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>[...]
+&gt;<i> One of those paths enters through function f, which defines some static
+</I>&gt;<i> data, one of which is constructed using function g, which is part of
+</I>&gt;<i> the cluster; others enter elsewhere and eventually call f.
+</I>[...]
+&gt;<i> 	Thread 1		Thread 2
+</I>&gt;<i> 	--------		--------
+</I>&gt;<i> 	call h
+</I>&gt;<i> 	acquire M
+</I>&gt;<i> 				call f
+</I>&gt;<i> 				call g
+</I>&gt;<i> 				try to acquire M (wait)
+</I>&gt;<i> 	call f
+</I>&gt;<i> 	call g
+</I>&gt;<i> 	acquire M recursively
+</I>&gt;<i> 	finish initialization
+</I>&gt;<i> 	exit g, f
+</I>&gt;<i> 	release M		
+</I>&gt;<i> 	exit h			acquire M
+</I>&gt;<i> 				initialization is done
+</I>&gt;<i> 				release M
+</I>&gt;<i> 				exit g, f
+</I>&gt;<i>
+</I>&gt;<i> Everything has worked exactly as the programmer intended.
+</I>
+I believe this example is flawed, in that it violates a core C++
+principle.
+
+You haven't detailed the exact static variable, but assume it is like
+
+struct A{
+  A(int);
+  ~A();
+};
+
+int g();
+
+void f(){
+  static A a(g());
+}
+
+which matches the description &quot;constructed through function g&quot;. In you
+control flow, g is invoked twice. Consequently, A::A(int) is invoked
+twice as well. As a result, two constructors have been run to
+initialize f()::a. However, at the end of the program, only one
+destructor will be run to destroy a.
+
+So this example violates the principle &quot;exactly one destructor call
+for each complete constructor call&quot;; I'd claim this is *not* what the
+programmer intended.
+
+So it seems that the programmer can chose between a faulty constructor
+semantics or a deadlock. Which of these is better is anybody's guess,
+but it seems to me that the error is in the program.
+
+Regards,
+Martin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001103.html">Automatic locking for C++ local static initialization
+</A></li>
+	<LI>Next message: <A HREF="001104.html">Problem with the &quot;CONTINUE_UNWIND&quot; return code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1115">[ date ]</a>
+              <a href="thread.html#1115">[ thread ]</a>
+              <a href="subject.html#1115">[ subject ]</a>
+              <a href="author.html#1115">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

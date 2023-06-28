@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> VTT issue
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20VTT%20issue&In-Reply-To=%3C20001222112555X.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001284.html">
+   <LINK REL="Next"  HREF="001288.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>VTT issue</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20VTT%20issue&In-Reply-To=%3C20001222112555X.mitchell%40codesourcery.com%3E"
+       TITLE="VTT issue">mark at codesourcery.com
+       </A><BR>
+    <I>Fri Dec 22 19:25:55 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001284.html">Moving on
+</A></li>
+        <LI>Next message: <A HREF="001288.html">Another VTT issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1287">[ date ]</a>
+              <a href="thread.html#1287">[ thread ]</a>
+              <a href="subject.html#1287">[ subject ]</a>
+              <a href="author.html#1287">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+There is an unclarity in the description of VTTs.  In particular,
+consider:
+
+  struct S { virtual void f(); };
+  struct T : virtual public S {};
+  struct U : virtual public T {};
+
+In a complete object of type U, the S, T, and U subobjects will all be
+located at the same address.
+
+The VTT for U contains the following entries:
+
+  - Primary vtable for U
+  - Secondary vtables for U
+  - Sub-VTT for T-in-U
+
+Consider the second category.  We need a VTT entry for T, even though
+it is a primary base, because T is virtual and might end up at a 
+different offset in some class derived from U.
+
+The present description suggests that we should use 
+
+  &quot;the address of the secondary virtual table for X-in-D&quot;
+
+where X means T here.  
+
+However, that is incorrect.  We have not specified the order in which
+constructors assign to the secondary vptrs, so it is possible that the
+construtor could copy the primary vptr out of the VTT and then fill in
+the secondary vptr for T-in-U -- only to clobber the primary vptr.
+Therefore, in this case, the VTT entry for T-in-U should actually hold
+the primary vtable for U.
+
+The best way to express this might be as pseudo-code -- that gives
+implementors a blueprint to follow.  Of course, someone should check
+that the code below actually matches what the document is trying to
+say at present.
+
+  /* Parameters:
+
+       completeClass: 
+         The derived class whose VTT we are building.
+
+       baseClass:
+         The base subobject for the sub-VTT we are building -- or
+         the same as completeClass is we are building the main VTT.
+
+      Note that baseClass and baseOffset together uniquely identify 
+      a subobject of completClass.  */
+
+  InitializeVTT(completeClass, baseClass) {
+    if baseClass does not have virtual bases:
+      return;
+
+    // Add primary vptr.
+    add entry for baseClass-in-completeClass vtable.
+
+    // Build sub-VTTs for non-virtual bases.
+    for each direct non-virtual base b of baseClass in declaration order:
+      InitializeVTT(completeClass, b);
+
+    // Add secondary vptrs.
+    for each proper direct or indirect base b of baseClass 
+    in inheritance graph order:
+      if b is not primary:
+        continue;
+      if b does not have a vtable:
+        continue;
+
+      if b does not have virtual bases and no functions are overriden
+      along a virtual path between b and baseClass:
+        continue;
+        
+      if b is virtual and b is primary:
+        let b' = the most derived subobject in baseClass (when
+                 considered as a subobject of completeClass) that has
+                 the same offset as b
+      else
+        let b' = b
+
+      add entry for b'-in-completeClass
+
+    // Build sub-VTTs for virtual bases.
+    for each direct virtual base b of baseClass in inheritance graph order:
+      InitializeVTT(completeClass, b);
+  }
+        
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001284.html">Moving on
+</A></li>
+	<LI>Next message: <A HREF="001288.html">Another VTT issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1287">[ date ]</a>
+              <a href="thread.html#1287">[ thread ]</a>
+              <a href="subject.html#1287">[ subject ]</a>
+              <a href="author.html#1287">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

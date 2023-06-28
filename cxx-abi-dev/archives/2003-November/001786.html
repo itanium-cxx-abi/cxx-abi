@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Handling of cast operators in the mangling ABI
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Handling%20of%20cast%20operators%20in%20the%20mangling%20ABI&In-Reply-To=%3C20031123032843.14804.qmail%40gossamer.airs.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001785.html">
+   <LINK REL="Next"  HREF="001792.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Handling of cast operators in the mangling ABI</H1>
+    <B>Ian Lance Taylor</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Handling%20of%20cast%20operators%20in%20the%20mangling%20ABI&In-Reply-To=%3C20031123032843.14804.qmail%40gossamer.airs.com%3E"
+       TITLE="Handling of cast operators in the mangling ABI">ian at wasabisystems.com
+       </A><BR>
+    <I>Sun Nov 23 03:28:43 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001785.html">RFA: Patch for new demangler
+</A></li>
+        <LI>Next message: <A HREF="001792.html">[cxx-abi-dev] Handling of cast operators in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1786">[ date ]</a>
+              <a href="thread.html#1786">[ thread ]</a>
+              <a href="subject.html#1786">[ subject ]</a>
+              <a href="author.html#1786">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>When writing the new demangler, I discovered an interesting quirk in
+the way g++ handles template parameter substitution for templated cast
+operators.  I think this case merits some attention in the mangling
+ABI, since I, at least, found it to be rather unexpected.
+
+Consider this test case:
+
+template&lt;typename t&gt; class B { public: t i; B(t j) : i(j) { } };
+template&lt;template&lt;typename v&gt; class u, typename v&gt; u&lt;v&gt; f() { return u&lt;v&gt;(0); }
+B&lt;int&gt; g() { return f&lt;B, int&gt;(); }
+template&lt;typename t&gt; class A { template&lt;typename u&gt; operator u(); int i; };
+A&lt;float&gt;::operator int() { return this-&gt;i; }
+
+Let's look first at the mangled name for f&lt;B, int&gt;:
+    _Z1fI1BiET_IT0_Ev
+This demangles to
+    B&lt;int&gt; f&lt;B, int&gt;()
+Pulling the mangled name apart, we get this:
+_Z
+ 1f               (name 'f')
+  I               (start of template arguments)
+   1B             (name 'B')
+   i              (int)
+  E               (end of template arguments)
+ T_               (return type of 'f': first template parameter ('B'))
+  I               (start of template arguments)
+   T0_            (second template parameter ('int'))
+  E               (end of template arguments)
+ v                (void--i.e., function 'f' has no arguments)
+
+This mangled name first describes f&lt;B, int&gt;, and then describes the
+return type of the function.  When describing the return type, the
+template parameter references refer to the template parameters used
+for f&lt;B, int&gt;.  This is straightforward, and follows the ABI, which
+says ``When function and member function template instantiations
+reference the template parameters in their parameter/result types, the
+template parameter number is encoded, with the sequence T_, T0_, ...''
+(to be a gramatical pedant, that should be etc., not an ellipsis, but
+that is not important now).  Note in particular that in the sequence
+T_IT0_E the template parameter reference T_ refers to the first
+parameter of the outer template (i.e., B in f&lt;B, int&gt;) not to its own
+first parameter (i.e., T0_, which refers to int in f&lt;B, int&gt;).
+
+Now let's turn to the mangled name for A&lt;float&gt;::operator int():
+    _ZN1AIfEcvT_IiEEv
+This demangles to
+    A&lt;float&gt;::operator int&lt;int&gt;()
+Again pulling the mangled name apart, we get this:
+_Z
+ N                (nested name)
+  1A              (name 'A')
+   I              (start of template arguments)
+    f             (float)
+   E              (end of template arguments)
+  cv              (cast operator)
+   T_             (type of cast--first template parameter (???))
+   I              (start of template arguments)
+    i             (int)
+   E              (end of template arguments)
+ E                (end of nested name)
+ v                (void--i.e., function has no arguments)
+
+Now, what does the template parameter T_ refer to?  From the source
+code, it must refer to the type int.  However, there is only int
+available in the mangled name, namely the first parameter of the
+subsequent template parameters.  In other words, in this case, when we
+see T_IiE, the template parameter reference T_ refers to its own first
+parameter, in direct contradiction to the previous case.
+
+The difference is apparently that the cast operator is handled
+specially with respect to template parameter substitution.  My best
+guess is that when the cast operator is itself a template, as
+indicated by the presence of template parameters, any template
+parameter used in the name of the cast operator must be resolved
+against the list of template arguments used in the definition of the
+cast operator.  Note in particular that this is a forward reference in
+the mangled string.
+
+I think this needs to be spelled out more clearly in the mangling ABI.
+It's true that the ABI mentions the use of template parameters in
+parameter/result types, and it's true that the return type of operator
+A&lt;A&gt;() is in fact A.  But I think that the fact that a forward
+reference is required here, and the fact that it only applies to the
+cast operator, merits a special mention in the ABI document itself.
+
+I recommend adding sentences along the lines of ``The instantiation of
+a templated conversion operator may use a template parameter number in
+the &lt;type&gt; which appears in the &lt;operator-name&gt;.  This parameter
+number refers to the template arguments for the templated conversion
+operator itself.  Note that this is a forward reference in the mangled
+name, as the template arguments will appear after the
+&lt;operator-name&gt;.''
+
+Thanks.
+
+Ian
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001785.html">RFA: Patch for new demangler
+</A></li>
+	<LI>Next message: <A HREF="001792.html">[cxx-abi-dev] Handling of cast operators in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1786">[ date ]</a>
+              <a href="thread.html#1786">[ thread ]</a>
+              <a href="subject.html#1786">[ subject ]</a>
+              <a href="author.html#1786">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

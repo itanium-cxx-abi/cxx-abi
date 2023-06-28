@@ -1,0 +1,216 @@
+From rafael.espindola at gmail.com  Fri Sep 12 21:47:27 2014
+From: rafael.espindola at gmail.com (=?UTF-8?Q?Rafael_Esp=C3=ADndola?=)
+Date: Fri, 12 Sep 2014 17:47:27 -0400
+Subject: [cxx-abi-dev] Document gcc's use of the C5/D5 comdats
+Message-ID: <CAG3jReJ=pB2anA_srieN5RocJDwgykrY4hmY_QzXeWYcX3KsSA@mail.gmail.com>
+
+The attached patch updates the ABI to document how gcc uses the C5 and
+D5 comdats to group constructors and destructors. The hope is that by
+documenting it other implementations can use it too, reducing binary
+bloat when gcc compiled objects are mixed with objects compiled by
+some other compiler
+
+Given how comdats work I worded the change to say that an
+implementation can choose to group the constructors and destructors,
+but if it chooses to use C5/D5, then it must put the same symbols in
+them as gcc does.
+
+Cheers,
+Rafael
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: comdat.patch
+Type: text/x-patch
+Size: 2117 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140912/29a33aeb/attachment.bin>
+
+From dhandly at cup.hp.com  Tue Sep 16 01:57:46 2014
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 15 Sep 2014 18:57:46 -0700
+Subject: [cxx-abi-dev] Document gcc's use of the C5/D5 comdats
+Message-ID: <201409160157.s8G1vk201370@adlwrk05.cce.hp.com>
+
+>From: =?UTF-8?Q?Rafael_Esp=C3=ADndola?= <rafael.espindola at gmail.com>
+>The attached patch updates the ABI to document how gcc uses the C5 and
+>D5 comdats to group constructors and destructors.
+
+Hmm, I thought aC++ had C5/D5 entry points added at one time but I no longer
+see them.
+
+Each constructor/destructor variant is in its own comdat.
+
+Index: 204      Directory Section Name: foo::foo()(allocating)[_ZN3fooC3Ev]
+Index: 205      Directory Section Name: foo::~foo()(base)[_ZN3fooD2Ev]
+Index: 206      Directory Section Name: foo::~foo()(deallocating)[_ZN3fooD0Ev]
+Index: 207      Directory Section Name: foo::~foo()(complete)[_ZN3fooD1Ev]
+Index: 208      Directory Section Name: bar::bar()(allocating)[_ZN3barC3Ev]
+Index: 209      Directory Section Name: bar::~bar()(base)[_ZN3barD2Ev]
+Index: 210      Directory Section Name: bar::~bar()(deallocating)[_ZN3barD0Ev]
+Index: 211      Directory Section Name: bar::~bar()(complete)[_ZN3barD1Ev]
+Index: 213      Directory Section Name: bar::barf()[_ZN3bar4barfEv]
+Index: 214      Directory Section Name: foo::barf()[_ZN3foo4barfEv]
+
+>implementation can choose to group the constructors and destructors,
+>but if it chooses to use C5/D5, then it must put the same symbols in
+>them as gcc does.
+Rafael
+
+Yes.
+
+From jason at redhat.com  Wed Sep 24 17:59:00 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 24 Sep 2014 13:59:00 -0400
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <50904075.6050200@redhat.com>
+References: <508B02ED.2020005@redhat.com>	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>	<7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>
+	<50904075.6050200@redhat.com>
+Message-ID: <54230664.9010304@redhat.com>
+
+On 10/30/2012 05:02 PM, Jason Merrill wrote:
+> template <typename CharT, typename Traits, typename Alloc>
+> class [[abi_tag ("11")]] basic_string; // ABI change from refcounting
+>
+> template <class T>
+> struct complex {
+>     ...
+>     // return type changed from C++98
+>     [[abi_tag ("11")]] constexpr T real() { return _M_real; }
+>     ...
+> };
+
+We started tagging the real/imag functions in 4.8, and are planning to 
+start tagging the string/list types in GCC 5 (around April).  We will 
+then be able to include both old and new ABIs in libstdc++ so that old 
+and new code can continue to interoperate so long as they don't try to 
+exchange affected data.
+
+As John McCall pointed out in earlier discussion, incomplete types make 
+this problem a lot trickier, since there's no way for the compiler to 
+automatically collect tags from subobjects.  So we need to rely on users 
+to tag their own types as well, if they care about new and old ABI 
+versions of their code coexisting within the same image.  This would not 
+be necessary for most users, only for 3rd-party library vendors that 
+don't already require their users to rebuild for a new version.
+
+To help library vendors add tags where needed we have the -Wabi-tag flag 
+to suggest places where a tag is used on a data member, base, or virtual 
+function, but not on the enclosing class.
+
+Tags are attached to names.  I've been uncertain whether for string we 
+should just not use the built-in abbreviations, but I lean toward using 
+them, attaching tags to them as well, and then making tagged 
+abbreviations substitution candidates.
+
+> Having a way to tag individual methods for ABI compatibility breaks is an interesting idea, but I think you actually need a language extension here, because simply removing the old declaration and tagging the new one isn't good enough if binary compatibility requires you to actually emit a symbol for the old definition.  There may be relatively few non-inline symbols in the STL, but there are a fair number of explicit instantiations.  Unless you're planning to fake this with some *extremely* non-ODR-compliant definitions hidden inside the library.
+
+We're finding that just compiling instantiations in both modes is 
+sufficient for libstdc++, as any duplicates are discarded by the linker.
+
+Thoughts?  We're pretty committed to making this transition in GCC 5, 
+but if people have ideas about how to do it better, I'm very interested.
+
+Jason
+
+From richardsmith at google.com  Thu Sep 25 23:38:52 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 25 Sep 2014 16:38:52 -0700
+Subject: [cxx-abi-dev] On __func__
+Message-ID: <CAGL0aWeWujikNQ=UXm9TbhFMpFQiHbUB9hDWVe6+xg0WN5EzDg@mail.gmail.com>
+
+Hi!
+
+Per C++ [dcl.fct.def.general]p8, __func__ acts as if it were defined as a
+static local variable defined within the surrounding function. This has two
+impacts on the ABI which we don't seem to capture today, and for which
+implementations vary. Consider:
+
+inline const char *f() { return __func__; }
+
+To my reading, the standard requires f() to return the same pointer in
+every translation unit. But... what is the mangled name of that string
+literal, and what does it contain? (We must produce the same contents in
+every TU in order to give it the same type.)
+
+Implementations vary only slightly on the first question. GCC mangles it
+as _ZZ1fvE8__func__ but makes the symbol internal. EDG and Clang make it
+internal with no particular symbol. None of these approaches is conforming.
+We could perhaps call this a standard defect: perhaps the address of the
+object named by __func__ should be permitted to differ on each evaluation.
+
+Implementations vary much more significantly on the second question, giving
+different values (and thus different types) for __func__ in the same inline
+function. Is there anything we can do to make this work? I don't see any
+good options here, but I wanted to check with this group before suggesting
+the standard be changed (for instance, by making __func__ a prvalue of type
+'const char*' rather than an lvalue of type 'const char[N]').
+
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140925/95b15be1/attachment.html>
+
+From daveed at edg.com  Fri Sep 26 01:11:46 2014
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 25 Sep 2014 21:11:46 -0400
+Subject: [cxx-abi-dev] On __func__
+In-Reply-To: <CAGL0aWeWujikNQ=UXm9TbhFMpFQiHbUB9hDWVe6+xg0WN5EzDg@mail.gmail.com>
+References: <CAGL0aWeWujikNQ=UXm9TbhFMpFQiHbUB9hDWVe6+xg0WN5EzDg@mail.gmail.com>
+Message-ID: <7BA0F7DE-F5CA-4562-936D-A3B8AC9793AA@edg.com>
+
+
+On Sep 25, 2014, at 7:38 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> Hi!
+> 
+> Per C++ [dcl.fct.def.general]p8, __func__ acts as if it were defined as a static local variable defined within the surrounding function. This has two impacts on the ABI which we don't seem to capture today, and for which implementations vary. Consider:
+> inline const char *f() { return __func__; }
+> To my reading, the standard requires f() to return the same pointer in every translation unit. But... what is the mangled name of that string literal, and what does it contain? (We must produce the same contents in every TU in order to give it the same type.)
+> 
+> Implementations vary only slightly on the first question. GCC mangles it as _ZZ1fvE8__func__ but makes the symbol internal. EDG and Clang make it internal with no particular symbol. None of these approaches is conforming. We could perhaps call this a standard defect: perhaps the address of the object named by __func__ should be permitted to differ on each evaluation.
+> 
+> Implementations vary much more significantly on the second question, giving different values (and thus different types) for __func__ in the same inline function. Is there anything we can do to make this work? I don't see any good options here, but I wanted to check with this group before suggesting the standard be changed (for instance, by making __func__ a prvalue of type 'const char*' rather than an lvalue of type 'const char[N]').
+> 
+> Thoughts?
+
+I like you example standard change.
+
+	Daveed
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140925/b3734821/attachment.html>
+
+From rjmccall at apple.com  Fri Sep 26 01:35:28 2014
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 25 Sep 2014 18:35:28 -0700
+Subject: [cxx-abi-dev] On __func__
+In-Reply-To: <7BA0F7DE-F5CA-4562-936D-A3B8AC9793AA@edg.com>
+References: <CAGL0aWeWujikNQ=UXm9TbhFMpFQiHbUB9hDWVe6+xg0WN5EzDg@mail.gmail.com>
+	<7BA0F7DE-F5CA-4562-936D-A3B8AC9793AA@edg.com>
+Message-ID: <7FA3C09F-AB76-42AA-8B2D-FED996E1EEC3@apple.com>
+
+On Sep 25, 2014, at 6:11 PM, David Vandevoorde <daveed at edg.com> wrote:
+> On Sep 25, 2014, at 7:38 PM, Richard Smith <richardsmith at google.com> wrote:
+>> Hi!
+>> 
+>> Per C++ [dcl.fct.def.general]p8, __func__ acts as if it were defined as a static local variable defined within the surrounding function. This has two impacts on the ABI which we don't seem to capture today, and for which implementations vary. Consider:
+>> inline const char *f() { return __func__; }
+>> To my reading, the standard requires f() to return the same pointer in every translation unit. But... what is the mangled name of that string literal, and what does it contain? (We must produce the same contents in every TU in order to give it the same type.)
+>> 
+>> Implementations vary only slightly on the first question. GCC mangles it as _ZZ1fvE8__func__ but makes the symbol internal. EDG and Clang make it internal with no particular symbol. None of these approaches is conforming. We could perhaps call this a standard defect: perhaps the address of the object named by __func__ should be permitted to differ on each evaluation.
+>> 
+>> Implementations vary much more significantly on the second question, giving different values (and thus different types) for __func__ in the same inline function. Is there anything we can do to make this work? I don't see any good options here, but I wanted to check with this group before suggesting the standard be changed (for instance, by making __func__ a prvalue of type 'const char*' rather than an lvalue of type 'const char[N]').
+>> 
+>> Thoughts?
+> 
+> I like you example standard change.
+
+Yeah, __func__ strikes me a lot like string literals: promising address equality has significant hidden costs for no user benefit.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140925/12bbccab/attachment.html>
+

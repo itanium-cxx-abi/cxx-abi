@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> local names
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20local%20names&In-Reply-To=%3C200009012052.NAA01380%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001177.html">
+   <LINK REL="Next"  HREF="001185.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>local names</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20local%20names&In-Reply-To=%3C200009012052.NAA01380%40baalbek.engr.sgi.com%3E"
+       TITLE="local names">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Fri Sep  1 20:52:06 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001177.html">local names
+</A></li>
+        <LI>Next message: <A HREF="001185.html">local names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1184">[ date ]</a>
+              <a href="thread.html#1184">[ thread ]</a>
+              <a href="subject.html#1184">[ subject ]</a>
+              <a href="author.html#1184">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>OK, now I think I understand the issue at least.  But I interpret what
+we have differently.  Consider the examples that have come up:
+
+    void foo () {
+      class C {
+        class D {};
+      };
+    }
+
+To mangle D here, I would use:
+
+  &lt;encoding&gt; ::- &lt;name&gt;
+	     ::- &lt;local-name&gt;
+	     ::- Z &lt;function encoding&gt; E &lt;entity name&gt;
+where:
+  &lt;function encoding&gt; ::- &lt;name&gt; &lt;bare-function-type&gt;
+		      ::- 3foo i
+  &lt;entity name&gt; ::- &lt;nested-name&gt;
+		...
+		::- N &lt;component&gt; &lt;component&gt; E
+		::- N 1C 1D E
+so the final result is:  Z 3foo i E N 1C 1D E
+
+The key difference from the original &quot;problem&quot; is, I think, that I do
+not think that the base function name should be considered part of the
+entity name.  Even if the latter is a compound name within the function,
+the entity name doesn't have foo as a compound component.
+
+
+The next example is analogous:
+
+    class C {
+      void foo (int) {
+        class D {};
+      }
+    };
+
+To mangle D here, &lt;encoding&gt; starts off the same, but
+  &lt;function encoding&gt; ::- &lt;name&gt; &lt;bare-function-type&gt;
+		      ::- &lt;nested-name&gt; &lt;bare-function-type&gt;
+		      ...
+		      ::- N &lt;component&gt; &lt;component&gt; E &lt;bare-function-type&gt;
+		      ::- N 1C 3foo E i
+  &lt;entity name&gt; ::- &lt;name&gt;
+		::- 1D
+so the final result is:  Z N 1C 3foo E i E 1D
+
+
+Finally, Mark's original example, which has two &lt;local-name&gt; levels:
+
+  void foo () {
+    struct C {
+      void bar () {
+	struct D {
+	  void baz() { }
+	}
+      }
+    }
+  }
+
+To mangle baz here, I would use:
+
+  &lt;encoding&gt; ::- &lt;name&gt;
+	     ::- &lt;local-name&gt;
+	     ::- Z &lt;function encoding&gt; E &lt;entity name&gt;
+where:
+  &lt;function encoding&gt; ::- &lt;name&gt; &lt;bare-function-type&gt;	 (bar)
+		      ::- &lt;local-name&gt; v
+		      ::- Z &lt;function encoding&gt; E &lt;entity name&gt; v
+		      ::- Z &lt;name&gt; &lt;bare-function-type&gt; E &lt;nested-name&gt; v
+		      ...
+		      ::- Z 3foo v E N 1C 3bar E v
+  &lt;entity name&gt; ::- &lt;function name&gt;
+		::- &lt;function name&gt; &lt;bare-function-type&gt;
+		::- &lt;nested-name&gt; &lt;bare-function-type&gt;
+		...
+		::- N &lt;component&gt; &lt;component&gt; E &lt;bare-function-type&gt;
+		::- N 1D 3baz E v
+yielding the final result:
+	Z Z 3foo v E N 1C 3bar E v E N 1D 3baz E v
+
+
+I think this works, using the current definitions and just
+understanding that the &lt;entity name&gt; in a &lt;local-name&gt; is always
+relative to the immediately enclosing function.  And there's no
+duplication here.  Although it might be slightly more efficient trying
+to integrate the function names into the &lt;nested-name&gt; component list,
+I'd be worried about conflicts with non-local names, and I'd rather not
+deal with the complications just to save some (presumably rare) nested
+Z-E pairs.
+
+Am I confused?  Or confusing?
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001177.html">local names
+</A></li>
+	<LI>Next message: <A HREF="001185.html">local names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1184">[ date ]</a>
+              <a href="thread.html#1184">[ thread ]</a>
+              <a href="subject.html#1184">[ subject ]</a>
+              <a href="author.html#1184">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

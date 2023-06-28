@@ -1,0 +1,112 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] pointer-to-data-member representation for	null	pointer is not conforming
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%0A%09null%09pointer%20is%20not%20conforming&In-Reply-To=%3C6294AD3A-5F26-48BF-A6E4-F2021E32C738%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002523.html">
+   <LINK REL="Next"  HREF="002525.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] pointer-to-data-member representation for	null	pointer is not conforming</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20pointer-to-data-member%20representation%20for%0A%09null%09pointer%20is%20not%20conforming&In-Reply-To=%3C6294AD3A-5F26-48BF-A6E4-F2021E32C738%40apple.com%3E"
+       TITLE="[cxx-abi-dev] pointer-to-data-member representation for	null	pointer is not conforming">rjmccall at apple.com
+       </A><BR>
+    <I>Fri Dec 21 03:09:27 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002523.html">[cxx-abi-dev] pointer-to-data-member representation for null	pointer is not conforming
+</A></li>
+        <LI>Next message: <A HREF="002525.html">[cxx-abi-dev] pointer-to-data-member representation for	null pointer is not conforming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2524">[ date ]</a>
+              <a href="thread.html#2524">[ thread ]</a>
+              <a href="subject.html#2524">[ subject ]</a>
+              <a href="author.html#2524">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Dec 20, 2012, at 4:19 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+&gt;<i> Consider the following:
+</I>&gt;<i> 
+</I>&gt;<i> struct E {};
+</I>&gt;<i> struct X : E {};
+</I>&gt;<i> struct C : E, X { char x; };
+</I>&gt;<i> 
+</I>&gt;<i> char C::*c1 = &amp;C::x;
+</I>&gt;<i> char X::*x = (char(X::*))c1;
+</I>&gt;<i> char C::*c2 = x2;
+</I>&gt;<i> 
+</I>&gt;<i> int main() { return c2 != 0; }
+</I>&gt;<i> 
+</I>&gt;<i> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+</I>&gt;<i> 
+</I>&gt;<i> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+</I>&gt;<i> 
+</I>&gt;<i> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+</I>
+Yep.
+
+Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+
+I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+  (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+    (1a) They let you abstract over any member you want!
+    (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+    (1c) And as long as that member is actually stored in a field, not computed from it!
+    (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+  (2) Everything about the syntax of member pointers &#8212; making them, using them, writing their types &#8212; is kindof weird-looking, and many people don't like using them.
+  (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+  (4) People usually use data member pointers on hierarchically boring types anyway &#8212; generally leaf classes.
+  (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+  (6) People usually don't work with null member pointers &#8212; they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+  (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+    (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints &#8212; nothing but bools and chars and arrays thereof.
+    (6b) The derived class cannot have any virtual functions or virtual bases.
+    (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+
+So it's a defect, to be sure &#8212; but I don't believe it has ever affected anyone, and it's not something that I feel merits any effort to pursue a fix for, even I could think of a way of do so without outright breaking the ABI, which I can't.
+
+As to *why* this defect exists, I have a couple of theories.
+
+The less charitable one is that the Itanium committee just overlooked this possibility.  They could probably have used 0x800..000 instead &#8212; it's more awkward to actually produce as an immediate on many architectures, but it's still pretty easy to test for (decrement and check for signed overflow, or negate and test for equality), and it's unambiguous given some pretty reasonable assumptions.
+
+The more charitable one is that it's a casualty of the early flux in what conversions were going to be legal with member pointers.  A lot of early ABIs have it much worse than we do.  For example, the committee didn't originally ban converting member pointers across virtual-base boundaries, which really inflates both the size of a member pointer and the amount of code necessary for even a member-pointer downcast (which, recall, is the implicit, always-safe conversion) &#8212; for example, turning an opaque member pointer of a class with virtual bases into a member of a derived class across a virtual-base boundary requires potentially remapping the original virtual-base offset.  A lot of these early ABIs try to optimize the size of member pointers according to the known members of a class, which clearly doesn't work in the presence of upcasts (or in the presence of incomplete types, but that's the perennial evil of C++).
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/4d638f76/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/4d638f76/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002523.html">[cxx-abi-dev] pointer-to-data-member representation for null	pointer is not conforming
+</A></li>
+	<LI>Next message: <A HREF="002525.html">[cxx-abi-dev] pointer-to-data-member representation for	null pointer is not conforming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2524">[ date ]</a>
+              <a href="thread.html#2524">[ thread ]</a>
+              <a href="subject.html#2524">[ subject ]</a>
+              <a href="author.html#2524">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

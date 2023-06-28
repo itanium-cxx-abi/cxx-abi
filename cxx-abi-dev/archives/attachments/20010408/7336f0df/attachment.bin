@@ -1,0 +1,153 @@
+*** abi.html.~1~	Tue Mar 20 20:01:49 2001
+--- abi.html	Sat Apr  7 23:01:06 2001
+*************** Layout (of type C) is done using the fol
+*** 705,718 ****
+  <br>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+! In case (2b) above, the use of the first indirect primary base class as
+  the derived class' primary base does not save any space in the object,
+  and will cause some duplication of virtual function pointers in the
+  additional copy of the base classes virtual table.
+  The benefit is that using the derived class virtual pointer as the base
+  class virtual pointer will often save a load,
+  and no adjustment to the <code>this</code> pointer will be required for
+  calls to its virtual functions.
+  </i>
+  
+  <p>
+--- 705,751 ----
+  <br>
+  <img src=warning.gif alt="<b>NOTE</b>:">
+  <i>
+! <span class="change"><strike>In case (2b) above, the</strike>Case (2b)
+! above is now considered to be a mistake.  The</span> use of the first
+! indirect primary base class as 
+  the derived class' primary base does not save any space in the object,
+  and will cause some duplication of virtual function pointers in the
+  additional copy of the base classes virtual table.
++ 
++ <div class="change">
++ <p><strike>
+  The benefit is that using the derived class virtual pointer as the base
+  class virtual pointer will often save a load,
+  and no adjustment to the <code>this</code> pointer will be required for
+  calls to its virtual functions.
++ </strike>
++ We used to think that this would allow us to avoid adjusting
++ <code>this</code> in some cases, but this was incorrect, as the <a
++ href=#vcall>virtual function call algorithm</a> requires that we look up
++ the function through a pointer to a class that defines the function, not
++ one that just inherits it.  Removing that requirement would not be a good
++ idea, as then we would no longer be able to emit all thunks with the
++ functions they jump to.  For instance, consider this example:
++ 
++ <code><pre>
++ struct A { virtual void f(); };
++ struct B : virtual public A { int i; };
++ struct C : virtual public A { int j; };
++ struct D : public B, public C {};
++ </pre></code>
++ 
++ <p>
++ When B and C are declared, A is a primary base in each case, so although
++ vcall offsets are allocated in the A-in-B and A-in-C vtables, no
++ <code>this</code> adjustment is required and no thunk is generated.
++ However, inside D objects, A is no longer a primary base of C, so if we
++ allowed calls to <code>C::f()</code> to use the copy of A's vtable in the C
++ subobject, we would need to adjust <code>this</code> from <code>C*</code>
++ to <code>B::A*</code>, which would require a third-party thunk.  Since we
++ require that a call to <code>C::f()</code> first convert to
++ <code>A*</code>, C-in-D's copy of A's vtable is never referenced, so this
++ is not necessary.
++ </div>
+  </i>
+  
+  <p>
+*************** are encoded with a void parameter specif
+*** 4301,4308 ****
+  Therefore function types always encode at least one parameter type,
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+! Member functions do not encode the type of
+! their implicit <code>this</code> parameter.
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+--- 4334,4341 ----
+  Therefore function types always encode at least one parameter type,
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+! Member functions do not encode the <span class="change"><strike>type of their implicit <code>this</code> parameter</strike> types of
+! implicit parameters, either <code>this</code> or the VTT parameter.</span>
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+*************** with the virtual table mangled name as t
+*** 4824,4829 ****
+--- 4857,4866 ----
+  Note that if the key function is not declared inline in the class definition,
+  but its definition later is always declared inline,
+  it will be emitted in every object containing the definition.
++ 
++ <span class="change">Note also that if we had thought of it in time, we
++ could also have used a pure virtual destructor as the key function, as it
++ must be defined even though it is pure.</span>
+  </i>
+  
+  <p>
+*************** an implementation using it must emit it 
+*** 4882,4887 ****
+--- 4919,4926 ----
+  in a COMDAT group identified by the constructor name.
+  
+  <p>
++ <div class=change>
++ <strike>
+  <a name=vague-vfunc></a>
+  <h4> 5.2.6 Virtual Function Override Thunks </h4>
+  
+*************** or in all objects referencing it if ther
+*** 4924,4930 ****
+  Observe that different class hierarchies with the same virtual base may
+  require override thunks for the same base function,
+  which will coincide iff the adjustment offsets do.
+! 
+  
+  <p>
+  <a name=vague-itemplate></a>
+--- 4963,4969 ----
+  Observe that different class hierarchies with the same virtual base may
+  require override thunks for the same base function,
+  which will coincide iff the adjustment offsets do.
+! </strike>
+  
+  <p>
+  <a name=vague-itemplate></a>
+*************** unwind table location.
+*** 4987,4995 ****
+  <p> <hr> <p>
+  
+  <p>
+  <font color=blue>[010315]</font>
+  Many outstanding updates.
+! Emtpy classes passed as ordinary classes (3.1.3).
+  Secondary virtual pointers for subobjects reachable via a virtual path 
+      (text of 2.6.1, text and example in 2.6.2).
+  Note about locating virtual bases statically during construction (2.6.1).
+--- 5026,5040 ----
+  <p> <hr> <p>
+  
+  <p>
++ <font color=blue>[010407]</font>
++ Don't assume that virtual functions can be called through intermediate bases.
++ Add notes about missed opportunities.
++ The VTT parm isn't mangled, either.
++ 
++ <p>
+  <font color=blue>[010315]</font>
+  Many outstanding updates.
+! Empty classes passed as ordinary classes (3.1.3).
+  Secondary virtual pointers for subobjects reachable via a virtual path 
+      (text of 2.6.1, text and example in 2.6.2).
+  Note about locating virtual bases statically during construction (2.6.1).

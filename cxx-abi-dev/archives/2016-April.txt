@@ -1,0 +1,241 @@
+From jason at redhat.com  Fri Apr  1 14:15:58 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 1 Apr 2016 10:15:58 -0400
+Subject: [cxx-abi-dev] Uncallable constructor variants
+Message-ID: <56FE829E.7070501@redhat.com>
+
+The base object constructor can never be called for a final class, nor 
+can the complete object constructor for an abstract one.  Does anyone 
+see an ABI problem with omitting these variants?
+
+Jason
+
+From nathan at codesourcery.com  Fri Apr  1 14:33:49 2016
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 1 Apr 2016 10:33:49 -0400
+Subject: [cxx-abi-dev] Uncallable constructor variants
+In-Reply-To: <56FE829E.7070501@redhat.com>
+References: <56FE829E.7070501@redhat.com>
+Message-ID: <56FE86CD.2080204@codesourcery.com>
+
+On 04/01/16 10:15, Jason Merrill wrote:
+> The base object constructor can never be called for a final class, nor can the
+> complete object constructor for an abstract one.  Does anyone see an ABI problem
+> with omitting these variants?
+
+Presumably the same applies to the corresponding destructors? (With any 
+deleting-dtor behaving the same as the complete-dtor)
+
+
+nathan
+
+-- 
+Nathan Sidwell
+
+From jason at redhat.com  Fri Apr  1 14:36:05 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 1 Apr 2016 10:36:05 -0400
+Subject: [cxx-abi-dev] Uncallable constructor variants
+In-Reply-To: <56FE86CD.2080204@codesourcery.com>
+References: <56FE829E.7070501@redhat.com> <56FE86CD.2080204@codesourcery.com>
+Message-ID: <56FE8755.7090607@redhat.com>
+
+On 04/01/2016 10:33 AM, Nathan Sidwell wrote:
+> On 04/01/16 10:15, Jason Merrill wrote:
+>> The base object constructor can never be called for a final class, nor can the
+>> complete object constructor for an abstract one.  Does anyone see an ABI problem
+>> with omitting these variants?
+>
+> Presumably the same applies to the corresponding destructors? (With any
+> deleting-dtor behaving the same as the complete-dtor)
+
+Yes, except that virtual complete/deleting destructors always need to be 
+emitted, to satisfy vtable references.
+
+Jason
+
+
+From nathan at codesourcery.com  Fri Apr  1 14:47:25 2016
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 1 Apr 2016 10:47:25 -0400
+Subject: [cxx-abi-dev] Uncallable constructor variants
+In-Reply-To: <56FE8755.7090607@redhat.com>
+References: <56FE829E.7070501@redhat.com> <56FE86CD.2080204@codesourcery.com>
+	<56FE8755.7090607@redhat.com>
+Message-ID: <56FE89FD.5040102@codesourcery.com>
+
+On 04/01/16 10:36, Jason Merrill wrote:
+> On 04/01/2016 10:33 AM, Nathan Sidwell wrote:
+>> On 04/01/16 10:15, Jason Merrill wrote:
+>>> The base object constructor can never be called for a final class, nor can the
+>>> complete object constructor for an abstract one.  Does anyone see an ABI problem
+>>> with omitting these variants?
+>>
+>> Presumably the same applies to the corresponding destructors? (With any
+>> deleting-dtor behaving the same as the complete-dtor)
+>
+> Yes, except that virtual complete/deleting destructors always need to be
+> emitted, to satisfy vtable references.
+
+They could behave as pure virtual, and have the vtable reference 
+__cxa_pure_virtual.  Though that would be an ABI change, in that the vtable 
+emission might be in a different TU to the virtual destructor (non)-emitter.
+
+I suppose the destructors could simply be jumps to __cxa_pure_virtual,  without 
+perturbing the ABI.  If the destructors are emitted in the same TU as the 
+vtable, an implementation would be free to reference __cxa_pure_virtual directly.
+
+nathan
+
+-- 
+Nathan Sidwell
+
+From jason at redhat.com  Fri Apr  1 15:33:44 2016
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 1 Apr 2016 11:33:44 -0400
+Subject: [cxx-abi-dev] Uncallable constructor variants
+In-Reply-To: <56FE89FD.5040102@codesourcery.com>
+References: <56FE829E.7070501@redhat.com> <56FE86CD.2080204@codesourcery.com>
+	<56FE8755.7090607@redhat.com> <56FE89FD.5040102@codesourcery.com>
+Message-ID: <56FE94D8.8030005@redhat.com>
+
+On 04/01/2016 10:47 AM, Nathan Sidwell wrote:
+> On 04/01/16 10:36, Jason Merrill wrote:
+>> On 04/01/2016 10:33 AM, Nathan Sidwell wrote:
+>>> On 04/01/16 10:15, Jason Merrill wrote:
+>>>> The base object constructor can never be called for a final class,
+>>>> nor can the
+>>>> complete object constructor for an abstract one.  Does anyone see an
+>>>> ABI problem
+>>>> with omitting these variants?
+>>>
+>>> Presumably the same applies to the corresponding destructors? (With any
+>>> deleting-dtor behaving the same as the complete-dtor)
+>>
+>> Yes, except that virtual complete/deleting destructors always need to be
+>> emitted, to satisfy vtable references.
+>
+> They could behave as pure virtual, and have the vtable reference
+> __cxa_pure_virtual.  Though that would be an ABI change, in that the
+> vtable emission might be in a different TU to the virtual destructor
+> (non)-emitter.
+>
+> I suppose the destructors could simply be jumps to __cxa_pure_virtual,
+> without perturbing the ABI.  If the destructors are emitted in the same
+> TU as the vtable, an implementation would be free to reference
+> __cxa_pure_virtual directly.
+
+Right, the implementation just needs to define the symbol so as not to 
+break existing references.
+
+Jason
+
+
+From rjmccall at apple.com  Fri Apr  1 18:27:04 2016
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 1 Apr 2016 11:27:04 -0700
+Subject: [cxx-abi-dev] Uncallable constructor variants
+In-Reply-To: <56FE94D8.8030005@redhat.com>
+References: <56FE829E.7070501@redhat.com> <56FE86CD.2080204@codesourcery.com>
+	<56FE8755.7090607@redhat.com> <56FE89FD.5040102@codesourcery.com>
+	<56FE94D8.8030005@redhat.com>
+Message-ID: <98F8CF75-FDE2-4D4C-BC00-91FCAD998863@apple.com>
+
+> On Apr 1, 2016, at 8:33 AM, Jason Merrill <jason at redhat.com> wrote:
+> On 04/01/2016 10:47 AM, Nathan Sidwell wrote:
+>> On 04/01/16 10:36, Jason Merrill wrote:
+>>> On 04/01/2016 10:33 AM, Nathan Sidwell wrote:
+>>>> On 04/01/16 10:15, Jason Merrill wrote:
+>>>>> The base object constructor can never be called for a final class,
+>>>>> nor can the
+>>>>> complete object constructor for an abstract one.  Does anyone see an
+>>>>> ABI problem
+>>>>> with omitting these variants?
+>>>> 
+>>>> Presumably the same applies to the corresponding destructors? (With any
+>>>> deleting-dtor behaving the same as the complete-dtor)
+>>> 
+>>> Yes, except that virtual complete/deleting destructors always need to be
+>>> emitted, to satisfy vtable references.
+>> 
+>> They could behave as pure virtual, and have the vtable reference
+>> __cxa_pure_virtual.  Though that would be an ABI change, in that the
+>> vtable emission might be in a different TU to the virtual destructor
+>> (non)-emitter.
+>> 
+>> I suppose the destructors could simply be jumps to __cxa_pure_virtual,
+>> without perturbing the ABI.  If the destructors are emitted in the same
+>> TU as the vtable, an implementation would be free to reference
+>> __cxa_pure_virtual directly.
+> 
+> Right, the implementation just needs to define the symbol so as not to break existing references.
+
+Right.  We should probably recommend a variant of this rule as mandatory
+for future targets that adopt the generic ABI:
+
+  - never emit a complete-object constructor or destructor for an abstract class
+  - never emit a base object constructor or destructor for a final class
+  - emit virtual destructor slots for abstract class v-tables as __cxa_pure_virtual
+
+ ***
+
+Related question that comes to mind:
+
+Mandating the existence of both a complete-object and a base-subobject variant
+is frequently wasteful.  At the very least, it inflates the symbol table, which in C++
+can represent a pretty significant portion of the binary size of a library.  It can also
+inflate code size if the compiler is unable to emit one as simply an alias to the other.
+
+We can classify classes into three interesting cases:
+
+1. Classes with virtual bases.  We obviously need both variants here, because (a)
+they can have semantic differences (although they don't necessarily) and (b) they
+have different signatures because of the VTT argument.
+
+There's also a potential "devirtualization" optimization for virtual base accesses
+within the ctor/dtor body, since the complete object variant can use a static offset
+to the virtual bases of "this".  Note that there are no additional devirtualization
+opportunities for virtual calls because the C++ model resolves these to the final
+overriders within the current class in either case; that is, both variants should be
+able to fully devirtualize calls on "this" within the body.
+
+2. Non-polymorphic classes without virtual bases.  I cannot think of any way in
+which emitting symbols for both variants could ever be useful in this case.  It
+does nothing but inflate the symbol table.
+
+3. Polymorphic classes without virtual bases.  The two variants are equivalent in
+both semantics and signature.  Furthermore, as discussed above, there are no
+additional devirtualization opportunities in the complete-object variant because
+virtual dispatch resolves to the current class in either case, and there no virtual
+bases to adjust to.
+
+The only optimization opportunity I can see here is that the base variant can avoid
+initializing any v-table pointers if it can prove that they'll be unused before returning.
+Doing this could be an important optimization for deep class hierarchies with
+many opaquely-defined constructors.  However, it creates a problem for inline
+constructor definitions due to a mismatch in assumptions between translation units.
+
+For example, suppose that translation unit A emits a complete object constructor
+as either an alias or a tail-call of the base-subobject constructor, which it then
+emits in a way that always initializes the v-table pointer.  Translation unit B, on
+the other hand, recognizes that the base-subobject constructor can avoid initializing
+the v-table pointer and instead initializes it only in the complete-object constructor.
+If the linker might choose the implementation from B, it is necessary to somehow
+prevent translation unit A from acting on its "knowledge" that the base-subobject
+constructor always initializes the v-table pointer by emitting a complete-object
+construction as a direct call to the base-subobject constructor.  That seems... tricky
+to accomplish in general.
+
+ ***
+
+The problem in case #3 seems like something we need to settle even for current
+users of the ABI.  Maybe this is already solved by COMDATs on ELF, although
+I don't know how a compiler is expected to reason about them effectively.
+
+I would recommend that future targets adopt a rule that base-subobject variants
+aren't emitted for at least case #2.  (Note that there is no conflict between this
+and the recommended abstract-class rule because non-polymorphic classes
+cannot be abstract.)
+
+John.
+

@@ -1,0 +1,223 @@
+From marc.glisse at inria.fr  Thu May 10 21:17:41 2012
+From: marc.glisse at inria.fr (Marc Glisse)
+Date: Thu, 10 May 2012 23:17:41 +0200 (CEST)
+Subject: [cxx-abi-dev] Mangling of function reference
+Message-ID: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+
+Hello,
+
+it seems that the mangling used by clang and proposed here (although it 
+hasn't made it to the document on the web) is the same for:
+void (&)()  // reference to a function
+void ()&
+where the second one is what you get from a pointer to a member function 
+that takes its *this argument by reference, when you remove the "pointer 
+to member" part of the type. I gave a few more details there:
+
+http://groups.google.com/group/comp.lang.c++.moderated/browse_thread/thread/b3e459b9a4eb5d7e
+
+Am I missing something in the analysis? Is this on purpose because the two 
+are unlikely to conflict?
+
+(I hope it is the right place to ask, this is my first post here)
+
+-- 
+Marc Glisse
+
+From rjmccall at apple.com  Fri May 11 01:58:21 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 10 May 2012 18:58:21 -0700
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+Message-ID: <AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+
+On May 10, 2012, at 2:17 PM, Marc Glisse wrote:
+> it seems that the mangling used by clang and proposed here (although it hasn't made it to the document on the web) is the same for:
+> void (&)()  // reference to a function
+> void ()&
+> where the second one is what you get from a pointer to a member function that takes its *this argument by reference, when you remove the "pointer to member" part of the type. I gave a few more details there:
+> 
+> http://groups.google.com/group/comp.lang.c++.moderated/browse_thread/thread/b3e459b9a4eb5d7e
+> 
+> Am I missing something in the analysis? Is this on purpose because the two are unlikely to conflict?
+
+There are two language constraints preventing a conflict here:  first, you can't have a <ref-qualifier> on a function type that isn't immediately used to declare a member function or a pointer-to-member-function;  and second, you can't form a member pointer to a field of reference type.
+
+If the first restriction were lifted, you're correct that we'd have to come up with a new mangling for such types written abstractly.
+
+John.
+
+From richardsmith at google.com  Fri May 11 18:30:54 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 11 May 2012 11:30:54 -0700
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+	<AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+Message-ID: <CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>
+
+On Thu, May 10, 2012 at 6:58 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On May 10, 2012, at 2:17 PM, Marc Glisse wrote:
+> > it seems that the mangling used by clang and proposed here (although it
+> hasn't made it to the document on the web) is the same for:
+> > void (&)()  // reference to a function
+> > void ()&
+> > where the second one is what you get from a pointer to a member function
+> that takes its *this argument by reference, when you remove the "pointer to
+> member" part of the type. I gave a few more details there:
+> >
+> >
+> http://groups.google.com/group/comp.lang.c++.moderated/browse_thread/thread/b3e459b9a4eb5d7e
+> >
+> > Am I missing something in the analysis? Is this on purpose because the
+> two are unlikely to conflict?
+>
+> There are two language constraints preventing a conflict here:  first, you
+> can't have a <ref-qualifier> on a function type that isn't immediately used
+> to declare a member function or a pointer-to-member-function;  and second,
+> you can't form a member pointer to a field of reference type.
+>
+
+That's not correct. You can have a ref-qualifier on a function type that's
+used as a template argument; see 8.3.5/6. The following are all different
+types:
+
+T<void()>, T<void(&)()>, T<void()&>
+
+The proposed ABI rule says we mangle the second two the same. Clang
+currently mangles the first two the same. Clearly we need three different
+manglings.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120511/0784847d/attachment.html>
+
+From richardsmith at google.com  Fri May 11 18:31:19 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Fri, 11 May 2012 11:31:19 -0700
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+	<AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+	<CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>
+Message-ID: <CAGL0aWeVwB2ayVCkOuFrv=5WqFTun-1JOattxVg8rVmP=Cjt=Q@mail.gmail.com>
+
+On Fri, May 11, 2012 at 11:30 AM, Richard Smith <richardsmith at google.com>wrote:
+
+> On Thu, May 10, 2012 at 6:58 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On May 10, 2012, at 2:17 PM, Marc Glisse wrote:
+>> > it seems that the mangling used by clang and proposed here (although it
+>> hasn't made it to the document on the web) is the same for:
+>> > void (&)()  // reference to a function
+>> > void ()&
+>> > where the second one is what you get from a pointer to a member
+>> function that takes its *this argument by reference, when you remove the
+>> "pointer to member" part of the type. I gave a few more details there:
+>> >
+>> >
+>> http://groups.google.com/group/comp.lang.c++.moderated/browse_thread/thread/b3e459b9a4eb5d7e
+>> >
+>> > Am I missing something in the analysis? Is this on purpose because the
+>> two are unlikely to conflict?
+>>
+>> There are two language constraints preventing a conflict here:  first,
+>> you can't have a <ref-qualifier> on a function type that isn't immediately
+>> used to declare a member function or a pointer-to-member-function;  and
+>> second, you can't form a member pointer to a field of reference type.
+>>
+>
+> That's not correct. You can have a ref-qualifier on a function type that's
+> used as a template argument; see 8.3.5/6. The following are all different
+> types:
+>
+> T<void()>, T<void(&)()>, T<void()&>
+>
+> The proposed ABI rule says we mangle the second two the same. Clang
+> currently mangles the first two the same. Clearly we need three different
+> manglings.
+>
+
+Sorry, Clang mangles the first and third the same.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20120511/5c5d5aec/attachment.html>
+
+From rjmccall at apple.com  Sat May 12 01:00:01 2012
+From: rjmccall at apple.com (John McCall)
+Date: Fri, 11 May 2012 18:00:01 -0700
+Subject: [cxx-abi-dev] Mangling of function reference
+In-Reply-To: <CAGL0aWeVwB2ayVCkOuFrv=5WqFTun-1JOattxVg8rVmP=Cjt=Q@mail.gmail.com>
+References: <alpine.DEB.2.02.1204301322140.2550@laptop-mg.saclay.inria.fr>
+	<AAD61D61-AC4A-445D-9A27-3596000B3E32@apple.com>
+	<CAGL0aWfsSbELtKzYwm+at_qomEvpnXfwqzDUaP+hYroqv7+sOQ@mail.gmail.com>
+	<CAGL0aWeVwB2ayVCkOuFrv=5WqFTun-1JOattxVg8rVmP=Cjt=Q@mail.gmail.com>
+Message-ID: <416E5A3E-F75B-4582-A6C6-1B0AA9DF6D18@apple.com>
+
+On May 11, 2012, at 11:31 AM, Richard Smith wrote:
+> On Fri, May 11, 2012 at 11:30 AM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, May 10, 2012 at 6:58 PM, John McCall <rjmccall at apple.com> wrote:
+> On May 10, 2012, at 2:17 PM, Marc Glisse wrote:
+> > it seems that the mangling used by clang and proposed here (although it hasn't made it to the document on the web) is the same for:
+> > void (&)()  // reference to a function
+> > void ()&
+> > where the second one is what you get from a pointer to a member function that takes its *this argument by reference, when you remove the "pointer to member" part of the type. I gave a few more details there:
+> >
+> > http://groups.google.com/group/comp.lang.c++.moderated/browse_thread/thread/b3e459b9a4eb5d7e
+> >
+> > Am I missing something in the analysis? Is this on purpose because the two are unlikely to conflict?
+> 
+> There are two language constraints preventing a conflict here:  first, you can't have a <ref-qualifier> on a function type that isn't immediately used to declare a member function or a pointer-to-member-function;  and second, you can't form a member pointer to a field of reference type.
+> 
+> That's not correct. You can have a ref-qualifier on a function type that's used as a template argument; see 8.3.5/6. The following are all different types:
+> 
+> T<void()>, T<void(&)()>, T<void()&>
+> 
+> The proposed ABI rule says we mangle the second two the same. Clang currently mangles the first two the same. Clearly we need three different manglings.
+> 
+> Sorry, Clang mangles the first and third the same.
+
+And of course you're right; I'd forgotten about that DR because I've been stuck supporting hosting on gcc-4.2 for so long, and it wasn't implemented until gcc-4.3.
+
+Then we have three contexts where qualified function types can arise:  a concrete method name, a pointer-to-member, and a template argument.  
+  - We don't need to change the mangling of "void A::foo() const &;" because the qualifiers are written in an unambiguous location.
+  - We technically don't need to change the mangling of "void (A::*)() const &" because a pointer-to-member can't be of reference type.
+  - We do need to change the mangling of template arguments (and, looking forward, anywhere else where the type might be allowed in the future).
+
+Ref-qualifiers are still an uncommonly-used feature because of the paucity of conforming implementations, so we have more flexibility than we might otherwise.  I'd rather not change the mangling of declarations, but fortunately we don't have to.  The indirect uses are less critical, and on clang, we're willing to potentially break compatibility on this, mostly because we don't see this as at all likely to actually cause problems:
+  1) Since ref-qualified methods are uncommon, interesting indirect uses of them are going to be proportionately less common.
+  2) Most uses of ref-qualified template arguments are going to be template metaprograms which do not rely on the ODR for correctness.
+  3) There is a potential for libraries like std::bind to use templates that might be instantiated at ref-qualified function types ? but in practice they don't, and even if they did, the templates are almost exclusively implicitly instantiated and do not rely on the ODR for correctness.
+
+It would also be nice to clean up the mangling of CV-qualifiers in these cases ? there's a notional, but not a practical, ambiguity ? but I don't think we can get away with that;  too much of the above argument hinges on the uncommonness of ref-qualifiers.
+
+Therefore I propose the following change:
+
+-- diff begin --
+-    <function-type> ::= F [Y] <bare-function-type> E
++    <function-type> ::= [<CV-qualifiers>] F [Y] <bare-function-type> [<ref-qualifier>] E
+     <bare-function-type> ::= <signature type>+
+         # types are possible return type, then parameter types
+
++For the purposes of substitution, the CV-qualifiers and ref-qualifier of a function type are an indivisible part of the type;  that is, when mangling 'void () const', 'void ()' is not a substitution candidate.
+-- diff end --
+
+This latter rule appears to be universally followed, but it's not actually spelled out anywhere, nor is it the most obvious interpretation of mangling the CV-qualifiers separately.
+
+In a related change, the paragraph above this is jumbled and confusing:
+ A "Y" prefix for the bare function type encodes extern "C". If there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above. This affects only type mangling, since extern "C" function objects have unmangled names.
+
+The second sentence seems to be misplaced, and the first sentence needs an important pragmatic caveat.
+
+-- diff begin --
+ Empty parameter lists, whether declared as () or conventionally as (void), are encoded with a void parameter specifier (v). Therefore function types always encode at least one parameter type, and function manglings can always be distinguished from data manglings by the presence of the type. Member functions do not encode the types of implicit parameters, either this or the VTT parameter.
+
+-A "Y" prefix for the bare function type encodes extern "C". If there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above. This affects only type mangling, since extern "C" function objects have unmangled names.
++When mangling a non-static member function name, if there are any cv-qualifiers or a ref-qualifier of this, they are encoded at the beginning of the <qualified-name> as described above.  When mangling any other function type, if there are any cv-qualifiers or a ref-qualifier, they are encoded as part of the function type as described below.
++
++A "Y" prefix for the bare function type encodes extern "C" in implementations which distinguish between function types with "C" and "C++" language linkage. This affects only type mangling, since extern "C" function objects have unmangled names.
+-- diff end --
+
+John.
+

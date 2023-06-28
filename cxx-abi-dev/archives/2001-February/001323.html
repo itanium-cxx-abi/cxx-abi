@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> __cxa_rethrow
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_rethrow&In-Reply-To=%3C20010227224016.A24699%40redhat.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001322.html">
+   <LINK REL="Next"  HREF="001324.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>__cxa_rethrow</H1>
+    <B>Richard Henderson</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20__cxa_rethrow&In-Reply-To=%3C20010227224016.A24699%40redhat.com%3E"
+       TITLE="__cxa_rethrow">rth at redhat.com
+       </A><BR>
+    <I>Wed Feb 28 06:40:16 UTC 2001</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001322.html">eh interface questions
+</A></li>
+        <LI>Next message: <A HREF="001324.html">__cxa_rethrow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1323">[ date ]</a>
+              <a href="thread.html#1323">[ thread ]</a>
+              <a href="subject.html#1323">[ subject ]</a>
+              <a href="author.html#1323">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>How are the following two statements reconciled?
+
+   1.3
+   _Unwind_Resume should not be used to implement rethrowing. To the
+   unwinding runtime, the catch code that rethrows was a handler, and
+   the previous unwinding session was terminated before entering it.
+   Rethrowing is implemented by calling _Unwind_RaiseException again
+   with the same exception object. 
+
+   2.5.4
+   [__cxa_rethrow] then returns to the handler that called it, which
+   must call __cxa_end_catch(), perform any necessary cleanup, and
+   finally call _Unwind_Resume() to continue unwinding. 
+
+Given how _Unwind_Resume is intended to operate wrt Phase1 and Phase2
+of _Unwind_RaiseException -- i.e. properly identifing the Phase1
+indicated catch handler, I think 2.5.4 is incorrect.
+
+There appears to be an intended equivalence between _Unwind_Resume and
+a direct branch (via the HP described [RESX] operator).  But you'd get
+incorrect results if you implemented __cxa_rethrow with [RESX] for the
+following test case:
+
+	inline void foo() throw(B)
+	{
+	  try {
+	    throw A;
+	  } catch (A) {
+	    throw;
+	  }
+	}
+	int main()
+	{
+	  try {
+	    foo();
+	  } catch(...) {
+	  }
+	}
+
+since the [RESX] would resolve to a direct branch to main's catch.
+One needs to go back to the personality routine to discover that
+there is an exception specification disallowing A.
+
+To me it seems much more logical for __cxa_rethrow to do all the work
+coordinating with __cxa_end_catch and to call _Unwind_RaiseException
+again itself, as this would reduce the amount of generated code
+required.  A minor technical point is how the rethrow interacts with
+the surrounding __cxa_end_catch cleanup region -- does the compiler
+arrange for the action chain for __cxa_rethrow to omit the cleanup,
+or does __cxa_end_catch need to be prepared to handle this case? 
+Either works, but unlike some of the other implementation differences
+that can be hidden in the personality routine, this one can't so 
+there would have to be agreement.
+
+Have I missed something?
+
+
+r~
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001322.html">eh interface questions
+</A></li>
+	<LI>Next message: <A HREF="001324.html">__cxa_rethrow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1323">[ date ]</a>
+              <a href="thread.html#1323">[ thread ]</a>
+              <a href="subject.html#1323">[ subject ]</a>
+              <a href="author.html#1323">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,182 @@
+From jason at redhat.com  Fri Nov 16 18:41:58 2001
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 16 Nov 2001 18:41:58 +0000
+Subject: __cxa_current_exception_type
+Message-ID: <wvladxm8snd.fsf@prospero.cambridge.redhat.com>
+
+Since we use type_infos in the exception handling mechanism, it seems
+reasonable to allow user code (specifically terminate_handlers) to be able
+to get at this information.  This is already possible by examining the
+contents of __cxa_get_globals, but that requires knowing the layout of
+__cxa_eh_globals.  It seems to me that it makes sense to provide another
+entry point to get just this information.  ABI patch and implementation
+attached.
+
+It seems reasonable to me to add this even now, since it's a pure
+extension; people can add it to their runtimes at their leisure.  Thoughts?
+
+Jason
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cet-patch
+Type: text/x-patch
+Size: 885 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20011116/966c135b/attachment.bin>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: sample.C
+Type: text/x-c++
+Size: 411 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20011116/966c135b/attachment-0001.bin>
+
+From loewis at informatik.hu-berlin.de  Sat Nov 17 10:24:41 2001
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sat, 17 Nov 2001 11:24:41 +0100 (MET)
+Subject: [cxx-abi-dev] __cxa_current_exception_type
+In-Reply-To: <wvladxm8snd.fsf@prospero.cambridge.redhat.com> (message from
+	Jason Merrill on Fri, 16 Nov 2001 18:41:58 +0000)
+References: <wvladxm8snd.fsf@prospero.cambridge.redhat.com>
+Message-ID: <200111171024.LAA26112@punica.informatik.hu-berlin.de>
+
+> It seems reasonable to me to add this even now, since it's a pure
+> extension; people can add it to their runtimes at their leisure.  Thoughts?
+
+Wouldn't it be then useful to give access to the exception object
+also?
+
+Regards,
+Martin
+
+
+
+From jason at redhat.com  Sat Nov 17 10:58:31 2001
+From: jason at redhat.com (Jason Merrill)
+Date: Sat, 17 Nov 2001 10:58:31 +0000
+Subject: [cxx-abi-dev] __cxa_current_exception_type
+In-Reply-To: <200111171024.LAA26112@punica.informatik.hu-berlin.de> (Martin
+ von Loewis's message of "Sat, 17 Nov 2001 11:24:41 +0100 (MET)")
+References: <wvladxm8snd.fsf@prospero.cambridge.redhat.com>
+	<200111171024.LAA26112@punica.informatik.hu-berlin.de>
+Message-ID: <wvl1yixzmso.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+>> It seems reasonable to me to add this even now, since it's a pure
+>> extension; people can add it to their runtimes at their leisure.  Thoughts?
+
+> Wouldn't it be then useful to give access to the exception object
+> also?
+
+I don't think so; I think try/catch are a better way to get a handle on the
+exception object.  When I started writing a verbose terminate handler,
+originally I was trying to hand the object pointer from the EH structures
+off to the dynamic cast machinery by hand to get an exception*, until I
+realized that I could just write
+
+  try { throw; }
+  catch (exception& e) { ... }
+  catch (...) { }
+
+which is both simpler and portable.
+
+Jason
+
+
+From mark at codesourcery.com  Sun Nov 18 00:32:18 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sat, 17 Nov 2001 16:32:18 -0800
+Subject: [cxx-abi-dev] __cxa_current_exception_type
+In-Reply-To: <wvl1yixzmso.fsf@prospero.cambridge.redhat.com>
+Message-ID: <202180000.1006043538@warlock.codesourcery.com>
+
+> I don't think so; I think try/catch are a better way to get a handle on
+> the exception object.  When I started writing a verbose terminate handler,
+> originally I was trying to hand the object pointer from the EH structures
+> off to the dynamic cast machinery by hand to get an exception*, until I
+> realized that I could just write
+>
+>   try { throw; }
+>   catch (exception& e) { ... }
+>   catch (...) { }
+>
+> which is both simpler and portable.
+
+Clever.
+
+I think your ABI extension is a good one, and I don't see any reason
+not to include it.  If there aren't any objections in the next week,
+I'll include it.  (I've put a sticky on my virtual calendar to
+remind me.)
+
+I guess we should make this optional, in the same sense as the
+priority stuff is optional -- if you implement this, this is what
+you should do, but if you're trying to write code portable across
+ABI implementations, you should not depend on this being present.
+
+Do you agree?
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jason at redhat.com  Sun Nov 18 01:25:17 2001
+From: jason at redhat.com (Jason Merrill)
+Date: Sun, 18 Nov 2001 01:25:17 +0000
+Subject: [cxx-abi-dev] __cxa_current_exception_type
+In-Reply-To: <202180000.1006043538@warlock.codesourcery.com> (Mark
+ Mitchell's message of "Sat, 17 Nov 2001 16:32:18 -0800")
+References: <202180000.1006043538@warlock.codesourcery.com>
+Message-ID: <wvlk7woyio2.fsf@prospero.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> I guess we should make this optional, in the same sense as the
+> priority stuff is optional -- if you implement this, this is what
+> you should do, but if you're trying to write code portable across
+> ABI implementations, you should not depend on this being present.
+
+Seems reasonable.
+
+Jason
+
+
+From mark at codesourcery.com  Mon Nov 26 17:25:25 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 26 Nov 2001 09:25:25 -0800
+Subject: [cxx-abi-dev] __cxa_current_exception_type
+In-Reply-To: <wvladxm8snd.fsf@prospero.cambridge.redhat.com>
+Message-ID: <63470000.1006795525@gandalf.codesourcery.com>
+
+
+
+--On Friday, November 16, 2001 06:41:58 PM +0000 Jason Merrill 
+<jason at redhat.com> wrote:
+
+> Since we use type_infos in the exception handling mechanism, it seems
+> reasonable to allow user code (specifically terminate_handlers) to be able
+> to get at this information.  This is already possible by examining the
+> contents of __cxa_get_globals, but that requires knowing the layout of
+> __cxa_eh_globals.  It seems to me that it makes sense to provide another
+> entry point to get just this information.  ABI patch and implementation
+> attached.
+>
+> It seems reasonable to me to add this even now, since it's a pure
+> extension; people can add it to their runtimes at their leisure.
+> Thoughts?
+
+I incorporated this patch, with the additional sentences:
+
+  This routine is optional; a conforming ABI implementation need not
+  provide it.  However, if it is provided, it shall have the behavior
+  specified here.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+

@@ -1,0 +1,108 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Unwind table location
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20table%20location&In-Reply-To=%3Cu990171iwa.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000513.html">
+   <LINK REL="Next"  HREF="000520.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Unwind table location</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Unwind%20table%20location&In-Reply-To=%3Cu990171iwa.fsf%40yorick.cygnus.com%3E"
+       TITLE="Unwind table location">jason at cygnus.com
+       </A><BR>
+    <I>Sun Jan 30 19:03:49 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000513.html">Unwind table location
+</A></li>
+        <LI>Next message: <A HREF="000520.html">Virtual function calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#523">[ date ]</a>
+              <a href="thread.html#523">[ thread ]</a>
+              <a href="subject.html#523">[ subject ]</a>
+              <a href="author.html#523">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Working through this for my benefit:
+
+I think we all agree that we want to avoid runtime relocations for the EH
+info.  To accomplish that, relocs must be relative, either self-relative
+(easy to handle) or relative to some other location we know about.  The
+only other location I can think of is the GP.
+
+As I understand it, on ia64 (as on hppa) there is no guarantee that the
+text and data segments will be at a fixed offset from each other, so it is
+not feasible to use GP-relative offsets to refer to code locations.  I'm
+guessing that .rdata is allocated with .data.  Or to be more general, that
+all sections with the CODE attribute are allocated in one group, and those
+with the DATA attribute are in another, such that self-relative references
+work within a group but not between them.  Is this accurate?
+
+Therefore, the EH info that refers to absolute code locations (i.e. the
+start and end of the procedure fragment) must be in a CODE section.
+
+The LSDA starts with a pointer to the beginning of the landing pad;
+conceivably this could be made relative to the fragment start, allowing the
+LSDA to go into data, but I see no reason to prefer that.
+
+In the case of non-contiguous text segments (such as for embedded systems,
+as Jim suggested yesterday), it seems to makes sense to have separate
+tables for each.  A system that requires something like this could define
+its own means of accessing the different tables, though we still need to
+define how that works for the normal case.
+
+So I think the status quo (i.e. living in text) makes sense for the unwind
+table and info block.
+
+The type tables are a somewhat different matter, because they only refer to
+type_info nodes, which live in data.  The current document says that these
+references are GP-relative, but that assumes that all type_infos live in
+the same DSO, which is not the case under the current scheme; the
+references must be fixed up by the dynamic loader, which means the type
+table can't live in text.
+
+Furthermore, moving the type table into data allows us to share it between
+multiple text segments.
+
+Given this, I would like to move the type table into data and make the
+reference from the LSDA to the type table GP-relative rather than
+self-relative.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000513.html">Unwind table location
+</A></li>
+	<LI>Next message: <A HREF="000520.html">Virtual function calls
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#523">[ date ]</a>
+              <a href="thread.html#523">[ thread ]</a>
+              <a href="subject.html#523">[ subject ]</a>
+              <a href="author.html#523">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

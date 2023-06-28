@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Real changes for construction vtables (ignore prior mail)
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Real%20changes%20for%20construction%20vtables%20%28ignore%20prior%20mail%29&In-Reply-To=%3C38D12126.DE815325%40zko.dec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000764.html">
+   <LINK REL="Next"  HREF="000790.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Real changes for construction vtables (ignore prior mail)</H1>
+    <B>Coleen Phillimore</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Real%20changes%20for%20construction%20vtables%20%28ignore%20prior%20mail%29&In-Reply-To=%3C38D12126.DE815325%40zko.dec.com%3E"
+       TITLE="Real changes for construction vtables (ignore prior mail)">coleen at zko.dec.com
+       </A><BR>
+    <I>Thu Mar 16 18:00:06 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000764.html">Real changes for construction vtables (ignore prior mail)
+</A></li>
+        <LI>Next message: <A HREF="000790.html">Real changes for construction vtables (ignore prior mail)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#766">[ date ]</a>
+              <a href="thread.html#766">[ thread ]</a>
+              <a href="subject.html#766">[ subject ]</a>
+              <a href="author.html#766">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Martin von Loewis wrote:
+&gt;<i> 
+</I>&gt;<i> &gt; I was a bit premature.  I needed more forest green.  Attached is the
+</I>&gt;<i> &gt; real revision for saving generation of construction vtables.
+</I>&gt;<i> 
+</I>&gt;<i> Please let me know if I summarise this correctly:
+</I>&gt;<i> 
+</I>&gt;<i> In a class requiring a VTT, the VTT does not contain the vtables for
+</I>&gt;<i> all base subobject, but only for those that require a VTT themselves.
+</I>&gt;<i> 
+</I>&gt;<i> If that is the intent, how do I interpret the statement
+</I>&gt;<i> 
+</I>&gt;<i> # Addresses of secondary vtables that either have virtual bases or
+</I>&gt;<i> # virtual functions overridden on a virtual path.
+</I>&gt;<i> 
+</I>&gt;<i> How can they have virtual functions overridden on a virtual path, if
+</I>&gt;<i> they don't have virtual bases? I'd think the first condition would be
+</I>&gt;<i> sufficient, right?
+</I>
+No.  If you have a class C that overrides a virtual function in a virtual
+base class V (but V has no virtual bases itself), C still needs to have
+a construction vtable for V.  The construction vtable for V during
+construction of C in a more derived class D, may have a different vcall
+offset to adjust for the overridden function than C where the most derived
+class.  (I think these class names match the example that I provided with
+the writeup originally).
+
+&gt;<i> 
+</I>&gt;<i> As an aside, I think this new proposal adds quite some complexity by
+</I>&gt;<i> requiring a different layout of a vtable group referenced by the VTT
+</I>&gt;<i> than a normal vtable group for the complete type (since vtables of
+</I>&gt;<i> boring bases are not included in the VTT, but in a normal vtable
+</I>&gt;<i> group).
+</I>
+Yes, it does add complexity, which is why I didn't specify it at first.
+But the boring class's vtable may add significant storage to the entire
+vtable, which is why we decided this proposal was worth looking at.
+
+&gt;<i> 
+</I>&gt;<i> Given that difference, I wonder whether the indirection mechanism in
+</I>&gt;<i> the VTT is needed at all. Instead of passing a vtable** to the
+</I>&gt;<i> not-in-charge ctors, could we not just pass a ctor vtable group?
+</I>&gt;<i> I.e. the spec would read
+</I>
+The VTT passed to base classes has the ctor vtable group for the base
+class, but it also has the addresses of ctor vtable groups to pass from
+the not-in-charge constructor to the constructors of it's base class
+(all construction vtables are relative to the most derived class).
+Representing it as an array seems the best way to do that.
+
+
+&gt;<i> 
+</I>&gt;<i> The elements of the VTT array are in this order:
+</I>&gt;<i> 
+</I>&gt;<i>   1. Primary vtable for the complete object.
+</I>&gt;<i>   2. For each non-virtual subobject that needs a construction vtable,
+</I>&gt;<i>      provide
+</I>&gt;<i>       1. Primary construction vtable for the subobject.
+</I>&gt;<i>       2. Secondary construction vtables for the subobjects that ...
+</I>&gt;<i>   3. Secondary vtables of subobjects that have virtual bases.
+</I>&gt;<i>   4. Construction vtables for each virtual subobject in initialization
+</I>&gt;<i>      (DFS) order.
+</I>&gt;<i> 
+</I>&gt;<i> I believe all tables that get concatenated have a well-known size, so
+</I>&gt;<i> we do no need the indirection that the VTT provides, do we?
+</I>
+I don't think they do actually, because a construction vtable for a subobject
+of a subobject may be at one offset for the complete object and another
+for a more derived object.  I'll have to think about this.
+
+Coleen
+
+&gt;<i> 
+</I>&gt;<i> Regards,
+</I>&gt;<i> Martin
+</I>
+-- 
+-----------------------------------------------------------------------
+Coleen Phillimore                  | mailto:<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">coleen at zko.dec.com</A>
+Compaq Computer Corp.   Nashua, NH | COMPAQ C++ Compiler Development
+-----------------------------------------------------------------------
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000764.html">Real changes for construction vtables (ignore prior mail)
+</A></li>
+	<LI>Next message: <A HREF="000790.html">Real changes for construction vtables (ignore prior mail)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#766">[ date ]</a>
+              <a href="thread.html#766">[ thread ]</a>
+              <a href="subject.html#766">[ subject ]</a>
+              <a href="author.html#766">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

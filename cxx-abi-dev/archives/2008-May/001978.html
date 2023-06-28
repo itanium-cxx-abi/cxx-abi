@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] ABI modification for exception propagation
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483B2791.1000304%40getdesigned.at%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001977.html">
+   <LINK REL="Next"  HREF="001979.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] ABI modification for exception propagation</H1>
+    <B>Sebastian Redl</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20ABI%20modification%20for%20exception%20propagation&In-Reply-To=%3C483B2791.1000304%40getdesigned.at%3E"
+       TITLE="[cxx-abi-dev] ABI modification for exception propagation">sebastian.redl at getdesigned.at
+       </A><BR>
+    <I>Mon May 26 21:11:45 UTC 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001977.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+        <LI>Next message: <A HREF="001979.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1978">[ date ]</a>
+              <a href="thread.html#1978">[ thread ]</a>
+              <a href="subject.html#1978">[ subject ]</a>
+              <a href="author.html#1978">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mark Mitchell wrote:
+&gt;<i> Ideally, it should be possible to freely mix old and new object files 
+</I>&gt;<i> in a single application.  It should be possible to throw an exception 
+</I>&gt;<i> in an old file and catch it in a new one, and vice versa.
+</I>Hmm, I think that's not possible. Definitely not in the separation 
+model. It might be possible in the other approach, where the exception 
+object plus the __cxa_exception are copied whole, but I'm doubtful even 
+of that. That was a chance that was missed when it was decided that the 
+exception class gave sufficient version information. That was a mistake. 
+There is simply no way for the new code to know whether the new, 
+additional fields are present or not unless the exception class is 
+changed, in which case the old code will reject the exceptions. Unless 
+the vendor was smart enough to build the class test with versioning in 
+mind, but at least GCC didn't.
+
+Old code can obviously catch exceptions from new code as foreign 
+exceptions. What is also possible is to make it so that new code can 
+catch exceptions from the old code.
+However, even that is problematic. Consider:
+
+old.cpp:
+void oldfun() { if(rand() % 2) throw foo(); }
+
+new.cpp:
+void newfun() { throw foo(); }
+
+main.cpp:
+int main()
+{
+  try {
+    oldfun();
+    newfun();
+  } catch(foo&amp;) {
+    exception_ptr ep = current_exception();
+    if(ep) std::cout &lt;&lt; &quot;yes\n&quot;;
+    else std::cout &lt;&lt; &quot;no\n&quot;;
+  }
+}
+
+Suppose that old.cpp was compiled with an old compiler, and new.cpp and 
+main.cpp with a new compiler. Because the ABI change is necessary to 
+make exception_ptr work, obviously you can't get an exception_ptr for an 
+old exception. But this means
+a) that current_exception() can fail for - to normal users - completely 
+impenetrable reasons and
+b) that the code is not standards-compliant (if there's a current 
+exception, current_exception must return a pointer to that or to a 
+bad_alloc).
+
+Basically, the code would print &quot;yes&quot; half the time. This is such a 
+gross violation of the principle of least surprise that I honestly would 
+consider not providing this half-compatibility at all the better choice. 
+Let these exceptions be caught only as foreign exceptions, which lie 
+outside the realm of the C++ standard and where current_exception can 
+return null without causing a headache.
+
+Sebastian
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001977.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+	<LI>Next message: <A HREF="001979.html">[cxx-abi-dev] ABI modification for exception propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1978">[ date ]</a>
+              <a href="thread.html#1978">[ thread ]</a>
+              <a href="subject.html#1978">[ subject ]</a>
+              <a href="author.html#1978">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

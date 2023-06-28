@@ -1,0 +1,55 @@
+From mjh at edg.com  Mon Jun  4 15:36:13 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 4 Jun 2012 11:36:13 -0400
+Subject: [cxx-abi-dev] Substitutions for nested template parameters
+Message-ID: <8A5D71C3-2542-429F-8B98-5D41C03C4E3B@edg.com>
+
+A customer recently brought this to our attention.  In some cases, EDG and GNU generate different mangled names than clang in cases with nested template parameters in local types.  For example:
+
+$ cat test.cpp
+ template<typename T> T foo(T t) { return t; }
+ template<typename T> struct X {
+   template<typename U> void f(U) {
+     struct L {} l;
+     foo(l);
+   }
+ };
+ int main() {
+   X<int> x;
+   x.f(0);
+ }
+$ eccp --c++11 -tused -c test.cpp && nm test.o | grep foo
+0000000000000018 W _Z3fooIZN1XIiE1fIiEEvT_E1LET_S5_
+$ g++470 -std=c++11 -c test.cpp && nm test.o | grep foo
+0000000000000000 W _Z3fooIZN1XIiE1fIiEEvT_E1LET_S5_
+$ clang -std=c++11 -c test.cpp && nm test.o | grep foo
+0000000000000030 t _Z3fooIZN1XIiE1fIiEEvT_E1LES3_S3_
+
+Internally, the template parameter for "f" and "foo" are different (because of the nesting level), so we (and apparently GNU) don't use the substitution (hence multiple occurrences of "T_" in the mangled names).
+
+If the nesting level of the template argument is changed, EDG, GNU, and clang all use a substitution for the second occurrence of the template parameter:
+
+$ cat test.cpp
+ template<typename T> T foo(T t) { return t; }
+ struct X {
+   template<typename U> void f(U) {
+     struct L {} l;
+     foo(l);
+   }
+ };
+ int main() {
+   X x;
+   x.f(0);
+ }
+$ eccp --c++11 -tused -c test.cpp && nm test.o | grep foo
+0000000000000018 W _Z3fooIZN1X1fIiEEvT_E1LES2_S2_
+$ g++470 -std=c++11 -c test.cpp && nm test.o | grep foo
+0000000000000000 W _Z3fooIZN1X1fIiEEvT_E1LES2_S2_
+$ clang -std=c++11 -c test.cpp && nm test.o | grep foo
+0000000000000030 t _Z3fooIZN1X1fIiEEvT_E1LES2_S2_
+
+I don't see anything in the IA-64 ABI documentation that says that template parameter nesting level has any bearing on mangling, so I think clang's behavior is correct.  I plan to change EDG's behavior to match that of clang, but thought I'd see if there are any other opinions first.
+
+Mike Herrick
+Edison Design Group
+

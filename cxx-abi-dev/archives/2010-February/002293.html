@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Key functions and templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Key%20functions%20and%20templates&In-Reply-To=%3COF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44%40ca.ibm.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002292.html">
+   <LINK REL="Next"  HREF="002295.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Key functions and templates</H1>
+    <B>Zbigniew Sarbinowski</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Key%20functions%20and%20templates&In-Reply-To=%3COF77D7959A.F1E1F177-ON852576D2.007E880F-852576D2.00800D44%40ca.ibm.com%3E"
+       TITLE="[cxx-abi-dev] Key functions and templates">zibi at ca.ibm.com
+       </A><BR>
+    <I>Mon Feb 22 23:18:17 UTC 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002292.html">[cxx-abi-dev] Key functions and templates
+</A></li>
+        <LI>Next message: <A HREF="002295.html">[cxx-abi-dev] Key functions and templates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2293">[ date ]</a>
+              <a href="thread.html#2293">[ thread ]</a>
+              <a href="subject.html#2293">[ subject ]</a>
+              <a href="author.html#2293">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Lawrence Crowl &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">crowl at google.com</A>&gt; wrote on 02/22/2010 04:50:46 PM:
+&gt;<i> On 2/22/10, Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; wrote:
+</I>&gt;<i> &gt; Alasdair Grant wrote:
+</I>&gt;<i> &gt; &gt; Implementations (at least of the ARM variant of the ABI) seem
+</I>&gt;<i> &gt; &gt; to differ about whether the code above should define the vtable
+</I>&gt;<i> &gt; &gt; for G_key_nodef&lt;int&gt;.  GCC 4.4 for ARM does define the vtable -
+</I>&gt;<i> &gt; &gt; which suggests it is not treating G_key_nodef&lt;int&gt;::f() as a
+</I>&gt;<i> &gt; &gt; key function (if it did, it could rely on some other unit to
+</I>&gt;<i> &gt; &gt; be defining f(), and hence the vtable).
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Given that there is vague linkage involved, how does this matter?
+</I>&gt;<i> &gt; It sounds to me like GCC is being wasteful, in that it's defining
+</I>&gt;<i> &gt; a vtable not needed in this object file, and guaranteed to be
+</I>&gt;<i> &gt; present anyhow, but as vague linkage will collapse the definitions,
+</I>&gt;<i> &gt; it sounds like this is &quot;just&quot; a waste of space in object files,
+</I>&gt;<i> &gt; not in final executables.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Even if -- as on Symbian, where I suspect this question arises :-)
+</I>&gt;<i> &gt; -- the waste makes it into a DSO, how is that an ABI conformance
+</I>&gt;<i> &gt; problem?
+</I>&gt;<i>
+</I>&gt;<i> How about the following scenario?
+</I>&gt;<i>
+</I>&gt;<i>   A translation unit declares an &quot;extern template&quot; specialization
+</I>&gt;<i>   of G_key_defined&lt;int&gt;::f().  The compiler infers that the virtual
+</I>&gt;<i>   table need not be generated even though the translation unit
+</I>&gt;<i>   otherwise instantiates G_key_defined&lt;int&gt;.  The specialization of
+</I>&gt;<i>   f() is not subsequently used, and so the vtable will fail to exist.
+</I>
+I have a related issue for which I would like to get clarification.
+There seems to be a contradiction between ABI and C++ Standard.
+Given the following.
+
+/* t1.h */
+class A
+{
+ virtual int foo() = 0;
+ };
+
+ struct B : public A
+ {
+ int foo();
+ };
+
+/* t1.cpp */
+#include &quot;t1.h&quot;
+inline int B::foo() { return 55; }
+
+/* t2.cpp */::
+#include &quot;t1.h&quot;
+int main()
+{
+ B b; // this line forces to generate vft
+  return b.foo();
+}
+
+The g++ compiler will compile and link fine since B::foo() will be
+generated as part of t1.o.
+On the other hand, XL (IBM) compiler comes back with &quot;Undefined
+symbol: .B::foo()&quot;.  This is because
+t1.o does not have its definition.  It was optimized out since XL didn't
+find any reference to it in t1.cpp.
+
+According to C++ Standard the above TC is invalid because it violates the
+last sentence from 3.2.3:
+&quot;An inline function shall be defined in every translation unit in which it
+is used.&quot;
+
+However C++ABI by last sentence in sec. 5.2.3 (Virtual Tables) makes this
+TC valid.
+&quot;Note that if the key function is not declared inline in the class
+definition, but its definition later is always declared inline, it will be
+emitted in every object containing the definition.&quot;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100222/96c4ab1a/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100222/96c4ab1a/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002292.html">[cxx-abi-dev] Key functions and templates
+</A></li>
+	<LI>Next message: <A HREF="002295.html">[cxx-abi-dev] Key functions and templates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2293">[ date ]</a>
+              <a href="thread.html#2293">[ thread ]</a>
+              <a href="subject.html#2293">[ subject ]</a>
+              <a href="author.html#2293">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

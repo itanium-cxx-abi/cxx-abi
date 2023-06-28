@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> incomplete rtti
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C200003282311.PAA23050%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000838.html">
+   <LINK REL="Next"  HREF="000842.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>incomplete rtti</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20incomplete%20rtti&In-Reply-To=%3C200003282311.PAA23050%40baalbek.engr.sgi.com%3E"
+       TITLE="incomplete rtti">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Mar 28 23:11:03 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000838.html">Updated files
+</A></li>
+        <LI>Next message: <A HREF="000842.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#835">[ date ]</a>
+              <a href="thread.html#835">[ thread ]</a>
+              <a href="subject.html#835">[ subject ]</a>
+              <a href="author.html#835">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Date: Sun, 26 Mar 2000 10:16:34 +0100
+</I>&gt;<i> From: Nathan Sidwell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">nathan at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> Hi,
+</I>&gt;<i> 
+</I>&gt;<i> I'm again puzzled as to how the new rtti scheme is supposed to work
+</I>&gt;<i> with incomplete types. There's a contradiction in the layout doc. The
+</I>&gt;<i> contradiction is understandable if you know what the intention is, but
+</I>&gt;<i> I think it'd be confusing to someone reading this cold (it's still
+</I>&gt;<i> confusing to me).
+</I>&gt;<i> 
+</I>&gt;<i> * `Assuming that after linking and loading only one type_info
+</I>&gt;<i>   structure is active'.
+</I>&gt;<i> * `Two abi::__pointer_type_info objects are compared for equality (i.e.
+</I>&gt;<i>   of the types represented) by checking for equal target type RTTI
+</I>&gt;<i>   pointers unless either or both have the incomplete flag set, in
+</I>&gt;<i>   which case the pointed-to RTTI structures must be checked for
+</I>&gt;<i>   equality (described below).'
+</I>
+I've tried to clarify the first of these.  Take a look.  But...
+
+&gt;<i> The former is refering to complete types. As any `T cv *' is a complete
+</I>&gt;<i> type, to test for equality of such a type only requires pointer
+</I>&gt;<i> comparison of the type_info's representing that type. It is when
+</I>&gt;<i> determining the equality of the targets for differently qualified `T cv
+</I>&gt;<i> *' instances with incomplete T that we have to deal with multiple
+</I>&gt;<i> instances of the __class_type_info for T. This type of comparison is
+</I>&gt;<i> only of interest when looking for a qualification conversion on catch
+</I>&gt;<i> matching. It is only the pointer to T which needs to consider this, a
+</I>&gt;<i> pointer to pointer to T will not need to know about the completeness of
+</I>&gt;<i> T.
+</I>
+This assumption is untrue.  The problem is that weak types don't work
+like you assume on most systems.  With the exception of Linux and Irix,
+most systems do not distinguish between weak and &quot;strong&quot; symbols once
+an object is linked.  Therefore, given a weak RTTI in the main
+executable and a strong RTTI in a DSO, they would preempt the latter
+with the former.  As a result, it is necessary to make our incomplete
+class RTTI not just weak, but distinct.  Once it is distinct, the
+pointer RTTI referencing it must be distinct from one referencing the
+complete version, and so on up the pointer chain, and it is not
+possible to compare them at any level.
+
+Our solution is to use the ABI-defined external mangled RTTI name only
+for complete types.  RTTI generated for pointer-to-incomplete-type must
+be different.  We leave it to the implementation to decide how, but two
+workable approaches are (a) make it a local static, or (b) mangle it
+differently and use COMDAT to remove duplicates; but at least one
+incomplete RTTI would remain, and it would not be the same as the
+complete one even after preemption.
+
+&gt;<i> So why does the __pointer_type_info class's incomplete target type
+</I>&gt;<i> (0x8) apply when the ultimate non-pointer type is incomplete? I think
+</I>&gt;<i> it should just apply when the immediately pointed-to type is
+</I>&gt;<i> incomplete. 
+</I>&gt;<i> 
+</I>&gt;<i> Secondly I don't see how making the incomplete class type object static
+</I>&gt;<i> linkage will avoid preemption. Suppose translation unit 1 contains
+</I>&gt;<i>         struct A;
+</I>&gt;<i>         ...
+</I>&gt;<i>         typeid (A *);
+</I>&gt;<i> and unit 2 contains
+</I>&gt;<i>         struct B {};
+</I>&gt;<i>         struct A : B {};
+</I>&gt;<i>         ...
+</I>&gt;<i>         typeid (A *);
+</I>&gt;<i> 
+</I>&gt;<i> The `typeid (A *)' objects emitted in 1 and 2 will have comdat linkage
+</I>&gt;<i> and so only one will be active in the final program. We have no control
+</I>&gt;<i> over which is actually selected by the linker (I don't think the linker
+</I>&gt;<i> cares, because it is assuming that any comdat's named the same have the
+</I>&gt;<i> same contents - yes?). Now, which of the abi::__class_type_info's for A
+</I>&gt;<i> will the selected one point to? For this to work it must be the one in 2,
+</I>&gt;<i> as that contains the complete information about the type. Will static
+</I>&gt;<i> linkage of 1's instance behave this way? We need to specify that 1's
+</I>&gt;<i> instance has weak linkage.
+</I>
+I hope this helps clear up the confusion.
+
+Jim
+
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000838.html">Updated files
+</A></li>
+	<LI>Next message: <A HREF="000842.html">incomplete rtti
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#835">[ date ]</a>
+              <a href="thread.html#835">[ thread ]</a>
+              <a href="subject.html#835">[ subject ]</a>
+              <a href="author.html#835">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

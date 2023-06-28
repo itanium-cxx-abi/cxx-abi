@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Mangling of function-to-pointer conversion
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3CFDD3E240-891D-41B6-947A-B7324EA4032F%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000026.html">
+   <LINK REL="Next"  HREF="000028.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Mangling of function-to-pointer conversion</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Mangling%20of%20function-to-pointer%20conversion&In-Reply-To=%3CFDD3E240-891D-41B6-947A-B7324EA4032F%40edg.com%3E"
+       TITLE="[cxx-abi-dev] Mangling of function-to-pointer conversion">mjh at edg.com
+       </A><BR>
+    <I>Wed Jan  4 16:42:04 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000026.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+        <LI>Next message: <A HREF="000028.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Jan 4, 2012, at 9:58 AM, Jason Merrill wrote:
+
+&gt;<i> On 03/04/2011 12:17 PM, Jason Merrill wrote:
+</I>&gt;&gt;<i> A related case:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> template&lt;typename T&gt; int cmp1(T a, T b);
+</I>&gt;&gt;<i> template&lt;typename T&gt; int cmp2(T a, T b);
+</I>&gt;&gt;<i> template&lt;typename T, int (*cmp)(T, T)&gt; struct A { };
+</I>&gt;&gt;<i> template &lt;typename T&gt; void f (A&lt;T,cmp1&gt; &amp;);
+</I>&gt;&gt;<i> void g()
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>  A&lt;char,cmp1&gt; a;
+</I>&gt;&gt;<i>  f(a);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> How do we mangle 'cmp1' in the signature of f? The ABI doesn't say
+</I>&gt;&gt;<i> anything specific about how to mangle unresolved overloading.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> G++ currently crashes on this testcase, but some obvious fixes lead it
+</I>&gt;&gt;<i> to generate &quot;4cmp1&quot;, i.e. &lt;unresolved-name&gt;, which seems consistent with
+</I>&gt;&gt;<i> the mangling in a dependent call.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> EDG 4.2 mangles it as adL_Z4cmp1, which doesn't seem to match anything
+</I>&gt;&gt;<i> in the spec; it seems to be treating the cmp1 template as an extern &quot;C&quot;
+</I>&gt;&gt;<i> function.
+</I>&gt;<i> 
+</I>&gt;<i> Clang also produces 4cmp1 for this testcase.  Curiously, if I adjust the testcase to
+</I>&gt;<i> 
+</I>&gt;<i> template&lt;typename T&gt; int cmp1(T a, T b);
+</I>&gt;<i> int cmp2(char a, char b);
+</I>&gt;<i> template&lt;typename T, int (*cmp)(T, T)&gt; struct A { };
+</I>&gt;<i> template &lt;typename T&gt; void f (A&lt;T,cmp1&gt; &amp;);
+</I>&gt;<i> template &lt;typename T&gt; void f (A&lt;T,cmp2&gt; &amp;);
+</I>&gt;<i> void g()
+</I>&gt;<i> {
+</I>&gt;<i>  A&lt;char,cmp1&gt; a;
+</I>&gt;<i>  f(a);
+</I>&gt;<i>  A&lt;char,cmp2&gt; a2;
+</I>&gt;<i>  f(a2);
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> For the second F I get three different results from the three compilers:
+</I>&gt;<i> 
+</I>&gt;<i> EDG gives _Z1fIcEvR1AIT_XadL_Z4cmp2ccEEE, which is consistent with its treatment of the cmp1 case (i.e. adding the unwritten address operation).
+</I>
+We agree that &lt;unresolved-name&gt; is the way to go here.
+
+Mike Herrick
+Edison Design Group
+
+&gt;<i> 
+</I>&gt;<i> G++ with my patch gives _Z1fIcEvR1AIT_L_Z4cmp2ccEE, treating cmp2 as a simple literal.
+</I>&gt;<i> 
+</I>&gt;<i> Clang gives _Z1fIcEvR1AIT_XL_Z4cmp2ccEEE, wrapping the literal in the X/E expression delimiters.  This seems like a bug.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> I tried to create an analogous dependent call to see what it
+</I>&gt;&gt;<i> would do in that case:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> template &lt;class T, int I&gt; struct B { };
+</I>&gt;&gt;<i> template &lt;class T&gt; void h(B&lt;T,sizeof(cmp1(T(),T()))&gt;);
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> void i()
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i>  B&lt;int,sizeof(int)&gt; b;
+</I>&gt;&gt;<i>  h(b);
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> but EDG 4.2 rejects this testcase.
+</I>&gt;<i> 
+</I>&gt;<i> EDG 4.3 produces _Z1hIiEv1BIT_Xszcl4cmp1cvS1__EcvS1__EEEE for this testcase, as do GCC and Clang.
+</I>&gt;<i> 
+</I>&gt;<i> Jason
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000026.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+	<LI>Next message: <A HREF="000028.html">[cxx-abi-dev] Mangling of function-to-pointer conversion
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

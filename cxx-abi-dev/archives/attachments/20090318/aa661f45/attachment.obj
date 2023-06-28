@@ -1,0 +1,300 @@
+*** ia64_abi_orig.html	Tue Mar 17 17:42:12 2009
+--- ia64_abi_lambdas.html	Wed Mar 18 14:04:29 2009
+***************
+*** 3884,3894 ****
+  
+  <pre><font color=blue><code>
+      &lt;name> ::= &lt;nested-name>
+  	   ::= &lt;unscoped-name>
+  	   ::= &lt;unscoped-template-name> &lt;template-args>
+! 	   ::= &lt;local-name>	# See <a href=#mangling-scope>Scope Encoding</a> below
+  
+      &lt;unscoped-name> ::= &lt;unqualified-name>
+  		    ::= St &lt;unqualified-name>   # ::std::
+  
+      &lt;unscoped-template-name> ::= &lt;unscoped-name>
+--- 3884,3894 ----
+  
+  <pre><font color=blue><code>
+      &lt;name> ::= &lt;nested-name>
+  	   ::= &lt;unscoped-name>
+  	   ::= &lt;unscoped-template-name> &lt;template-args>
+! 	   ::= &lt;local-name>	# See <a href=#mangling-scope>Scope Encoding and Closure Types</a> below
+  
+      &lt;unscoped-name> ::= &lt;unqualified-name>
+  		    ::= St &lt;unqualified-name>   # ::std::
+  
+      &lt;unscoped-template-name> ::= &lt;unscoped-name>
+***************
+*** 4325,4345 ****
+  is mangled with <code>Dp &lt;type&gt;</code>, i.e., its type is a pack
+  expansion.
+  </p>
+  
+  <p>
+! A class, union, or enum type is simply a name,
+  It may be a simple &lt;unqualified-name>,
+  with or without a template argument list,
+  or a more complex &lt;nested-name>.
+  Thus, it is encoded like a function name,
+  except that no CV-qualifiers are present in a nested name specification.
+  
+  <pre><code><font color=blue>
+    &lt;class-enum-type> ::= &lt;name>
+  </pre></font></code>
+  
+  <p>
+  Array types encode the dimension (number of elements) and the element type.
+  Note that "array" parameters to functions are encoded as pointer types.
+  For variable length arrays (C99 VLAs),
+  the dimension (but not the '_' separator) is omitted.
+--- 4325,4348 ----
+  is mangled with <code>Dp &lt;type&gt;</code>, i.e., its type is a pack
+  expansion.
+  </p>
+  
+  <p>
+! A named class, union, or enum type is simply a name.
+  It may be a simple &lt;unqualified-name>,
+  with or without a template argument list,
+  or a more complex &lt;nested-name>.
+  Thus, it is encoded like a function name,
+  except that no CV-qualifiers are present in a nested name specification.
+  
+  <pre><code><font color=blue>
+    &lt;class-enum-type> ::= &lt;name>
+  </pre></font></code>
+  
++ <i>(Unnamed types are discussed in 
++ <a href=#mangling-scope>Scope Encoding and Closure Types</a>
++ below.)</i>
+  <p>
+  Array types encode the dimension (number of elements) and the element type.
+  Note that "array" parameters to functions are encoded as pointer types.
+  For variable length arrays (C99 VLAs),
+  the dimension (but not the '_' separator) is omitted.
+***************
+*** 4553,4563 ****
+   a late-specified return type without affecting the library ABI.
+   </i>
+  </p>
+  
+  <a name=mangling-scope>
+! <h4> 5.1.6 Scope Encoding </h4>
+  
+  <p>
+  A nonlocal scope is encoded as the qualifier of a qualified name:
+  it can be the top-level name qualification or it can appear inside
+  &lt;type> to denote dependent types or bind specific names as arguments.
+--- 4556,4566 ----
+   a late-specified return type without affecting the library ABI.
+   </i>
+  </p>
+  
+  <a name=mangling-scope>
+! <h4> 5.1.6 Scope Encoding and Closure Types</h4>
+  
+  <p>
+  A nonlocal scope is encoded as the qualifier of a qualified name:
+  it can be the top-level name qualification or it can appear inside
+  &lt;type> to denote dependent types or bind specific names as arguments.
+***************
+*** 4570,4588 ****
+  
+  <p>
+  Occasionally entities in local scopes must be mangled too
+  (e.g. because inlining or template compilation causes
+  multiple translation units to require access to that entity).
+  The encoding for such entities is as follows:
+  <code><pre><font color=blue>
+!   &lt;local-name> := Z &lt;<i>function</i> encoding> E &lt;<i>entity</i> name> [&lt;discriminator>]
+!                := Z &lt;<i>function</i> encoding> E s [&lt;discriminator>]
+    &lt;discriminator> := _ &lt;<i>non-negative</i> number> 
+  </font></pre></code>
+  
+  <p>
+! The first production is used for named local static objects and classes,
+  which are identified by their declared names.
+  The &lt;<i>entity</i> name> may itself be a compound name,
+  but it is relative to the closest enclosing function,
+  i.e. none of the components of the function encoding appear in the entity name.
+  It is possible to have nested function scopes,
+--- 4573,4596 ----
+  
+  <p>
+  Occasionally entities in local scopes must be mangled too
+  (e.g. because inlining or template compilation causes
+  multiple translation units to require access to that entity).
++ (Closure types for lambda-expressions that require encoding are
++ considered "entities in local scopes" in this context.)
+  The encoding for such entities is as follows:
+  <code><pre><font color=blue>
+!   &lt;local-name> ::= Z &lt;<i>function</i> encoding> E &lt;<i>entity</i> name> [&lt;discriminator>]  # Local static variables, named local enum/class types
+!                ::= Z &lt;<i>function</i> encoding> E u [&lt;discriminator>]              # Unnamed local enum/class types
+!                ::= Z &lt;<i>function</i> encoding> E s [&lt;discriminator>]              # String literals
+!                ::= &lt;closure-type-encoding>                                  # Lambda closure types
+    &lt;discriminator> := _ &lt;<i>non-negative</i> number> 
+  </font></pre></code>
+  
+  <p>
+! The first production is used for named local static objects
+! and class/enumeration types,
+  which are identified by their declared names.
+  The &lt;<i>entity</i> name> may itself be a compound name,
+  but it is relative to the closest enclosing function,
+  i.e. none of the components of the function encoding appear in the entity name.
+  It is possible to have nested function scopes,
+***************
+*** 4593,4619 ****
+  second and later occurrences of the same name within a single function.
+  In this case &lt;number> is n - 2,
+  if this is the nth occurrence, in lexical order, of the given name.
+  
+  <p>
+! The second production is used for string literals.
+! The discriminator is used only if there is more than one,
+! for the second and subsequent ones.
+! In this case &lt;number> is n - 2,
+  if this is the nth distinct string literal, in lexical order,
+  appearing in the function.
+  Multiple references to the same string literal produce one string
+  object with one name in the sequence.
+  <i>
+  Note that this assumes that the same string literal occurring twice
+  in a given function in fact represents a single entity,
+  i.e. has a unique address.
+  </i>
+  
+  <i>
+  <p>
+! For both named objects and string literals,
+  the numbering order is strictly lexical order based on the original
+  token sequence.
+  All objects occurring in that sequence are to be numbered,
+  even if subsequent optimization makes some of them unnecessary.
+  The ordering of literals appearing in a mem-initializer-list shall be
+--- 4601,4665 ----
+  second and later occurrences of the same name within a single function.
+  In this case &lt;number> is n - 2,
+  if this is the nth occurrence, in lexical order, of the given name.
+  
+  <p>
+! The second production is used similarly for unnamed class or
+! enumeration types.  
+! The discriminator is used only if there is more than one of these types
+! in a function, for the second and subsequent ones.
+! In this case &lt;number> is n - 2, if this is the nth distinct unnamed
+! type, in lexical order, appearing in the function.
+! <p>
+! The third production is used for string literals.
+! Again, the discriminator is used only if there is more than one
+! in a function, for the second and subsequent ones.
+! &lt;number> is n - 2,
+  if this is the nth distinct string literal, in lexical order,
+  appearing in the function.
+  Multiple references to the same string literal produce one string
+  object with one name in the sequence.
+  <i>
+  Note that this assumes that the same string literal occurring twice
+  in a given function in fact represents a single entity,
+  i.e. has a unique address.
+  </i>
++ <p>
++ A lambda closure type may require encoding if:
++ <ul>
++ <li>the lambda appears in the initializer of a static data member of
++     an instance of a class template or a nested class thereof, or</li>
++ <li>the lambda appears in a function
++     (but not in a local class of that function), or</li>
++ <li>the lambda appears in a class definition (e.g., a default argument
++     of a member function, if that default argument is specified inside
++     the class definition).</li>
++ </ul>
++ In the first two cases, the encoding for the closure type is as follows:
++ <code><pre><font color=blue>  &lt;closure-type-encoding> ::= Z &lt;<i>parent entity</i> encoding> E l &lt;<i>operator()</i> bare-function-type> [&lt;discriminator>]
++ </font></pre></code>
++ where <i>parent entity</i> is the static data member in the first case,
++ or the closest enclosing function in the second case.
++ 
++ In the third case (the lambda appears in the definition of a class),
++ the closure type is encoded as follows:
++ <code><pre><font color=blue>  &lt;closure-type-encoding> ::= Z &lt;<i>parent</i> type> E l &lt;<i>operator()</i> bare-function-type> [&lt;discriminator>]
++ </font></pre></code>
++ where &lt;<i>parent</i> type> is the encoding for the closest enclosing
++ class definition.
++ 
++ The discriminator is used for only the second or later occurrence of a
++ lambda whose closure type has the same
++  &lt;<i>parent entity</i> encoding>/&lt;<i>parent</i> type>
++ and the same &lt<i>operator()</i> bare-function-type>. 
++ &lt;number> is n - 2,
++ if this is the nth occurrence, in lexical order, of such a lambda.
++ 
+  
+  <i>
+  <p>
+! In all these cases,
+  the numbering order is strictly lexical order based on the original
+  token sequence.
+  All objects occurring in that sequence are to be numbered,
+  even if subsequent optimization makes some of them unnecessary.
+  The ordering of literals appearing in a mem-initializer-list shall be
+***************
+*** 4625,4635 ****
+  including the same code were compiled by different compilers,
+  and multiple entities requiring mangling had the same name.
+  </i>
+  
+  <p>
+! For static objects in constructors and destructors,
+  the mangling of the complete object constructor or destructor is used
+  as the base function name, i.e. the C1 or D1 version.
+  This yields mangled names that are consistent across the versions.
+  
+  <p>
+--- 4671,4682 ----
+  including the same code were compiled by different compilers,
+  and multiple entities requiring mangling had the same name.
+  </i>
+  
+  <p>
+! For local entities whose closest enclosing function is a
+! constructor or destructor,
+  the mangling of the complete object constructor or destructor is used
+  as the base function name, i.e. the C1 or D1 version.
+  This yields mangled names that are consistent across the versions.
+  
+  <p>
+***************
+*** 4881,4894 ****
+  and whether they are inline or out-of-line copies,
+  may reference static data or character string literals,
+  that must be kept in common among all copies
+  by using the local symbol mangling defined above.
+  These objects are named according to the rules for local names in the
+! <a href=#mangling-scope> Scope Encoding </a> section above,
+  and the definition of each is emitted in a COMDAT group,
+  identified by the symbol name described in the
+! <a href=#mangling-scope> Scope Encoding </a> section above.
+  Each COMDAT group must be emitted in any object with references
+  to the symbol for the object it contains, whether inline or out-of-line.
+  
+  <p>
+  Some objects with static storage duration have associated guard variables
+--- 4928,4943 ----
+  and whether they are inline or out-of-line copies,
+  may reference static data or character string literals,
+  that must be kept in common among all copies
+  by using the local symbol mangling defined above.
+  These objects are named according to the rules for local names in the
+! <a href=#mangling-scope> Scope Encoding and Closure Types</a>
+! section above,
+  and the definition of each is emitted in a COMDAT group,
+  identified by the symbol name described in the
+! <a href=#mangling-scope> Scope Encoding and Closure Types</a>
+! section above.
+  Each COMDAT group must be emitted in any object with references
+  to the symbol for the object it contains, whether inline or out-of-line.
+  
+  <p>
+  Some objects with static storage duration have associated guard variables

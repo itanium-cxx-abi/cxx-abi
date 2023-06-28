@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Transfer modes for parameters and return values
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Transfer%20modes%20for%20parameters%20and%20return%20values&In-Reply-To=%3CCAGL0aWdTEeR%3DvjyXc9dWv0WLuMpGr4e0A2-rwzD_%2BsxUL-mAow%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002522.html">
+   <LINK REL="Next"  HREF="002521.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Transfer modes for parameters and return values</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Transfer%20modes%20for%20parameters%20and%20return%20values&In-Reply-To=%3CCAGL0aWdTEeR%3DvjyXc9dWv0WLuMpGr4e0A2-rwzD_%2BsxUL-mAow%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Transfer modes for parameters and return values">richardsmith at google.com
+       </A><BR>
+    <I>Thu Dec  6 23:30:42 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002522.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+        <LI>Next message: <A HREF="002521.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2520">[ date ]</a>
+              <a href="thread.html#2520">[ thread ]</a>
+              <a href="subject.html#2520">[ subject ]</a>
+              <a href="author.html#2520">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We also have a minor ABI incompatibility between C++03 and C++11 due to the
+change to use the selected constructor when determining triviality of a
+copy constructor:
+
+struct A {
+  template&lt;typename T&gt; A(T&amp;);
+};
+struct B {
+  mutable A a;
+};
+
+B has a trivial copy constructor in C++03, but a non-trivial copy
+constructor in C++11.
+
+On Tue, Nov 27, 2012 at 12:17 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt;wrote:
+
+&gt;<i> On Tue, Nov 27, 2012 at 5:47 AM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> On 11/26/2012 04:09 PM, Richard Smith wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Suggestion for core language:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> This is probably best discussed further on the core reflector.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>  When an object of class type C is passed to or returned from a function,
+</I>&gt;&gt;&gt;<i> if C has a trivial, accessible copy or move constructor that is not
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I don't think we want to check accessibility; the calling convention for
+</I>&gt;&gt;<i> a type needs to be the same no matter where it's called from, and I think
+</I>&gt;&gt;<i> it's fine for the compiler to use a private trivial copy constructor that
+</I>&gt;&gt;<i> isn't deleted.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The suggested ABI change requires a public constructor, not just an
+</I>&gt;<i> accessible one. I don't think it's OK to synthesize calls to private
+</I>&gt;<i> trivial copy constructors; such things might just be implementation details
+</I>&gt;<i> of the class:
+</I>&gt;<i>
+</I>&gt;<i> class A {
+</I>&gt;<i> public:
+</I>&gt;<i>   enum Kind { ... };
+</I>&gt;<i>   A(const A &amp;a, Kind k) : A(a) {
+</I>&gt;<i>     if (p == &amp;a) p = this;
+</I>&gt;<i>     this-&gt;k = k;
+</I>&gt;<i>     clog() &lt;&lt; &quot;Created A at address &quot; &lt;&lt; this &lt;&lt; endl;
+</I>&gt;<i>   }
+</I>&gt;<i> private:
+</I>&gt;<i>   // Synthesize a copy constructor for use *only* in our own constructors
+</I>&gt;<i>   A(const A&amp;) = default;
+</I>&gt;<i>   void *p;
+</I>&gt;<i>   Kind k;
+</I>&gt;<i>   // ...
+</I>&gt;<i> };
+</I>&gt;<i>
+</I>&gt;<i> I would be fine with restricting the core language change to only apply to
+</I>&gt;<i> classes with public copy/move constructors.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>  deleted, and has no non-trivial copy constructors, move constructors,
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Incidentally, if we're making this latitude explicit, we don't
+</I>&gt;&gt;<i> necessarily need to involve move constructors at all.  I don't have much of
+</I>&gt;&gt;<i> an opinion either way.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> There aren't many cases which would be affected by this, but some form of
+</I>&gt;<i> owning wrapper for a value (with a deleted copy constructor, a trivial move
+</I>&gt;<i> constructor and a trivial destructor) seems plausible, and there seems to
+</I>&gt;<i> be no good reason to require it to be passed by address, so I'm weakly in
+</I>&gt;<i> favor of handling move constructors here too.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>  nor destructors, implementations are permitted to perform an additional
+</I>&gt;&gt;&gt;<i> copy or move of the object using the trivial constructor (even if it
+</I>&gt;&gt;&gt;<i> would not be selected by overload resolution to perform a copy or move
+</I>&gt;&gt;&gt;<i> of the object). [Note: This latitude is granted to allow objects of
+</I>&gt;&gt;&gt;<i> class type to be passed to or returned from functions in registers --
+</I>&gt;&gt;&gt;<i> end note]
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I think when we added implicit move constructors we decided against
+</I>&gt;&gt;<i> talking about &quot;copy or move&quot; of an object, since moving is a special case
+</I>&gt;&gt;<i> of copying.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> I picked this wording to match the &quot;A class object can be copied or moved
+</I>&gt;<i> in two ways&quot; in [class.copy]p1, but this seems fine to me either way.
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121206/4b61d296/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121206/4b61d296/attachment.html</A>&gt;
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002522.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+	<LI>Next message: <A HREF="002521.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2520">[ date ]</a>
+              <a href="thread.html#2520">[ thread ]</a>
+              <a href="subject.html#2520">[ subject ]</a>
+              <a href="author.html#2520">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

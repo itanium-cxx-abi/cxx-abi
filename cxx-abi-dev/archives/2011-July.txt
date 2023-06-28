@@ -1,0 +1,143 @@
+From rjmccall at apple.com  Fri Jul  1 00:40:44 2011
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 30 Jun 2011 17:40:44 -0700
+Subject: Mangling unexpanded enclosing template parameter packs
+Message-ID: <61B55048-59A1-42AA-81C1-637744514195@apple.com>
+
+Building on my last obnoxious message to this list, I don't know how to mangle references to unexpanded template parameter packs from enclosing (class) templates.
+
+Normally, template parameters from enclosing templates are mangled as what they expanded to (although it isn't clear what to do for the base of an unresolved-name;  see my previous email).  For the most part, there's nothing stopping this from applying to template parameter packs, either.  However, if a variadic function template is contained within a variadic class template, and the function's signature contains a pack expansion which simultaneously expands parameter packs from the function and some enclosing level, then we can't actually independently expand the packs;  or rather, there's a simultaneous expansion of both levels.
+
+This breaks down into five different cases for the mangler.
+
+1.  Non-type template parameters outside of an unresolved-name.
+
+template <unsigned N...> class A {
+  template <class T...> void foo(T(&param)[N]...);
+};
+
+2.  Type template parameters outside of an unresolved-name.
+
+template <class U...> class A {
+  template <class T...> void foo(T(&param)(U)...);
+};
+
+3.  Template template parameters outside of an unresolved-name.
+
+template <template <class> class U...> class A {
+  template <class T...> void foo(U<T> &param...);
+};
+
+4.  Type template parameters as the base of an unresolved-name.
+
+template <class U...> class A {
+  template <class T...> void foo(decltype(U::foo(T()) param...);
+};
+
+5.  Template template parameters as the base of an unresolved-name.
+
+template <template <class> class U...> class A {
+  template <class T...> void foo(decltype(U<T>::foo) param...);
+};
+
+(1), (2), and (3) are all basically the same problem, to which I see two families of solutions.
+
+[A].  Invent some mangling for a reference to an enclosing template parameter pack:
+[A.i]. template-param meets function-param
+  enclosing-template-param ::= TL <L-1 non-negative number> __
+  enclosing-template-param ::= TL <L-1 non-negative number> _ <parameter-2 non-negative number> _
+[A.ii]. a pack of all the actual template args
+  enclosing-template-param-pack ::= ?
+[B].  Expand the pack with "holes" for the unexpanded paramters.  These unexpanded holes cannot just be mangled as template-params because of a potential ambiguity with nested expansions, but a parallel mangling would suffice.
+
+I propose that we use [A.i].  Both [B] and (to a lesser extent) [A.ii] would significantly inflate the manglings.  [A.i] is compact, and it also gives us an obvious way to mangle (4) and (5), which we could even use for the non-variadic cases covered in my last email.
+
+We would still use fully-expanded manglings for non-unresolved-name pack expansions that do not expand packs from the function template being mangled.
+
+John.
+
+
+From jason at redhat.com  Sat Jul  2 03:44:20 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 01 Jul 2011 23:44:20 -0400
+Subject: Mangling 'this' in trailing-return-type
+Message-ID: <4E0E9414.5050108@redhat.com>
+
+Since DR 1207, we need to have a representation for uses of 'this' in a 
+trailing-return-type.  Perhaps "fpT"?
+
+Jason
+
+
+From jason at redhat.com  Mon Jul  4 14:32:06 2011
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 04 Jul 2011 10:32:06 -0400
+Subject: [cxx-abi-dev] Mangling 'this' in trailing-return-type
+In-Reply-To: <4E0E9414.5050108@redhat.com>
+References: <4E0E9414.5050108@redhat.com>
+Message-ID: <4E11CEE6.8020406@redhat.com>
+
+On 07/01/2011 11:44 PM, Jason Merrill wrote:
+> Since DR 1207, we need to have a representation for uses of 'this' in a
+> trailing-return-type. Perhaps "fpT"?
+
+So,
+
+struct B
+{
+   template <class U> U f();
+};
+
+struct A
+{
+   B b;
+   // implicitly rewritten to (*this).b.f<U>()
+   // _ZN1A1fIiEEDTcldtdtdefpT1b1fIT_EEEv
+   template <class U> auto f() -> decltype (b.f<U>());
+   // _ZN1A1gIiEEDTcldtptfpT1b1fIT_EEEv
+   template <class U> auto g() -> decltype (this->b.f<U>());
+};
+
+int main()
+{
+   A a;
+   a.f<int>();
+   a.g<int>();
+}
+
+
+From rjmccall at apple.com  Mon Jul  4 20:23:53 2011
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 04 Jul 2011 13:23:53 -0700
+Subject: [cxx-abi-dev] Mangling 'this' in trailing-return-type
+In-Reply-To: <4E11CEE6.8020406@redhat.com>
+References: <4E0E9414.5050108@redhat.com> <4E11CEE6.8020406@redhat.com>
+Message-ID: <5579483D-F7B0-41FD-811B-2A294274D9AA@apple.com>
+
+On Jul 4, 2011, at 7:32 AM, Jason Merrill wrote:
+> On 07/01/2011 11:44 PM, Jason Merrill wrote:
+>> Since DR 1207, we need to have a representation for uses of 'this' in a
+>> trailing-return-type. Perhaps "fpT"?
+> 
+> So,
+> 
+> struct B
+> {
+>  template <class U> U f();
+> };
+> 
+> struct A
+> {
+>  B b;
+>  // implicitly rewritten to (*this).b.f<U>()
+>  // _ZN1A1fIiEEDTcldtdtdefpT1b1fIT_EEEv
+>  template <class U> auto f() -> decltype (b.f<U>());
+>  // _ZN1A1gIiEEDTcldtptfpT1b1fIT_EEEv
+>  template <class U> auto g() -> decltype (this->b.f<U>());
+> };
+
+This looks good to me.
+
+John.
+
+

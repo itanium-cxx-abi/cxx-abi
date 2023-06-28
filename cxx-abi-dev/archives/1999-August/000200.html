@@ -1,0 +1,270 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> RTTI draft proposal
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20draft%20proposal&In-Reply-To=%3C37BC9BC7.21C71226%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000199.html">
+   <LINK REL="Next"  HREF="000205.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>RTTI draft proposal</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20RTTI%20draft%20proposal&In-Reply-To=%3C37BC9BC7.21C71226%40edg.com%3E"
+       TITLE="RTTI draft proposal">daveed at edg.com
+       </A><BR>
+    <I>Fri Aug 20 00:05:27 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000199.html">RTTI draft proposal
+</A></li>
+        <LI>Next message: <A HREF="000205.html">RTTI draft proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#200">[ date ]</a>
+              <a href="thread.html#200">[ thread ]</a>
+              <a href="subject.html#200">[ subject ]</a>
+              <a href="author.html#200">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jason Merrill wrote:
+&gt;<i> 
+</I>&gt;<i> &gt;&gt;&gt;&gt;&gt; Daveed Vandevoorde &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">daveed at edg.com</A>&gt; writes:
+</I>[...]
+&gt;<i>  &gt; Assuming that after linking and loading only one type_info structure is
+</I>&gt;<i>  &gt; active for any particular type symbol
+</I>&gt;<i> 
+</I>&gt;<i> We've found that we can't always rely on that, when people build shared
+</I>&gt;<i> libraries with -B symbolic.  So we fall back on strcmp of the mangled name.
+</I>
+Is there a -B symbolic option on IA-64? (Is it a base ABI issue, or can
+every vendor do what they please?) If so, that is quite unfortunate I 
+suppose. (Unless we cab &quot;escape&quot; from the -B somehow.)
+
+We then have the option that you suggest, or we can follow Sun's idea
+of using a strong hash (which is not 100% tight, but &quot;close enough&quot;).
+
+&gt;<i>  &gt; std::extended_type_info derives from std::type_info but adds no fields
+</I>&gt;<i>  &gt; to the latter; it is introduced solely to follow the suggestion of the
+</I>&gt;<i>  &gt; C++ standard.
+</I>&gt;<i> 
+</I>&gt;<i> That seems wrong; the idea of extended_type_info was supposed to extend the
+</I>&gt;<i> type_info API so that the user could access more information about
+</I>&gt;<i> classes.  Stuff like member lists and whatnot.  If we aren't doing anything
+</I>&gt;<i> like that, we shouldn't introduce extended_type_info.
+</I>
+This was suggested by the J16 core discussion list some time ago.
+I don't see it wrong either way; I cannot see it hurting either.
+
+&gt;<i>  &gt; 6. std::__qualifier_type_info is similar to std::__pointer_type_info but
+</I>&gt;<i>  &gt; describes top level qualifiers as in &quot;int const&quot; and &quot;char *const&quot;.
+</I>&gt;<i> 
+</I>&gt;<i> Where would this be used?  I included it in the G++ implementation, but
+</I>&gt;<i> have since come to the conclusion that it was a mistake.
+</I>
+How do you check qualification conversions when catching exceptions?
+
+&gt;<i>  &gt; 7. std::__class_type_info introduces a variable length structure.
+</I>&gt;<i>  &gt; The variable part that follows consists of a sequence of base class
+</I>&gt;<i>  &gt; descriptions having the following structure:
+</I>&gt;<i>  &gt;     struct std::__base_class_info {
+</I>&gt;<i>  &gt;        std::type_info *type; /* Null if unused. */
+</I>&gt;<i>  &gt;        std::ptrdiff_t offset;
+</I>&gt;<i>  &gt;        std::__base_class_index next; /* Hash table link. */
+</I>&gt;<i>  &gt;        int is_direct: 1;
+</I>&gt;<i>  &gt;        int is_floating: 1; /* I.e., virtual or base of virtual subobject. */
+</I>&gt;<i>  &gt;        int is_virtual: 1; /* Implies is_floating. */
+</I>&gt;<i>  &gt;        int is_shared: 1; /* Implies is_floating and the virtual subobject
+</I>&gt;<i>  &gt;                             appears on multiple derivation paths. */
+</I>&gt;<i>  &gt;        int is_accessible: 1;
+</I>&gt;<i>  &gt;        int is_ambiguous: 1;
+</I>&gt;<i>  &gt;     };
+</I>&gt;<i> 
+</I>&gt;<i> So you're proposing that we store the info about all bases in the type_info
+</I>&gt;<i> for a class, not just the info for direct bases? 
+</I>
+Yes. (The HP and EDG implementation chose that avenue.  I'm not sure what
+Sun does from reading Michael's mail, but my inference is that they do the
+same.)
+
+&gt;<i> That would certainly make
+</I>&gt;<i> upcasts (i.e. EH matching and cross dynamic_casts) faster, at the price of
+</I>&gt;<i> larger RTTI info.
+</I>
+Indeed.
+
+&gt;<i>  &gt;  The fixed length introduction adds the following fields to std::type_info:
+</I>&gt;<i>  &gt;   . a word with flags describing details about the class such as whether
+</I>&gt;<i>  &gt;     it is a class/struct/union and whether it is polymorphic.
+</I>&gt;<i> 
+</I>&gt;<i> Why?
+</I>
+Just my inclination of the moment.  I probably thought at some point that the
+&quot;polymorphic&quot; bit might be useful in the run-time support library, but that
+is not the case.
+
+&gt;<i>  &gt;   . a hashvalue that can be used for quick lookups in a variable length
+</I>&gt;<i>  &gt;     structure describing base classes.
+</I>&gt;<i> 
+</I>&gt;<i> How is this calculated/used?
+</I>
+I haven't made up my mind about its calculation.  I don't recall the HP's
+strategy, but it does have a slight historical burden as I recall.  You
+could hash the mangled name in some way.
+
+For its use: whenever you try to find a base of type &quot;T&quot; in a complete
+type &quot;C&quot;, you just search the list rooted at the entry whose subscript
+is INFO(T).hashvalue%INFO(T).base_table_size.  That speeds things up a
+bit.
+
+&gt;<i>  &gt;   . the number of base class descriptions that follow it (a power of two).
+</I>&gt;<i> 
+</I>&gt;<i> Why a power of two?
+</I>
+To make the modulo operation above faster.
+
+&gt;<i>  &gt; The dynamic_cast algorithm
+</I>&gt;<i>  &gt; --------------------------
+</I>&gt;<i>  &gt;   . If, in the most derived object pointed (referred) to by v, v points
+</I>&gt;<i>  &gt;     (refers) to a public base class sub-object of a T object [note: this can
+</I>&gt;<i>  &gt;     be checked at compile time], and if only one object of type T is derived
+</I>&gt;<i>  &gt;     from the sub-object pointed (referred) to by v, the result is a pointer
+</I>&gt;<i>  &gt;     (an lvalue referring) to that T object.
+</I>&gt;<i> 
+</I>&gt;<i> More precisely, we can check at compile time whether T has a unique base
+</I>&gt;<i> subobject of type typeof(*v).  We don't know anything about the true
+</I>&gt;<i> referent of v.
+</I>
+Darn.
+
+&gt;<i>  &gt;   . Otherwise, if v points (refers) to a public base class sub-object of the
+</I>&gt;<i>  &gt;     most derived object, and the type of the most derived object has an
+</I>&gt;<i>  &gt;     unambiguous public base class of type T, the result is a pointer (an
+</I>&gt;<i>  &gt;     lvalue referring) to the T sub-object of the most derived object.
+</I>&gt;<i>  &gt;   . Otherwise, the run-time check fails.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; The first check corresponds to a &quot;base-to-derived cast&quot; and the second to a
+</I>&gt;<i>  &gt; &quot;cross cast&quot;.  These tests are implemented by std::__dynamic_cast.
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;    void* std::__dynamic_cast(void *sub, std::__class_type_info *src,
+</I>&gt;<i>  &gt;                                         std::__class_type_info *dst,
+</I>&gt;<i>  &gt;                                         std::ptrdiff_t src2dst_offset) {
+</I>&gt;<i>  &gt;      // Pick up vtable pointer from given object:
+</I>&gt;<i>  &gt;      void *vptr = *(void**)sub;
+</I>&gt;<i>  &gt;      if (src2dst_offset&gt;=0 &amp;&amp; NO_VBASE(sub, vptr)) {
+</I>&gt;<i>  &gt;        // If the type of &quot;v&quot; was not an accessible nonvirtual base type of
+</I>&gt;<i>  &gt;        // &quot;T&quot;, src2dst_offset should have been set to -1 if it was an
+</I>&gt;<i>  &gt;        // accessible but floating base of &quot;T&quot; and to -2 if it was not at all
+</I>&gt;<i>  &gt;        // an accessible base of &quot;T&quot;.
+</I>&gt;<i>  &gt;        // In addition, the vtable should contain an entry to indicate that
+</I>&gt;<i>  &gt;        // the complete object has no virtual bases (e.g., a count of the
+</I>&gt;<i>  &gt;        // vbase locator entries).
+</I>&gt;<i>  &gt;        return (char*)sub+src2dst_offset;
+</I>&gt;<i> 
+</I>&gt;<i> What about the case where v doesn't point to a base subobject of T at all,
+</I>&gt;<i> even though the compile time check says it could?  Consider
+</I>&gt;<i> 
+</I>&gt;<i>   struct V;
+</I>&gt;<i>   struct T: public V;
+</I>&gt;<i>   struct A: public V;
+</I>&gt;<i>   struct B: public A, public T;
+</I>&gt;<i> 
+</I>&gt;<i>   B b;
+</I>&gt;<i>   V* v = (V*)(A*)&b;
+</I>&gt;<i>   dynamic_cast&lt;T*&gt;(v);
+</I>&gt;<i> 
+</I>&gt;<i> The static check says this could be a downcast, but it's really a cross-cast.
+</I>
+Ah yes, you mentioned it last time but I hadn't grasped it at the time.
+So the algorithm needs to be modified.
+
+&gt;<i> Who passes in src2dst_offset?
+</I>
+The compiler.
+
+&gt;<i> In a typical downcast, the offset from src to dst will be negative.
+</I>
+Is the architecture biased? I.e., do we care about the sign convention for this value?
+
+&gt;<i>  &gt;      } else {
+</I>&gt;<i>  &gt;        // Slower case
+</I>&gt;<i>  &gt;        void *result = 0;
+</I>&gt;<i>  &gt;        if (src2dst_offset==-1) {
+</I>&gt;<i>  &gt;          // Possibly a &quot;floating&quot; base-to-derived cast:
+</I>&gt;<i>  &gt;          result = floating_base2derived(sub, src, dst);
+</I>&gt;<i>  &gt;        }
+</I>&gt;<i>  &gt;        if (result==0) {
+</I>&gt;<i>  &gt;          // The base-to-derived case did not succeed, so we should attempt
+</I>&gt;<i>  &gt;          // the cross-cast (which is really a derived-to-base cast from the
+</I>&gt;<i>  &gt;          // complete object):
+</I>&gt;<i>  &gt;          result = derived2base(complete, dst);
+</I>&gt;<i>  &gt;        }
+</I>&gt;<i>  &gt;      }
+</I>&gt;<i>  &gt;      return result;
+</I>&gt;<i>  &gt;    }
+</I>&gt;<i> 
+</I>&gt;<i> Where are the defns of floating_base2derived and derived2base?
+</I>
+Handwaving &lt;g&gt;.
+
+&gt;<i>  &gt; The exception handler matching algorithm
+</I>&gt;<i>  &gt; ----------------------------------------
+</I>&gt;<i> 
+</I>&gt;<i>  &gt;    bool __eh_match(std::type_info *thrown_type,
+</I>&gt;<i>  &gt;                    std::type_info *handled_type) {
+</I>&gt;<i>  &gt;      if (thrown_type == handled_type) {
+</I>&gt;<i>  &gt;        return true;
+</I>&gt;<i>  &gt;      } else if (IS_REFTYPE(handled_type)) {
+</I>&gt;<i>  &gt;        std::type_info *caught_type = REMOVE_REFTYPE(handled_type);
+</I>&gt;<i>  &gt;        if (IS_CVQUAL(caught_type)) {
+</I>&gt;<i>  &gt;          caught_type = REMOVE_CVQUAL(caught_type);
+</I>&gt;<i>  &gt;        }
+</I>&gt;<i>  &gt;        return thrown_type==caught_type;
+</I>&gt;<i> 
+</I>&gt;<i> We do derived-to-base conversions for non-pointers, too.
+</I>
+YAB (yet another bug).
+
+[...]
+&gt;<i> FWIW, g++ turns all dynamic_casts into upcasts, using the original pointer
+</I>&gt;<i> for disambiguation.  I'm not yet convinced that there's a good way to
+</I>&gt;<i> accelerate downcasts.
+</I>
+I'm afraid you may be right.  Except perhaps that checking if a base
+of type T is at the offset guessed by the base-to-derived cast may
+be more efficient than a full-fledged complete-to-base conversion.
+
+	Daveed
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000199.html">RTTI draft proposal
+</A></li>
+	<LI>Next message: <A HREF="000205.html">RTTI draft proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#200">[ date ]</a>
+              <a href="thread.html#200">[ thread ]</a>
+              <a href="subject.html#200">[ subject ]</a>
+              <a href="author.html#200">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

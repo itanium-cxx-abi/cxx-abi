@@ -1,0 +1,465 @@
+From daveed at edg.com  Thu May  6 19:48:22 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 6 May 2010 15:48:22 -0400
+Subject: Parameter references in function types
+Message-ID: <D7C64F55-F8D1-4728-9658-1D66D738544F@edg.com>
+
+When mangling the signature of a template like:
+
+	template<class T> auto f(T p)->decltype(*p);
+
+we need a mechanism to describe the reference to "p".
+
+Currently, the ABI says:
+
+	"Function parameters referenced in a late-specified return type are handled similarly:
+	
+	
+	  <function-param> ::= fp_	# first function parameter
+			   ::= fp <parameter-2 non-negative number> _
+	"
+
+Unfortunately, this doesn't take into account that multiple levels of function declarators may be in flight.  E.g.:
+
+	template<class T, class U> void f(T p, decltype(p)(*)(U p));          // (1)
+and
+	template<class T, class U> void f(T p, auto (*)(U p)->decltype(p));   // (2)
+
+should produce different mangled names, but the "parameter number" is the same in both cases.
+
+
+I'd therefore like to propose the following change.
+
+Let L be the number of function prototype scopes from the innermost one (in which the parameter reference occurs) up to (and including) the one containing the declaration of the referenced parameter.  If the parameter declaration clause of the innermost function prototype scope has been completely seen, it is not counted (in that case -- which is perhaps the most common -- L can be zero).
+
+If L is zero, keep the encoding above ("fp...").  If L is larger than zero, use the following production instead:
+
+	  <function-param> ::= fL <L-1 non-negative number> p_	# first function parameter
+			   ::= fL <L-1 non-negative number> p <parameter-2 non-negative number> _
+
+Example (2) above would remain unchanged (parameter code "fp_"), but (1) would have L == 1 and the parameter code would therefore be "fL0p_".
+
+Other examples:
+	template<class T> void f(T p, decltype(p));                // L = 1
+	template<class T> void g(T p, decltype(p) (*)());          // L = 1
+	template<class T> void h(T p, auto (*)()->decltype(p));    // L = 1
+	template<class T> void i(T p, auto (*)(T q)->decltype(q)); // L = 0
+	template<class T> void j(T p, auto (*)(decltype(p))->T);   // L = 2
+	template<class T> void k(T p, int (*(*)(T p))[sizeof(p)]); // L = 1
+
+
+	Daveed
+
+
+
+
+From daveed at edg.com  Thu May  6 20:32:17 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 6 May 2010 16:32:17 -0400
+Subject: Magical type trait operators
+Message-ID: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com>
+
+The C++0x standard library has metaprogramming facilities (like the std::is_convertible) that require "magical" support from the compiler.  The principal implementations seem to have converged on nearly-identical "operators" for this.  E.g., std::is_convertible is typically implemented with an operator __is_convertible_to(T, U).
+
+Now, I _think_ that if code is written only in terms of the standard templates, the operator invocations won't appear in ABI signatures, but I'd like confirmation of that.
+
+Even so, would it be worthwhile to specify what the magical operators are, and how they are mangled?
+
+Here is an example to illustrate:
+
+	struct A {
+	  A();
+	  A(A const&);
+	  ~A();
+	  operator int();
+	};
+	template<class T> auto f(T p)->decltype(__is_convertible_to(T, int) ? p : 0) {
+	  return p;
+	}
+	int main() {
+	  A a;
+	  f(a);
+	}
+
+
+
+
+	Daveed
+
+
+
+From howard.hinnant at gmail.com  Thu May  6 21:27:15 2010
+From: howard.hinnant at gmail.com (Howard Hinnant)
+Date: Thu, 6 May 2010 17:27:15 -0400
+Subject: [cxx-abi-dev] Magical type trait operators
+In-Reply-To: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com>
+References: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com>
+Message-ID: <40F14321-EC05-4EB2-B52F-86BDBC331C8C@twcny.rr.com>
+
+On May 6, 2010, at 4:32 PM, David Vandevoorde wrote:
+
+> The C++0x standard library has metaprogramming facilities (like the std::is_convertible) that require "magical" support from the compiler.  The principal implementations seem to have converged on nearly-identical "operators" for this.  E.g., std::is_convertible is typically implemented with an operator __is_convertible_to(T, U).
+> 
+> Now, I _think_ that if code is written only in terms of the standard templates, the operator invocations won't appear in ABI signatures, but I'd like confirmation of that.
+> 
+> Even so, would it be worthwhile to specify what the magical operators are, and how they are mangled?
+> 
+> Here is an example to illustrate:
+> 
+> 	struct A {
+> 	  A();
+> 	  A(A const&);
+> 	  ~A();
+> 	  operator int();
+> 	};
+> 	template<class T> auto f(T p)->decltype(__is_convertible_to(T, int) ? p : 0) {
+> 	  return p;
+> 	}
+> 	int main() {
+> 	  A a;
+> 	  f(a);
+> 	}
+> 
+
+Here is a straw-man I wrote up several years ago.  And it has been that long since I looked at it.  It needs updating to the current list of traits (e.g. is_constructible).
+
+http://home.roadrunner.com/~hinnant/builtin_traits.html
+
+-Howard
+
+
+
+From jason at redhat.com  Fri May  7 02:23:17 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 06 May 2010 22:23:17 -0400
+Subject: [cxx-abi-dev] Magical type trait operators
+In-Reply-To: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com>
+References: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com>
+Message-ID: <4BE37995.5050004@redhat.com>
+
+On 05/06/2010 04:32 PM, David Vandevoorde wrote:
+> The C++0x standard library has metaprogramming facilities (like the std::is_convertible) that require "magical" support from the compiler.  The principal implementations seem to have converged on nearly-identical "operators" for this.  E.g., std::is_convertible is typically implemented with an operator __is_convertible_to(T, U).
+>
+> Now, I _think_ that if code is written only in terms of the standard templates, the operator invocations won't appear in ABI signatures, but I'd like confirmation of that.
+
+That is correct; the signatures show the standard library types.
+
+> Even so, would it be worthwhile to specify what the magical operators are, and how they are mangled?
+
+That seems to me to be an unnecessary constraint on implementors. 
+Currently G++ just refuses to mangle these operators.
+
+Jason
+
+
+From mark at codesourcery.com  Fri May  7 02:33:56 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 06 May 2010 19:33:56 -0700
+Subject: [cxx-abi-dev] Magical type trait operators
+In-Reply-To: <4BE37995.5050004@redhat.com>
+References: <9D2054E1-7387-4E5B-8604-2DAC4D12FC08@edg.com> <4BE37995.5050004@redhat.com>
+Message-ID: <4BE37C14.4060200@codesourcery.com>
+
+Jason Merrill wrote:
+
+>> Even so, would it be worthwhile to specify what the magical operators
+>> are, and how they are mangled?
+> 
+> That seems to me to be an unnecessary constraint on implementors.
+
+I agree.  I don't think we need to standardize down to this level.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From kledzik at apple.com  Fri May 14 00:20:09 2010
+From: kledzik at apple.com (Nick Kledzik)
+Date: Thu, 13 May 2010 17:20:09 -0700
+Subject: platform c++ abi additions
+Message-ID: <484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4@apple.com>
+
+I'm exploring adding some new interfaces (described below) to Apple's  
+implementation of the C++ ABI.  If there is no interest here in adding  
+these to the base C++ ABI, we can add them in a new namespace like  
+__cxxabiapple (instead of __cxxabiv1).
+
+As you may have heard, llvm.org is working on a new C++ library  
+implementation <http://libcxx.llvm.org/>.  Apple would like to release  
+a shared library version of this library (libc++.dylib) in parallel  
+with the existing gcc based C++ library (libstc++.dylib).   In order  
+to allow these libraries to inter-operate, we plan to factor out the C+ 
++ ABI parts of libstdc++.dylib into a stand alone library (libc+ 
++abi.dylib) which will then be used by the higher level C++ libraries.
+
+But there are a few extra things we need in libc++abi.dylib (beyond  
+what the current ABI specifies) to support multiple C++ libraries.  I  
+wanted to explain our current implementation to see if this might lead  
+to future issues:
+
+1) std::set_terminate(), std::set_unexpected(), and  
+std::set_new_handler() assume there is one process wide global holding  
+the current handler.   To support this we are adding three global  
+variables to libc++abi.dylib:  __cxa_terminate_handler,  
+__cxa_unexpected_handler, and __cxa_new_handler.   The two C++  
+libraries atop libc++abi.dylib will use these global variables instead  
+of having their own copy.
+
+2) C++ 0x introduces std::exception_ptr.  Two years ago on this list,  
+Sebastian Redl outlined <http://www.codesourcery.com/archives/cxx-abi-dev/msg01924.html 
+ > a way to support exception_ptr by adding a field to __cxa_exception  
+and add a similar __cxa_dependent_exception struct.   This  
+implementation works, but it exposes some inner workings of libc+ 
++abi.dylib.  It is the only use of __cxa_exception needed in the  
+higher level C++ libraries. To provide better encapsulation, we've  
+created a procedural interface in  libc++abi.dylib for use by  
+exception_ptr:
+
+   extern void * __cxa_current_primary_exception() throw();
+   extern void __cxa_rethrow_primary_exception(void* primary_exception);
+   extern void __cxa_increment_exception_refcount(void*  
+primary_exception) throw();
+   extern void __cxa_decrement_exception_refcount(void*  
+primary_exception) throw();
+
+These make the implementation of exception_ptr trivial:
+
+   exception_ptr::~exception_ptr()  {
+       __cxa_decrement_exception_refcount(__ptr_);
+   }
+
+   exception_ptr::exception_ptr(const exception_ptr& other)   : __ptr_ 
+(other.__ptr_) {
+       __cxa_increment_exception_refcount(__ptr_);
+   }
+
+   std::exception_ptr std::current_exception() {
+   	return exception_ptr(__cxa_current_primary_exception());
+   }
+
+   void std::rethrow_exception(exception_ptr p)  {
+	__cxa_rethrow_primary_exception(p.__ptr_);
+       std::terminate();
+   }
+
+3) Lastly, the only use of __cxa_globals in the higher level C++  
+libraries is to implement std::uncaught_exception().  To keep  
+__cxa_globals (like __cxa_exception) private to  libc++abi.dylib,  
+we've added a new function:
+
+     extern bool __cxa_uncaught_exception() throw();
+
+These new entry points will be in Apple's <cxxabi.h>.  Is there any  
+model for platform specific additions to the C++ ABI like these?
+
+-------------
+Nick Kledzik
+Apple Inc.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100513/6e197263/attachment.html>
+
+From jason at redhat.com  Fri May 14 19:45:29 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 14 May 2010 15:45:29 -0400
+Subject: [cxx-abi-dev] platform c++ abi additions
+In-Reply-To: <484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4@apple.com>
+References: <484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4@apple.com>
+Message-ID: <4BEDA859.6030209@redhat.com>
+
+On 05/13/2010 08:20 PM, Nick Kledzik wrote:
+> As you may have heard, llvm.org <http://llvm.org/> is working on a new
+> C++ library implementation <http://libcxx.llvm.org/>. Apple would like
+> to release a shared library version of this library (libc++.dylib) in
+> parallel with the existing gcc based C++ library (libstc++.dylib). In
+> order to allow these libraries to inter-operate, we plan to factor out
+> the C++ ABI parts of libstdc++.dylib into a stand alone library
+> (libc++abi.dylib) which will then be used by the higher level C++ libraries.
+
+I think that's the wrong division.  The GNU library is divided into the 
+language-support bits (clause 18 + ABI) and the rest of the library.  So 
+a program written for a freestanding implementation can just link 
+against libsupc++ and ignore the rest of the library.
+
+> 1) std::set_terminate(), std::set_unexpected(), and
+> std::set_new_handler() assume there is one process wide global holding
+> the current handler. To support this we are adding three global
+> variables to libc++abi.dylib: __cxa_terminate_handler,
+> __cxa_unexpected_handler, and __cxa_new_handler. The two C++ libraries
+> atop libc++abi.dylib will use these global variables instead of having
+> their own copy.
+
+We put those standard functions in libsupc++, so there's no need for 
+global variables.
+
+> 2) C++ 0x introduces std::exception_ptr.
+
+ > 3) Lastly, the only use of __cxa_globals in the higher level C++
+ > libraries is to implement std::uncaught_exception(). To keep
+
+Likewise, all the EH code is in libsupc++.
+
+Currently libsupc++ is linked into libstdc++, so it isn't really 
+user-visible as a separate library, but that could change.
+
+Jason
+
+
+From mark at codesourcery.com  Fri May 14 19:53:09 2010
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 14 May 2010 12:53:09 -0700
+Subject: [cxx-abi-dev] platform c++ abi additions
+In-Reply-To: <4BEDA859.6030209@redhat.com>
+References: <484BD0A8-D23D-47CE-B6C9-F1C8F77B3CB4@apple.com> <4BEDA859.6030209@redhat.com>
+Message-ID: <4BEDAA25.6020806@codesourcery.com>
+
+Jason Merrill wrote:
+
+> Currently libsupc++ is linked into libstdc++, so it isn't really
+> user-visible as a separate library, but that could change.
+
+Indeed.  In fact, in some of our products we do separate the two, in
+part so that people can use G++ with other implementations of
+<iostream>, <vector>, etc.; for example, some users G++ with the
+Dinkumware run-time libraries in this configuration.  So, I don't see
+why Apple couldn't do the same thing; layer its library atop libsupc++.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From mjh at edg.com  Tue May 18 00:20:40 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 17 May 2010 20:20:40 -0400
+Subject: Decltype mangling and type dependency
+Message-ID: <2F237739-F481-47B4-A46B-2CA55232C243@edg.com>
+
+Jason has added many new rules to support the mangling of expressions in decltypes, and I'd like to get some clarification on how and when to apply some of these new rules.
+
+Generally speaking, the idea is to provide a mangling for entities that don't have a "describable" type (https://www.codesourcery.com/archives/cxx-abi-dev/msg01984.html).  In that vein, rules were added to <expression> to handle cases such as:
+
+  struct A {
+    int m;
+  } *pa;
+  int f(void);
+  template <class T> auto f1(T p1) -> decltype(p1->m); // _Z2f1IP1AEDtptfp_1mET_
+  template <class T> auto f2(T p1) -> decltype(p1());  // _Z2f2IPFivEEDTclfp_EET_
+  int main() {
+    f1(pa);
+    f2(f);
+  }
+
+As a general rule, expressions (that appear in decltype/sizeof/alignof) with dependent types are mangled in full (using the newly added rules), while expressions with non-dependent types simply use the expression type.
+
+But what about these similar cases:
+
+  struct A {
+    int m;
+  } *pa;
+  int f(void);
+  template <class T> auto f1(T p1) -> decltype(pa->m); // _Z2f1IP1AEDtptL_Z2paE1mET_ or _Z2f1IP1AEiT_?
+  template <class T> auto f2(T p1) -> decltype(f());   // _Z2f2IPFivEEDTclL_Z1fvEEET_ or _Z2f2IPFivEEiT_?
+  int main() {
+    f1(pa);
+    f2(f);
+  }
+
+Since the types of pa->m and f are non-dependent, is it required to mangle these with the full decltype expression mangling (as g++ 4.5 currently does)?
+
+Here are some other interesting cases:
+
+  #include <typeinfo>
+  struct A {
+    A();
+    A(int i);
+    int m;
+  } a;
+  int f();
+  template <class T> auto f1(T p1) -> decltype(p1);
+  template <class T> auto f2(T p1) -> decltype(A(p1));
+  template <class T> auto f3(T p1) -> decltype(typeid(p1));
+  template <class T> auto f4(T p1) -> decltype(a.m);
+  template <class T> auto f5(T p1) -> decltype(a.A::m);
+  int main() {
+    f1(0);
+    f2(0);
+    f3(0);
+    f4(0);
+    f5(0);
+  }
+
+We believe f1, f2, and f3 require decltype manglings, while f4 and f5 do not (g++ 4.5 takes the opposite view on each of these).  Even though the typeid expression in f3 above is not type-dependent (always returning an lvalue of const std::type_info regardless of its argument), it can still be used in ways where a distinct mangling is required; for example:
+
+  template <class T> auto f(T p) -> decltype(g(typeid(p))) { ... }
+  template <class T> auto f(T p) -> decltype(g(typeid(*p))) { ... }
+
+Similarly, we believe that constructors can be used in ways that require a full dependent mangling, as shown by this "if it's valid, it always means one thing, but it might not be valid, which means new-style SFINAE could knock it out of the candidate set" example:
+
+  template <class T> auto f(T p) -> decltype(A(p)) { ... }
+  template <class T> auto f(T p) -> decltype(A(p, 5)) { ... }
+
+This seems to argue for a third designation, "partially-dependent", for cases where the expression type is non-dependent, but because of the new SFINAE rules, it can be distinguished by the programmer and therefore requires a distinct mangling (as though it were dependent).
+
+Mike Herrick
+Edison Design Group
+
+
+From mjh at edg.com  Thu May 20 14:13:32 2010
+From: mjh at edg.com (Mike Herrick)
+Date: Thu, 20 May 2010 10:13:32 -0400
+Subject: Mangling literals
+Message-ID: <FCEDA0C9-23A1-4579-995F-8978C65C38E6@edg.com>
+
+The ABI specification currently specifies how to mangle integer-literal (including boolean-literal and character-literal) as well as floating-literal but doesn't specify manglings for string-literal (outside of a function), pointer-literal, or user-defined-literal.
+
+The need to mangle such literals comes from cases like:
+
+ void *f(void *);
+ template <class T> auto f1(T p1) -> decltype(p1("xyz"));
+ template <class T> auto f2(T p1) -> decltype(p1(nullptr));
+ int main() {
+   f1(f);
+   f2(f);
+ }
+
+pointer-literal (which includes only nullptr) could be mangled using the integer case of <expr-primary> to produce a mangled encoding of "L Dn 0 E" (uses "Dn" as the <builtin-type> for std::nullptr_t from Daveed's latest proposal -- https://www.codesourcery.com/archives/cxx-abi-dev/msg02250.html).  Alternatively, a new <expr-primary> production could be added specifically for nullptr which would eliminate the superfluous "0 E" in this case, but we feel that having the zero makes this look more like a value as opposed to a type.  So we're proposing to use the existing integer mangling for this case.
+
+string-literals are currently given mangled names when they appear in inline or template functions (so that the address of the string will be the same across all instances).  Because string-literals aren't allowed as nontype template arguments, there's no mangled encoding specified for them.
+
+The first thought is to extend the unique numbering scheme currently used to identify string literals, but we're wondering if even that is necessary.  We're not sure that you can write a test case that can distinguish two functions in overload resolution if they differ only in the contents of two string literals.  For example, we need a mangling that differentiates between these:
+
+ template <class T> auto f(T p1) -> decltype(p1 == "xyz") { return true; }
+ template <class T> auto f(T p1) -> decltype(p1 == 0.0)  { return false; }
+ int main() {
+   return !f("xyz");
+ }
+
+but do we need to differentiate between these ambiguous cases:
+
+ template <class T> auto f(T p1) -> decltype(p1 == "xyz") { return true; }
+ template <class T> auto f(T p1) -> decltype(p1 == "abc") { return false; }
+ template <class T> auto f(T p1) -> decltype(p1 == "x")   { return false; }
+ int main() {
+   return !f("xyz");
+ }
+
+If not, then perhaps simply encoding the fact that a string literal was seen (and perhaps the character type) is sufficient.  For example, adding this to <expr-primary>:
+
+             ::= L <character type> E 	            # string literal
+
+which could be demangled as "...", L"...", u8"...", etc.
+
+user-defined-literals are left for another day (unless someone would like to make a proposal).
+
+Thoughts?
+
+Mike Herrick
+Edison Design Group
+

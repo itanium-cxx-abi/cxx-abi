@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call stuff, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000222135458E.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000650.html">
+   <LINK REL="Next"  HREF="000635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call stuff, again</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3C20000222135458E.mitchell%40codesourcery.com%3E"
+       TITLE="Virtual function call stuff, again">mark at codesourcery.com
+       </A><BR>
+    <I>Tue Feb 22 21:54:58 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000650.html">C implementations of the C++ ABI
+</A></li>
+        <LI>Next message: <A HREF="000635.html">Vtable index type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#637">[ date ]</a>
+              <a href="thread.html#637">[ thread ]</a>
+              <a href="subject.html#637">[ subject ]</a>
+              <a href="author.html#637">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Jason --
+
+Thanks to you, as well as Christophe, for helping to clear these
+things up.
+
+  &gt;&gt;&gt;&gt;&gt; Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; writes:
+
+   &gt;   o Suppose a class `A' defines a virtual function `A::f'.  The 
+   &gt;     primary vtable for `A' contains a pointer to an entry point
+   &gt;     that performs no adjustment.
+
+   &gt;   o Suppose that a class `A' declares a virtual function `A::f', 
+   &gt;     and suppose that `A' is a base class in a hierarchy dominated 
+   &gt;     by another class `B'.  Suppose that the unique final overrider for
+   &gt;     `A::f' in `B' is `C::f'.  We must determine what entry point
+   &gt;     is used for `f' in the `A-in-B' secondary vtable.  Here is the
+   &gt;     algorithm:
+
+   &gt;     - Find any path from `B' to `C' in the inheritance graph for `B'.
+
+   &gt;     - If there is no virtual base along the path, then create
+   &gt;       an entry point which adjusts the `this' pointer from `A' to `C'.
+   &gt;       This value can be computed statically when the `A-in-B' vtable
+   &gt;       is created.  Then transfer control to the non-adjusting entry
+   &gt;       point for `C::f'.
+
+   &gt;     - If there is a virtual base along this path, let `V' be the
+   &gt;       virtual base nearest to `C' along the path.  (In fact, `V'
+   &gt;       will be `C' itself if `C' is a virtual base.)
+
+  Rather, nearest to 'A'.
+
+How is that defined?  We're looking at paths between `B' and `C'.  But
+maybe I got that wrong, too?
+
+   &gt;       (Note that the choice of `V' is independent of the choice of path.
+   &gt;       If there was more than one path, then there must have been a
+   &gt;       virtual base along all of the paths, and there is a unique one
+   &gt;       closest to `C'.)
+
+  No; we're looking for the most-derived base subobject of which our A is a
+  non-virtual base, which is unique.
+
+Something is under-specified there.  (We're looking for something that
+is a virtual base, right?)  How, exactly, do we find `V'?  That's the
+part that still seems most unclear to me.
+
+   &gt;       Now, create an entry point which first performs the adjustment
+   &gt;       from `A' to `V'.  (This value can be computed statically, when
+   &gt;       the `A-in-B' vtable is created.)  Then, adjust the `this'
+   &gt;       pointer by the vcall offset stored in the secondary vtable for
+   &gt;       `V' (i.e., the `V-in-B' vtable).  (This adjustment will adjust
+   &gt;       the `this' pointer from `V' to `C'.)  Finally, transfer control
+   &gt;       to the non-adjusting entry point for `C::f'.
+
+  This is correct.
+
+Oh, good.  I got one right.
+
+   &gt;   It seems like the scheme specified in the ABI is advantageous in a
+   &gt; situation where `C' is the same as `A', and `A' is the same as `V'.
+   &gt; (In other words, if `A' is a virtual base and `A::f' is not overriden
+   &gt; in `B'.)  Then, by emitting the vcall-adjusting entry point right
+   &gt; before the main entry point for `C::f', calling `f' requires only one
+   &gt; branch (to the entry point specified in the vtable), rather than two
+   &gt; (to a thunk, and then from the thunk to the main function).  Right?
+
+  Hmm?  If C is the same as A, no adjustment is necessary at all, and the
+  vtable can point directly to the main function.
+
+Sorry -- I can't remember what I was thinking.  I'm sure I had an idea
+in there, but it's probably not important.
+
+  If C is different from A, but A is the same as V, then we need one entry
+  point directly before the main function, which adds the vcall offset and
+  falls through.
+
+  If C != A != V, and V overrides f, then we need one more entry point, so we
+  get:
+
+  A vtable entry point
+     adjusts the A* to a V* by a constant offset and falls through to
+  V vtable entry point
+     adjusts the V* to a C* by the vcall offset in the vtable and falls
+     through to
+  C::f
+
+How does that work if there is more than one `A'?  I understand that
+more than one `V' could be handled by having different vcall offsets
+for each `V'.
+
+   &gt;   I still can't see why it is a win to use vcall offsets in the case
+   &gt; where `A' and `V' are not the same class.  You already have to do one
+   &gt; static adjustment in the entry point -- why not just adjust all the
+   &gt; way to `B' directly, without bothering to look up the vcall offset?
+
+  Because the offset from A* to B* (or to C*) may change in the presence of
+  further derivation, requiring a third-party thunk (i.e. a thunk emitted
+  apart from the main function).  That's what we're going to all this trouble
+  to avoid.  We don't want to pay the price of that indirect jump, which is
+  quite high on modern architectures due to branch prediction and cache
+  locality problems.
+
+I understand the architecture issues.  Just struggling with the ABI
+solution to those issues. :-)
+
+   &gt;   Furthermore, the actual algorithm used to perform the adjustments
+   &gt; does not seem necessarily to be part of the ABI.  The layout of the
+   &gt; vtables is certainly part of the ABI.  But, if one compiler wants to
+   &gt; completely ignore the vcall offset entries in the vtables, and compute
+   &gt; the entire adjustment statically, shouldn't that be permitted by the
+   &gt; ABI, even though it might require one extra branch?  Surely that's
+   &gt; just a quality-of-implementation issue?
+
+  I suppose so, though I hope you won't do that for g++; users have been
+  complaining about the thunk penalty for some time, and the whole point of
+  this scheme is to eliminate it.
+
+Our first priority is to provide a conforming implementation.  I
+expect that will mean that we don't take full advantage of the new
+ABI.  But, the good news is that, because it's an ABI, we can take
+more advantage of it later and still link with things produced by
+earlier versions of the compiler.
+
+Basically, one I'm trying to nail down right now is exactly how the
+vcall offsets are calculated, where they go in the vtables, and so
+forth.  Those are the ABI issues, now that we've agreed that what the
+entry points actually do is up to the implementation.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000650.html">C implementations of the C++ ABI
+</A></li>
+	<LI>Next message: <A HREF="000635.html">Vtable index type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#637">[ date ]</a>
+              <a href="thread.html#637">[ thread ]</a>
+              <a href="subject.html#637">[ subject ]</a>
+              <a href="author.html#637">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

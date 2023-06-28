@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Clarification%3A%20behavior%20of%20__cxa_vec_delete3&In-Reply-To=%3C4149C15A.8010407%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001848.html">
+   <LINK REL="Next"  HREF="001851.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Clarification%3A%20behavior%20of%20__cxa_vec_delete3&In-Reply-To=%3C4149C15A.8010407%40codesourcery.com%3E"
+       TITLE="[cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3">mark at codesourcery.com
+       </A><BR>
+    <I>Thu Sep 16 16:37:46 UTC 2004</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001848.html">[cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3
+</A></li>
+        <LI>Next message: <A HREF="001851.html">Clarification: behavior of __cxa_vec_delete3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1849">[ date ]</a>
+              <a href="thread.html#1849">[ thread ]</a>
+              <a href="subject.html#1849">[ subject ]</a>
+              <a href="author.html#1849">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>scott douglass wrote:
+
+&gt;<i>On Wed, 2004-09-15 at 21:42, Mark Mitchell wrote:
+</I>&gt;<i>  
+</I>&gt;<i>
+</I>&gt;&gt;<i>This patch to the specification attempts to clarify the behavior of 
+</I>&gt;&gt;<i>_cxa_vec_delete3 by clarifying what it means to &quot;delete the space&quot; and 
+</I>&gt;&gt;<i>also by making it clear that the deallocation function must be called 
+</I>&gt;&gt;<i>even if the destructor for one of the array elements throws an 
+</I>&gt;&gt;<i>exception, as required by DR 353.
+</I>&gt;&gt;<i>    
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>_cxa_delete2 &amp; __cxa_delete3 both say &quot;If &lt;code&gt;dealloc&lt;/code&gt; throws an
+</I>&gt;<i>exception, the result is undefined.&quot;  Does &quot;the result is undefined&quot;
+</I>&gt;<i>mean &quot;the behavior is undefined&quot;?
+</I>&gt;<i>  
+</I>&gt;<i>
+</I>Yes, I think so.
+
+&gt;<i>Why is this?  If the destructor never throws an exception then I would
+</I>&gt;<i>expect any exception thrown by the deallocation function to just
+</I>&gt;<i>propagate.
+</I>&gt;<i>  
+</I>&gt;<i>
+</I>Yes, me too.  This is a corner case, since the standard ::operator 
+delete[] is declared to throw no exceptions.  I cannot, however, find 
+anything in the standard that forbids a class-specific ::operator 
+delete[] from throwing exceptions.
+
+&gt;<i>And, if both the destructor and deallocation function throw, should we
+</I>&gt;<i>do the normal thing for getting a second exception while cleaning up and
+</I>&gt;<i>go to std::terminate()?  DR 353 doesn't seem to give any guidance here.
+</I>&gt;<i>  
+</I>&gt;<i>
+</I>DR 353 itself does not, but I think that is the right thing to do.
+
+It is indeed what EDG will do in this situation, as shown with the 
+attached test program.
+
+G++ 3.4.1 is inconsistent.  It does not use __cxa_delete3, but the 
+inline code that it generates seems to ignore DR 353; it does not seem 
+to call the deallocation function at all when the destructor throws.  
+The G++ implementation of __cxa_delete3 (provided for ABI compatibility) 
+does call the deallocation routine, but does not call std::terminate; 
+instead, it propagates the exception thrown by the deallocation routine.
+
+Perhaps we should just modify the generic ABI document to say:
+
+The behavior of this function is as that required by the ISO C++ 
+standard for &quot;delete[] x&quot;, where &quot;x&quot; is of type &quot;X*&quot;, provided that 
+&quot;array_address&quot; is &quot;x&quot;, &quot;element_size&quot; is &quot;sizeof (X)&quot;, &quot;padding_size&quot; 
+is the number of bytes in the array cookie (or zero, if there is no 
+cookie), &quot;destructor&quot; is the address of the complete object destructor 
+for &quot;X&quot; (but may be &quot;NULL&quot;, if the destructor is trivial), and &quot;dealloc&quot; 
+is the deallocation function for &quot;X &quot;(which may not be &quot;NULL&quot;).
+
+That would punt these kinds of details back to the ISO standard, rather 
+than making us try to replicate them here.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: test.C
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040916/8ac93989/attachment.ksh">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040916/8ac93989/attachment.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001848.html">[cxx-abi-dev] Clarification: behavior of __cxa_vec_delete3
+</A></li>
+	<LI>Next message: <A HREF="001851.html">Clarification: behavior of __cxa_vec_delete3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1849">[ date ]</a>
+              <a href="thread.html#1849">[ thread ]</a>
+              <a href="subject.html#1849">[ subject ]</a>
+              <a href="author.html#1849">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

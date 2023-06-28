@@ -1,0 +1,687 @@
+From richardsmith at google.com  Sat Nov  8 17:16:49 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Sat, 8 Nov 2014 09:16:49 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+Message-ID: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+
+Hi,
+
+WG21 is voting on a proposal for "fold-expressions" today. These are
+syntactically of the form:
+
+  ( .... + pack )
+  ( pack + ... )
+  ( p0 + ... + pack )
+  ( pack + ... + pn )
+
+(where + can be any binary operator). These expand to
+
+  (((p0 + p1) + ...) + pn)
+
+for the first and third cases and
+
+  (p0 + (p1 + (... + pn)))
+
+for the other two cases. These need a mangling; I suggest (and have
+implemented):
+
+<expression> ::=
+  fl <binary operator-name> <expression>   # ( ... op pack )
+  fr <binary operator-name> <expression>   # ( pack op ... )
+  fx <binary operator-name> <expression> <expression>   # ( expr op ... op
+expr )
+
+Does that seem OK?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141108/d8e4ee74/attachment.html>
+
+From jason at redhat.com  Mon Nov 10 17:11:38 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 10 Nov 2014 12:11:38 -0500
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+Message-ID: <5460F1CA.6040500@redhat.com>
+
+On 11/08/2014 12:16 PM, Richard Smith wrote:
+> <expression> ::=
+>    fl <binary operator-name> <expression>   # ( ... op pack )
+>    fr <binary operator-name> <expression>   # ( pack op ... )
+>    fx <binary operator-name> <expression> <expression>   # ( expr op ... op
+> expr )
+
+Do we really need mangling for the third case?  I was thinking it would 
+reduce to one of the others plus a normal binary operation.
+
+Jason
+
+
+From rjmccall at apple.com  Mon Nov 10 18:30:46 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 10 Nov 2014 10:30:46 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+Message-ID: <A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+
+On Nov 8, 2014, at 9:16 AM, Richard Smith <richardsmith at google.com> wrote:
+> Hi,
+> 
+> WG21 is voting on a proposal for "fold-expressions" today. These are syntactically of the form:
+> 
+>   ( .... + pack )
+>   ( pack + ... )
+>   ( p0 + ... + pack )
+>   ( pack + ... + pn )
+> 
+> (where + can be any binary operator). These expand to
+> 
+>   (((p0 + p1) + ...) + pn)
+> 
+> for the first and third cases and
+> 
+>   (p0 + (p1 + (... + pn)))
+> 
+> for the other two cases.
+
+And the expansion for (pack + ? + pack) is ?semantic error??
+
+I assume ?pack? is any expression containing an unexpanded pack reference?
+
+> These need a mangling; I suggest (and have implemented):
+> 
+> <expression> ::=
+>   fl <binary operator-name> <expression>   # ( ... op pack )
+>   fr <binary operator-name> <expression>   # ( pack op ... )
+>   fx <binary operator-name> <expression> <expression>   # ( expr op ... op expr )
+
+This doesn?t seem to correspond to one of your examples.
+
+John.
+
+From richardsmith at google.com  Mon Nov 10 18:54:13 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 10 Nov 2014 10:54:13 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <5460F1CA.6040500@redhat.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<5460F1CA.6040500@redhat.com>
+Message-ID: <CAGL0aWfT9_2php-aFrWR4yYMhsG6En_7fb7ZCuY0PBGBfMk5bw@mail.gmail.com>
+
+On 10 November 2014 09:11, Jason Merrill <jason at redhat.com> wrote:
+
+> On 11/08/2014 12:16 PM, Richard Smith wrote:
+>
+>> <expression> ::=
+>>    fl <binary operator-name> <expression>   # ( ... op pack )
+>>    fr <binary operator-name> <expression>   # ( pack op ... )
+>>    fx <binary operator-name> <expression> <expression>   # ( expr op ...
+>> op
+>> expr )
+>>
+>
+> Do we really need mangling for the third case?  I was thinking it would
+> reduce to one of the others plus a normal binary operation.
+
+
+The extra element is always the innermost element, so it's not equivalent
+to a normal binary operator combined with one of the other forms. For
+instance:
+
+  (1 / ... / divisors)
+
+expands to
+
+  ((1 / d1) / ...) / dn
+
+There is no way to get the same result with (... / divisors).
+
+
+And as an extreme case,
+
+template<int> struct X {};
+template<int ...N> using Foldr = X<(N + ...)>;
+template<int ...A> struct Partial {
+  template<int ...B> void foldr(Foldr<A..., B..., A..., B...>);
+};
+template void Partial<1,2>::foldr<3,4>(X<20>);
+
+would mangle as
+
+_ZN7PartialIJLi1ELi2EEE5foldrIJLi3ELi4EEEEv1XIXplLi1EplLi2EfxplT_plLi1EplLi2EfrplT_EE
+
+Note that Foldr<A..., B..., A..., B...> becomes X<(A + ... + (B + ... + (A
++ ... + (B + ...))))> (the unary form turns into the binary form after a
+partial substitution).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/a14d114c/attachment.html>
+
+From richardsmith at google.com  Mon Nov 10 18:56:22 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 10 Nov 2014 10:56:22 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+Message-ID: <CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+
+On 10 November 2014 10:30, John McCall <rjmccall at apple.com> wrote:
+
+> On Nov 8, 2014, at 9:16 AM, Richard Smith <richardsmith at google.com> wrote:
+> > Hi,
+> >
+> > WG21 is voting on a proposal for "fold-expressions" today. These are
+> syntactically of the form:
+> >
+> >   ( .... + pack )
+> >   ( pack + ... )
+> >   ( p0 + ... + pack )
+> >   ( pack + ... + pn )
+> >
+> > (where + can be any binary operator). These expand to
+> >
+> >   (((p0 + p1) + ...) + pn)
+> >
+> > for the first and third cases and
+> >
+> >   (p0 + (p1 + (... + pn)))
+> >
+> > for the other two cases.
+>
+
+I should add:
+ - in the first and second cases, the pack is p0 ... pn
+ - in the third case, the pack is p1 ... pn
+ - in the fourth case, the pack is p0 ... p{n-1}
+
+
+> And the expansion for (pack + ? + pack) is ?semantic error??
+>
+
+Yes.
+
+
+> I assume ?pack? is any expression containing an unexpanded pack reference?
+
+
+Yes.
+
+> These need a mangling; I suggest (and have implemented):
+> >
+> > <expression> ::=
+> >   fl <binary operator-name> <expression>   # ( ... op pack )
+> >   fr <binary operator-name> <expression>   # ( pack op ... )
+> >   fx <binary operator-name> <expression> <expression>   # ( expr op ...
+> op expr )
+>
+> This doesn?t seem to correspond to one of your examples.
+
+
+You get this for the third and fourth cases.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/a5e530a5/attachment.html>
+
+From rjmccall at apple.com  Mon Nov 10 19:13:37 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 10 Nov 2014 11:13:37 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+	<CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+Message-ID: <0598D8F7-68B1-4D9E-BE70-EA317A72954D@apple.com>
+
+On Nov 10, 2014, at 10:56 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 10 November 2014 10:30, John McCall <rjmccall at apple.com> wrote:
+> On Nov 8, 2014, at 9:16 AM, Richard Smith <richardsmith at google.com> wrote:
+> > Hi,
+> >
+> > WG21 is voting on a proposal for "fold-expressions" today. These are syntactically of the form:
+> >
+> >   ( .... + pack )
+> >   ( pack + ... )
+> >   ( p0 + ... + pack )
+> >   ( pack + ... + pn )
+> >
+> > (where + can be any binary operator). These expand to
+> >
+> >   (((p0 + p1) + ...) + pn)
+> >
+> > for the first and third cases and
+> >
+> >   (p0 + (p1 + (... + pn)))
+> >
+> > for the other two cases.
+> 
+> I should add:
+>  - in the first and second cases, the pack is p0 ... pn
+>  - in the third case, the pack is p1 ... pn
+>  - in the fourth case, the pack is p0 ... p{n-1}
+
+Your notation is terrible, Richard. :)
+
+Okay, so the idea is that:
+  E op ? op P => (((E op P1) op P2) op ?) op Pn
+  P op ? op E => P1 op (P2 op (? op (Pn op E)))
+
+How are E and P determined?  Everything preceding/following the ? term, or does this actually follow the grammar?s associativity rules if you had e.g.
+  1+2+?+packref+3+4
+or does it only work within parentheses?
+
+> > These need a mangling; I suggest (and have implemented):
+> >
+> > <expression> ::=
+> >   fl <binary operator-name> <expression>   # ( ... op pack )
+> >   fr <binary operator-name> <expression>   # ( pack op ... )
+> >   fx <binary operator-name> <expression> <expression>   # ( expr op ... op expr )
+> 
+> This doesn?t seem to correspond to one of your examples.
+> 
+> You get this for the third and fourth cases.
+
+Okay, and you?re saying that left/right folding are disambiguated because one of the expressions contains a pack and the other doesn?t?  I think I would prefer this to be explicit in the mangling.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/65400d70/attachment-0001.html>
+
+From richardsmith at google.com  Mon Nov 10 19:17:27 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Mon, 10 Nov 2014 11:17:27 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <0598D8F7-68B1-4D9E-BE70-EA317A72954D@apple.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+	<CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+	<0598D8F7-68B1-4D9E-BE70-EA317A72954D@apple.com>
+Message-ID: <CAGL0aWfSEE8ZDdyFFkXLOpUvzrsRcwASa6+AaEOTfFzTkWzuJA@mail.gmail.com>
+
+On 10 November 2014 11:13, John McCall <rjmccall at apple.com> wrote:
+
+> On Nov 10, 2014, at 10:56 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 10 November 2014 10:30, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Nov 8, 2014, at 9:16 AM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > Hi,
+>> >
+>> > WG21 is voting on a proposal for "fold-expressions" today. These are
+>> syntactically of the form:
+>> >
+>> >   ( .... + pack )
+>> >   ( pack + ... )
+>> >   ( p0 + ... + pack )
+>> >   ( pack + ... + pn )
+>> >
+>> > (where + can be any binary operator). These expand to
+>> >
+>> >   (((p0 + p1) + ...) + pn)
+>> >
+>> > for the first and third cases and
+>> >
+>> >   (p0 + (p1 + (... + pn)))
+>> >
+>> > for the other two cases.
+>>
+>
+> I should add:
+>  - in the first and second cases, the pack is p0 ... pn
+>  - in the third case, the pack is p1 ... pn
+>  - in the fourth case, the pack is p0 ... p{n-1}
+>
+>
+> Your notation is terrible, Richard. :)
+>
+
+Yeah, sorry. I should have just attached the paper rather than trying to
+summarize. (Now attached.)
+
+
+> Okay, so the idea is that:
+>   E op ? op P => (((E op P1) op P2) op ?) op Pn
+>   P op ? op E => P1 op (P2 op (? op (Pn op E)))
+>
+> How are E and P determined?  Everything preceding/following the ? term, or
+> does this actually follow the grammar?s associativity rules if you had e.g.
+>   1+2+?+packref+3+4
+> or does it only work within parentheses?
+>
+
+Parentheses are required, and only cast-expressions are allowed before /
+after the operators, so there are no precedence / associativity issues.
+(The initial proposal was deliberately very conservative in this regard.)
+
+> > These need a mangling; I suggest (and have implemented):
+>> >
+>> > <expression> ::=
+>> >   fl <binary operator-name> <expression>   # ( ... op pack )
+>> >   fr <binary operator-name> <expression>   # ( pack op ... )
+>> >   fx <binary operator-name> <expression> <expression>   # ( expr op ...
+>> op expr )
+>>
+>> This doesn?t seem to correspond to one of your examples.
+>
+>
+> You get this for the third and fourth cases.
+>
+>
+> Okay, and you?re saying that left/right folding are disambiguated because
+> one of the expressions contains a pack and the other doesn?t?  I think I
+> would prefer this to be explicit in the mangling.
+>
+
+OK. Then fl / fr / fL / fR?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/bf8c7b0e/attachment.html>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/bf8c7b0e/attachment-0001.html>
+
+From rjmccall at apple.com  Mon Nov 10 19:19:19 2014
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 10 Nov 2014 11:19:19 -0800
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <CAGL0aWfSEE8ZDdyFFkXLOpUvzrsRcwASa6+AaEOTfFzTkWzuJA@mail.gmail.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+	<CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+	<0598D8F7-68B1-4D9E-BE70-EA317A72954D@apple.com>
+	<CAGL0aWfSEE8ZDdyFFkXLOpUvzrsRcwASa6+AaEOTfFzTkWzuJA@mail.gmail.com>
+Message-ID: <ED711702-6284-4D04-8F63-EC1C46AD891A@apple.com>
+
+On Nov 10, 2014, at 11:17 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 10 November 2014 11:13, John McCall <rjmccall at apple.com> wrote:
+> On Nov 10, 2014, at 10:56 AM, Richard Smith <richardsmith at google.com> wrote:
+>> On 10 November 2014 10:30, John McCall <rjmccall at apple.com> wrote:
+>> On Nov 8, 2014, at 9:16 AM, Richard Smith <richardsmith at google.com> wrote:
+>> > Hi,
+>> >
+>> > WG21 is voting on a proposal for "fold-expressions" today. These are syntactically of the form:
+>> >
+>> >   ( .... + pack )
+>> >   ( pack + ... )
+>> >   ( p0 + ... + pack )
+>> >   ( pack + ... + pn )
+>> >
+>> > (where + can be any binary operator). These expand to
+>> >
+>> >   (((p0 + p1) + ...) + pn)
+>> >
+>> > for the first and third cases and
+>> >
+>> >   (p0 + (p1 + (... + pn)))
+>> >
+>> > for the other two cases.
+>> 
+>> I should add:
+>>  - in the first and second cases, the pack is p0 ... pn
+>>  - in the third case, the pack is p1 ... pn
+>>  - in the fourth case, the pack is p0 ... p{n-1}
+> 
+> Your notation is terrible, Richard. :)
+> 
+> Yeah, sorry. I should have just attached the paper rather than trying to summarize. (Now attached.)
+>  
+> Okay, so the idea is that:
+>   E op ? op P => (((E op P1) op P2) op ?) op Pn
+>   P op ? op E => P1 op (P2 op (? op (Pn op E)))
+> 
+> How are E and P determined?  Everything preceding/following the ? term, or does this actually follow the grammar?s associativity rules if you had e.g.
+>   1+2+?+packref+3+4
+> or does it only work within parentheses?
+> 
+> Parentheses are required, and only cast-expressions are allowed before / after the operators, so there are no precedence / associativity issues. (The initial proposal was deliberately very conservative in this regard.)
+
+Okay, makes sense.
+
+>> > These need a mangling; I suggest (and have implemented):
+>> >
+>> > <expression> ::=
+>> >   fl <binary operator-name> <expression>   # ( ... op pack )
+>> >   fr <binary operator-name> <expression>   # ( pack op ... )
+>> >   fx <binary operator-name> <expression> <expression>   # ( expr op ... op expr )
+>> 
+>> This doesn?t seem to correspond to one of your examples.
+>> 
+>> You get this for the third and fourth cases.
+> 
+> Okay, and you?re saying that left/right folding are disambiguated because one of the expressions contains a pack and the other doesn?t?  I think I would prefer this to be explicit in the mangling.
+> 
+> OK. Then fl / fr / fL / fR?
+
+Sounds good to me.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/8f2624a7/attachment-0001.html>
+
+From daveed at edg.com  Mon Nov 10 19:21:30 2014
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 10 Nov 2014 14:21:30 -0500
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <ED711702-6284-4D04-8F63-EC1C46AD891A@apple.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>
+	<A8DD4C1B-62E9-434E-8663-A12BB2BC4277@apple.com>
+	<CAGL0aWdF2=8Vscwkz_JrPEp3XTdfE9VSz9sMyd_u8TbRyd5nwA@mail.gmail.com>
+	<0598D8F7-68B1-4D9E-BE70-EA317A72954D@apple.com>
+	<CAGL0aWfSEE8ZDdyFFkXLOpUvzrsRcwASa6+AaEOTfFzTkWzuJA@mail.gmail.com>
+	<ED711702-6284-4D04-8F63-EC1C46AD891A@apple.com>
+Message-ID: <9FDA7C94-1E8A-4520-965E-79F096364AF6@edg.com>
+
+
+> On Nov 10, 2014, at 2:19 PM, John McCall <rjmccall at apple.com> wrote:
+> 
+> On Nov 10, 2014, at 11:17 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+>> On 10 November 2014 11:13, John McCall <rjmccall at apple.com <mailto:rjmccall at apple.com>> wrote:
+>> On Nov 10, 2014, at 10:56 AM, Richard Smith <richardsmith at google.com <mailto:richardsmith at google.com>> wrote:
+
+[?]
+> 
+>>> > These need a mangling; I suggest (and have implemented):
+>>> >
+>>> > <expression> ::=
+>>> >   fl <binary operator-name> <expression>   # ( ... op pack )
+>>> >   fr <binary operator-name> <expression>   # ( pack op ... )
+>>> >   fx <binary operator-name> <expression> <expression>   # ( expr op ... op expr )
+>>> 
+>>> This doesn?t seem to correspond to one of your examples.
+>>> 
+>>> You get this for the third and fourth cases.
+>> 
+>> Okay, and you?re saying that left/right folding are disambiguated because one of the expressions contains a pack and the other doesn?t?  I think I would prefer this to be explicit in the mangling.
+
+Agreed.
+
+>> OK. Then fl / fr / fL / fR?
+> 
+> Sounds good to me.
+
+
+To me too.
+
+	Daveed
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141110/74713413/attachment.html>
+
+From jason at redhat.com  Mon Nov 10 20:14:32 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 10 Nov 2014 15:14:32 -0500
+Subject: [cxx-abi-dev] mangling for fold-expressions
+In-Reply-To: <CAGL0aWfT9_2php-aFrWR4yYMhsG6En_7fb7ZCuY0PBGBfMk5bw@mail.gmail.com>
+References: <CAGL0aWdFoL2Y916a9YKbGJBEL1bUdE4TeqqHXTn5dZCko0fW5A@mail.gmail.com>	<5460F1CA.6040500@redhat.com>
+	<CAGL0aWfT9_2php-aFrWR4yYMhsG6En_7fb7ZCuY0PBGBfMk5bw@mail.gmail.com>
+Message-ID: <54611CA8.6040606@redhat.com>
+
+On 11/10/2014 01:54 PM, Richard Smith wrote:
+> The extra element is always the innermost element, so it's not equivalent
+> to a normal binary operator combined with one of the other forms.
+
+Ah, OK.
+
+Jason
+
+
+
+From richardsmith at google.com  Wed Nov 19 18:54:23 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 19 Nov 2014 10:54:23 -0800
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <54230664.9010304@redhat.com>
+References: <508B02ED.2020005@redhat.com>
+	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>
+	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>
+	<7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>
+	<50904075.6050200@redhat.com> <54230664.9010304@redhat.com>
+Message-ID: <CAGL0aWeYzXZgBCQQEHTXvjV+0xTb6SY-MZSoizhRJdcBg+zq3w@mail.gmail.com>
+
+On 24 September 2014 10:59, Jason Merrill <jason at redhat.com> wrote:
+
+> On 10/30/2012 05:02 PM, Jason Merrill wrote:
+>
+>> template <typename CharT, typename Traits, typename Alloc>
+>> class [[abi_tag ("11")]] basic_string; // ABI change from refcounting
+>>
+>> template <class T>
+>> struct complex {
+>>     ...
+>>     // return type changed from C++98
+>>     [[abi_tag ("11")]] constexpr T real() { return _M_real; }
+>>     ...
+>> };
+>>
+>
+> We started tagging the real/imag functions in 4.8, and are planning to
+> start tagging the string/list types in GCC 5 (around April).  We will then
+> be able to include both old and new ABIs in libstdc++ so that old and new
+> code can continue to interoperate so long as they don't try to exchange
+> affected data.
+>
+> As John McCall pointed out in earlier discussion, incomplete types make
+> this problem a lot trickier, since there's no way for the compiler to
+> automatically collect tags from subobjects.  So we need to rely on users to
+> tag their own types as well, if they care about new and old ABI versions of
+> their code coexisting within the same image.  This would not be necessary
+> for most users, only for 3rd-party library vendors that don't already
+> require their users to rebuild for a new version.
+>
+> To help library vendors add tags where needed we have the -Wabi-tag flag
+> to suggest places where a tag is used on a data member, base, or virtual
+> function, but not on the enclosing class.
+>
+> Tags are attached to names.  I've been uncertain whether for string we
+> should just not use the built-in abbreviations, but I lean toward using
+> them, attaching tags to them as well, and then making tagged abbreviations
+> substitution candidates.
+>
+>  Having a way to tag individual methods for ABI compatibility breaks is an
+>> interesting idea, but I think you actually need a language extension here,
+>> because simply removing the old declaration and tagging the new one isn't
+>> good enough if binary compatibility requires you to actually emit a symbol
+>> for the old definition.  There may be relatively few non-inline symbols in
+>> the STL, but there are a fair number of explicit instantiations.  Unless
+>> you're planning to fake this with some *extremely* non-ODR-compliant
+>> definitions hidden inside the library.
+>>
+>
+> We're finding that just compiling instantiations in both modes is
+> sufficient for libstdc++, as any duplicates are discarded by the linker.
+>
+> Thoughts?  We're pretty committed to making this transition in GCC 5, but
+> if people have ideas about how to do it better, I'm very interested.
+
+
+How about using an inline namespace for the mangling changes? That's what
+they're for, after all. Then you can use your attribute simply as a way of
+guiding the warning, for users who are courageous/crazy enough to want to
+deal with this for every single declaration of every single class type that
+might contain a std::string (read: probably no-one), and avoid pushing the
+cost of your ABI break onto other vendors.
+
+If you *can't* do it this way, then inline namespaces appear to be useless.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141119/5d42a55a/attachment.html>
+
+From jason at redhat.com  Wed Nov 19 21:44:45 2014
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 19 Nov 2014 16:44:45 -0500
+Subject: [cxx-abi-dev] Library ABI version markers
+In-Reply-To: <CAGL0aWeYzXZgBCQQEHTXvjV+0xTb6SY-MZSoizhRJdcBg+zq3w@mail.gmail.com>
+References: <508B02ED.2020005@redhat.com>	<7322FC78-7396-482B-AF8F-748EC471981A@apple.com>	<CAPCnnAYbY7HU3h=VQeDRTe62wWHBwY3b3sQ3u6U0U15zyG5XSA@mail.gmail.com>	<7AE340F3-DAAA-42E5-9136-6D679892148D@edg.com>	<50904075.6050200@redhat.com>	<54230664.9010304@redhat.com>
+	<CAGL0aWeYzXZgBCQQEHTXvjV+0xTb6SY-MZSoizhRJdcBg+zq3w@mail.gmail.com>
+Message-ID: <546D0F4D.1070605@redhat.com>
+
+On 11/19/2014 01:54 PM, Richard Smith wrote:
+> How about using an inline namespace for the mangling changes? That's what
+> they're for, after all.  Then you can use your attribute simply as a way of
+> guiding the warning
+
+Hmm, that's an interesting idea, it hadn't occurred to me to separate 
+the mangling and warning.  And marking an inline namespace as an abi tag 
+might be a way to keep them together still.
+
+It wouldn't work for changes to individual member functions such as 
+complex<T>::real, though.
+
+Jason
+
+
+From richardsmith at google.com  Wed Nov 26 02:13:53 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Tue, 25 Nov 2014 18:13:53 -0800
+Subject: [cxx-abi-dev] N4198 and mangling for member pointer template
+	arguments
+Message-ID: <CAGL0aWd+YKJncJeSk4Br8i-bDt_-=fFOKjmSe+Yd-sPAMhBa7g@mail.gmail.com>
+
+N4198 (accepted at Urbana) makes it possible for a template parameter of
+type T U::* to have a template argument of type T V::*, where V is a base
+class of U or vice versa. A naive attempt to apply the existing ABI rules
+leads to mangling collisions in cases like this:
+
+struct A { int n; };
+struct B : A {};
+template<int A::*> void f() {}
+template<int B::*> void f() {}
+void g() {
+  constexpr int A::*p = &A::n;
+  constexpr int B::*q = p;
+  f<p>();
+  f<q>();
+}
+
+(Here, a naive approach would use XadL_ZN1A1nEEE as the template argument
+value in both calls.)
+
+In order to resolve this, I suggest we introduce a new mangling for the
+case of a member pointer template argument where the class containing the
+member is different from the class in the template parameter. The minimal
+information we'll need to include is the class in the template parameter
+and a designator if the base class is a repeated base class.
+
+One approach would be to use
+
+  sc <type> ad L<member>E
+
+and to explicitly include the final type plus those intermediate types that
+introduce multiple inheritance from the base class (that is, just enough to
+uniquely identify the path).
+
+Another would be to introduce a new mangling that incorporates the final
+type and an offset or discriminator.
+
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20141125/11b89186/attachment.html>
+

@@ -1,0 +1,1387 @@
+From daveed at edg.com  Wed Feb 18 20:28:54 2004
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 18 Feb 2004 15:28:54 -0500
+Subject: restrict & overloading
+Message-ID: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com>
+
+One of the J16 reflectors is currently discussing
+"restrict."  I went looking to the IA-64 ABI spec
+and was surprised to see it saying the following:
+
+   The restrict qualifier is part of the C99 standard,
+   but is strictly an extension to C++ at this time.
+   There is no standard specification of whether the
+   restrict attribute is part of the type for overloading
+   purposes. An implementation should include its encoding
+   in the mangled name if and only if it also treats it as
+   a distinguishing attribute for overloading purposes.
+   This ABI does not specify that choice.
+
+I would think that even though restrict does not
+make a type overload-distinguishable, it should
+be encoded in the mangled name (at least, if it
+has nontrivial semantics).
+
+	Daveed Vandevoorde
+	Edison Design Group
+
+
+
+From mark at codesourcery.com  Wed Feb 18 20:56:13 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Feb 2004 12:56:13 -0800
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com>
+Message-ID: <4033D16D.7030601@codesourcery.com>
+
+Daveed Vandevoorde wrote:
+
+> One of the J16 reflectors is currently discussing
+> "restrict."  I went looking to the IA-64 ABI spec
+> and was surprised to see it saying the following:
+>
+>   The restrict qualifier is part of the C99 standard,
+>   but is strictly an extension to C++ at this time.
+>   There is no standard specification of whether the
+>   restrict attribute is part of the type for overloading
+>   purposes. An implementation should include its encoding
+>   in the mangled name if and only if it also treats it as
+>   a distinguishing attribute for overloading purposes.
+>   This ABI does not specify that choice.
+>
+> I would think that even though restrict does not
+> make a type overload-distinguishable, it should
+> be encoded in the mangled name (at least, if it
+> has nontrivial semantics). 
+
+The C++ ABI already differs from what is perhaps the EDG philosophy in 
+this regard.
+
+For example, the ABI explicitly does not encode implicit instantiations 
+and explicit specializations differently, even though that would provide 
+a way of checking a rule in the standard -- and even though the EDG 
+front end could do that in its Cfront-based ABI.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+
+
+From daveed at edg.com  Wed Feb 18 22:00:08 2004
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 18 Feb 2004 17:00:08 -0500
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <4033D16D.7030601@codesourcery.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com> <4033D16D.7030601@codesourcery.com>
+Message-ID: <D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com>
+
+
+On Feb 18, 2004, at 3:56 PM, Mark Mitchell wrote:
+
+> Daveed Vandevoorde wrote:
+>
+>> One of the J16 reflectors is currently discussing
+>> "restrict."  I went looking to the IA-64 ABI spec
+>> and was surprised to see it saying the following:
+>>
+>>   The restrict qualifier is part of the C99 standard,
+>>   but is strictly an extension to C++ at this time.
+>>   There is no standard specification of whether the
+>>   restrict attribute is part of the type for overloading
+>>   purposes. An implementation should include its encoding
+>>   in the mangled name if and only if it also treats it as
+>>   a distinguishing attribute for overloading purposes.
+>>   This ABI does not specify that choice.
+>>
+>> I would think that even though restrict does not
+>> make a type overload-distinguishable, it should
+>> be encoded in the mangled name (at least, if it
+>> has nontrivial semantics).
+>
+> The C++ ABI already differs from what is perhaps the EDG
+>  philosophy in this regard.
+
+Actually, this is not currently the EDG model either
+(which surprised me too).
+
+> For example, the ABI explicitly does not encode implicit 
+> instantiations and explicit specializations differently, even though 
+> that would provide a way of checking a rule in the standard -- and 
+> even though the EDG front end could do that in its Cfront-based ABI.
+
+But that's different in that the implicit and
+explicit specializations have the same type.
+
+Adding restrict changes the type.  It is an
+interface element (e.g., telling the client code:
+Passing aliased arguments may burn you).  In that
+way, restrict is different from e.g. "const."
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Wed Feb 18 22:25:46 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Feb 2004 14:25:46 -0800
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com> <4033D16D.7030601@codesourcery.com> <D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com>
+Message-ID: <4033E66A.9090302@codesourcery.com>
+
+
+> Adding restrict changes the type.  It is an
+> interface element (e.g., telling the client code:
+> Passing aliased arguments may burn you).  In that
+> way, restrict is different from e.g. "const."
+
+Yes, I understand: you are arguing that by mangling restrict you could 
+prevent a class of user errors involving linking together things that 
+should not be linked together.
+
+I don't think the ABI design philosophy involved trying to prevent user 
+errors -- it was just on doing what the standard required in an 
+efficient manner.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From daveed at edg.com  Wed Feb 18 22:42:22 2004
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Wed, 18 Feb 2004 17:42:22 -0500
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <4033E66A.9090302@codesourcery.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com> <4033D16D.7030601@codesourcery.com> <D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com> <4033E66A.9090302@codesourcery.com>
+Message-ID: <B743BEE2-6263-11D8-B0CF-000393A34FA6@edg.com>
+
+
+On Feb 18, 2004, at 5:25 PM, Mark Mitchell wrote:
+
+>
+>> Adding restrict changes the type.  It is an
+>> interface element (e.g., telling the client code:
+>> Passing aliased arguments may burn you).  In that
+>> way, restrict is different from e.g. "const."
+>
+> Yes, I understand: you are arguing that by mangling restrict you could 
+> prevent a class of user errors involving linking together things that 
+> should not be linked together.
+>
+> I don't think the ABI design philosophy involved trying to prevent 
+> user errors -- it was just on doing what the standard required in an 
+> efficient manner.
+
+True but there is more to it than invalid programs.
+
+// File 1:
+void f(int **) {}
+
+// File 2:
+void f(int *restrict*) {}
+
+If this ends up being allowed by WG21 (while overload
+resolution will likely not distinguish these), the ABI
+note will keep us from being conformant.
+
+I find it strange that an ABI constraint is formulated
+in terms of "overload resolution" which is not really
+an ABI element.  What does it buy us?
+
+I suspect that the words "for overloading purposes" were
+not really intended.  I.e., think it should say: if an
+implementation treats restrict as part of the type, it
+mangles it; if not, it doesn't.
+
+	Daveed
+
+
+
+From mark at codesourcery.com  Wed Feb 18 22:55:07 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 18 Feb 2004 14:55:07 -0800
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <B743BEE2-6263-11D8-B0CF-000393A34FA6@edg.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com> <4033D16D.7030601@codesourcery.com> <D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com> <4033E66A.9090302@codesourcery.com> <B743BEE2-6263-11D8-B0CF-000393A34FA6@edg.com>
+Message-ID: <4033ED4B.9030208@codesourcery.com>
+
+
+> 
+> True but there is more to it than invalid programs.
+> 
+> // File 1:
+> void f(int **) {}
+> 
+> // File 2:
+> void f(int *restrict*) {}
+> 
+> If this ends up being allowed by WG21 (while overload
+> resolution will likely not distinguish these), the ABI
+> note will keep us from being conformant.
+
+I see what you are getting at now.
+
+I don't think that when the ABI was designed anybody expect that WG21 
+would (a) allow both of those definitions in a single program, and (b) 
+not distinguish them via overloading.  Clearly, if that is what happens, 
+then the ABI will have to be changed to unambiguously require mangling 
+"restrict" into the name of the second one.
+
+I preferred just to leave "restrict" out of the ABI standard, since 
+nobody was really sure what the eventual semantics would have be, but 
+now we are where we are.
+
+Anyhow, I can't see that it makes sense to change the ABI specification 
+until/unless WG21 makes a final decision about what it wants to require.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From jhs at edg.com  Wed Feb 18 23:49:30 2004
+From: jhs at edg.com (John H. Spicer)
+Date: Wed, 18 Feb 2004 18:49:30 -0500
+Subject: [cxx-abi-dev] restrict & overloading
+In-Reply-To: <4033ED4B.9030208@codesourcery.com>
+References: <11FB8B7A-6251-11D8-B0CF-000393A34FA6@edg.com>
+	<4033D16D.7030601@codesourcery.com>
+	<D0FAAEC6-625D-11D8-B0CF-000393A34FA6@edg.com>
+	<4033E66A.9090302@codesourcery.com>
+	<B743BEE2-6263-11D8-B0CF-000393A34FA6@edg.com>
+	<4033ED4B.9030208@codesourcery.com>
+Message-ID: <4033FA0A.3050600@edg.com>
+
+Mark Mitchell wrote:
+> 
+>>
+>> True but there is more to it than invalid programs.
+>>
+>> // File 1:
+>> void f(int **) {}
+>>
+>> // File 2:
+>> void f(int *restrict*) {}
+>>
+>> If this ends up being allowed by WG21 (while overload
+>> resolution will likely not distinguish these), the ABI
+>> note will keep us from being conformant.
+
+Ah, but overload resolution *does* distinguish these.  It is only at the top 
+level that there is no effect on overload resolution.
+
+John.
+
+> 
+> 
+> I see what you are getting at now.
+> 
+> I don't think that when the ABI was designed anybody expect that WG21 
+> would (a) allow both of those definitions in a single program, and (b) 
+> not distinguish them via overloading.  Clearly, if that is what happens, 
+> then the ABI will have to be changed to unambiguously require mangling 
+> "restrict" into the name of the second one.
+> 
+> I preferred just to leave "restrict" out of the ABI standard, since 
+> nobody was really sure what the eventual semantics would have be, but 
+> now we are where we are.
+> 
+> Anyhow, I can't see that it makes sense to change the ABI specification 
+> until/unless WG21 makes a final decision about what it wants to require.
+> 
+
+
+
+From mark at codesourcery.com  Fri Feb 20 08:48:00 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 20 Feb 2004 00:48:00 -0800
+Subject: Proposed clarification
+Message-ID: <4035C9C0.2090506@codesourcery.com>
+
+Presently, the ABI is not 100% clear about whether two member function 
+types for non-static member functions of different classes can be 
+substitution candidates.  For example, given:
+
+  struct S {  };
+  struct T { };
+
+would the function types pointed to be "void (S::*)()" and "void 
+(T::*)()" be the same type, for the purposes of substitution.
+
+The EDG front end and G++ agree that they are not the same type, for the 
+purposes of substitution, and I believe that is consistent with the 
+spirit of the ABI, which already says that the types pointed to be "void 
+(*)()" and "void (S::*)()" are not the same type for the purposes of 
+substitution.
+
+Therefore, I intend to update the ABI document with the attached change, 
+unless anyone objects.
+
+Are there any objections?
+
+--
+Mark Mitchell
+CodeSourcery, LLC
+(916) 791-8304
+mark at codesourcery.com
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: diffs
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040220/3312e8e2/attachment.ksh>
+
+From austern at apple.com  Thu Feb 26 23:11:14 2004
+From: austern at apple.com (Matt Austern)
+Date: Thu, 26 Feb 2004 15:11:14 -0800
+Subject: Type mismatch in __cxa_atexit and __cxa_finalize
+Message-ID: <1336AC4B-68B1-11D8-832A-000A95AA5E5E@apple.com>
+
+Maybe this is old news; I'm sure everyone who has implemented atexit in 
+terms of __cxa_atexit must have noticed it already.
+
+The ABI document says that atexit should be implemented so that 
+atexit(f) invokes __cxa_atexit(f, 0, 0).  That doesn't quite work, 
+though, because the two functions have different signatures: void 
+(*)(void) versus void (*)(void*).  We can get around that by casting, 
+but...
+
+The ABI document also says that __cxa_finalize should invoke each 
+function.  It doesn't explicitly say that it should invoke each 
+function with its matching parameter, but that's the obvious 
+interpretation.  Again, though: you can't very well write (*f)(p) if f 
+is a function that takes no arguments, as will be the case whenever 
+__cxa_atexit is invoked via atexit.
+
+The obvious fix would be to say that:
+  1. atexit(f) invokes __cxa_atexit((void(*)(void*)) f, 0, 0).
+  2. If you're passing __cxa_atexit a function that does take an 
+argument, the parameter may not be 0.
+  3. When __cxa_finalize invokes a function f on a parameter p, it 
+should do the equivalent of:
+      if (p)
+         (*f)(p);
+      else
+        (*((void (*)(void)) f))();
+
+At least that's the simplest fix I can think of that doesn't make major 
+changes to the interface.  But whatever fix we use, the ABI should 
+probably be explicit about this.
+
+			--Matt
+
+
+
+From dhandly at cup.hp.com  Fri Feb 27 02:01:30 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 26 Feb 2004 18:01:30 -0800 (PST)
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+Message-ID: <200402270201.SAA09529@hpcll183.cup.hp.com>
+
+>From: Matt Austern <austern at apple.com>
+>  3. When __cxa_finalize invokes a function f on a parameter p, it 
+>should do the equivalent of:
+>      if (p)
+>         (*f)(p);
+>      else
+>        (*((void (*)(void))f))();
+
+That's the code we have but it is all pedantic syntactic sugar.
+
+There is nothing wrong with just using (*f)(p) on IPF.  I.e. passing extra
+parms to a function that isn't going to use it.
+
+
+From austern at apple.com  Fri Feb 27 06:10:55 2004
+From: austern at apple.com (Matt Austern)
+Date: Thu, 26 Feb 2004 22:10:55 -0800
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+In-Reply-To: <200402270201.SAA09529@hpcll183.cup.hp.com>
+References: <200402270201.SAA09529@hpcll183.cup.hp.com>
+Message-ID: <B40B9319-68EB-11D8-8033-000A95BCF344@apple.com>
+
+On Feb 26, 2004, at 6:01 PM, Dennis Handly wrote:
+
+>> From: Matt Austern <austern at apple.com>
+>>  3. When __cxa_finalize invokes a function f on a parameter p, it
+>> should do the equivalent of:
+>>      if (p)
+>>         (*f)(p);
+>>      else
+>>        (*((void (*)(void))f))();
+>
+> That's the code we have but it is all pedantic syntactic sugar.
+>
+> There is nothing wrong with just using (*f)(p) on IPF.  I.e. passing 
+> extra
+> parms to a function that isn't going to use it.
+
+I hate to assume that on all platforms.  I'd rather the ABI document 
+say something that we can count on to be correct everywhere that we'll 
+use this ABI.
+
+			--Matt
+
+
+
+From deb at pixar.com  Fri Feb 27 15:56:07 2004
+From: deb at pixar.com (David Baraff)
+Date: Fri, 27 Feb 2004 07:56:07 -0800
+Subject: trivial __dynamic_cast fails?
+Message-ID: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+
+I'm playing around with the __cxxabiv1::__dynamic_cast() function.  It
+works as I would expect, with one exception.
+
+Suppose that Base and Derived are polymorphic, with Base a public base
+class of Derived.
+Given
+    Derived* d = new Derived;
+    Base* b = d;
+
+I would like to be able to do
+
+    void* result = __dynamic_cast(d, &typeid(Derived), &typeid(Base),
+-1);
+
+which means, literally, "try to cast this pointer of type Derived to
+Base."  (And yes I have a good reason for wanting to do something that
+appears that trivial.  This is in a context where all you will have to
+work with are void*'s and type_info structures.  So the fact that you
+are going in the "easy" direction for the cast doesn't help you any.).
+
+Unfortunately, I always get NULL back -- it seems like the
+__dynamic_cast() operator doesn't want to cast from a Derived to a
+Base.  Am I doing anything wrong?  I can go the other direction just
+fine.  I can't find any other functions in the API that'll do what I
+want.
+
+
+---------------
+* I didn't really pass in &typeid(Derived),  I actually pass in a
+           dynamic_cast<const __class_type_info*>(&typeid(Derived))
+and similarly for Base.
+
+
+
+From mark at codesourcery.com  Fri Feb 27 17:36:55 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 27 Feb 2004 09:36:55 -0800
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+Message-ID: <403F8037.9030004@codesourcery.com>
+
+David Baraff wrote:
+
+> I'm playing around with the __cxxabiv1::__dynamic_cast() function.  It
+> works as I would expect, with one exception.
+
+The ABI document does not require that __dynamic_cast perform a 
+derived-to-base cast.  Those __dynamic_cast operations that can actually 
+be performed statically by the compiler must be performed statically by 
+the compiler -- the runtime library does not expect to be called in that 
+situation.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From mark at codesourcery.com  Fri Feb 27 19:25:29 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 27 Feb 2004 11:25:29 -0800
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+In-Reply-To: <1336AC4B-68B1-11D8-832A-000A95AA5E5E@apple.com>
+References: <1336AC4B-68B1-11D8-832A-000A95AA5E5E@apple.com>
+Message-ID: <403F99A9.9020808@codesourcery.com>
+
+Matt Austern wrote:
+
+> Maybe this is old news; I'm sure everyone who has implemented atexit in 
+> terms of __cxa_atexit must have noticed it already.
+
+I believe that GNU libc implemented both atexit and __cxa_atexit atop 
+some other interface, but I haven't looked in a long time.
+
+> The obvious fix would be to say that:
+>  1. atexit(f) invokes __cxa_atexit((void(*)(void*)) f, 0, 0).
+>  2. If you're passing __cxa_atexit a function that does take an 
+> argument, the parameter may not be 0.
+>  3. When __cxa_finalize invokes a function f on a parameter p, it should 
+> do the equivalent of:
+>      if (p)
+>         (*f)(p);
+>      else
+>        (*((void (*)(void)) f))();
+
+That's a reasonable approach, but point (2) worries me -- that might 
+represent a change for some existing implementations.
+
+An alternative would be to remove the explicit impliciation in the ABI 
+that atexit is implemented atop __cxa_atexit, and just indicate that (a) 
+the calls to the registered functions must be interleaved in the 
+appropriate way, and (b) __cxa_finalize called with a NULL DSO parameter 
+must call the functions registered with atexit.
+
+Thoughts?
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From dhandly at cup.hp.com  Fri Feb 27 20:48:26 2004
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Fri, 27 Feb 2004 12:48:26 -0800 (PST)
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+Message-ID: <200402272048.MAA10932@hpcll183.cup.hp.com>
+
+>From: Mark Mitchell <mark at codesourcery.com>
+>  2. If you're passing __cxa_atexit a function that does take an 
+> argument, the parameter may not be 0.
+
+>but point (2) worries me -- that might represent a change for some
+>existing implementations.
+Mark Mitchell
+
+But that will never occur?  Any "static" object that is being destructed
+must have a non-zero "this" pointer?
+
+
+From mark at codesourcery.com  Fri Feb 27 20:51:45 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 27 Feb 2004 12:51:45 -0800
+Subject: [cxx-abi-dev] Type mismatch in __cxa_atexit and __cxa_finalize
+In-Reply-To: <200402272048.MAA10932@hpcll183.cup.hp.com>
+References: <200402272048.MAA10932@hpcll183.cup.hp.com>
+Message-ID: <403FADE1.6000906@codesourcery.com>
+
+Dennis Handly wrote:
+
+> Any "static" object that is being destructed
+> must have a non-zero "this" pointer?
+
+That is correct.
+
+But we cannot be 100% certain that the compiler and/or user code are not 
+already using this API for some other purpose.
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+
+From daveed at edg.com  Fri Feb 27 21:10:18 2004
+From: daveed at edg.com (Daveed Vandevoorde)
+Date: Fri, 27 Feb 2004 16:10:18 -0500
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <403F8037.9030004@codesourcery.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com>
+Message-ID: <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+
+
+On Feb 27, 2004, at 12:36 PM, Mark Mitchell wrote:
+
+> David Baraff wrote:
+>
+>> I'm playing around with the __cxxabiv1::__dynamic_cast() function.  It
+>> works as I would expect, with one exception.
+>
+> The ABI document does not require that __dynamic_cast perform a 
+> derived-to-base cast.  Those __dynamic_cast operations that can 
+> actually be performed statically by the compiler must be performed 
+> statically by the compiler -- the runtime library does not expect to 
+> be called in that situation.
+
+Indeed.  However, it is not the first time I
+encounter the desire to be able to do this
+sort of thing.  Since the ABI specs do not
+currently say what __dynamic_cast should do
+in the cases that the compiler handles alone,
+I don't think there would be a significant
+backward compatibility issue in trying to
+support a useful design technique.  If it
+can be done within the framework of the
+existing RTTI structures, I think it would
+be worth "upgrading" __dynamic_cast to
+address this.
+
+There has been occasional talk among WG21/
+J16 actives about adding a facility like
+what David B. is looking for, but so far
+no concrete proposals.  I'm going to CC
+David Abrahams who mentioned the desire
+for this once.  Perhaps he has some insight
+into how widespread the need for this is.
+
+	Daveed
+
+
+
+From deb at pixar.com  Fri Feb 27 21:19:01 2004
+From: deb at pixar.com (David Baraff)
+Date: Fri, 27 Feb 2004 13:19:01 -0800
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com> <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+Message-ID: <900E9829-696A-11D8-973B-000A95AFC16E@pixar.com>
+
+
+
+Begin forwarded message:
+
+> From: Daveed Vandevoorde <daveed at edg.com>
+> Date: February 27, 2004 1:10:18 PM PST
+> To: cxx-abi-dev at codesourcery.com
+> Cc: David Baraff <deb at pixar.com>, David Abrahams 
+> <dave at boost-consulting.com>
+> Subject: Re: [cxx-abi-dev] trivial __dynamic_cast fails?
+>
+>
+> On Feb 27, 2004, at 12:36 PM, Mark Mitchell wrote:
+>
+>> David Baraff wrote:
+>>
+>>> I'm playing around with the __cxxabiv1::__dynamic_cast() function.  
+>>> It
+>>> works as I would expect, with one exception.
+>>
+>> The ABI document does not require that __dynamic_cast perform a 
+>> derived-to-base cast.  Those __dynamic_cast operations that can 
+>> actually be performed statically by the compiler must be performed 
+>> statically by the compiler -- the runtime library does not expect to 
+>> be called in that situation.
+>
+
+Please note that Mark Mitchell already pointed me in the right 
+direction, though it shifts a lot of implementation burden to me.  I 
+can use the base_type_info to compute the address shift as I chain 
+upward from derived to base, which is all I'm really after in this 
+case.
+
+So the functionality I require is in fact exposed by this very nicely 
+crafted API.
+But please, feel free to make __dynamic_cast do *all* the work, so I 
+can write less code... :)
+
+
+> Indeed.  However, it is not the first time I
+> encounter the desire to be able to do this
+> sort of thing.  Since the ABI specs do not
+> currently say what __dynamic_cast should do
+> in the cases that the compiler handles alone,
+> I don't think there would be a significant
+> backward compatibility issue in trying to
+> support a useful design technique.  If it
+> can be done within the framework of the
+> existing RTTI structures, I think it would
+> be worth "upgrading" __dynamic_cast to
+> address this.
+It obviously can -- currently it returns NULL. So instead, it can 
+certainly do the computation outlined above.  (I say obviously without 
+bothering to consider whether there might be tricky boundary cases --- 
+I mean it seems like it obviously could, to a layman such as myself...)
+
+>
+> There has been occasional talk among WG21/
+> J16 actives about adding a facility like
+> what David B. is looking for, but so far
+> no concrete proposals.  I'm going to CC
+> David Abrahams who mentioned the desire
+> for this once.  Perhaps he has some insight
+> into how widespread the need for this is.
+
+Here's a biggy.  Consider the boost::any class.  Currently, if it holds 
+a Derived* and you ask it for a Base*, I think it says "no can do."  
+Imagine if it could actually say "yes, I can give you back a Base*", 
+because it could dynamically look up the parent chain, and do the 
+address shift.
+
+That would make boost::any a heck of a lot more useful than it is today.
+
+>
+> 	Daveed
+>
+
+
+
+From dave at boost-consulting.com  Fri Feb 27 22:45:27 2004
+From: dave at boost-consulting.com (David Abrahams)
+Date: Fri, 27 Feb 2004 17:45:27 -0500
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> (Daveed
+ Vandevoorde's message of "Fri, 27 Feb 2004 16:10:18 -0500")
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+	<403F8037.9030004@codesourcery.com>
+	<58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+Message-ID: <uhdxcw394.fsf@boost-consulting.com>
+
+Daveed Vandevoorde <daveed at edg.com> writes:
+
+> On Feb 27, 2004, at 12:36 PM, Mark Mitchell wrote:
+>
+>> David Baraff wrote:
+>>
+>>> I'm playing around with the __cxxabiv1::__dynamic_cast() function.  It
+>>> works as I would expect, with one exception.
+>>
+>> The ABI document does not require that __dynamic_cast perform a
+>> derived-to-base cast.  Those __dynamic_cast operations that can
+>> actually be performed statically by the compiler must be performed
+>> statically by the compiler -- the runtime library does not expect to
+>> be called in that situation.
+>
+> Indeed.  However, it is not the first time I
+> encounter the desire to be able to do this
+> sort of thing.  
+
+Yeah, I've been wishing for it for at least a year.  I had no idea
+that there was a function lying around (even a platform-specific one)
+that actually worked that way!  My application contains a big, nasty,
+portable simulation of the same functionality.
+
+> Since the ABI specs do not
+> currently say what __dynamic_cast should do
+> in the cases that the compiler handles alone,
+> I don't think there would be a significant
+> backward compatibility issue in trying to
+> support a useful design technique.  
+
+Yes, I want the "cast up the hierarchy" capability also.
+
+> If it
+> can be done within the framework of the
+> existing RTTI structures, I think it would
+> be worth "upgrading" __dynamic_cast to
+> address this.
+>
+> There has been occasional talk among WG21/
+> J16 actives about adding a facility like
+> what David B. is looking for, but so far
+> no concrete proposals.  I'm going to CC
+> David Abrahams who mentioned the desire
+> for this once.  Perhaps he has some insight
+> into how widespread the need for this is.
+
+I think it's probably more widely neededthan you'd guess, at the
+boundary between statically and dynamically-typed systems.  I doubt
+anyone else has had the insanity to try to simulate it in conforming
+code, or the wherewithal to express to implementors what they were
+trying to achieve, so most people who might've needed it probably just
+gave up.  That's a long-winded way of saying this is the first time
+I've ever heard that someone else besides me wanted it.  If it's
+(almost) in cxx abi v1, and David B. wants it, and I want it, it seems
+like a few people at least have decided it's important.
+
+-- 
+Dave Abrahams
+Boost Consulting
+www.boost-consulting.com
+
+
+
+From dave at boost-consulting.com  Sat Feb 28 00:20:09 2004
+From: dave at boost-consulting.com (David Abrahams)
+Date: Fri, 27 Feb 2004 19:20:09 -0500
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <900E9829-696A-11D8-973B-000A95AFC16E@pixar.com> (David
+ Baraff's message of "Fri, 27 Feb 2004 13:19:01 -0800")
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+	<403F8037.9030004@codesourcery.com>
+	<58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+	<900E9829-696A-11D8-973B-000A95AFC16E@pixar.com>
+Message-ID: <ud680vyva.fsf@boost-consulting.com>
+
+David Baraff <deb at pixar.com> writes:
+
+
+>> From: Daveed Vandevoorde <daveed at edg.com>
+>
+> Please note that Mark Mitchell already pointed me in the right
+> direction, though it shifts a lot of implementation burden to me.  I
+> can use the base_type_info to compute the address shift as I chain
+> upward from derived to base, which is all I'm really after in this
+> case.
+
+Could you please outline the details?
+
+>> There has been occasional talk among WG21/
+>> J16 actives about adding a facility like
+>> what David B. is looking for, but so far
+>> no concrete proposals.  I'm going to CC
+>> David Abrahams who mentioned the desire
+>> for this once.  Perhaps he has some insight
+>> into how widespread the need for this is.
+>
+> Here's a biggy.  Consider the boost::any class.  Currently, if it
+> holds a Derived* and you ask it for a Base*, I think it says "no can
+> do."  Imagine if it could actually say "yes, I can give you back a
+> Base*", because it could dynamically look up the parent chain, and do
+> the address shift.
+>
+> That would make boost::any a heck of a lot more useful than it is today.
+
+boost::any could already be modified to do this, since it "knows" the
+"Derived" type.  I've enclosed an implementation.  Seems to reveal EH
+bugs in quite a few compilers, tho ;-)
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: any.hpp
+Type: text/x-cplusplus
+Size: 4561 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040227/5ae04187/attachment.bin>
+-------------- next part --------------
+
+
+-- 
+Dave Abrahams
+Boost Consulting
+www.boost-consulting.com
+
+From deb at pixar.com  Sat Feb 28 05:03:44 2004
+From: deb at pixar.com (David Baraff)
+Date: Fri, 27 Feb 2004 21:03:44 -0800
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <ud680vyva.fsf@boost-consulting.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com> <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> <900E9829-696A-11D8-973B-000A95AFC16E@pixar.com> <ud680vyva.fsf@boost-consulting.com>
+Message-ID: <7C161B0C-69AB-11D8-AC16-0003939BA2A6@pixar.com>
+
+At Pixar, we've been making use of a type-system that piggy-backs off 
+of RTTI.
+The only thing we require users to do is the following for each type 
+they want to participate in the type system:
+
+----source-file: derived.cpp-----
+#include "instantiateType.h"
+#include "derived.h"
+
+TF_TYPE_INSTANTIATE(Derived, TF_1_PARENT(Base));
+----------------------------------
+
+At startup-time, the above macro injects into a registry that Derived 
+has a parent, Base.
+(Presumably base has done the same, possibly saying it has no parents 
+and really is a base.)
+If you have multiple parents, you can do e.g.
+
+TF_TYPE_INSTANTIATE(MyMultiClass, TF_3_PARENT(Base1, Base2, Base3));
+
+Along with inserting the parent/child info, the macro above also 
+synthesizes cast functions to/from parent and child and adds them to 
+the registry -- this is trivially done in the macro,  since static type 
+information is available.  After this, at runtime, we simply use the 
+typeid() operator on an object and use the RTTI type_info structure to 
+do lookups in our type-registry, allowing for all the queries and 
+conversions you'd imagine in functions that have no access to static 
+type information.
+
+The only ugliness, in fact, is requiring users to add that macro in 
+their source code.
+It would be nice to avoid that.
+
+------------------------------------------------------
+The __cxxabiv1 spec could let us avoid the macro ugliness.  (I say 
+could because I'm quite leery about depending on constructs outside the 
+language.  While Pixar is limited to linux and OsX right now, [i.e. 
+both g++ compilers], you never know how things could change.)
+
+Anyway, we make use of the type facility to let our variant class 
+[called TfAny, in fact!] hold onto a pointer of any type, and then let 
+a user ask if it is holding that particular pointer type, or if it 
+could be cast to that pointer type.  I don't see anyway that a query 
+involving parent/child relationship can be done completely at run-time, 
+by a class like boost::any without either the scheme I describe I 
+above, or reliance on a facility like __cxxabiv1.  Since you create a 
+virtual function which knows only one type, you can't ask it if a cast 
+can succeed to an arbitrary static type, you *have* to be able to ask 
+if it a cast to a type represented by a type_info can succeed.  And 
+*that* can't be done within the language as it stands.
+
+You wrote
+>> Here's a biggy.  Consider the boost::any class.  Currently, if it
+>> holds a Derived* and you ask it for a Base*, I think it says "no can
+>> do."  Imagine if it could actually say "yes, I can give you back a
+>> Base*", because it could dynamically look up the parent chain, and do
+>> the address shift.
+>>
+>> That would make boost::any a heck of a lot more useful than it is 
+>> today.
+>
+> boost::any could already be modified to do this, since it "knows" the
+> "Derived" type.  I've enclosed an implementation.  Seems to reveal EH
+> bugs in quite a few compilers, tho ;-)
+
+I don't understand what you mean by the above.  As I see it in the 
+implementation, the any_cast<> operation must hit *exactly* the type 
+actually being held or it fails.
+The holder object can't answer the question "can your object be cast to 
+some other type" without making use of the abi-specific functionality 
+we are discussing.  Do you think it can?
+
+Anyway, to answer your other question about shifting addresses, it's 
+trivial:
+(and Mark Mitchell patiently informed me that what I wanted was indeed 
+sitting in the structure, if I'd just take the time to read carefully).
+
+In the code below, ArchGetDemangled() takes a const type_info& and 
+returns the demangled string name:
+
+#include <cxxabi.h>
+
+void
+PrintParents(const std::type_info* ti)
+{
+     if (const abi::__si_class_type_info* siTi =
+         dynamic_cast<const abi::__si_class_type_info*>(ti)) {
+
+		 // there is no offset between parent and base class
+         printf("%s", ArchGetDemangled(*siTi->__base_type).c_str());
+     }
+     else if (const abi::__vmi_class_type_info* vmiTi =
+         dynamic_cast<const abi::__vmi_class_type_info*>(ti)) {
+
+         for (size_t i = 0; i < vmiTi->__base_count; i++) {
+             printf("%s [offset %d]\n",
+                    
+ArchGetDemangled(*vmiTi->__base_info[i].__base_type).c_str(),
+                    (vmiTi->__base_info[i].__offset_flags) >>
+                    abi::__base_class_type_info::__offset_shift);
+         }
+     }
+}
+
+template <typename T>
+void PrintParents()
+{
+     printf("Parents of %s: ", ArchGetDemangled(typeid(T)).c_str());
+     PrintParents(&typeid(T));
+     printf("\n");
+}
+
+----------------------------------------
+
+I'll tell you, if ever a feature was needed to be added to the core C++ 
+language, it would be just standardizing the __cxxabiv1 spec across all 
+platforms.  (Yes, I know, wishes and fishes...).  [Well, maybe I'd take
+	if_templated(<compile-time-expression>)
+           ...		// only needs to be legal if guard above is true
+	else
+			...
+first.]
+
+
+>
+> // See http://www.boost.org/libs/any for Documentation.
+>
+> #ifndef BOOST_ANY_INCLUDED
+> #define BOOST_ANY_INCLUDED
+>
+> // what:  variant type boost::any
+> // who:   contributed by Kevlin Henney,
+> //        with features contributed and bugs found by
+> //        Ed Brey, Mark Rodgers, Peter Dimov, and James Curran
+> // when:  July 2001
+> // where: tested with BCC 5.5, MSVC 6.0, and g++ 2.95
+>
+> #include <algorithm>
+> #include <typeinfo>
+>
+> #include "boost/config.hpp"
+> #include <boost/throw_exception.hpp>
+>
+> namespace boost
+> {
+>     class any
+>     {
+>     public: // structors
+>
+>         any()
+>           : content(0)
+>         {
+>         }
+>
+>         template<typename ValueType>
+>         any(const ValueType & value)
+>           : content(new holder<ValueType>(value))
+>         {
+>         }
+>
+>         any(const any & other)
+>           : content(other.content ? other.content->clone() : 0)
+>         {
+>         }
+>
+>         ~any()
+>         {
+>             delete content;
+>         }
+>
+>     public: // modifiers
+>
+>         any & swap(any & rhs)
+>         {
+>             std::swap(content, rhs.content);
+>             return *this;
+>         }
+>
+>         template<typename ValueType>
+>         any & operator=(const ValueType & rhs)
+>         {
+>             any(rhs).swap(*this);
+>             return *this;
+>         }
+>
+>         any & operator=(const any & rhs)
+>         {
+>             any(rhs).swap(*this);
+>             return *this;
+>         }
+>
+>     public: // queries
+>
+>         bool empty() const
+>         {
+>             return !content;
+>         }
+>
+>         const std::type_info & type() const
+>         {
+>             return content ? content->type() : typeid(void);
+>         }
+>
+> #ifndef BOOST_NO_MEMBER_TEMPLATE_FRIENDS
+>     private: // types
+> #else
+>     public: // types (public so any_cast can be non-friend)
+> #endif
+>
+>         class placeholder
+>         {
+>         public: // structors
+>
+>             virtual ~placeholder()
+>             {
+>             }
+>
+>         public: // queries
+>
+>             virtual const std::type_info & type() const = 0;
+>
+>             virtual placeholder * clone() const = 0;
+>
+>             virtual void throwme() = 0;
+>         };
+>
+>         template<typename ValueType>
+>         class holder : public placeholder
+>         {
+>         public: // structors
+>
+>             holder(const ValueType & value)
+>               : held(value)
+>             {
+>             }
+>
+>         public: // queries
+>
+>             virtual const std::type_info & type() const
+>             {
+>                 return typeid(ValueType);
+>             }
+>
+>             virtual placeholder * clone() const
+>             {
+>                 return new holder(held);
+>             }
+>
+>             virtual void throwme()
+>             {
+>                 ValueType* me = &held;
+>                 throw me;
+>             }
+>
+>         public: // representation
+>
+>             ValueType held;
+>
+>         };
+>
+> #ifndef BOOST_NO_MEMBER_TEMPLATE_FRIENDS
+>
+>     private: // representation
+>
+>         template<typename ValueType>
+>         friend ValueType * any_cast(any *);
+>
+> #else
+>
+>     public: // representation (public so any_cast can be non-friend)
+>
+> #endif
+>
+>         placeholder * content;
+>
+>     };
+>
+>     class bad_any_cast : public std::bad_cast
+>     {
+>     public:
+>         virtual const char * what() const throw()
+>         {
+>             return "boost::bad_any_cast: "
+>                    "failed conversion using boost::any_cast";
+>         }
+>     };
+>
+>     template<typename ValueType>
+>     ValueType * any_cast(any * operand)
+>     {
+>         if (0 && operand && operand->type() == typeid(ValueType))
+>         {
+>             return &static_cast<any::holder<ValueType> 
+> *>(operand->content)->held;
+>         }
+>         else try
+>         {
+>             operand->content->throwme();
+>         }
+>         catch(ValueType* x)
+>         {
+>             return const_cast<ValueType*>(x);
+>         }
+>         catch(...) { }
+>         return 0;
+>     }
+>
+>     template<typename ValueType>
+>     const ValueType * any_cast(const any * operand)
+>     {
+>         return any_cast<ValueType>(const_cast<any *>(operand));
+>     }
+>
+>     template<typename ValueType>
+>     ValueType any_cast(const any & operand)
+>     {
+>         const ValueType * result = any_cast<ValueType>(&operand);
+>         if(!result)
+>             boost::throw_exception(bad_any_cast());
+>         return *result;
+>     }
+>
+> }
+>
+> // Copyright Kevlin Henney, 2000, 2001, 2002. All rights reserved.
+> //
+> // Permission to use, copy, modify, and distribute this software for 
+> any
+> // purpose is hereby granted without fee, provided that this copyright 
+> and
+> // permissions notice appear in all copies and derivatives.
+> //
+> // This software is provided "as is" without express or implied 
+> warranty.
+>
+> #endif
+>
+>
+> -- 
+> Dave Abrahams
+> Boost Consulting
+> www.boost-consulting.com
+
+
+
+From dave at boost-consulting.com  Sat Feb 28 14:41:42 2004
+From: dave at boost-consulting.com (David Abrahams)
+Date: Sat, 28 Feb 2004 09:41:42 -0500
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <7C161B0C-69AB-11D8-AC16-0003939BA2A6@pixar.com> (David
+ Baraff's message of "Fri, 27 Feb 2004 21:03:44 -0800")
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com>
+	<403F8037.9030004@codesourcery.com>
+	<58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com>
+	<900E9829-696A-11D8-973B-000A95AFC16E@pixar.com>
+	<ud680vyva.fsf@boost-consulting.com>
+	<7C161B0C-69AB-11D8-AC16-0003939BA2A6@pixar.com>
+Message-ID: <uoerjuuzd.fsf@boost-consulting.com>
+
+David Baraff <deb at pixar.com> writes:
+
+> At Pixar, we've been making use of a type-system that piggy-backs off
+> of RTTI.
+> The only thing we require users to do is the following for each type
+> they want to participate in the type system:
+>
+> ----source-file: derived.cpp-----
+> #include "instantiateType.h"
+> #include "derived.h"
+>
+> TF_TYPE_INSTANTIATE(Derived, TF_1_PARENT(Base));
+> ----------------------------------
+>
+> At startup-time, the above macro injects into a registry that Derived
+> has a parent, Base.
+> (Presumably base has done the same, possibly saying it has no parents
+> and really is a base.)
+> If you have multiple parents, you can do e.g.
+>
+> TF_TYPE_INSTANTIATE(MyMultiClass, TF_3_PARENT(Base1, Base2, Base3));
+> Along with inserting the parent/child info, the macro above also
+> synthesizes cast functions to/from parent and child and adds them to
+> the registry
+
+Sounds familiar.
+See http:://www.boost.org/boost/libs/python/src/object/inheritance.cpp
+
+>  -- this is trivially done in the macro,  since static
+> type information is available.  After this, at runtime, we simply use
+> the typeid() operator on an object and use the RTTI type_info
+> structure to do lookups in our type-registry, allowing for all the
+> queries and conversions you'd imagine in functions that have no access
+> to static type information.
+>
+> The only ugliness, in fact, is requiring users to add that macro in
+> their source code.  It would be nice to avoid that.
+
+
+You can do all this without the ugly macros, if you care ;-)
+Boost.Python does it with templates.
+
+  class_<X, bases<Y, Z, W> >("X")
+      ...
+
+But the user still has to say something.
+
+> ------------------------------------------------------
+> The __cxxabiv1 spec could let us avoid the macro ugliness.  (I say
+> could because I'm quite leery about depending on constructs outside
+> the language.  While Pixar is limited to linux and OsX right now,
+> [i.e. both g++ compilers], you never know how things could change.)
+>
+> Anyway, we make use of the type facility to let our variant class
+> [called TfAny, in fact!] hold onto a pointer of any type, and then let
+> a user ask if it is holding that particular pointer type, or if it
+> could be cast to that pointer type.  I don't see anyway that a query
+> involving parent/child relationship can be done completely at
+> run-time, by a class like boost::any without either the scheme I
+> describe I above, or reliance on a facility like __cxxabiv1.  
+
+See the code I posted.
+
+> Since you create a virtual function which knows only one type, you
+> can't ask it if a cast can succeed to an arbitrary static type, you
+> *have* to be able to ask if it a cast to a type represented by a
+> type_info can succeed.  And *that* can't be done within the language
+> as it stands.
+
+I'm not sure.
+
+> You wrote
+>>> Here's a biggy.  Consider the boost::any class.  Currently, if it
+>>> holds a Derived* and you ask it for a Base*, I think it says "no can
+>>> do."  Imagine if it could actually say "yes, I can give you back a
+>>> Base*", because it could dynamically look up the parent chain, and do
+>>> the address shift.
+>>>
+>>> That would make boost::any a heck of a lot more useful than it is
+>>> today.
+>>
+>> boost::any could already be modified to do this, since it "knows" the
+>> "Derived" type.  I've enclosed an implementation.  Seems to reveal EH
+>> bugs in quite a few compilers, tho ;-)
+>
+> I don't understand what you mean by the above.  As I see it in the
+> implementation, the any_cast<> operation must hit *exactly* the type
+> actually being held or it fails.
+
+You obviously didn't read the modified implementation I enclosed.
+
+> The holder object can't answer the question "can your object be cast
+> to some other type" without making use of the abi-specific
+> functionality we are discussing.  Do you think it can?
+
+Yes; the holder knows the static type; it can throw a pointer of that
+type.  The cast operation can catch the pointer type it's looking
+for, or fail the cast with catch(...).
+
+> Anyway, to answer your other question about shifting addresses, it's
+> trivial:
+> (and Mark Mitchell patiently informed me that what I wanted was indeed
+> sitting in the structure, if I'd just take the time to read
+> carefully).
+>
+> In the code below, ArchGetDemangled() takes a const type_info& and
+> returns the demangled string name:
+>
+> #include <cxxabi.h>
+>
+> void
+> PrintParents(const std::type_info* ti)
+> {
+>      if (const abi::__si_class_type_info* siTi =
+>          dynamic_cast<const abi::__si_class_type_info*>(ti)) {
+>
+> 		 // there is no offset between parent and base class
+>          printf("%s", ArchGetDemangled(*siTi->__base_type).c_str());
+>      }
+>      else if (const abi::__vmi_class_type_info* vmiTi =
+>          dynamic_cast<const abi::__vmi_class_type_info*>(ti)) {
+>
+>          for (size_t i = 0; i < vmiTi->__base_count; i++) {
+>              printf("%s [offset %d]\n",
+>                     ArchGetDemangled(*vmiTi->__base_info[i].__base_type).c_str(),
+>                     (vmiTi->__base_info[i].__offset_flags) >>
+>                     abi::__base_class_type_info::__offset_shift);
+>          }
+>      }
+> }
+>
+> template <typename T>
+> void PrintParents()
+> {
+>      printf("Parents of %s: ", ArchGetDemangled(typeid(T)).c_str());
+>      PrintParents(&typeid(T));
+>      printf("\n");
+> }
+
+
+Thanks; it'll take me some time to absorb that.
+
+-- 
+Dave Abrahams
+Boost Consulting
+www.boost-consulting.com
+
+
+
+From deb at pixar.com  Sun Feb 29 22:55:17 2004
+From: deb at pixar.com (David Baraff)
+Date: Sun, 29 Feb 2004 14:55:17 -0800
+Subject: [cxx-abi-dev] trivial __dynamic_cast fails?
+In-Reply-To: <uhdxcw394.fsf@boost-consulting.com>
+References: <749F08BB-693D-11D8-AC16-0003939BA2A6@pixar.com> <403F8037.9030004@codesourcery.com> <58AF5F4A-6969-11D8-961E-000393A34FA6@edg.com> <uhdxcw394.fsf@boost-consulting.com>
+Message-ID: <57B29996-6B0A-11D8-8942-0003939BA2A6@pixar.com>
+
+>
+David Abrahams wrote:
+> I think it's probably more widely neededthan you'd guess, at the
+> boundary between statically and dynamically-typed systems.  I doubt
+> anyone else has had the insanity to try to simulate it in conforming
+> code,
+I did it in standards-conforming code, so either doing it made me 
+insane, or I am insane for doing it...
+
+
+

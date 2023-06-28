@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Empty bases layout closure
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Empty%20bases%20layout%20closure&In-Reply-To=%3C37839674.17D5EAF%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000149.html">
+   <LINK REL="Next"  HREF="000151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Empty bases layout closure</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Empty%20bases%20layout%20closure&In-Reply-To=%3C37839674.17D5EAF%40edg.com%3E"
+       TITLE="Empty bases layout closure">daveed at edg.com
+       </A><BR>
+    <I>Wed Jul  7 18:03:32 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000149.html">Objects in shared memory
+</A></li>
+        <LI>Next message: <A HREF="000151.html">SUN's ABI on merging vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The C++ ABI issues currently contains:
+
+	[990617 All] At offset zero is the Vptr whenever there is one, as well as
+	the primary base class if any (see A-7). Also at offset zero is any number
+	of empty base classes, as long as that does not place multiple subobjects
+	of the same type at the same offset. If there are multiple empty base 
+	classes such that placing two of them at offset zero would violate this
+	constraint, the first is placed there. (First means in declaration order.) 
+
+	All other non-virtual base classes are laid out in declaration order at
+	the beginning of the class. All other virtual base subobjects will be
+	allocated at the end of the class, left-to-right, depth-first. 
+
+	The above ignores issues of padding for alignment, and possible reordering
+	of class members to fit in padding areas. See issue A-9.
+
+I am interested in resolving the issue of what to do with empty bases that cannot
+be located at the object's origin (because of the type conflict).
+
+Empty classes appear in a complete object's layout in one of the following ways:
+	(a) a nonvirtual direct base
+	(b) a virtual base
+	(c) a direct member
+	(d) a nondirect member or nondirect nonvirtual base
+Cases (a-c) can be laid out specifically for the complete object, while (d) is 
+determined by the direct subobject that contains the (d) case.  (d) is none-
+theless important because of the type constraint that two empty subobjects of
+the same type should not be allocated at the same address.  I'm leaving case (b)
+out of this discussion and assume that its resolution as it stands today is fine,
+(but subordinate to prior layout decisions).
+
+An example:
+
+	struct E1 {};
+	struct E2: E1 {};
+	struct E3 {};
+	struct E4: E3 {};
+	struct N1 { E1 n1; }
+
+	struct D: E1, E2, N1, E3, E4 {
+	  E3 e3;
+	};
+
+D could be laid out in many ways. An optimal layout could be:
+	this+0:	base E1, base E3
+	this+1: base E2, member e3
+	this+2: base N1, base E4
+However, an algorithm that would reliably generate such optimal layouts is 
+likely hard to describe.
+
+I also think there is value in decribing the layout in terms of an algorithm
+instead of trying to describe the results of that algorithm.
+
+Here are three general approaches to the empty base layout algorithm:
+
+(1) No reordering at all:
+An empty base can take up zero bytes, but all direct bases and members are 
+allocated in declaration order.  If allocating an element would create a type 
+conflict with a previously allocated empty base, move to the next alignment 
+slot.  This is not compatible with our issues list so far. For the above 
+example, it leads to:
+	this+0:	base E1
+	this+1:	base E2 (shift since conflict)
+	this+2:	base N1 (shift since conflict with E2::E1)
+	this+3:	base E3 (previous was not empty)
+	this+4:	base E4	(shift since conflict)
+	this+5:	member e3 (shift since conflict with E4::E3)
+Not great, but the example is quite artificial.
+
+(2) Reorder only to origin:
+Same as (1) but if an empty base to be allocated can be allocated at offset
+zero with size zero this is done (in declaration order).  This is more or
+less compatible with what the issues list says so far, except it might be
+read to say that if this fails once, it is never reattempted again.  With 
+the latter constraint the layout of the example would be identical to (1).  
+Without that constraint, you get:
+	this+0:	base E1, base E3
+	this+1:	base E2
+	this+2:	base N1
+	this+3:	base E4
+	this+4:	member e4
+
+(3) Layout empty bases in second pass:
+There are various subalternatives in this option: the pass can be inserted
+before or after the layout of direct members; the location granularity can
+be a byte or the boundaries of already allocated subobjects; and there are
+probably other tweaks that can be made.  In our example the granularity
+doesn't matter since no subobject is larger than a byte.  Assuming that the
+pass occurs after direct member layout, you get:
+	this+0:	base N1
+	this+1:	member e3, base E1
+	this+2:	base E2, base E3
+	this+3: base E4
+
+Comments?  Preferences?
+
+My order of preference is:
+	(1) As for other decisions, this option has the merits of being
+	    simple and influencable by the knowledgeable programmer.
+	(3 with no intrasubobject allocation)
+	    I also prefer to have the second pass occur after direct member
+	    layout to increase opportunities (including opportunities that
+	    could not be emulated by the knowledgeable user of scheme (1)).
+	(2) I anticipate the added specification complexity may not be worth
+	    potential gains.
+	(3 with intrasubobject allocation; i.e. byte-granularity)
+	    This is a form of interleaving which I think was already unpopular
+	    when we discussed the allocation of different access-sections.
+
+	Daveed
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000149.html">Objects in shared memory
+</A></li>
+	<LI>Next message: <A HREF="000151.html">SUN's ABI on merging vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

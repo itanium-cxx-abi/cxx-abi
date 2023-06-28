@@ -1,0 +1,1109 @@
+From nathan at codesourcery.com  Fri Mar  2 14:50:14 2001
+From: nathan at codesourcery.com (Nathan Sidwell)
+Date: Fri, 02 Mar 2001 14:50:14 +0000
+Subject: [C++ PATCH] ctor vtable vcall offsets
+References: <u9snl0ktxf.fsf@casey.cambridge.redhat.com> <20010227102647D.mitchell@codesourcery.com> <u98zmrluml.fsf@casey.cambridge.redhat.com> <20010227130953W.mitchell@codesourcery.com> <3A9CC88E.A15F6181@codesourcery.com> <u9n1b7hu5b.fsf@casey.cambridge.redhat.com>
+Message-ID: <3A9FB326.F1A37301@codesourcery.com>
+
+Jason Merrill wrote:
+
+> But with Java interfaces we can assume no adjustment is necessary, since no
+> adjustment is ever necessary.  With C++ virtual bases, we can't.
+You'll need to adjust to the (virtual) base that is the interface class, 
+in order to lookup the function in that vtable. However, you know that the
+function will have been overridden by the class providing the implementation
+and that'll adjust the self pointer back again. Interesting.
+
+> I assume it means that A may not be a proper base of B; that is, it may be
+> B itself.  Since that is also said by the second parenthetical note, the
+> first should probably be removed.
+oh yes - still should be removed, because the abi glossary says 'base' can mean
+the class itself, `proper base' excludes the class.
+
+> Yes, but if it isn't overridden, going through the thunk you propose is
+> also a waste of time--and a *lot* more time than the adjustment in the
+> caller, which can often be scheduled away.
+ok.
+
+> And I believe the time savings you mention are not significant enough to
+> justify complicating the implementation to deal with this special case,
+> especially given the problems with third-party thunks.
+ok. I think we've got the position that there is insufficient data to be
+convinced either way. However, if we do emit a third party thunk and have
+the base part of the vtable set up correctly, we can leave it to the calling
+code to make the choice. It can either convert to the last base which
+overrode, thereby guaranteeing no use of a third party thunk, or it can
+just use the base part of the vtable and risk it. Different architectures
+will have different costs for either choice - we shouldn't constrain
+implementations unnecessarily. A compiler could add profiling
+feedback to determine if a third party thunk caused a performance penalty for
+each call site.
+
+So, here is my proposal.
+1) When a class hierarchy has multiple uses of a primary virtual base, the
+(secondary or virtual) bases which lose that primary fill in the base part of
+their vtables completely, referencing (third-party) vcall thunks, if needed.
+2) 3.2.4 is amended to indicate that where a virtual primary base is involved,
+there is a choice. Either convert to the virtual base that exists in the
+complete object, or simply use the sub vtable.
+3) Where does the third party thunk get emitted? We could leave it to the
+usage point, or we could force its emission when emitting the vtable of the
+class which has the virtual primary base (that class won't use the thunk, but
+any class deriving from it might need the thunk). I have no strong opinion
+either way, though emitting with the first use vtable seems neater.
+
+Does this work for everybody?
+
+nathan
+-- 
+Dr Nathan Sidwell   ::   http://www.codesourcery.com   ::   CodeSourcery LLC
+         'But that's a lie.' - 'Yes it is. What's your point?'
+nathan at codesourcery.com : http://www.cs.bris.ac.uk/~nathan/ : nathan at acm.org
+
+
+
+From jason at redhat.com  Fri Mar  2 16:03:14 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 02 Mar 2001 16:03:14 +0000
+Subject: [C++ PATCH] ctor vtable vcall offsets
+In-Reply-To: <3A9FB326.F1A37301@codesourcery.com> (Nathan Sidwell's message of "Fri, 02 Mar 2001 14:50:14 +0000")
+References: <u9snl0ktxf.fsf@casey.cambridge.redhat.com>
+	<20010227102647D.mitchell@codesourcery.com>
+	<u98zmrluml.fsf@casey.cambridge.redhat.com>
+	<20010227130953W.mitchell@codesourcery.com>
+	<3A9CC88E.A15F6181@codesourcery.com>
+	<u9n1b7hu5b.fsf@casey.cambridge.redhat.com>
+	<3A9FB326.F1A37301@codesourcery.com>
+Message-ID: <u9lmqo88fx.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+> Jason Merrill wrote:
+>> But with Java interfaces we can assume no adjustment is necessary, since no
+>> adjustment is ever necessary.  With C++ virtual bases, we can't.
+
+> You'll need to adjust to the (virtual) base that is the interface class, 
+> in order to lookup the function in that vtable. However, you know that the
+> function will have been overridden by the class providing the implementation
+> and that'll adjust the self pointer back again. Interesting.
+
+Actually, you never have to adjust at all, as Java only has single
+inheritance.  The vtable for the interface may not be at offset 0, but that
+only affects looking up the function pointer, not what you pass to it as
+'this'.
+
+>> And I believe the time savings you mention are not significant enough to
+>> justify complicating the implementation to deal with this special case,
+>> especially given the problems with third-party thunks.
+
+> ok. I think we've got the position that there is insufficient data to be
+> convinced either way.
+
+I think that there is a tradeoff to be made, but that we need to decide one
+way or another, just as with so many other areas of an ABI.  No one
+solution will be completely optimal for all situations, and we can't have
+special cases for every possible case.
+
+> However, if we do emit a third party thunk and have the base part of the
+> vtable set up correctly, we can leave it to the calling code to make the
+> choice. It can either convert to the last base which overrode, thereby
+> guaranteeing no use of a third party thunk, or it can just use the base
+> part of the vtable and risk it. Different architectures will have
+> different costs for either choice - we shouldn't constrain
+> implementations unnecessarily. A compiler could add profiling feedback to
+> determine if a third party thunk caused a performance penalty for each
+> call site.
+
+I disagree.  Apart from the performance aspect:
+
+1) A standard should not try to be all things to all people.  We should not
+   burden implementations that make one choice by making them emit code to
+   support implementations that make another choice.
+2) Emitting third-party thunks with the vtable adds unnecessary complexity
+   to the implementation.  g++ would be simpler without all the
+   GENERATE_THUNK_WITH_VTABLE logic.
+3) This situation is likely to be quite rare--in practice, usually either C
+   will override the function, or we won't call the function through a C*.
+   It just doesn't make sense to me to add this sort of special case,
+   possibly slowing things down, to deal with an unlikely situation.
+
+The virtual calling convention was one of the first items to be resolved in
+the ABI process; we discussed the tradeoffs, and decided to go with thunks
+immediately before the function.  I'd really rather not reopen that
+decision now.
+
+I'm sorry I didn't catch this when Mark first suggested that we would need
+third-party thunks in some cases.  But we don't actually need them after
+all, and I would really like to do away with them.
+
+Jason
+
+
+
+From rth at redhat.com  Sun Mar  4 09:54:07 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Sun, 4 Mar 2001 01:54:07 -0800
+Subject: getting the adjusted object pointer
+Message-ID: <20010304015407.A3368@redhat.com>
+
+	struct A { int one; };
+	struct B { int two; };
+	struct C : public A, public B { };
+	extern C c;
+	int foo()
+	{
+	  try {
+	    throw c;
+	  } catch (const B &b) {
+	    return b.two;
+	  }
+	}
+
+It is clear that the handler should match.  It is also clear that a
+pointer adjustment is required in initializing the user variable,
+and that this adjusted pointer can be computed by the personality
+routine.
+
+What is not clear is how to get at this adjusted pointer.  If we
+install this adjusted value in gr15, then we pass a effectively 
+random value to __cxa_begin_catch, and it becomes very difficult
+to manage the caughtExceptions stack.
+
+The most obvious solution is to have __cxa_begin_catch receive the
+unadjusted pointer (at __cxa_exception+1) and return the cached
+adjustedPtr.  But in the current documents, __cxa_begin_catch 
+returns void.
+
+What is intended behaviour here?
+
+
+r~
+
+
+
+From jason at redhat.com  Sun Mar  4 17:22:13 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 04 Mar 2001 17:22:13 +0000
+Subject: getting the adjusted object pointer
+In-Reply-To: <20010304015407.A3368@redhat.com> (Richard Henderson's message of "Sun, 4 Mar 2001 01:54:07 -0800")
+References: <20010304015407.A3368@redhat.com>
+Message-ID: <u9ofvh5u0q.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Richard" == Richard Henderson <rth at redhat.com> writes:
+
+> It is clear that the handler should match.  It is also clear that a
+> pointer adjustment is required in initializing the user variable,
+> and that this adjusted pointer can be computed by the personality
+> routine.
+
+Yes.
+
+> What is not clear is how to get at this adjusted pointer.  If we
+> install this adjusted value in gr15, then we pass a effectively 
+> random value to __cxa_begin_catch, and it becomes very difficult
+> to manage the caughtExceptions stack.
+
+Yes, I think we definitely want to pass the unadjusted pointer.
+
+> The most obvious solution is to have __cxa_begin_catch receive the
+> unadjusted pointer (at __cxa_exception+1) and return the cached
+> adjustedPtr.  But in the current documents, __cxa_begin_catch 
+> returns void.
+
+Your idea would make sense to me.  And looking through the discussions, I
+see a note from Christophe which contains
+
+LP1:
+        // Pushes the X on the caught stack
+        X* xptr = __begin_catch(exc)
+
+so perhaps the documents are just wrong.  Christophe?
+
+Jason
+
+
+
+From pfeifer at dbai.tuwien.ac.at  Wed Mar  7 14:24:16 2001
+From: pfeifer at dbai.tuwien.ac.at (Gerald Pfeifer)
+Date: Wed, 7 Mar 2001 15:24:16 +0100 (CET)
+Subject: [C++ PATCH] ctor vtable vcall offsets
+In-Reply-To: <20010228094646I.mitchell@codesourcery.com>
+Message-ID: <Pine.BSF.4.33.0103071523160.64823-100000@taygeta.dbai.tuwien.ac.at>
+
+On Wed, 28 Feb 2001, Mark Mitchell wrote:
+> Yup.  The document is there now at:
+>
+>   http://www.codesourcery.com/cxx-abi/
+
+Perhaps I misunderstood, but in this case, could you (or Alex) also
+update readings.html accordingly?
+
+Gerald
+-- 
+Gerald "Jerry" pfeifer at dbai.tuwien.ac.at http://www.dbai.tuwien.ac.at/~pfeifer/
+
+
+
+
+From ravi.narayanaswamy at intel.com  Thu Mar  8 23:54:06 2001
+From: ravi.narayanaswamy at intel.com (Narayanaswamy, Ravi)
+Date: Thu, 8 Mar 2001 15:54:06 -0800 
+Subject: Types Table pointers
+Message-ID: <10C8636AE359D4119118009027AE99870639C95E@FMSMSX34>
+
+According to the ABI, the pointer to the typeinfo in the Types Tables are
+GP-relative offset.  The
+typeinfo is 16bytes (>8 bytes go in data) and is global (globals by default
+go in data).  Should they 
+be put in sdata or should we make the typeinfo pointer be segrel.
+
+Below is the code Intel's compiler is generating. Can someone tell me what
+should be corrected :
+
+Assembly code:
+        .section .text
+        //Type Table
+        data8 @gprel(_ZTIi)
+        .
+        .
+        .section .gnu.linkonce.d._ZTIi, "wa", "progbits"
+        .align 16
+        .global _ZTIi#
+_ZTIi:
+        .weak _ZTIi#
+        data8.ua _ZTVN10__cxxabiv123__fundamental_type_infoE# + 0x00000010
+        data8.ua __STRING$0#    
+        .global _ZTVN10__cxxabiv123__fundamental_type_infoE#
+
+Thanks
+Ravi
+Intel Corporation
+
+
+
+
+From mark at codesourcery.com  Fri Mar  9 17:43:52 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 09 Mar 2001 09:43:52 -0800
+Subject: exceptions.pdf
+Message-ID: <20010309094352Z.mitchell@codesourcery.com>
+
+
+Andreas pointed out that the exceptions document is encrypted.  Is
+that still necessary?  And is there any reason not to pass along the
+password?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From donl at cup.hp.com  Mon Mar 12 18:48:54 2001
+From: donl at cup.hp.com (Donald B. Larson)
+Date: Mon, 12 Mar 2001 10:48:54 -0800
+Subject: Itanium naming question: Document Titles
+Message-ID: <3AAD1A16.B145957E@cup.hp.com>
+
+Hi:
+	Will the CXX ABI committee be conforming, soon, to the
+"branding" decisions for Itanium?   Apparently
+Intel wants references to "IA-64" replaced with "Itanium"
+in public discussions of the platform.  For instance they
+want 
+"IA-64 applications" replaced with "Itanium-based applications"
+and "IA-64 OS" replaced with "Itanium(tm)-based OS"
+
+The documents at http://www.codesourcery.com/cxx-abi/abi.html still
+have IA-64 in their titles.  Can the CXX ABI committee work on
+re-naming the documents as quickly as possible so that references
+to the documents in product documentation can be changed, as well?
+-- 
+
+					Don Larson   
+					Internet and IA_64 Foundation Lab
+					Hewlett Packard   Cupertino, CA
+
+
+
+From dehnert at transmeta.com  Mon Mar 12 23:21:40 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Mon, 12 Mar 2001 15:21:40 -0800
+Subject: Itanium naming question: Document Titles
+References: <3AAD1A16.B145957E@cup.hp.com>
+Message-ID: <3AAD5A04.BD9126A7@transmeta.com>
+
+"Donald B. Larson" wrote:
+> 
+> Hi:
+>         Will the CXX ABI committee be conforming, soon, to the
+> "branding" decisions for Itanium?   Apparently
+> Intel wants references to "IA-64" replaced with "Itanium"
+> in public discussions of the platform.  For instance they
+> want
+> "IA-64 applications" replaced with "Itanium-based applications"
+> and "IA-64 OS" replaced with "Itanium(tm)-based OS"
+> 
+> The documents at http://www.codesourcery.com/cxx-abi/abi.html still
+> have IA-64 in their titles.  Can the CXX ABI committee work on
+> re-naming the documents as quickly as possible so that references
+> to the documents in product documentation can be changed, as well?
+
+Is this a change?  Last I heard, IA-64 was the preferred architecture
+name, and Itanium the specific processor name.  The ABI is intended
+to apply to the architecture, not just one processor.  I think before
+anything is changed, we need a clearer statement of Intel's (modified?)
+intent.
+
+Jim
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+
+From donl at cup.hp.com  Mon Mar 12 23:56:14 2001
+From: donl at cup.hp.com (Donald B. Larson)
+Date: Mon, 12 Mar 2001 15:56:14 -0800
+Subject: Itanium naming question: Document Titles
+References: <3AAD1A16.B145957E@cup.hp.com> <3AAD5A04.BD9126A7@transmeta.com>
+Message-ID: <3AAD621E.2B8C8C2D@cup.hp.com>
+
+Jim:
+	I refer you to http://www.servers.hp.com/ia-64/
+where HP and Intel have posted an announcement regarding the
+nomenclature change.
+						Don Larson
+
+Jim Dehnert wrote:
+> 
+> "Donald B. Larson" wrote:
+> >
+> > Hi:
+> >         Will the CXX ABI committee be conforming, soon, to the
+> > "branding" decisions for Itanium?   Apparently
+> > Intel wants references to "IA-64" replaced with "Itanium"
+> > in public discussions of the platform.  For instance they
+> > want
+> > "IA-64 applications" replaced with "Itanium-based applications"
+> > and "IA-64 OS" replaced with "Itanium(tm)-based OS"
+> >
+> > The documents at http://www.codesourcery.com/cxx-abi/abi.html still
+> > have IA-64 in their titles.  Can the CXX ABI committee work on
+> > re-naming the documents as quickly as possible so that references
+> > to the documents in product documentation can be changed, as well?
+> 
+> Is this a change?  Last I heard, IA-64 was the preferred architecture
+> name, and Itanium the specific processor name.  The ABI is intended
+> to apply to the architecture, not just one processor.  I think before
+> anything is changed, we need a clearer statement of Intel's (modified?)
+> intent.
+> 
+> Jim
+> --
+> -           Jim Dehnert         dehnert at transmeta.com
+>             (408)919-6984       dehnertj at acm.org
+
+-- 
+
+					Don Larson   
+					Internet and IA_64 Foundation Lab
+					Hewlett Packard   Cupertino, CA
+
+
+
+From jason at redhat.com  Tue Mar 20 15:50:45 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 20 Mar 2001 15:50:45 +0000
+Subject: C++ ABI: Proposed key function tweak
+Message-ID: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+
+Since a pure virtual destructor must still be defined, we can use it as the
+key function even though it's pure.  Making this change will allow users to
+avoid unnecessary duplicate vtables for abstract classes.
+
+Jason
+
+*** abi.html.~1~	Sat Nov 18 00:13:27 2000
+--- abi.html	Tue Mar 20 15:45:53 2001
+*************** In either case, it must be weak.
+*** 4715,4721 ****
+  <p>
+  The virtual table for a class is emitted in the same object containing
+  the definition of its <i>key function</i>,
+! i.e. the first non-pure virtual function
+  that is not inline at the point of class definition.
+  If there is no key function, it is emitted everywhere used.
+  The emitted virtual table includes the full virtual table group for the class,
+--- 4732,4738 ----
+  <p>
+  The virtual table for a class is emitted in the same object containing
+  the definition of its <i>key function</i>,
+! i.e. the first non-pure virtual function or pure virtual destructor
+  that is not inline at the point of class definition.
+  If there is no key function, it is emitted everywhere used.
+  The emitted virtual table includes the full virtual table group for the class,
+
+
+
+From mark at codesourcery.com  Tue Mar 20 17:34:28 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 20 Mar 2001 09:34:28 -0800
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+References: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010320093428T.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> Since a pure virtual destructor must still be defined, we
+    Jason> can use it as the key function even though it's pure.
+    Jason> Making this change will allow users to avoid unnecessary
+    Jason> duplicate vtables for abstract classes.
+
+I think that's a sensible change -- but I think we're past the point
+where we can make these kind of changes.
+
+HP's compiler is in its final stabilization phase, and so is Intel's.
+
+I don't think we should be doing anything but clarifying at this
+point.
+
+What we could do is add this as a note.  (Note that it would have been
+better to do X, but we didn't.  Oops.)
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Mar 21 03:34:33 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 21 Mar 2001 03:34:33 +0000
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <20010320093428T.mitchell@codesourcery.com> (Mark Mitchell's message of "Tue, 20 Mar 2001 09:34:28 -0800")
+References: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+	<20010320093428T.mitchell@codesourcery.com>
+Message-ID: <u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+Jason> Since a pure virtual destructor must still be defined, we
+Jason> can use it as the key function even though it's pure.
+Jason> Making this change will allow users to avoid unnecessary
+Jason> duplicate vtables for abstract classes.
+
+> I think that's a sensible change -- but I think we're past the point
+> where we can make these kind of changes.
+
+> HP's compiler is in its final stabilization phase, and so is Intel's.
+
+And so is ours.  But this is a one-line change to the compiler; I don't
+think it's unreasonable to make it at this point.
+
+Have folks at HP and Intel actually implemented the full ABI?  If so, I'm
+surprised we haven't heard about issues that came up during implementation.
+
+> I don't think we should be doing anything but clarifying at this
+> point.
+
+Perhaps.  But this seems like a clarification to me.
+
+Other opinions?
+
+Jason
+
+
+
+From jason at redhat.com  Wed Mar 21 03:37:07 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 21 Mar 2001 03:37:07 +0000
+Subject: Fwd: [cxx-abi] Types Table pointers
+Message-ID: <u9g0g7dc7w.fsf@casey.cambridge.redhat.com>
+
+Makes sense to me, but I don't really know the architecture.
+
+-------------- next part --------------
+An embedded message was scrubbed...
+From: "Shrivastav, Priti" <priti.shrivastav at intel.com>
+Subject: RE: [cxx-abi] Types Table pointers
+Date: Tue, 20 Mar 2001 17:43:50 -0800
+Size: 1648
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010321/b3b2d8c1/attachment.mht>
+
+From rth at redhat.com  Wed Mar 21 03:44:44 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Tue, 20 Mar 2001 19:44:44 -0800
+Subject: Fwd: [cxx-abi] Types Table pointers
+In-Reply-To: <u9g0g7dc7w.fsf@casey.cambridge.redhat.com>; from jason@redhat.com on Wed, Mar 21, 2001 at 03:37:07AM +0000
+References: <u9g0g7dc7w.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010320194444.A3828@redhat.com>
+
+On Wed, Mar 21, 2001 at 03:37:07AM +0000, Jason Merrill wrote:
+> From: "Shrivastav, Priti" <priti.shrivastav at intel.com>
+[...]
+> The typeinfo is 16bytes (>8 bytes go in data) and is global (globals
+> by default go in data).  Should they be put in sdata or should we make
+> the typeinfo pointer be segrel.
+
+Neither.  I believe that they should continue to be gprel.
+The only reason things go into .sdata is to fit with a 22-bit
+offset for the addl instruction, which we are not using.
+
+We have a 64-bit gp-relative offset -- they can go into .data,
+a linkonce section, or anywhere.
+
+
+r~
+
+
+
+From mark at codesourcery.com  Wed Mar 21 06:53:37 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 20 Mar 2001 22:53:37 -0800
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+References: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+	<20010320093428T.mitchell@codesourcery.com>
+	<u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010320225337Z.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> And so is ours.  But this is a one-line change to the
+    Jason> compiler; I don't think it's unreasonable to make it at
+    Jason> this point.
+
+HP will certainly think so.  They have already committed to OS builds
+using the new ABI, and they cannot respin libraries, etc.  There are
+major parts of the OS written in C++.
+
+    Jason> Have folks at HP and Intel actually implemented the full
+    Jason> ABI?  If so, I'm surprised we haven't heard about issues
+    Jason> that came up during implementation.
+
+Umm, CodeSourcery did those implementations. :-)
+
+    >> I don't think we should be doing anything but clarifying at
+    >> this point.
+
+    Jason> Perhaps.  But this seems like a clarification to me.
+
+Well, it clearly changes the ABI -- programs compiled with and without
+the change will not link, in general.
+
+Let's see what other folks say, if anything.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Mar 21 11:45:32 2001
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 21 Mar 2001 12:45:32 +0100 (MET)
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <20010320225337Z.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Tue, 20 Mar 2001 22:53:37 -0800)
+References: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+	<20010320093428T.mitchell@codesourcery.com>
+	<u9r8zrdcc6.fsf@casey.cambridge.redhat.com> <20010320225337Z.mitchell@codesourcery.com>
+Message-ID: <200103211145.MAA24017@pandora.informatik.hu-berlin.de>
+
+> Let's see what other folks say, if anything.
+
+I agree with your analysis that this is not a mere clarification, but
+a change to the ABI (exploiting an optimization opportunity).
+
+I also agree that no substantial changes should be made to the ABI at
+this point - unless a clear defect in the ABI could be identified
+(e.g. if the ABI would not work as specified).
+
+Regards,
+Martin
+
+
+
+From jason at redhat.com  Wed Mar 21 15:06:11 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 21 Mar 2001 15:06:11 +0000
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <20010320225337Z.mitchell@codesourcery.com> (Mark Mitchell's message of "Tue, 20 Mar 2001 22:53:37 -0800")
+References: <u9lmq05tii.fsf@casey.cambridge.redhat.com>
+	<20010320093428T.mitchell@codesourcery.com>
+	<u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+	<20010320225337Z.mitchell@codesourcery.com>
+Message-ID: <u9vgp3b1r0.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+Jason> And so is ours.  But this is a one-line change to the
+Jason> compiler; I don't think it's unreasonable to make it at
+Jason> this point.
+
+> HP will certainly think so.  They have already committed to OS builds
+> using the new ABI, and they cannot respin libraries, etc.  There are
+> major parts of the OS written in C++.
+
+Ah.
+
+Jason> Have folks at HP and Intel actually implemented the full
+Jason> ABI?  If so, I'm surprised we haven't heard about issues
+Jason> that came up during implementation.
+
+> Umm, CodeSourcery did those implementations. :-)
+
+Well, that would explain why you seemed to be the only folks implementing
+it.  :)
+
+OK, I concede.  But how would you feel about making this change for other
+targets in g++?  I'm thinking particularly of those that don't have a
+COMDAT mechanism.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Mar 21 16:14:06 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Mar 2001 08:14:06 -0800
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <u9vgp3b1r0.fsf@casey.cambridge.redhat.com>
+References: <u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+	<20010320225337Z.mitchell@codesourcery.com>
+	<u9vgp3b1r0.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010321081406R.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> OK, I concede.  But how would you feel about making this
+    Jason> change for other targets in g++?  I'm thinking particularly
+    Jason> of those that don't have a COMDAT mechanism.
+
+If you think that's really valuable, maybe.  
+
+But, I'm not convinced that the marginal benefit here will outweigh
+the cost of having subtly different ABIs in different places.  Right
+now, we're in a situation where things are very consistent across
+platforms; arguable more so than with the old ABI.
+
+I'd still argue that to help the non-COMDAT people there are two good
+approaches:
+
+  - A prelinker that puts everything together nicely.
+
+  - Wait: they'll all go away with a few years.
+   
+    Even PowerPC AIX may get a COMDAT-like thing according to David
+    Edelsohn.
+
+I guess the questions is whether people use pure virtual destructors
+enough to make this worthwhile?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Mar 21 18:32:20 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 21 Mar 2001 18:32:20 +0000
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <20010321081406R.mitchell@codesourcery.com> (Mark Mitchell's message of "Wed, 21 Mar 2001 08:14:06 -0800")
+References: <u9r8zrdcc6.fsf@casey.cambridge.redhat.com>
+	<20010320225337Z.mitchell@codesourcery.com>
+	<u9vgp3b1r0.fsf@casey.cambridge.redhat.com>
+	<20010321081406R.mitchell@codesourcery.com>
+Message-ID: <u9zoef9dmz.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> I guess the questions is whether people use pure virtual destructors
+> enough to make this worthwhile?
+
+I believe abstract bases usually have pure destructors.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Mar 21 20:19:17 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Mar 2001 12:19:17 -0800
+Subject: Emptyness vs. virtualness
+Message-ID: <20010321121917C.mitchell@codesourcery.com>
+
+
+I have this recollection that when we're laying out a base class, and
+we're checking for overlapping empty objects with the same type, that
+we agreed not to look at *virtual* bases.
+
+Concretely, consider:
+
+  struct A {};
+
+  struct B : public A {
+    virtual void f () {}
+  };
+
+  struct C : public virtual B {};
+
+  struct A2 : public A {};
+
+  struct D : public C, public A2 {
+  };
+
+Clearly C goes at offset 0.  Now, can A2 go at offset 0?  If it does,
+then there is an A overlap -- if you consider C's virtual bases, but
+not if you don't.  And, we haven't allocated virtual bases yet.
+
+The ABI document just says "direct or indirect bases", which I read as
+saying that A2 *cannot* go at offset zero.
+
+We have a disagreement between two of our implementations; I'm trying
+to figure out if we actually decided this before or not.  Does anyone
+recall any traffic about this?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+
+From mark at codesourcery.com  Wed Mar 21 21:23:00 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Mar 2001 13:23:00 -0800
+Subject: C++ ABI: Proposed key function tweak
+In-Reply-To: <u9zoef9dmz.fsf@casey.cambridge.redhat.com>
+References: <u9vgp3b1r0.fsf@casey.cambridge.redhat.com>
+	<20010321081406R.mitchell@codesourcery.com>
+	<u9zoef9dmz.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010321132300E.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> I guess the questions is whether people use pure virtual
+    >> destructors enough to make this worthwhile?
+
+    Jason> I believe abstract bases usually have pure destructors.
+
+Could be -- mine often don't, but there are certainly idioms which do.
+
+I think that we should measure the number of bytes saved in an
+executable or two, as a percentage of total size, before introducing
+this complication.  But, I don't feel strongly about it, if you think
+this is going to be a win.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Wed Mar 21 23:43:59 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 21 Mar 2001 23:43:59 +0000
+Subject: Emptyness vs. virtualness
+In-Reply-To: <20010321121917C.mitchell@codesourcery.com> (Mark Mitchell's message of "Wed, 21 Mar 2001 12:19:17 -0800")
+References: <20010321121917C.mitchell@codesourcery.com>
+Message-ID: <u9ofuuads0.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+>   struct A {};
+
+>   struct B : public A {
+>     virtual void f () {}
+>   };
+
+>   struct C : public virtual B {};
+
+>   struct A2 : public A {};
+
+>   struct D : public C, public A2 {
+>   };
+
+> Clearly C goes at offset 0.  Now, can A2 go at offset 0?
+
+> We have a disagreement between two of our implementations; I'm trying
+> to figure out if we actually decided this before or not.  Does anyone
+> recall any traffic about this?
+
+I don't.  My inclination would be to say that A2 cannot be at offset 0;
+otherwise we would have to add a new B subobject for D.
+
+Jason
+
+
+
+From dehnert at transmeta.com  Thu Mar 22 01:12:17 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Wed, 21 Mar 2001 17:12:17 -0800
+Subject: Emptyness vs. virtualness
+References: <20010321121917C.mitchell@codesourcery.com> <u9ofuuads0.fsf@casey.cambridge.redhat.com>
+Message-ID: <3AB95171.8B0B8D6D@transmeta.com>
+
+Jason Merrill wrote:
+> 
+> >>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+> 
+> >   struct A {};
+> 
+> >   struct B : public A {
+> >     virtual void f () {}
+> >   };
+> 
+> >   struct C : public virtual B {};
+> 
+> >   struct A2 : public A {};
+> 
+> >   struct D : public C, public A2 {
+> >   };
+> 
+> > Clearly C goes at offset 0.  Now, can A2 go at offset 0?
+> 
+> > We have a disagreement between two of our implementations; I'm trying
+> > to figure out if we actually decided this before or not.  Does anyone
+> > recall any traffic about this?
+> 
+> I don't.  My inclination would be to say that A2 cannot be at offset 0;
+> otherwise we would have to add a new B subobject for D.
+
+But that's what I would have expected.  The rule is that we first lay out
+the non-virtual things (C (not B), A2 (with A)) and then all the virtual
+bases (B).  By the time we get to B, it's A can't be at 0, so we get a new
+one.
+
+Jim
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+
+From mark at codesourcery.com  Thu Mar 22 05:50:00 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Mar 2001 21:50:00 -0800
+Subject: Emptyness vs. virtualness
+In-Reply-To: <3AB95171.8B0B8D6D@transmeta.com>
+References: <20010321121917C.mitchell@codesourcery.com>
+	<u9ofuuads0.fsf@casey.cambridge.redhat.com>
+	<3AB95171.8B0B8D6D@transmeta.com>
+Message-ID: <20010321215000N.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at transmeta.com> writes:
+
+    Jim> But that's what I would have expected.  The rule is that we
+    Jim> first lay out the non-virtual things (C (not B), A2 (with A))
+    Jim> and then all the virtual bases (B).  By the time we get to B,
+    Jim> it's A can't be at 0, so we get a new one.
+
+Yup, that's the issue all right.
+
+So, how do we decide?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at transmeta.com  Thu Mar 22 06:20:23 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Wed, 21 Mar 2001 22:20:23 -0800
+Subject: Emptyness vs. virtualness
+References: <20010321121917C.mitchell@codesourcery.com>
+		<u9ofuuads0.fsf@casey.cambridge.redhat.com>
+		<3AB95171.8B0B8D6D@transmeta.com> <20010321215000N.mitchell@codesourcery.com>
+Message-ID: <3AB999A7.FFC82E03@transmeta.com>
+
+
+
+Mark Mitchell wrote:
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at transmeta.com> writes:
+> 
+>     Jim> But that's what I would have expected.  The rule is that we
+>     Jim> first lay out the non-virtual things (C (not B), A2 (with A))
+>     Jim> and then all the virtual bases (B).  By the time we get to B,
+>     Jim> it's A can't be at 0, so we get a new one.
+> 
+> Yup, that's the issue all right.
+> 
+> So, how do we decide?
+
+Well, I think it's well-defined now, and can be clarified if necessary.
+Further, I think the alternative will be a messier rule.
+So would it be beneficial enough to be worth changing it?
+
+It might save up to one unit of alignment in the size (doesn't seem important)
+to a case that I doubt is common.  Seems to me like a worse case for change
+than Jason's proposal for vtable emission.
+
+Jim
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+
+From mark at codesourcery.com  Thu Mar 22 06:51:58 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 21 Mar 2001 22:51:58 -0800
+Subject: Emptyness vs. virtualness
+In-Reply-To: <3AB999A7.FFC82E03@transmeta.com>
+References: <3AB95171.8B0B8D6D@transmeta.com>
+	<20010321215000N.mitchell@codesourcery.com>
+	<3AB999A7.FFC82E03@transmeta.com>
+Message-ID: <20010321225158I.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at transmeta.com> writes:
+
+    Jim> Well, I think it's well-defined now, and can be clarified if
+    Jim> necessary.  Further, I think the alternative will be a
+    Jim> messier rule.  So would it be beneficial enough to be worth
+    Jim> changing it?
+
+I'm sorry; I'm not sure I understand what you think is the status
+quo.  That only non-virtual parts are considered for overlap, or that
+virtual parts are?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at transmeta.com  Thu Mar 22 08:29:51 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Thu, 22 Mar 2001 00:29:51 -0800
+Subject: Emptyness vs. virtualness
+References: <3AB95171.8B0B8D6D@transmeta.com>
+		<20010321215000N.mitchell@codesourcery.com>
+		<3AB999A7.FFC82E03@transmeta.com> <20010321225158I.mitchell@codesourcery.com>
+Message-ID: <3AB9B7FF.3770D4A7@transmeta.com>
+
+Mark Mitchell wrote:
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at transmeta.com> writes:
+> 
+>     Jim> Well, I think it's well-defined now, and can be clarified if
+>     Jim> necessary.  Further, I think the alternative will be a
+>     Jim> messier rule.  So would it be beneficial enough to be worth
+>     Jim> changing it?
+> 
+> I'm sorry; I'm not sure I understand what you think is the status
+> quo.  That only non-virtual parts are considered for overlap, or that
+> virtual parts are?
+
+I thought that all parts were considered, but that the virtual base A
+couldn't be placed at offset zero because the non-virtual one was
+already there.  Did I misread the example?
+
+On looking at the ABI again, though (my copy), I do see a typo that isn't
+helping.  The first paragraph of 2.4 (III) says "II-2 (if empty) or II-3
+(if non-empty)" but should swap the parenthesized comments.
+
+Jim
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Mar 22 08:54:22 2001
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Thu, 22 Mar 2001 09:54:22 +0100 (MET)
+Subject: Emptyness vs. virtualness
+In-Reply-To: <3AB95171.8B0B8D6D@transmeta.com> (message from Jim Dehnert on
+	Wed, 21 Mar 2001 17:12:17 -0800)
+References: <20010321121917C.mitchell@codesourcery.com> <u9ofuuads0.fsf@casey.cambridge.redhat.com> <3AB95171.8B0B8D6D@transmeta.com>
+Message-ID: <200103220854.JAA22601@pandora.informatik.hu-berlin.de>
+
+> But that's what I would have expected.  The rule is that we first lay out
+> the non-virtual things (C (not B), A2 (with A)) and then all the virtual
+> bases (B).  By the time we get to B, it's A can't be at 0, so we get a new
+> one.
+
+In 2.4-III, there is a statement
+
+# Any indirect primary base class E of the current class C, that has
+# been chosen as the primary base class of some other base class
+# (direct or indirect, virtual or non-virtual) of C, will be allocated
+# as part of that other base class, and is not allocated here.
+
+Copying Mark's example again
+
+  struct A {};
+
+  struct B : public A {
+    virtual void f () {}
+  };
+
+  struct C : public virtual B {};
+
+  struct A2 : public A {};
+
+  struct D : public C, public A2 {
+  };
+
+I find that B is the primary base of C, right? Now, I put C at offset
+0 of D, as the primary base of D. Since B is an "indirect primary
+base" of D, it will be allocated as part of C.
+
+So I would say that C, with B and A, go at offset 0. Then, A2 cannot
+go to offset 0.
+
+Regards,
+Martin
+
+
+
+
+From dehnert at transmeta.com  Sat Mar 24 03:57:33 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Fri, 23 Mar 2001 19:57:33 -0800
+Subject: Emptyness vs. virtualness
+References: <20010321121917C.mitchell@codesourcery.com> <u9ofuuads0.fsf@casey.cambridge.redhat.com> <3AB95171.8B0B8D6D@transmeta.com> <200103220854.JAA22601@pandora.informatik.hu-berlin.de>
+Message-ID: <3ABC1B2D.BA8D2BFE@transmeta.com>
+
+Martin von Loewis wrote:
+> 
+> > But that's what I would have expected.  The rule is that we first lay out
+> > the non-virtual things (C (not B), A2 (with A)) and then all the virtual
+> > bases (B).  By the time we get to B, it's A can't be at 0, so we get a new
+> > one.
+> 
+> In 2.4-III, there is a statement
+> 
+> # Any indirect primary base class E of the current class C, that has
+> # been chosen as the primary base class of some other base class
+> # (direct or indirect, virtual or non-virtual) of C, will be allocated
+> # as part of that other base class, and is not allocated here.
+
+I stand corrected.  The current ABI is clear, but in the opposite sense that I
+thought.  I simply didn't read far enough, and I apologize for my confusion.
+
+Jim
+
+-- 
+		Jim Dehnert		Transmeta Corp.
+		dehnert at transmeta.com	(408) 919-6984
+		dehnertj at acm.org
+
+
+

@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] A complexity in the mangling ABI
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20complexity%20in%20the%20mangling%20ABI&In-Reply-To=%3Cm3smkeh4kn.fsf%40gossamer.airs.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001789.html">
+   <LINK REL="Next"  HREF="001790.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] A complexity in the mangling ABI</H1>
+    <B>Ian Lance Taylor</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20complexity%20in%20the%20mangling%20ABI&In-Reply-To=%3Cm3smkeh4kn.fsf%40gossamer.airs.com%3E"
+       TITLE="[cxx-abi-dev] A complexity in the mangling ABI">ian at wasabisystems.com
+       </A><BR>
+    <I>Mon Nov 24 02:40:24 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001789.html">[cxx-abi-dev] A complexity in the mangling ABI
+</A></li>
+        <LI>Next message: <A HREF="001790.html">A complexity in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1791">[ date ]</a>
+              <a href="thread.html#1791">[ thread ]</a>
+              <a href="subject.html#1791">[ subject ]</a>
+              <a href="author.html#1791">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&quot;Mark Mitchell&quot; &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; writes:
+
+&gt;<i> &gt; This is all a long-winded way of asking why the ABI says that
+</I>&gt;<i> &gt; order-insensitive vendor extended type qualifiers may not be subset
+</I>&gt;<i> &gt; for purposes of substitution.  If this restriction were lifted--if
+</I>&gt;<i> &gt; only the standard CV-qualified type could not be subset--then I
+</I>&gt;<i> &gt; believe that it would be possible to write a correct demangler which
+</I>&gt;<i> &gt; was not aware of all vendor extended type qualifiers.
+</I>&gt;<i> 
+</I>&gt;<i> The paragraph you quoted talks about &quot;the grammar&quot; but as with many aspects
+</I>&gt;<i> of the ABI specification, the wording is not ideal.  I think that paragraph
+</I>&gt;<i> means to be talking about the ordering requirements on something like &quot;const
+</I>&gt;<i> volatile int&quot;; the ABI specifies the order in which the &quot;C&quot; and &quot;V&quot; appear,
+</I>&gt;<i> and requires that vendor-extended qualifiers appear in alphabetical order.
+</I>
+Well, to be nit-pickingly precise, the ABI only specifies that
+*order-insensitive* vendor-extended qualifiers appear in alphabetical
+order, and they must appear before the standard CV-qualifiers.
+
+This makes sense, since if the qualifier is order sensitive, then the
+ABI can't really mandate the order in which it appears.  It has to
+appear in the appropriate order.
+
+&gt;<i> The specification doesn't actually say how to deal with mangling
+</I>&gt;<i> order-sensitive qualifiers.
+</I>
+I think you meant to say order-insensitive here.  (I know that I'm
+confused about the difference.)
+
+&gt;<i> If there are vendor-extended order-sensitive qualifiers, that would clearly
+</I>&gt;<i> need to change.
+</I>
+Again, I think you mean to say order-insensitive.
+
+g++ supports one vendor-extended type qualifier, and it handles it in
+an order-sensitive manner.
+
+I realize that I got confused between order-sensitive and
+order-insensitive in part of my earlier note.  I said 
+
+``I believe that all of the V3 demanglers I am aware of resolve this
+  issue by assuming that all vendor extended type qualifiers are
+  order-insensitive''
+
+but the last words should have been ``order-sensitive.''
+
+&gt;<i> As for adding additional substitution candidates (like &quot;const foo&quot; given
+</I>&gt;<i> &quot;const volatile foo&quot;, or &quot;vendor1 foo&quot; given &quot;const vendor1 vendor2 foo&quot;)
+</I>&gt;<i> might very well increase the number of substitution candidates substantially
+</I>&gt;<i> without major benefit.  Once you exceed 36 substitution candidates the
+</I>&gt;<i> number of digits in the substitution reference increases, so that would
+</I>&gt;<i> increase the cost.  Furthermore, the obvious way to organize the
+</I>&gt;<i> substitution table in the compiler is to have a dictionary mapping types to
+</I>&gt;<i> substitution numbers; if &quot;const volatile foo&quot; resulted in adding &quot;const foo&quot;
+</I>&gt;<i> to the table you might have to create a type which would otherwise be
+</I>&gt;<i> unncessary.
+</I>
+That makes sense.  Unfortunately, following this policy with respect
+to vendor extended type qualifiers makes it impossible to write a
+generic demangler.
+
+An alternative to lifting the restriction would be to extend the
+restriction.  The ABI could declare that vendor extended type
+qualifiers must always combine with CV-qualifiers when forming a
+substitution candidate, regardless of whether the vendor extended type
+qualifier is order-sensitive or order-insensitive.
+
+Unfortunately, this would mean that the current g++ mangling of
+__vector did not follow the ABI.
+
+A slightly more complex alternative might be to say that a vendor
+extended type qualifier *followed* by CV-qualifiers can not be subset.
+That is, you can only substitute for the base type, or for the base
+type plus the CV-qualifiers plus the vendor-extended type
+qualifier(s).  I think this might work for g++ at present, because I
+don't think there is a way to say ``vector of const int''--I think you
+can only say ``const vector of int.''  I'm not 100% sure, though.
+
+Ian
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001789.html">[cxx-abi-dev] A complexity in the mangling ABI
+</A></li>
+	<LI>Next message: <A HREF="001790.html">A complexity in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1791">[ date ]</a>
+              <a href="thread.html#1791">[ thread ]</a>
+              <a href="subject.html#1791">[ subject ]</a>
+              <a href="author.html#1791">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

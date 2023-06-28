@@ -1,0 +1,692 @@
+From hstong at ca.ibm.com  Thu Mar 20 04:02:11 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Thu, 20 Mar 2014 00:02:11 -0400
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+Message-ID: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+
+
+
+It seems that the ABI is missing mangling for elaborated type specifiers.
+
+Background:
+As mentioned in Core Issue 1162, elaborated-type-specifiers may be used to
+cause SFINAE.
+The proposed wording for Core Issue 1668
+<http://jmaurer.awardspace.info/wg21/proposed_resolution_core-1668.html>
+clarifies the various aspects of function signatures and the relationship
+of being functionally equivalent.
+
+Using Clang 3.4, the program below unexpectedly terminates from an uncaught
+exception.
+depElaboratedA.cc:
+struct B { enum ty { BtyA }; };
+
+template <typename T> int foo(enum T::ty *) { static int x = 0; return +
++x; }
+int bar() { return foo<B>(0); }
+
+template <typename T> int foo(typename T::ty *) { static int x = 0; return
+++x; }
+
+depElaboratedB.cc:
+struct B { enum ty { BtyA }; };
+
+template <typename T> int foo(typename T::ty *) { static int x = 0; return
+++x; }
+int zip() { return foo<B>(0); }
+
+int bar();
+int main() {
+   bar();
+   if (zip() != 1) throw 0;
+}
+
+Thanks,
+
+
+Hubert Tong
+
+Hubert S K Tong
+IBM Canada Ltd
+8200 Warden Ave, Markham ON  L6G 1C7
+Canada
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140320/ccb418a9/attachment.html>
+
+From rjmccall at apple.com  Thu Mar 20 17:56:10 2014
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Mar 2014 10:56:10 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+Message-ID: <FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+
+On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> It seems that the ABI is missing mangling for elaborated type specifiers.
+> 
+> Background:
+> As mentioned in Core Issue 1162, elaborated-type-specifiers may be used to cause SFINAE.
+
+Good point.  I guess this should just be added to <unresolved-name>.  Would you care to make a proposal?
+
+John.
+
+From hstong at ca.ibm.com  Thu Mar 20 18:16:21 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Thu, 20 Mar 2014 14:16:21 -0400
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+Message-ID: <OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+
+John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+
+> From: John McCall <rjmccall at apple.com>
+> To: Hubert Tong/Toronto/IBM at IBMCA,
+> Cc: cxx-abi-dev at codesourcery.com
+> Date: 20-03-2014 01:56 PM
+> Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+>
+> On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > It seems that the ABI is missing mangling for elaborated type
+specifiers.
+> >
+> > Background:
+> > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+> used to cause SFINAE.
+>
+> Good point.  I guess this should just be added to <unresolved-name>.
+> Would you care to make a proposal?
+>
+
+Sure.
+
+-- HT
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140320/33a28372/attachment.html>
+
+From rjmccall at apple.com  Thu Mar 20 19:04:16 2014
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Mar 2014 12:04:16 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+Message-ID: <DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+
+On Mar 20, 2014, at 11:16 AM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+> > From: John McCall <rjmccall at apple.com>
+> > To: Hubert Tong/Toronto/IBM at IBMCA, 
+> > Cc: cxx-abi-dev at codesourcery.com
+> > Date: 20-03-2014 01:56 PM
+> > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+> > 
+> > On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > > It seems that the ABI is missing mangling for elaborated type specifiers.
+> > > 
+> > > Background:
+> > > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+> > used to cause SFINAE.
+> > 
+> > Good point.  I guess this should just be added to <unresolved-name>.
+> > Would you care to make a proposal?
+> > 
+> 
+> Sure.
+
+Great!
+
+I think I was wrong, by the way; you should add it to to the <class-enum-type> grammar as a decoration before we enter <name>.
+
+John.
+
+From schaub.johannes at googlemail.com  Thu Mar 20 19:37:33 2014
+From: schaub.johannes at googlemail.com (Johannes Schaub)
+Date: Thu, 20 Mar 2014 20:37:33 +0100
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+Message-ID: <CANu6V4XXDH+nmkSMTULvd1eXGpR_dSgFZK3ukHeG2JDJ_OqCEg@mail.gmail.com>
+
+2014-03-20 20:04 GMT+01:00 John McCall <rjmccall at apple.com>:
+> On Mar 20, 2014, at 11:16 AM, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+>> > From: John McCall <rjmccall at apple.com>
+>> > To: Hubert Tong/Toronto/IBM at IBMCA,
+>> > Cc: cxx-abi-dev at codesourcery.com
+>> > Date: 20-03-2014 01:56 PM
+>> > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+>> >
+>> > On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> > > It seems that the ABI is missing mangling for elaborated type specifiers.
+>> > >
+>> > > Background:
+>> > > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+>> > used to cause SFINAE.
+>> >
+>> > Good point.  I guess this should just be added to <unresolved-name>.
+>> > Would you care to make a proposal?
+>> >
+>>
+>> Sure.
+>
+> Great!
+>
+> I think I was wrong, by the way; you should add it to to the <class-enum-type> grammar as a decoration before we enter <name>.
+>
+
+I'm glad that it doesn't seem to cause too much difficulty to add
+this. Looks like this will fix the second half of
+http://gcc.gnu.org/bugzilla/show_bug.cgi?id=48920 ?
+
+From richardsmith at google.com  Wed Mar 26 18:34:03 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 26 Mar 2014 11:34:03 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+Message-ID: <CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+
+On 20 March 2014 12:04, John McCall <rjmccall at apple.com> wrote:
+
+> On Mar 20, 2014, at 11:16 AM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+> > > From: John McCall <rjmccall at apple.com>
+> > > To: Hubert Tong/Toronto/IBM at IBMCA,
+> > > Cc: cxx-abi-dev at codesourcery.com
+> > > Date: 20-03-2014 01:56 PM
+> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type
+> specifiers
+> > >
+> > > On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > > > It seems that the ABI is missing mangling for elaborated type
+> specifiers.
+> > > >
+> > > > Background:
+> > > > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+> > > used to cause SFINAE.
+> > >
+> > > Good point.  I guess this should just be added to <unresolved-name>.
+> > > Would you care to make a proposal?
+> > >
+> >
+> > Sure.
+>
+> Great!
+>
+> I think I was wrong, by the way; you should add it to to the
+> <class-enum-type> grammar as a decoration before we enter <name>.
+
+
+I think we should leave the 'typename' case alone and change the
+struct/class/union/enum cases, since the latter cases are much less common.
+There seem to be two obvious approaches:
+
+1) Use a prefix indicating that there was a tag keyword, but don't say
+which one.
+2) Use a prefix indicating which keyword was used
+
+The first approach seems viable -- we can never have a mangling collision
+where a type is one of struct-or-class, union, or enum in one TU and a
+different one of those three in another TU (and the struct and class cases
+are functionally equivalent).
+
+The second approach seems better for demanglers (and taking that argument
+to its logical conclusion suggests that we should mangle 'class' and
+'struct' differently).
+
+Strawman:
+
+<class-enum-type> ::= <name>    # non-dependent type name or
+*typename-specifier*
+                  ::= TC <name> # dependent elaborated class type
+                  ::= Ts <name> # dependent elaborated struct type
+                  ::= Tu <name> # dependent elaborated union type
+                  ::= Te <name> # dependent elaborated enum type
+
+Thoughts?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/8fa43a7c/attachment.html>
+
+From rjmccall at apple.com  Wed Mar 26 18:59:12 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 26 Mar 2014 11:59:12 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+Message-ID: <52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+
+On Mar 26, 2014, at 11:34 AM, Richard Smith <richardsmith at google.com> wrote:
+> On 20 March 2014 12:04, John McCall <rjmccall at apple.com> wrote:
+> On Mar 20, 2014, at 11:16 AM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+> > > From: John McCall <rjmccall at apple.com>
+> > > To: Hubert Tong/Toronto/IBM at IBMCA,
+> > > Cc: cxx-abi-dev at codesourcery.com
+> > > Date: 20-03-2014 01:56 PM
+> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+> > >
+> > > On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > > > It seems that the ABI is missing mangling for elaborated type specifiers.
+> > > >
+> > > > Background:
+> > > > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+> > > used to cause SFINAE.
+> > >
+> > > Good point.  I guess this should just be added to <unresolved-name>.
+> > > Would you care to make a proposal?
+> > >
+> >
+> > Sure.
+> 
+> Great!
+> 
+> I think I was wrong, by the way; you should add it to to the <class-enum-type> grammar as a decoration before we enter <name>.
+> 
+> I think we should leave the 'typename' case alone and change the struct/class/union/enum cases, since the latter cases are much less common. There seem to be two obvious approaches:
+> 
+> 1) Use a prefix indicating that there was a tag keyword, but don't say which one.
+> 2) Use a prefix indicating which keyword was used
+> 
+> The first approach seems viable -- we can never have a mangling collision where a type is one of struct-or-class, union, or enum in one TU and a different one of those three in another TU (and the struct and class cases are functionally equivalent).
+
+Sorry, what?  Why are any of these the same function template under the ODR?
+  template <class T> auto f() -> enum T::type;
+  template <class T> auto f() -> struct T::type;
+  template <class T> auto f() -> typename T::type;
+Template argument deduction can distinguish the first two (and drop them in favor of the third for typedef members), and the third can be introduced later or in a different translation unit.
+
+I think we have to take the second approach.
+
+> The second approach seems better for demanglers (and taking that argument to its logical conclusion suggests that we should mangle 'class' and 'struct' differently).
+> 
+> Strawman:
+> 
+> <class-enum-type> ::= <name>    # non-dependent type name or typename-specifier
+>                   ::= TC <name> # dependent elaborated class type
+>                   ::= Ts <name> # dependent elaborated struct type
+>                   ::= Tu <name> # dependent elaborated union type
+>                   ::= Te <name> # dependent elaborated enum type 
+
+I don?t think distinguishing struct and class is worth it.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/a7371540/attachment.html>
+
+From richardsmith at google.com  Wed Mar 26 19:23:28 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 26 Mar 2014 12:23:28 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+Message-ID: <CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+
+On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+
+> On Mar 26, 2014, at 11:34 AM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On 20 March 2014 12:04, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Mar 20, 2014, at 11:16 AM, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> > John McCall <rjmccall at apple.com> wrote on 20-03-2014 01:56:10 PM:
+>> > > From: John McCall <rjmccall at apple.com>
+>> > > To: Hubert Tong/Toronto/IBM at IBMCA,
+>> > > Cc: cxx-abi-dev at codesourcery.com
+>> > > Date: 20-03-2014 01:56 PM
+>> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type
+>> specifiers
+>> > >
+>> > > On Mar 19, 2014, at 9:02 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+>> > > > It seems that the ABI is missing mangling for elaborated type
+>> specifiers.
+>> > > >
+>> > > > Background:
+>> > > > As mentioned in Core Issue 1162, elaborated-type-specifiers may be
+>> > > used to cause SFINAE.
+>> > >
+>> > > Good point.  I guess this should just be added to <unresolved-name>.
+>> > > Would you care to make a proposal?
+>> > >
+>> >
+>> > Sure.
+>>
+>> Great!
+>>
+>> I think I was wrong, by the way; you should add it to to the
+>> <class-enum-type> grammar as a decoration before we enter <name>.
+>
+>
+> I think we should leave the 'typename' case alone and change the
+> struct/class/union/enum cases, since the latter cases are much less common.
+> There seem to be two obvious approaches:
+>
+> 1) Use a prefix indicating that there was a tag keyword, but don't say
+> which one.
+> 2) Use a prefix indicating which keyword was used
+>
+> The first approach seems viable -- we can never have a mangling collision
+> where a type is one of struct-or-class, union, or enum in one TU and a
+> different one of those three in another TU (and the struct and class cases
+> are functionally equivalent).
+>
+>
+> Sorry, what?  Why are any of these the same function template under the
+> ODR?
+>   template <class T> auto f() -> enum T::type;
+>   template <class T> auto f() -> struct T::type;
+>   template <class T> auto f() -> typename T::type;
+> Template argument deduction can distinguish the first two (and drop them
+> in favor of the third for typedef members), and the third can be introduced
+> later or in a different translation unit.
+>
+
+The first two are not the same function template. But that doesn't matter,
+as far as I can see -- we don't have mangled names for function templates,
+we have mangled names for function template specializations, and there
+cannot exist template arguments for which substitution into the first two
+function templates both succeed.
+
+I think we have to take the second approach.
+>
+> The second approach seems better for demanglers (and taking that argument
+> to its logical conclusion suggests that we should mangle 'class' and
+> 'struct' differently).
+>
+> Strawman:
+>
+> <class-enum-type> ::= <name>    # non-dependent type name or
+> *typename-specifier*
+>                   ::= TC <name> # dependent elaborated class type
+>                   ::= Ts <name> # dependent elaborated struct type
+>                   ::= Tu <name> # dependent elaborated union type
+>                   ::= Te <name> # dependent elaborated enum type
+>
+>
+> I don?t think distinguishing struct and class is worth it.
+>
+
+I agree that the benefit of a demangler being able to say whether it's got
+a class or struct is marginal. Maybe drop the 'TC' mangling and keep the
+other three?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/0f23a4ff/attachment-0001.html>
+
+From rjmccall at apple.com  Wed Mar 26 19:54:40 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 26 Mar 2014 12:54:40 -0700
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+Message-ID: <27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+
+On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+> Sorry, what?  Why are any of these the same function template under the ODR?
+>   template <class T> auto f() -> enum T::type;
+>   template <class T> auto f() -> struct T::type;
+>   template <class T> auto f() -> typename T::type;
+> Template argument deduction can distinguish the first two (and drop them in favor of the third for typedef members), and the third can be introduced later or in a different translation unit.
+> 
+> The first two are not the same function template. But that doesn't matter, as far as I can see -- we don't have mangled names for function templates, we have mangled names for function template specializations, and there cannot exist template arguments for which substitution into the first two function templates both succeed.
+
+Ah, good point.  Still, let?s not make too many unnecessary assumptions here ? there are certainly plausible paths forward for both the language (function template templates parameters) and tooling (indexers, ODR checkers) that would benefit from being able to distinguish entities along ODR lines.  And this is C++, so there may be some evil way to make this happen that we simply haven?t thought of yet.  The fewer pitfalls we make for ourselves, the better.
+
+> I don?t think distinguishing struct and class is worth it.
+> 
+> I agree that the benefit of a demangler being able to say whether it's got a class or struct is marginal. Maybe drop the 'TC' mangling and keep the other three?
+
+Sounds good to me.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/86272e6a/attachment.html>
+
+From hstong at ca.ibm.com  Wed Mar 26 20:46:51 2014
+From: hstong at ca.ibm.com (Hubert Tong)
+Date: Wed, 26 Mar 2014 16:46:51 -0400
+Subject: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+In-Reply-To: <27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+	<27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+Message-ID: <OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+
+John McCall <rjmccall at apple.com> wrote on 26-03-2014 03:54:40 PM:
+
+> From: John McCall <rjmccall at apple.com>
+> To: Richard Smith <richardsmith at google.com>,
+> Cc: Hubert Tong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com"
+> <cxx-abi-dev at codesourcery.com>
+> Date: 26-03-2014 03:54 PM
+> Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+>
+> On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com>
+wrote:
+> On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+> I agree that the benefit of a demangler being able to say whether
+> it's got a class or struct is marginal. Maybe drop the 'TC' mangling
+> and keep the other three?
+>
+> Sounds good to me.
+Agreed. The proposal I had in the works was substantially similar (option 2
+with no class/struct distinction).
+I think we can move forward with the proposal presented by Richard.
+
+-- HT
+
+>
+> John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/aa68036a/attachment.html>
+
+From rjmccall at apple.com  Wed Mar 26 20:59:10 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 26 Mar 2014 13:59:10 -0700
+Subject: [cxx-abi-dev] Proposal: missing mangling of elaborated type
+	specifiers
+In-Reply-To: <OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+	<27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+	<OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+Message-ID: <3F7376C6-1CAF-44F3-87C0-D852398628E7@apple.com>
+
+On Mar 26, 2014, at 1:46 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> John McCall <rjmccall at apple.com> wrote on 26-03-2014 03:54:40 PM:
+> > From: John McCall <rjmccall at apple.com>
+> > To: Richard Smith <richardsmith at google.com>, 
+> > Cc: Hubert Tong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com" 
+> > <cxx-abi-dev at codesourcery.com>
+> > Date: 26-03-2014 03:54 PM
+> > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+> > 
+> > On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com> wrote:
+> > On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+> > I agree that the benefit of a demangler being able to say whether 
+> > it's got a class or struct is marginal. Maybe drop the 'TC' mangling
+> > and keep the other three?
+> > 
+> > Sounds good to me.
+> Agreed. The proposal I had in the works was substantially similar (option 2 with no class/struct distinction).
+> I think we can move forward with the proposal presented by Richard.
+
+Okay, so this is the proposal under review:
+
+<class-enum-type> ::= <name>    # non-dependent or dependent type name or dependent elaborated type specifier using ?typename'
+                  ::= Ts <name> # dependent elaborated type specifier using ?struct? or ?class'
+                  ::= Tu <name> # dependent elaborated type specifier using ?union'
+                  ::= Te <name> # dependent elaborated type specifier using ?enum?
+
+If I hear no objections by the end of next week, I?ll go ahead and commit this.
+
+John.
+
+From richardsmith at google.com  Wed Mar 26 21:32:02 2014
+From: richardsmith at google.com (Richard Smith)
+Date: Wed, 26 Mar 2014 14:32:02 -0700
+Subject: [cxx-abi-dev] Proposal: missing mangling of elaborated type
+	specifiers
+In-Reply-To: <3F7376C6-1CAF-44F3-87C0-D852398628E7@apple.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+	<27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+	<OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+	<3F7376C6-1CAF-44F3-87C0-D852398628E7@apple.com>
+Message-ID: <CAGL0aWdMRdfy-YXv0HyR9s8XipJwN3eMwXb_zgycwUwmwit_aQ@mail.gmail.com>
+
+On 26 March 2014 13:59, John McCall <rjmccall at apple.com> wrote:
+
+> On Mar 26, 2014, at 1:46 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > John McCall <rjmccall at apple.com> wrote on 26-03-2014 03:54:40 PM:
+> > > From: John McCall <rjmccall at apple.com>
+> > > To: Richard Smith <richardsmith at google.com>,
+> > > Cc: Hubert Tong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com"
+> > > <cxx-abi-dev at codesourcery.com>
+> > > Date: 26-03-2014 03:54 PM
+> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type
+> specifiers
+> > >
+> > > On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > > On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+> > > I agree that the benefit of a demangler being able to say whether
+> > > it's got a class or struct is marginal. Maybe drop the 'TC' mangling
+> > > and keep the other three?
+> > >
+> > > Sounds good to me.
+> > Agreed. The proposal I had in the works was substantially similar
+> (option 2 with no class/struct distinction).
+> > I think we can move forward with the proposal presented by Richard.
+>
+> Okay, so this is the proposal under review:
+>
+> <class-enum-type> ::= <name>    # non-dependent or dependent type name or
+> dependent elaborated type specifier using ?typename'
+>
+
+Nit: This last case is a typename-specifier, not an
+elaborated-type-specifier.
+Do we need to clarify that we mean 'instantiation-dependent' by 'dependent'
+here?
+
+
+>                   ::= Ts <name> # dependent elaborated type specifier
+> using ?struct? or ?class'
+>                   ::= Tu <name> # dependent elaborated type specifier
+> using ?union'
+>                   ::= Te <name> # dependent elaborated type specifier
+> using ?enum?
+>
+> If I hear no objections by the end of next week, I?ll go ahead and commit
+> this.
+>
+> John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/d63af96b/attachment-0001.html>
+
+From rjmccall at apple.com  Wed Mar 26 21:36:19 2014
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 26 Mar 2014 14:36:19 -0700
+Subject: [cxx-abi-dev] Proposal: missing mangling of elaborated type
+	specifiers
+In-Reply-To: <CAGL0aWdMRdfy-YXv0HyR9s8XipJwN3eMwXb_zgycwUwmwit_aQ@mail.gmail.com>
+References: <OF6BE0FA6C.8877B211-ON85257CA1.0014856D-85257CA1.00162CE1@ca.ibm.com>
+	<FE1322A8-4324-47DD-997B-239D26F5FAE1@apple.com>
+	<OF825E4BD3.B2D07D1A-ON85257CA1.00643679-85257CA1.0064607D@ca.ibm.com>
+	<DE6B2B6B-4B11-4AEB-8040-A472CAFF4CBC@apple.com>
+	<CAGL0aWeiFb5YTeZCCs=YX0TTSta6tHaQNczxNgEtGtZTMO6PQg@mail.gmail.com>
+	<52C5ECE9-C5A0-46AF-B580-52B57FA38D46@apple.com>
+	<CAGL0aWdPSgVTcKtRKhOZb7Zk92E2vypDR_9Mw8xDwJ0QVQQSrA@mail.gmail.com>
+	<27A8FDD2-DFA7-4D79-B4A1-48911BD1AC9D@apple.com>
+	<OF9730117A.CE90A7C3-ON85257CA7.006EF1B0-85257CA7.00722A27@ca.ibm.com>
+	<3F7376C6-1CAF-44F3-87C0-D852398628E7@apple.com>
+	<CAGL0aWdMRdfy-YXv0HyR9s8XipJwN3eMwXb_zgycwUwmwit_aQ@mail.gmail.com>
+Message-ID: <3F958721-81CD-4420-A290-3030FC7C2FF3@apple.com>
+
+On Mar 26, 2014, at 2:32 PM, Richard Smith <richardsmith at google.com> wrote:
+> On 26 March 2014 13:59, John McCall <rjmccall at apple.com> wrote:
+> On Mar 26, 2014, at 1:46 PM, Hubert Tong <hstong at ca.ibm.com> wrote:
+> > John McCall <rjmccall at apple.com> wrote on 26-03-2014 03:54:40 PM:
+> > > From: John McCall <rjmccall at apple.com>
+> > > To: Richard Smith <richardsmith at google.com>,
+> > > Cc: Hubert Tong/Toronto/IBM at IBMCA, "cxx-abi-dev at codesourcery.com"
+> > > <cxx-abi-dev at codesourcery.com>
+> > > Date: 26-03-2014 03:54 PM
+> > > Subject: Re: [cxx-abi-dev] Missing mangling of elaborated type specifiers
+> > >
+> > > On Mar 26, 2014, at 12:23 PM, Richard Smith <richardsmith at google.com> wrote:
+> > > On 26 March 2014 11:59, John McCall <rjmccall at apple.com> wrote:
+> > > I agree that the benefit of a demangler being able to say whether
+> > > it's got a class or struct is marginal. Maybe drop the 'TC' mangling
+> > > and keep the other three?
+> > >
+> > > Sounds good to me.
+> > Agreed. The proposal I had in the works was substantially similar (option 2 with no class/struct distinction).
+> > I think we can move forward with the proposal presented by Richard.
+> 
+> Okay, so this is the proposal under review:
+> 
+> <class-enum-type> ::= <name>    # non-dependent or dependent type name or dependent elaborated type specifier using ?typename'
+> 
+> Nit: This last case is a typename-specifier, not an elaborated-type-specifier.
+
+I will make that change.
+
+> Do we need to clarify that we mean 'instantiation-dependent' by 'dependent' here?
+
+No, I think that?s the standard rule for dependence in the mangling section.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20140326/6d3915d6/attachment.html>
+

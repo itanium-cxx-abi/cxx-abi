@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Mangling ambiguity
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity&In-Reply-To=%3C390A1F11.F911945E%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000963.html">
+   <LINK REL="Next"  HREF="000961.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Mangling ambiguity</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Mangling%20ambiguity&In-Reply-To=%3C390A1F11.F911945E%40edg.com%3E"
+       TITLE="Mangling ambiguity">daveed at edg.com
+       </A><BR>
+    <I>Fri Apr 28 23:30:25 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000963.html">Mangling ambiguity
+</A></li>
+        <LI>Next message: <A HREF="000961.html">Documents and meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#964">[ date ]</a>
+              <a href="thread.html#964">[ thread ]</a>
+              <a href="subject.html#964">[ subject ]</a>
+              <a href="author.html#964">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I think there is some confusion about the meaning of the &quot;T&lt;num&gt;_&quot;
+segments, and it is somewhat related to a problem in the current
+standard where the term &quot;template&quot; is not always used consistently.
+
+A template is one of the following things:
+	a) a class template
+	b) a function template
+	c) a member function template
+In particular, a regular member (function, static data, class, ...)
+of a class template is not a template of its own.  (The standard used 
+to say the opposite at one point, but I believe that is now corrected.)
+
+The &quot;T&lt;num&gt;_&quot; segments should only be used to denote types of
+instantiations of true templates; not in the instantiation of
+template entities.  As it happens, the cannot appear in the
+instantiation of class templates since they have no additional
+signature.  So really, &quot;T&lt;num&gt;_&quot; should only appear in parameter
+and return types of function and member function templates.
+
+Reconsider Matt's original example:
+
+&gt;<i>        template &lt;class T&gt; struct A { };
+</I>&gt;<i>        template &lt;class T&gt; struct B { };
+</I>&gt;<i> 
+</I>&gt;<i>        template &lt;class T&gt; struct X        { void f(T); };
+</I>&gt;<i>        template &lt;class T&gt; struct X&lt;A&lt;T&gt; &gt; { void f(T); };
+</I>&gt;<i> 
+</I>
+The mangling of:
+
+&gt;<i>     void X&lt;A&lt;int&gt; &gt;::f(int);
+</I>
+is &quot;_ZNXIAIiEE1fEvi&quot;; and that of
+
+&gt;<i>     void X&lt;B&lt;int&gt; &gt;::f(B&lt;int&gt; &gt;);
+</I>
+is &quot;ZNXIBIiEE1fEvS&lt;num&gt;_&quot; for some suitable &lt;num&gt; that I'm too lazy
+to determine.
+
+The &quot;T&lt;num&gt;_&quot; segments are necessary in function templates though:
+
+	template&lt;typename T&gt; void f(typename A&lt;T&gt;::X) {}
+	template&lt;typename T&gt; void f(typename B&lt;T&gt;::X) {}
+
+Both A&lt;int&gt;::X and B&lt;int&gt;::X may end up resolving to, say, &quot;int&quot;; so we
+cannot just resolve the specialization type.  Instead we get:
+	_Z1fIiEvN1AIT1_E1XE  and  _Z1fIiEvN1BIT1_E1XE
+which could be demangled as:
+	void f&lt;int&gt;(A&lt;int&gt;::X)  and  void f&lt;int&gt;(B&lt;int&gt;::X)
+
+Another subtle case is:
+
+	template&lt;typename T1, typename T2&gt; void f(T1, T2);
+	template&lt;typename T1, typename T2&gt; void f(T2, T1);
+
+(in different translation units).  Specializations of these are distinct
+and must therefore mangle differently.
+
+Either way, the &quot;T&lt;num&gt;_&quot; segments will only appear in the parameter and
+return types of function and member function template specializations.
+I believe that removes the need the rule for multilevel (nested?)
+templates: each template level can safely number its parameters starting
+from &quot;1&quot; (or &quot;0&quot; if we prefer to use some smarts as with the &quot;S&lt;num&gt;_&quot;
+segments).
+
+Does that make any sense at all?
+
+	Daveed
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000963.html">Mangling ambiguity
+</A></li>
+	<LI>Next message: <A HREF="000961.html">Documents and meeting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#964">[ date ]</a>
+              <a href="thread.html#964">[ thread ]</a>
+              <a href="subject.html#964">[ subject ]</a>
+              <a href="author.html#964">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

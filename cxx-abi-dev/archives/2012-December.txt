@@ -1,0 +1,1872 @@
+From mjh at edg.com  Mon Dec  3 18:44:34 2012
+From: mjh at edg.com (Mike Herrick)
+Date: Mon, 3 Dec 2012 13:44:34 -0500
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <10F2720A-A3E9-4B1B-94F8-116DE75122B5@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+	<F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+	<12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+	<F9B5A0B9-0525-4A0C-8E45-39C0E09A474A@edg.com>
+	<10F2720A-A3E9-4B1B-94F8-116DE75122B5@edg.com>
+Message-ID: <47367478-657C-4968-B51D-06E24EEED3DA@edg.com>
+
+If there are no further objections, can this be applied to the ABI document?
+
+Thanks,
+
+Mike Herrick
+Edison Design Group
+
+On Sep 13, 2012, at 10:00 AM, Mike Herrick wrote:
+
+> 
+> On Sep 13, 2012, at 9:00 AM, Mike Herrick wrote:
+> 
+>> Okay, if there aren't any other objections/ideas, I'll come up with a patch.
+> 
+> Here's a proposed patch (against the current gh-pages branch at github):
+> 
+> diff --git a/abi.html b/abi.html
+> index fe5e72c..10f4ca5 100644
+> --- a/abi.html
+> +++ b/abi.html
+> @@ -3329,6 +3329,12 @@ not be called.</p>
+> 
+> <p>Neither <code>alloc</code> nor <code>dealloc</code> may be
+> <code>NULL</code>.</p>
+> +
+> +<p>If the computed size of the allocated array object (including
+> +space for a cookie, if specified) would exceed the
+> +implementation-defined limit, <code>std::bad_array_new_length</code>
+> +is thrown.</p>
+> +
+> </dd>
+> 
+> <dt><code><pre>
+> @@ -3347,6 +3353,16 @@ function takes both the object address and its size.
+> </dd>
+> 
+> <dt><code><pre>
+> +extern "C" void __cxa_throw_bad_array_new_length (void);
+> +</pre></code></dt>
+> +<dd>
+> +Unconditionally throws <code>std::bad_array_new_length</code>.
+> +May be invoked by the compiler when the number of array elements
+> +expression of a <code>new[]</code> operation violates the requirements
+> +of the C++ standard.
+> +</dd>
+> +
+> +<dt><code><pre>
+> extern "C" void __cxa_vec_ctor (
+>            void *array_address,
+>            size_t element_count,
+> 
+> Mike.
+> 
+> 
+
+
+From richardsmith at google.com  Thu Dec  6 23:30:42 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 6 Dec 2012 15:30:42 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWesD4vzW82VV19tGEXHTL1J1a8GKrffkwxdeGUaXAJDxw@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<50B4C46A.6030909@redhat.com>
+	<CAGL0aWesD4vzW82VV19tGEXHTL1J1a8GKrffkwxdeGUaXAJDxw@mail.gmail.com>
+Message-ID: <CAGL0aWdTEeR=vjyXc9dWv0WLuMpGr4e0A2-rwzD_+sxUL-mAow@mail.gmail.com>
+
+We also have a minor ABI incompatibility between C++03 and C++11 due to the
+change to use the selected constructor when determining triviality of a
+copy constructor:
+
+struct A {
+  template<typename T> A(T&);
+};
+struct B {
+  mutable A a;
+};
+
+B has a trivial copy constructor in C++03, but a non-trivial copy
+constructor in C++11.
+
+On Tue, Nov 27, 2012 at 12:17 PM, Richard Smith <richardsmith at google.com>wrote:
+
+> On Tue, Nov 27, 2012 at 5:47 AM, Jason Merrill <jason at redhat.com> wrote:
+>
+>> On 11/26/2012 04:09 PM, Richard Smith wrote:
+>>
+>>> Suggestion for core language:
+>>>
+>>
+> This is probably best discussed further on the core reflector.
+>
+>
+>>  When an object of class type C is passed to or returned from a function,
+>>> if C has a trivial, accessible copy or move constructor that is not
+>>>
+>>
+>> I don't think we want to check accessibility; the calling convention for
+>> a type needs to be the same no matter where it's called from, and I think
+>> it's fine for the compiler to use a private trivial copy constructor that
+>> isn't deleted.
+>
+>
+> The suggested ABI change requires a public constructor, not just an
+> accessible one. I don't think it's OK to synthesize calls to private
+> trivial copy constructors; such things might just be implementation details
+> of the class:
+>
+> class A {
+> public:
+>   enum Kind { ... };
+>   A(const A &a, Kind k) : A(a) {
+>     if (p == &a) p = this;
+>     this->k = k;
+>     clog() << "Created A at address " << this << endl;
+>   }
+> private:
+>   // Synthesize a copy constructor for use *only* in our own constructors
+>   A(const A&) = default;
+>   void *p;
+>   Kind k;
+>   // ...
+> };
+>
+> I would be fine with restricting the core language change to only apply to
+> classes with public copy/move constructors.
+>
+>
+>>  deleted, and has no non-trivial copy constructors, move constructors,
+>>>
+>>
+>> Incidentally, if we're making this latitude explicit, we don't
+>> necessarily need to involve move constructors at all.  I don't have much of
+>> an opinion either way.
+>
+>
+> There aren't many cases which would be affected by this, but some form of
+> owning wrapper for a value (with a deleted copy constructor, a trivial move
+> constructor and a trivial destructor) seems plausible, and there seems to
+> be no good reason to require it to be passed by address, so I'm weakly in
+> favor of handling move constructors here too.
+>
+>
+>>  nor destructors, implementations are permitted to perform an additional
+>>> copy or move of the object using the trivial constructor (even if it
+>>> would not be selected by overload resolution to perform a copy or move
+>>> of the object). [Note: This latitude is granted to allow objects of
+>>> class type to be passed to or returned from functions in registers --
+>>> end note]
+>>>
+>>
+>> I think when we added implicit move constructors we decided against
+>> talking about "copy or move" of an object, since moving is a special case
+>> of copying.
+>
+>
+> I picked this wording to match the "A class object can be copied or moved
+> in two ways" in [class.copy]p1, but this seems fine to me either way.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121206/4b61d296/attachment.html>
+
+From rjmccall at apple.com  Fri Dec  7 00:10:28 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 06 Dec 2012 16:10:28 -0800
+Subject: [cxx-abi-dev] Transfer modes for parameters and return values
+In-Reply-To: <CAGL0aWdTEeR=vjyXc9dWv0WLuMpGr4e0A2-rwzD_+sxUL-mAow@mail.gmail.com>
+References: <12821666-AC74-48C0-9599-F91ED9099093@edg.com>
+	<50AFDEA2.9040209@redhat.com>
+	<CAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK=nsg3LwAiFCg@mail.gmail.com>
+	<7C00EBB0-500A-4DAC-8C5B-9007FD7593D1@apple.com>
+	<CAGL0aWewOboa0JSrMCBc=D0arKk3t2_9cPM_zT6-_FHGf9QmYQ@mail.gmail.com>
+	<50B4C46A.6030909@redhat.com>
+	<CAGL0aWesD4vzW82VV19tGEXHTL1J1a8GKrffkwxdeGUaXAJDxw@mail.gmail.com>
+	<CAGL0aWdTEeR=vjyXc9dWv0WLuMpGr4e0A2-rwzD_+sxUL-mAow@mail.gmail.com>
+Message-ID: <B0C4A865-2BC3-47CC-9057-DE7FE388DD44@apple.com>
+
+On Dec 6, 2012, at 3:30 PM, Richard Smith <richardsmith at google.com> wrote:
+> We also have a minor ABI incompatibility between C++03 and C++11 due to the change to use the selected constructor when determining triviality of a copy constructor:
+> 
+> struct A {
+>   template<typename T> A(T&);
+> };
+> struct B {
+>   mutable A a;
+> };
+> 
+> B has a trivial copy constructor in C++03, but a non-trivial copy constructor in C++11.
+
+Very interesting.  I can't remember ever considering the effect of 'mutable' on implicitly-defined copy constructors.
+
+Since the intended behavior of B's copy constructor was always non-trivial here (from a practical perspective), I'm tentatively okay with (1) calling this a flaw in C++98 and (2) changing the ABI to pass and return this indirectly.  Clearly, though, that should happen regardless of language mode, which may be an implementation problem.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121206/6fa0e38c/attachment.html>
+
+From rjmccall at apple.com  Wed Dec 12 01:06:28 2012
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 11 Dec 2012 17:06:28 -0800
+Subject: [cxx-abi-dev] Run-time array checking
+In-Reply-To: <47367478-657C-4968-B51D-06E24EEED3DA@edg.com>
+References: <DE1A08FA-BDE5-4447-B829-D81F6BCE88A9@edg.com>
+	<7C235F24-5F66-48B3-92F9-72236C0AA0FF@edg.com>
+	<F7666165-4C21-48EC-85EB-07856DD34E06@apple.com>
+	<601F28C8-ABB0-43FA-97DB-CFC6DFF64BA6@edg.com>
+	<F0A05C7E-6F1B-4AAF-B6B6-04D50E90C102@apple.com>
+	<59316C38-7009-4602-8764-67BC47E7C828@edg.com>
+	<D3208673-CD39-4447-9E42-B0DEB3527A8A@apple.com>
+	<F4166798-964C-4378-AA3E-7E5EE1039EF0@gmail.com>
+	<12642772-5D1B-4C17-98E8-1409C6883C15@apple.com>
+	<F9B5A0B9-0525-4A0C-8E45-39C0E09A474A@edg.com>
+	<10F2720A-A3E9-4B1B-94F8-116DE75122B5@edg.com>
+	<47367478-657C-4968-B51D-06E24EEED3DA@edg.com>
+Message-ID: <5F65BA06-C798-48A6-8C53-2103F8BB323E@apple.com>
+
+On Dec 3, 2012, at 10:44 AM, Mike Herrick <mjh at edg.com> wrote:
+> If there are no further objections, can this be applied to the ABI document?
+
+Done, thanks.
+
+John.
+
+From richardsmith at google.com  Fri Dec 21 00:19:27 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 20 Dec 2012 16:19:27 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+	pointer is not conforming
+Message-ID: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+
+Hi,
+
+Consider the following:
+
+struct E {};
+struct X : E {};
+struct C : E, X { char x; };
+
+char C::*c1 = &C::x;
+char X::*x = (char(X::*))c1;
+char C::*c2 = x2;
+
+int main() { return c2 != 0; }
+
+I believe this program is valid and has defined behavior; per
+[expr.static.cast]p12, we can convert a pointer to a member of a derived
+class to a pointer to a member of a base class, so long as the base class
+is a base class of the class containing the original member.
+
+Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E
+are at offset 1 (they can't go at 0 due to the collision of the empty E
+base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+
+Finally, the conversion from x to c2 preserves the -1 value (conversion of
+a null member pointer produces a null member pointer), giving the wrong
+value for x2, and resulting in main returning 0, where the standard
+requires it to return 1 (likewise, returning x != 0 would produce the wrong
+value).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/f6e356ee/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 03:09:27 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 19:09:27 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for
+	null	pointer is not conforming
+In-Reply-To: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+Message-ID: <6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+
+On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+> Consider the following:
+> 
+> struct E {};
+> struct X : E {};
+> struct C : E, X { char x; };
+> 
+> char C::*c1 = &C::x;
+> char X::*x = (char(X::*))c1;
+> char C::*c2 = x2;
+> 
+> int main() { return c2 != 0; }
+> 
+> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+> 
+> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+> 
+> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+
+Yep.
+
+Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+
+I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+  (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+    (1a) They let you abstract over any member you want!
+    (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+    (1c) And as long as that member is actually stored in a field, not computed from it!
+    (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+  (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+  (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+  (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+  (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+  (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+  (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+    (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+    (6b) The derived class cannot have any virtual functions or virtual bases.
+    (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+
+So it's a defect, to be sure ? but I don't believe it has ever affected anyone, and it's not something that I feel merits any effort to pursue a fix for, even I could think of a way of do so without outright breaking the ABI, which I can't.
+
+As to *why* this defect exists, I have a couple of theories.
+
+The less charitable one is that the Itanium committee just overlooked this possibility.  They could probably have used 0x800..000 instead ? it's more awkward to actually produce as an immediate on many architectures, but it's still pretty easy to test for (decrement and check for signed overflow, or negate and test for equality), and it's unambiguous given some pretty reasonable assumptions.
+
+The more charitable one is that it's a casualty of the early flux in what conversions were going to be legal with member pointers.  A lot of early ABIs have it much worse than we do.  For example, the committee didn't originally ban converting member pointers across virtual-base boundaries, which really inflates both the size of a member pointer and the amount of code necessary for even a member-pointer downcast (which, recall, is the implicit, always-safe conversion) ? for example, turning an opaque member pointer of a class with virtual bases into a member of a derived class across a virtual-base boundary requires potentially remapping the original virtual-base offset.  A lot of these early ABIs try to optimize the size of member pointers according to the known members of a class, which clearly doesn't work in the presence of upcasts (or in the presence of incomplete types, but that's the perennial evil of C++).
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/4d638f76/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 04:53:54 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 20:53:54 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for	null
+ pointer is not conforming
+In-Reply-To: <6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+Message-ID: <FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+
+On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+>> Consider the following:
+>> 
+>> struct E {};
+>> struct X : E {};
+>> struct C : E, X { char x; };
+>> 
+>> char C::*c1 = &C::x;
+>> char X::*x = (char(X::*))c1;
+>> char C::*c2 = x2;
+>> 
+>> int main() { return c2 != 0; }
+>> 
+>> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+>> 
+>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+>> 
+>> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+> 
+> Yep.
+> 
+> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+> 
+> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+>     (1a) They let you abstract over any member you want!
+>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+>     (1c) And as long as that member is actually stored in a field, not computed from it!
+>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+>   (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+>   (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+>   (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+>     (6b) The derived class cannot have any virtual functions or virtual bases.
+>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+
+I went to dinner and realized that this point isn't as useful as I thought ? you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.  I *can* imagine a number of use cases that cause situations like this, so while most of my other points stand, it isn't quite as cut-and-dry as I made it out to be.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/407651d9/attachment-0001.html>
+
+From dhandly at cup.hp.com  Fri Dec 21 05:14:10 2012
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Thu, 20 Dec 2012 21:14:10 -0800 (PST)
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+	pointer is not conforming
+Message-ID: <201212210514.qBL5EAb06345@adlwrk05.cce.hp.com>
+
+>From: Richard Smith <richardsmith at google.com>
+>struct E {};
+>struct X : E {};
+>struct C : E, X { char x; };
+
+>char C::*c1 = &C::x;
+>char X::*x = (char(X::*))c1;
+>char C::*c2 = x2;
+
+Should this just be "x"?
+
+>[expr.static.cast]p12, we can convert a pointer to a member of a derived
+>class to a pointer to a member of a base class
+
+Even if that class doesn't have members of that type?
+
+>Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E
+>are at offset 1
+
+Computing the offsets for x, C::X and C::X::E gives those values.
+(I'm not sure how to compute the offset of C::E?)
+
+>the conversion from x to c2 preserves the -1 value (conversion of
+>a null member pointer produces a null member pointer), giving the wrong
+>value for x2, and resulting in main returning 0, where the standard
+>requires it to return 1 (likewise, returning x != 0 would produce the wrong
+>value).
+
+I assume that x and x2 are really the same, typo?
+
+Trying this with g++ (4.2.1), I get the right answer.
+But it has this warning on the C definition:
+abi_ptm.c:4: warning: direct base 'E' inaccessible in 'C' due to ambiguity
+
+Most likely since you can't do this cast:  ??
+   void *pE = (E*)&c;
+
+aC++ (EDG based) gets the wrong answer.
+So is g++ using advanced AI technology to get the right answer?
+
+Looking at the assembly, there doesn't seem to be any code to handle NULL
+being cast back to a derived class.
+
+From rjmccall at apple.com  Fri Dec 21 05:24:32 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 21:24:32 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <201212210514.qBL5EAb06345@adlwrk05.cce.hp.com>
+References: <201212210514.qBL5EAb06345@adlwrk05.cce.hp.com>
+Message-ID: <9023C690-33F2-4821-8607-535D8CB6CA82@apple.com>
+
+
+On Dec 20, 2012, at 9:14 PM, Dennis Handly <dhandly at cup.hp.com> wrote:
+
+>> From: Richard Smith <richardsmith at google.com>
+>> struct E {};
+>> struct X : E {};
+>> struct C : E, X { char x; };
+> 
+>> char C::*c1 = &C::x;
+>> char X::*x = (char(X::*))c1;
+>> char C::*c2 = x2;
+> 
+> Should this just be "x"?
+> 
+>> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+>> class to a pointer to a member of a base class
+> 
+> Even if that class doesn't have members of that type?
+
+Yes.  There's a note in [expr.static.cast]p12 that makes this pretty clear:
+
+N3376 [expr.static.cast]p12:
+  If class B contains the original member, or is a base or derived class of
+  the class containing the original member, the resulting pointer to member
+  points to the original member. Otherwise, the result of the cast is undefined.
+  [Note: although class B need not contain the original member, the dynamic
+  type of the object on which the pointer to member is dereferenced must
+  contain the original member; see [expr.mptr.oper]. ? end note]
+
+It's one of the laundry list of things that completely dooms any type-specific
+optimization of member pointers.
+
+I would personally have preferred a completely different pointer-to-member
+model where base classes have to be complete types and upcasts are
+undefined unless the member is a member of the base class, but that is
+not the language that the committee has seen fit to bless us with.
+
+>> the conversion from x to c2 preserves the -1 value (conversion of
+>> a null member pointer produces a null member pointer), giving the wrong
+>> value for x2, and resulting in main returning 0, where the standard
+>> requires it to return 1 (likewise, returning x != 0 would produce the wrong
+>> value).
+> 
+> I assume that x and x2 are really the same, typo?
+> 
+> Trying this with g++ (4.2.1), I get the right answer.
+
+I believe there are situations in which g++ doesn't appropriately check for null
+before applying a non-trivial pointer-to-member conversion.  For example,
+given Richard's setup,
+  int X::*x = 0;
+  int C::*c = x; // g++ just adds the offset, making this no longer a null member pointer
+
+> Looking at the assembly, there doesn't seem to be any code to handle NULL
+> being cast back to a derived class.
+
+Yep.
+
+John.
+
+From richardsmith at google.com  Fri Dec 21 05:37:32 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 20 Dec 2012 21:37:32 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+Message-ID: <CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+
+On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>
+> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> Consider the following:
+>
+> struct E {};
+> struct X : E {};
+> struct C : E, X { char x; };
+>
+> char C::*c1 = &C::x;
+> char X::*x = (char(X::*))c1;
+> char C::*c2 = x2;
+>
+> int main() { return c2 != 0; }
+>
+> I believe this program is valid and has defined behavior; per
+> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+> class to a pointer to a member of a base class, so long as the base class
+> is a base class of the class containing the original member.
+>
+> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and
+> C::X::E are at offset 1 (they can't go at 0 due to the collision of the
+> empty E base class). So the value of c1 is 0. And the value of x is... -1.
+> Whoops.
+>
+> Finally, the conversion from x to c2 preserves the -1 value (conversion of
+> a null member pointer produces a null member pointer), giving the wrong
+> value for x2, and resulting in main returning 0, where the standard
+> requires it to return 1 (likewise, returning x != 0 would produce the wrong
+> value).
+>
+>
+> Yep.
+>
+> Personally, I've been aware of this for awhile and consider it an
+> unfixable defect.  I don't know if it's generally known, though, and I
+> can't find any prior discussion on the list.
+>
+> I'm not aware of any non-artificial code that the defect has ever broken;
+>  there are some decent just-so stories for why that might be true:
+>   (1) Data member pointers provide a really awkward abstraction that just
+> aren't used that much:
+>     (1a) They let you abstract over any member you want!
+>     (1b) As long as that member has exactly the right type, not something
+> implicitly convertible to it!
+>     (1c) And as long as that member is actually stored in a field, not
+> computed from it!
+>     (1d) And as long as that field is a field of the class or one of its
+> bases, not a field of a field of the class!
+>   (2) Everything about the syntax of member pointers ? making them, using
+> them, writing their types ? is kindof weird-looking, and many people don't
+> like using them.
+>   (3) The sorts of low-level programmers who would use this strange
+> abstraction are often more comfortable using offsetof and explicit char*
+> manipulation anyway.
+>   (4) People usually use data member pointers on hierarchically boring
+> types anyway ? generally leaf classes.
+>   (5) People usually don't mix data member pointers from different levels
+> of the class hierarchy, and therefore generally don't convert do hierarchy
+> conversions on them.
+>   (6) People usually don't work with null member pointers ? they use
+> member pointers as a way of abstracting an access for some algorithm, and
+> generally that doesn't admit a null value.
+>   (6) Vanishingly few non-empty subclasses are ever going to be laid out
+> at an offset of 1:
+>     (6a) The base class must have an alignment of 1, meaning (for pretty
+> much every platform out there) no virtual functions, no interesting data
+> structures, no pointers, no ints ? nothing but bools and chars and arrays
+> thereof.
+>     (6b) The derived class cannot have any virtual functions or virtual
+> bases.
+>     (6c) The derived class must have multiple base classes, the first of
+> which has to be either empty (totally empty, lacking even virtual methods)
+> or size 1.
+>
+>
+> I went to dinner and realized that this point isn't as useful as I thought
+> ? you don't need a base class to be laid out at an offset of 1, you need a
+> base class to be laid out immediately after a base A that has a field of
+> size 1 at offset datasize(A)-1.
+>
+
+You need the field to be in the derived class in order for this to be a
+problem; otherwise, the cast would have undefined behavior. Hence, the base
+class must be empty, and indeed must be a repeated empty base class (to not
+be at offset 0).
+
+
+>  I *can* imagine a number of use cases that cause situations like this, so
+> while most of my other points stand, it isn't quite as cut-and-dry as I
+> made it out to be.
+>
+
+#include <iostream>
+
+struct noncopyable {
+  noncopyable() = default;
+  noncopyable(const noncopyable&) = delete;
+};
+struct serializable : noncopyable {
+  template<typename T> void serialize(T serializable::**members) {
+    while (*members) std::cout << this->**members++ << std::endl;
+  }
+};
+struct MyWonderfulType : noncopyable, serializable {
+  char c = 'x';
+  void serialize() {
+    char serializable::*(CharMembers[]) = {
+(char(serializable::*))&MyWonderfulType::c, nullptr };
+    serializable::serialize(CharMembers);
+  }
+};
+
+int main() {
+  MyWonderfulType mwt;
+  mwt.serialize();
+}
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/a6ca9107/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 06:02:35 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 22:02:35 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+Message-ID: <8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+
+On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> Consider the following:
+>>> 
+>>> struct E {};
+>>> struct X : E {};
+>>> struct C : E, X { char x; };
+>>> 
+>>> char C::*c1 = &C::x;
+>>> char X::*x = (char(X::*))c1;
+>>> char C::*c2 = x2;
+>>> 
+>>> int main() { return c2 != 0; }
+>>> 
+>>> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+>>> 
+>>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+>>> 
+>>> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+>> 
+>> Yep.
+>> 
+>> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+>> 
+>> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+>>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+>>     (1a) They let you abstract over any member you want!
+>>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+>>     (1c) And as long as that member is actually stored in a field, not computed from it!
+>>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+>>   (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+>>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+>>   (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+>>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+>>   (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+>>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+>>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+>>     (6b) The derived class cannot have any virtual functions or virtual bases.
+>>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+> 
+> I went to dinner and realized that this point isn't as useful as I thought ? you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.
+> 
+> You need the field to be in the derived class in order for this to be a problem; otherwise, the cast would have undefined behavior. Hence, the base class must be empty, and indeed must be a repeated empty base class (to not be at offset 0).
+
+I think I see where you're getting that, but I'm not sure that's really
+the intended meaning of the standard here.
+
+To elaborate, you seem to be interpreting the following text to mean
+that members of *other bases* of the derived class cannot be casted
+to be members of base class:
+  If class B contains the original member, or is a base or derived
+  class of the class containing the original member, the resulting
+  pointer to member points to the original member.  Otherwise, the
+  result of the cast is undefined.
+
+It does seem to be generally true that "contains" means only direct
+containment;  compare [intro.object]p3:
+  For every object x, there is some object called the complete object
+  of x, determined as follows:
+    - If x is a complete object, then x is the complete object of x.
+    - Otherwise, the complete object of x is the complete object of the
+      (unique) object that contains x.
+
+And the use of "contains" in the quote above does seem to imply
+only direct containment, because otherwise it wouldn't need to
+include the "base or derived" phrase.
+
+On the other hand, the note immediately after this uses "contains"
+more loosely:
+  although class B need not contain the original member, the dynamic
+  type of the object on which the pointer to member is dereferenced
+  must contain the original member
+
+So I'm not convinced that the standard should necessarily be read that
+closely.
+
+>  I *can* imagine a number of use cases that cause situations like this, so while most of my other points stand, it isn't quite as cut-and-dry as I made it out to be.
+> 
+> #include <iostream>
+> 
+> struct noncopyable {
+>   noncopyable() = default;
+>   noncopyable(const noncopyable&) = delete;
+> };
+> struct serializable : noncopyable {
+>   template<typename T> void serialize(T serializable::**members) {
+>     while (*members) std::cout << this->**members++ << std::endl;
+>   }
+> };
+> struct MyWonderfulType : noncopyable, serializable {
+>   char c = 'x';
+>   void serialize() {
+>     char serializable::*(CharMembers[]) = { (char(serializable::*))&MyWonderfulType::c, nullptr };
+>     serializable::serialize(CharMembers);
+>   }
+> };
+
+Cute.
+
+At any rate, it's not fixable.
+
+John.
+
+From richardsmith at google.com  Fri Dec 21 06:32:59 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 20 Dec 2012 22:32:59 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+Message-ID: <CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+
+On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+> >>> Consider the following:
+> >>>
+> >>> struct E {};
+> >>> struct X : E {};
+> >>> struct C : E, X { char x; };
+> >>>
+> >>> char C::*c1 = &C::x;
+> >>> char X::*x = (char(X::*))c1;
+> >>> char C::*c2 = x2;
+> >>>
+> >>> int main() { return c2 != 0; }
+> >>>
+> >>> I believe this program is valid and has defined behavior; per
+> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+> class to a pointer to a member of a base class, so long as the base class
+> is a base class of the class containing the original member.
+> >>>
+> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and
+> C::X::E are at offset 1 (they can't go at 0 due to the collision of the
+> empty E base class). So the value of c1 is 0. And the value of x is... -1.
+> Whoops.
+> >>>
+> >>> Finally, the conversion from x to c2 preserves the -1 value
+> (conversion of a null member pointer produces a null member pointer),
+> giving the wrong value for x2, and resulting in main returning 0, where the
+> standard requires it to return 1 (likewise, returning x != 0 would produce
+> the wrong value).
+> >>
+> >> Yep.
+> >>
+> >> Personally, I've been aware of this for awhile and consider it an
+> unfixable defect.  I don't know if it's generally known, though, and I
+> can't find any prior discussion on the list.
+> >>
+> >> I'm not aware of any non-artificial code that the defect has ever
+> broken;  there are some decent just-so stories for why that might be true:
+> >>   (1) Data member pointers provide a really awkward abstraction that
+> just aren't used that much:
+> >>     (1a) They let you abstract over any member you want!
+> >>     (1b) As long as that member has exactly the right type, not
+> something implicitly convertible to it!
+> >>     (1c) And as long as that member is actually stored in a field, not
+> computed from it!
+> >>     (1d) And as long as that field is a field of the class or one of
+> its bases, not a field of a field of the class!
+> >>   (2) Everything about the syntax of member pointers ? making them,
+> using them, writing their types ? is kindof weird-looking, and many people
+> don't like using them.
+> >>   (3) The sorts of low-level programmers who would use this strange
+> abstraction are often more comfortable using offsetof and explicit char*
+> manipulation anyway.
+> >>   (4) People usually use data member pointers on hierarchically boring
+> types anyway ? generally leaf classes.
+> >>   (5) People usually don't mix data member pointers from different
+> levels of the class hierarchy, and therefore generally don't convert do
+> hierarchy conversions on them.
+> >>   (6) People usually don't work with null member pointers ? they use
+> member pointers as a way of abstracting an access for some algorithm, and
+> generally that doesn't admit a null value.
+> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid
+> out at an offset of 1:
+> >>     (6a) The base class must have an alignment of 1, meaning (for
+> pretty much every platform out there) no virtual functions, no interesting
+> data structures, no pointers, no ints ? nothing but bools and chars and
+> arrays thereof.
+> >>     (6b) The derived class cannot have any virtual functions or virtual
+> bases.
+> >>     (6c) The derived class must have multiple base classes, the first
+> of which has to be either empty (totally empty, lacking even virtual
+> methods) or size 1.
+> >
+> > I went to dinner and realized that this point isn't as useful as I
+> thought ? you don't need a base class to be laid out at an offset of 1, you
+> need a base class to be laid out immediately after a base A that has a
+> field of size 1 at offset datasize(A)-1.
+> >
+> > You need the field to be in the derived class in order for this to be a
+> problem; otherwise, the cast would have undefined behavior. Hence, the base
+> class must be empty, and indeed must be a repeated empty base class (to not
+> be at offset 0).
+>
+> I think I see where you're getting that, but I'm not sure that's really
+> the intended meaning of the standard here.
+>
+> To elaborate, you seem to be interpreting the following text to mean
+> that members of *other bases* of the derived class cannot be casted
+> to be members of base class:
+>   If class B contains the original member, or is a base or derived
+>   class of the class containing the original member, the resulting
+>   pointer to member points to the original member.  Otherwise, the
+>   result of the cast is undefined.
+>
+> It does seem to be generally true that "contains" means only direct
+> containment;  compare [intro.object]p3:
+>   For every object x, there is some object called the complete object
+>   of x, determined as follows:
+>     - If x is a complete object, then x is the complete object of x.
+>     - Otherwise, the complete object of x is the complete object of the
+>       (unique) object that contains x.
+>
+> And the use of "contains" in the quote above does seem to imply
+> only direct containment, because otherwise it wouldn't need to
+> include the "base or derived" phrase.
+>
+> On the other hand, the note immediately after this uses "contains"
+> more loosely:
+>   although class B need not contain the original member, the dynamic
+>   type of the object on which the pointer to member is dereferenced
+>   must contain the original member
+>
+> So I'm not convinced that the standard should necessarily be read that
+> closely.
+
+
+For...
+
+struct A { int x; };
+struct B { int y; };
+struct C : A, B {};
+
+int B::*p = (int(B::*))(int(C::*))&A::x;
+
+... the 'original member' is A::x, and 'the class containing the original
+member' is A, and B is neither a base class or a derived class of A, so the
+result (ahem, behavior) is undefined. Since we're talking about *the* class
+containing the original member, the normative wording seems unambiguous to
+me (and the note is true but not precise, which is what we expect from
+notes...).
+
+If it were as you described, wouldn't this have defined behavior:
+
+struct D : B, A {} d;
+int k = d.*p;
+
+(Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does* contain
+the member, A::x, to which the RHS refers?) I'm also not sure which
+situations would reach the "Otherwise" case in your interpretation.
+
+
+> >  I *can* imagine a number of use cases that cause situations like this,
+> so while most of my other points stand, it isn't quite as cut-and-dry as I
+> made it out to be.
+> >
+> > #include <iostream>
+> >
+> > struct noncopyable {
+> >   noncopyable() = default;
+> >   noncopyable(const noncopyable&) = delete;
+> > };
+> > struct serializable : noncopyable {
+> >   template<typename T> void serialize(T serializable::**members) {
+> >     while (*members) std::cout << this->**members++ << std::endl;
+> >   }
+> > };
+> > struct MyWonderfulType : noncopyable, serializable {
+> >   char c = 'x';
+> >   void serialize() {
+> >     char serializable::*(CharMembers[]) = {
+> (char(serializable::*))&MyWonderfulType::c, nullptr };
+> >     serializable::serialize(CharMembers);
+> >   }
+> > };
+>
+> Cute.
+>
+> At any rate, it's not fixable.
+>
+> John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/2fbfc4dd/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 06:48:17 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 22:48:17 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+	<CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+Message-ID: <AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+
+On Dec 20, 2012, at 10:32 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com> wrote:
+> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+> >>> Consider the following:
+> >>>
+> >>> struct E {};
+> >>> struct X : E {};
+> >>> struct C : E, X { char x; };
+> >>>
+> >>> char C::*c1 = &C::x;
+> >>> char X::*x = (char(X::*))c1;
+> >>> char C::*c2 = x2;
+> >>>
+> >>> int main() { return c2 != 0; }
+> >>>
+> >>> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+> >>>
+> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+> >>>
+> >>> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+> >>
+> >> Yep.
+> >>
+> >> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+> >>
+> >> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+> >>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+> >>     (1a) They let you abstract over any member you want!
+> >>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+> >>     (1c) And as long as that member is actually stored in a field, not computed from it!
+> >>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+> >>   (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+> >>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+> >>   (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+> >>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+> >>   (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+> >>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+> >>     (6b) The derived class cannot have any virtual functions or virtual bases.
+> >>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+> >
+> > I went to dinner and realized that this point isn't as useful as I thought ? you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.
+> >
+> > You need the field to be in the derived class in order for this to be a problem; otherwise, the cast would have undefined behavior. Hence, the base class must be empty, and indeed must be a repeated empty base class (to not be at offset 0).
+> 
+> I think I see where you're getting that, but I'm not sure that's really
+> the intended meaning of the standard here.
+> 
+> To elaborate, you seem to be interpreting the following text to mean
+> that members of *other bases* of the derived class cannot be casted
+> to be members of base class:
+>   If class B contains the original member, or is a base or derived
+>   class of the class containing the original member, the resulting
+>   pointer to member points to the original member.  Otherwise, the
+>   result of the cast is undefined.
+> 
+> It does seem to be generally true that "contains" means only direct
+> containment;  compare [intro.object]p3:
+>   For every object x, there is some object called the complete object
+>   of x, determined as follows:
+>     - If x is a complete object, then x is the complete object of x.
+>     - Otherwise, the complete object of x is the complete object of the
+>       (unique) object that contains x.
+> 
+> And the use of "contains" in the quote above does seem to imply
+> only direct containment, because otherwise it wouldn't need to
+> include the "base or derived" phrase.
+> 
+> On the other hand, the note immediately after this uses "contains"
+> more loosely:
+>   although class B need not contain the original member, the dynamic
+>   type of the object on which the pointer to member is dereferenced
+>   must contain the original member
+> 
+> So I'm not convinced that the standard should necessarily be read that
+> closely.
+> 
+> For...
+> 
+> struct A { int x; };
+> struct B { int y; };
+> struct C : A, B {};
+> 
+> int B::*p = (int(B::*))(int(C::*))&A::x;
+> 
+> ... the 'original member' is A::x, and 'the class containing the original member' is A, and B is neither a base class or a derived class of A, so the result (ahem, behavior) is undefined. Since we're talking about *the* class containing the original member, the normative wording seems unambiguous to me (and the note is true but not precise, which is what we expect from notes...).
+
+There's definitely no rule that the dynamic type ? i.e. the type of the
+complete object, the most-derived class ? directly contains the member to
+which the member pointer refers.  I don't see how this note can be "true".
+
+> If it were as you described, wouldn't this have defined behavior:
+> 
+> struct D : B, A {} d;
+> int k = d.*p;
+> 
+> (Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does* contain the member, A::x, to which the RHS refers?) I'm also not sure which situations would reach the "Otherwise" case in your interpretation.
+
+Good point;  my rule would need to be defined in terms of subobjects.
+On the other hand, I don't think you can avoid that.  Consider:
+  struct A { int x; };
+  struct B : A {};
+  struct C : A, C {};
+  int B::*b = &A::x;
+  int C::*c = b;
+  int A::*a = (int A::*) c;
+Clearly the first two conversions here are valid, and A contains the
+original member.  Why does this have undefined behavior?
+
+And if it doesn't:
+1.  That's a way to produce the collision with offset -1:  just make 'x' a char.
+2.  What's the legitimate language excuse for making this defined only
+when the other base class is a repeat?
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/f19db2c6/attachment-0001.html>
+
+From richardsmith at google.com  Fri Dec 21 07:00:47 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 20 Dec 2012 23:00:47 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+	<CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+	<AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+Message-ID: <CAGL0aWesgiV9dTVxcAT=-6jtK2DtdJy6Xxj3jpkm8CXc4J1bAA@mail.gmail.com>
+
+On Thu, Dec 20, 2012 at 10:48 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 20, 2012, at 10:32 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com>
+>> wrote:
+>> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>> >>> Consider the following:
+>> >>>
+>> >>> struct E {};
+>> >>> struct X : E {};
+>> >>> struct C : E, X { char x; };
+>> >>>
+>> >>> char C::*c1 = &C::x;
+>> >>> char X::*x = (char(X::*))c1;
+>> >>> char C::*c2 = x2;
+>> >>>
+>> >>> int main() { return c2 != 0; }
+>> >>>
+>> >>> I believe this program is valid and has defined behavior; per
+>> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+>> class to a pointer to a member of a base class, so long as the base class
+>> is a base class of the class containing the original member.
+>> >>>
+>> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and
+>> C::X::E are at offset 1 (they can't go at 0 due to the collision of the
+>> empty E base class). So the value of c1 is 0. And the value of x is... -1.
+>> Whoops.
+>> >>>
+>> >>> Finally, the conversion from x to c2 preserves the -1 value
+>> (conversion of a null member pointer produces a null member pointer),
+>> giving the wrong value for x2, and resulting in main returning 0, where the
+>> standard requires it to return 1 (likewise, returning x != 0 would produce
+>> the wrong value).
+>> >>
+>> >> Yep.
+>> >>
+>> >> Personally, I've been aware of this for awhile and consider it an
+>> unfixable defect.  I don't know if it's generally known, though, and I
+>> can't find any prior discussion on the list.
+>> >>
+>> >> I'm not aware of any non-artificial code that the defect has ever
+>> broken;  there are some decent just-so stories for why that might be true:
+>> >>   (1) Data member pointers provide a really awkward abstraction that
+>> just aren't used that much:
+>> >>     (1a) They let you abstract over any member you want!
+>> >>     (1b) As long as that member has exactly the right type, not
+>> something implicitly convertible to it!
+>> >>     (1c) And as long as that member is actually stored in a field, not
+>> computed from it!
+>> >>     (1d) And as long as that field is a field of the class or one of
+>> its bases, not a field of a field of the class!
+>> >>   (2) Everything about the syntax of member pointers ? making them,
+>> using them, writing their types ? is kindof weird-looking, and many people
+>> don't like using them.
+>> >>   (3) The sorts of low-level programmers who would use this strange
+>> abstraction are often more comfortable using offsetof and explicit char*
+>> manipulation anyway.
+>> >>   (4) People usually use data member pointers on hierarchically boring
+>> types anyway ? generally leaf classes.
+>> >>   (5) People usually don't mix data member pointers from different
+>> levels of the class hierarchy, and therefore generally don't convert do
+>> hierarchy conversions on them.
+>> >>   (6) People usually don't work with null member pointers ? they use
+>> member pointers as a way of abstracting an access for some algorithm, and
+>> generally that doesn't admit a null value.
+>> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid
+>> out at an offset of 1:
+>> >>     (6a) The base class must have an alignment of 1, meaning (for
+>> pretty much every platform out there) no virtual functions, no interesting
+>> data structures, no pointers, no ints ? nothing but bools and chars and
+>> arrays thereof.
+>> >>     (6b) The derived class cannot have any virtual functions or
+>> virtual bases.
+>> >>     (6c) The derived class must have multiple base classes, the first
+>> of which has to be either empty (totally empty, lacking even virtual
+>> methods) or size 1.
+>> >
+>> > I went to dinner and realized that this point isn't as useful as I
+>> thought ? you don't need a base class to be laid out at an offset of 1, you
+>> need a base class to be laid out immediately after a base A that has a
+>> field of size 1 at offset datasize(A)-1.
+>> >
+>> > You need the field to be in the derived class in order for this to be a
+>> problem; otherwise, the cast would have undefined behavior. Hence, the base
+>> class must be empty, and indeed must be a repeated empty base class (to not
+>> be at offset 0).
+>>
+>> I think I see where you're getting that, but I'm not sure that's really
+>> the intended meaning of the standard here.
+>>
+>> To elaborate, you seem to be interpreting the following text to mean
+>> that members of *other bases* of the derived class cannot be casted
+>> to be members of base class:
+>>   If class B contains the original member, or is a base or derived
+>>   class of the class containing the original member, the resulting
+>>   pointer to member points to the original member.  Otherwise, the
+>>   result of the cast is undefined.
+>>
+>> It does seem to be generally true that "contains" means only direct
+>> containment;  compare [intro.object]p3:
+>>   For every object x, there is some object called the complete object
+>>   of x, determined as follows:
+>>     - If x is a complete object, then x is the complete object of x.
+>>     - Otherwise, the complete object of x is the complete object of the
+>>       (unique) object that contains x.
+>>
+>> And the use of "contains" in the quote above does seem to imply
+>> only direct containment, because otherwise it wouldn't need to
+>> include the "base or derived" phrase.
+>>
+>> On the other hand, the note immediately after this uses "contains"
+>> more loosely:
+>>   although class B need not contain the original member, the dynamic
+>>   type of the object on which the pointer to member is dereferenced
+>>   must contain the original member
+>>
+>> So I'm not convinced that the standard should necessarily be read that
+>> closely.
+>
+>
+> For...
+>
+> struct A { int x; };
+> struct B { int y; };
+> struct C : A, B {};
+>
+> int B::*p = (int(B::*))(int(C::*))&A::x;
+>
+> ... the 'original member' is A::x, and 'the class containing the original
+> member' is A, and B is neither a base class or a derived class of A, so the
+> result (ahem, behavior) is undefined. Since we're talking about *the* class
+> containing the original member, the normative wording seems unambiguous to
+> me (and the note is true but not precise, which is what we expect from
+> notes...).
+>
+>
+> There's definitely no rule that the dynamic type ? i.e. the type of the
+> complete object, the most-derived class ? directly contains the member to
+> which the member pointer refers.  I don't see how this note can be "true".
+>
+> If it were as you described, wouldn't this have defined behavior:
+>
+> struct D : B, A {} d;
+> int k = d.*p;
+>
+> (Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does* contain
+> the member, A::x, to which the RHS refers?) I'm also not sure which
+> situations would reach the "Otherwise" case in your interpretation.
+>
+>
+> Good point;  my rule would need to be defined in terms of subobjects.
+> On the other hand, I don't think you can avoid that.  Consider:
+>   struct A { int x; };
+>   struct B : A {};
+>   struct C : A, C {};
+>
+
+I assume this was intended to be C : A, B ?
+
+
+>   int B::*b = &A::x;
+>   int C::*c = b;
+>   int A::*a = (int A::*) c;
+>
+
+That's an error; the 'A' base is ambiguous, and if you disambiguate it by
+adding an extra layer between A and C, you introduce UB.
+
+
+> Clearly the first two conversions here are valid, and A contains the
+> original member.  Why does this have undefined behavior?
+>
+> And if it doesn't:
+> 1.  That's a way to produce the collision with offset -1:  just make 'x' a
+> char.
+> 2.  What's the legitimate language excuse for making this defined only
+> when the other base class is a repeat?
+>
+> John.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/3e48de83/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 07:13:31 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 23:13:31 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <CAGL0aWesgiV9dTVxcAT=-6jtK2DtdJy6Xxj3jpkm8CXc4J1bAA@mail.gmail.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+	<CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+	<AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+	<CAGL0aWesgiV9dTVxcAT=-6jtK2DtdJy6Xxj3jpkm8CXc4J1bAA@mail.gmail.com>
+Message-ID: <4F05E0B4-291E-4B66-9F20-1636D916535A@apple.com>
+
+On Dec 20, 2012, at 11:00 PM, Richard Smith <richardsmith at google.com> wrote:
+> On Thu, Dec 20, 2012 at 10:48 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 20, 2012, at 10:32 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com> wrote:
+>> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+>> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+>> >>> Consider the following:
+>> >>>
+>> >>> struct E {};
+>> >>> struct X : E {};
+>> >>> struct C : E, X { char x; };
+>> >>>
+>> >>> char C::*c1 = &C::x;
+>> >>> char X::*x = (char(X::*))c1;
+>> >>> char C::*c2 = x2;
+>> >>>
+>> >>> int main() { return c2 != 0; }
+>> >>>
+>> >>> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+>> >>>
+>> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+>> >>>
+>> >>> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+>> >>
+>> >> Yep.
+>> >>
+>> >> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+>> >>
+>> >> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+>> >>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+>> >>     (1a) They let you abstract over any member you want!
+>> >>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+>> >>     (1c) And as long as that member is actually stored in a field, not computed from it!
+>> >>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+>> >>   (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+>> >>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+>> >>   (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+>> >>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+>> >>   (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+>> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+>> >>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+>> >>     (6b) The derived class cannot have any virtual functions or virtual bases.
+>> >>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+>> >
+>> > I went to dinner and realized that this point isn't as useful as I thought ? you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.
+>> >
+>> > You need the field to be in the derived class in order for this to be a problem; otherwise, the cast would have undefined behavior. Hence, the base class must be empty, and indeed must be a repeated empty base class (to not be at offset 0).
+>> 
+>> I think I see where you're getting that, but I'm not sure that's really
+>> the intended meaning of the standard here.
+>> 
+>> To elaborate, you seem to be interpreting the following text to mean
+>> that members of *other bases* of the derived class cannot be casted
+>> to be members of base class:
+>>   If class B contains the original member, or is a base or derived
+>>   class of the class containing the original member, the resulting
+>>   pointer to member points to the original member.  Otherwise, the
+>>   result of the cast is undefined.
+>> 
+>> It does seem to be generally true that "contains" means only direct
+>> containment;  compare [intro.object]p3:
+>>   For every object x, there is some object called the complete object
+>>   of x, determined as follows:
+>>     - If x is a complete object, then x is the complete object of x.
+>>     - Otherwise, the complete object of x is the complete object of the
+>>       (unique) object that contains x.
+>> 
+>> And the use of "contains" in the quote above does seem to imply
+>> only direct containment, because otherwise it wouldn't need to
+>> include the "base or derived" phrase.
+>> 
+>> On the other hand, the note immediately after this uses "contains"
+>> more loosely:
+>>   although class B need not contain the original member, the dynamic
+>>   type of the object on which the pointer to member is dereferenced
+>>   must contain the original member
+>> 
+>> So I'm not convinced that the standard should necessarily be read that
+>> closely.
+>> 
+>> For...
+>> 
+>> struct A { int x; };
+>> struct B { int y; };
+>> struct C : A, B {};
+>> 
+>> int B::*p = (int(B::*))(int(C::*))&A::x;
+>> 
+>> ... the 'original member' is A::x, and 'the class containing the original member' is A, and B is neither a base class or a derived class of A, so the result (ahem, behavior) is undefined. Since we're talking about *the* class containing the original member, the normative wording seems unambiguous to me (and the note is true but not precise, which is what we expect from notes...).
+> 
+> There's definitely no rule that the dynamic type ? i.e. the type of the
+> complete object, the most-derived class ? directly contains the member to
+> which the member pointer refers.  I don't see how this note can be "true".
+> 
+>> If it were as you described, wouldn't this have defined behavior:
+>> 
+>> struct D : B, A {} d;
+>> int k = d.*p;
+>> 
+>> (Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does* contain the member, A::x, to which the RHS refers?) I'm also not sure which situations would reach the "Otherwise" case in your interpretation.
+> 
+> Good point;  my rule would need to be defined in terms of subobjects.
+> On the other hand, I don't think you can avoid that.  Consider:
+>   struct A { int x; };
+>   struct B : A {};
+>   struct C : A, C {};
+> 
+> I assume this was intended to be C : A, B ?
+
+Yes.
+ 
+>   int B::*b = &A::x;
+>   int C::*c = b;
+>   int A::*a = (int A::*) c;
+> 
+> That's an error; the 'A' base is ambiguous, and if you disambiguate it by adding an extra layer between A and C, you introduce UB.
+
+You're right about the ambiguity, but the second is not true.
+
+struct A { int x; };
+struct B : A {};
+struct D : A {};
+struct C : D, B {};
+
+int A::*a1 = &A::x;
+int B::*b = a1;
+int C::*c = b;
+int D::*d = (int D::*) c;
+int A::*a2 = (int A::*) d;
+
+Note that D is a derived class of the class containing the original member.
+That the original member was led along a path through a different class
+type does not grant us the right to undefined behavior by your
+interpretation;  for that, you really have to talk about subobjects, not about
+classes.
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/bbaa213d/attachment-0001.html>
+
+From richardsmith at google.com  Fri Dec 21 07:24:46 2012
+From: richardsmith at google.com (Richard Smith)
+Date: Thu, 20 Dec 2012 23:24:46 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <4F05E0B4-291E-4B66-9F20-1636D916535A@apple.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+	<CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+	<AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+	<CAGL0aWesgiV9dTVxcAT=-6jtK2DtdJy6Xxj3jpkm8CXc4J1bAA@mail.gmail.com>
+	<4F05E0B4-291E-4B66-9F20-1636D916535A@apple.com>
+Message-ID: <CAGL0aWcH0Mm87xCgXdSap4HwS7bgfjMgAxN9gUJD0h++MgoB9A@mail.gmail.com>
+
+On Thu, Dec 20, 2012 at 11:13 PM, John McCall <rjmccall at apple.com> wrote:
+
+> On Dec 20, 2012, at 11:00 PM, Richard Smith <richardsmith at google.com>
+> wrote:
+>
+> On Thu, Dec 20, 2012 at 10:48 PM, John McCall <rjmccall at apple.com> wrote:
+>
+>> On Dec 20, 2012, at 10:32 PM, Richard Smith <richardsmith at google.com>
+>> wrote:
+>>
+>> On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+>>
+>>> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com>
+>>> wrote:
+>>> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>>> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com>
+>>> wrote:
+>>> >>> Consider the following:
+>>> >>>
+>>> >>> struct E {};
+>>> >>> struct X : E {};
+>>> >>> struct C : E, X { char x; };
+>>> >>>
+>>> >>> char C::*c1 = &C::x;
+>>> >>> char X::*x = (char(X::*))c1;
+>>> >>> char C::*c2 = x2;
+>>> >>>
+>>> >>> int main() { return c2 != 0; }
+>>> >>>
+>>> >>> I believe this program is valid and has defined behavior; per
+>>> [expr.static.cast]p12, we can convert a pointer to a member of a derived
+>>> class to a pointer to a member of a base class, so long as the base class
+>>> is a base class of the class containing the original member.
+>>> >>>
+>>> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and
+>>> C::X::E are at offset 1 (they can't go at 0 due to the collision of the
+>>> empty E base class). So the value of c1 is 0. And the value of x is... -1.
+>>> Whoops.
+>>> >>>
+>>> >>> Finally, the conversion from x to c2 preserves the -1 value
+>>> (conversion of a null member pointer produces a null member pointer),
+>>> giving the wrong value for x2, and resulting in main returning 0, where the
+>>> standard requires it to return 1 (likewise, returning x != 0 would produce
+>>> the wrong value).
+>>> >>
+>>> >> Yep.
+>>> >>
+>>> >> Personally, I've been aware of this for awhile and consider it an
+>>> unfixable defect.  I don't know if it's generally known, though, and I
+>>> can't find any prior discussion on the list.
+>>> >>
+>>> >> I'm not aware of any non-artificial code that the defect has ever
+>>> broken;  there are some decent just-so stories for why that might be true:
+>>> >>   (1) Data member pointers provide a really awkward abstraction that
+>>> just aren't used that much:
+>>> >>     (1a) They let you abstract over any member you want!
+>>> >>     (1b) As long as that member has exactly the right type, not
+>>> something implicitly convertible to it!
+>>> >>     (1c) And as long as that member is actually stored in a field,
+>>> not computed from it!
+>>> >>     (1d) And as long as that field is a field of the class or one of
+>>> its bases, not a field of a field of the class!
+>>> >>   (2) Everything about the syntax of member pointers ? making them,
+>>> using them, writing their types ? is kindof weird-looking, and many people
+>>> don't like using them.
+>>> >>   (3) The sorts of low-level programmers who would use this strange
+>>> abstraction are often more comfortable using offsetof and explicit char*
+>>> manipulation anyway.
+>>> >>   (4) People usually use data member pointers on hierarchically
+>>> boring types anyway ? generally leaf classes.
+>>> >>   (5) People usually don't mix data member pointers from different
+>>> levels of the class hierarchy, and therefore generally don't convert do
+>>> hierarchy conversions on them.
+>>> >>   (6) People usually don't work with null member pointers ? they use
+>>> member pointers as a way of abstracting an access for some algorithm, and
+>>> generally that doesn't admit a null value.
+>>> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid
+>>> out at an offset of 1:
+>>> >>     (6a) The base class must have an alignment of 1, meaning (for
+>>> pretty much every platform out there) no virtual functions, no interesting
+>>> data structures, no pointers, no ints ? nothing but bools and chars and
+>>> arrays thereof.
+>>> >>     (6b) The derived class cannot have any virtual functions or
+>>> virtual bases.
+>>> >>     (6c) The derived class must have multiple base classes, the first
+>>> of which has to be either empty (totally empty, lacking even virtual
+>>> methods) or size 1.
+>>> >
+>>> > I went to dinner and realized that this point isn't as useful as I
+>>> thought ? you don't need a base class to be laid out at an offset of 1, you
+>>> need a base class to be laid out immediately after a base A that has a
+>>> field of size 1 at offset datasize(A)-1.
+>>> >
+>>> > You need the field to be in the derived class in order for this to be
+>>> a problem; otherwise, the cast would have undefined behavior. Hence, the
+>>> base class must be empty, and indeed must be a repeated empty base class
+>>> (to not be at offset 0).
+>>>
+>>> I think I see where you're getting that, but I'm not sure that's really
+>>> the intended meaning of the standard here.
+>>>
+>>> To elaborate, you seem to be interpreting the following text to mean
+>>> that members of *other bases* of the derived class cannot be casted
+>>> to be members of base class:
+>>>   If class B contains the original member, or is a base or derived
+>>>   class of the class containing the original member, the resulting
+>>>   pointer to member points to the original member.  Otherwise, the
+>>>   result of the cast is undefined.
+>>>
+>>> It does seem to be generally true that "contains" means only direct
+>>> containment;  compare [intro.object]p3:
+>>>   For every object x, there is some object called the complete object
+>>>   of x, determined as follows:
+>>>     - If x is a complete object, then x is the complete object of x.
+>>>     - Otherwise, the complete object of x is the complete object of the
+>>>       (unique) object that contains x.
+>>>
+>>> And the use of "contains" in the quote above does seem to imply
+>>> only direct containment, because otherwise it wouldn't need to
+>>> include the "base or derived" phrase.
+>>>
+>>> On the other hand, the note immediately after this uses "contains"
+>>> more loosely:
+>>>   although class B need not contain the original member, the dynamic
+>>>   type of the object on which the pointer to member is dereferenced
+>>>   must contain the original member
+>>>
+>>> So I'm not convinced that the standard should necessarily be read that
+>>> closely.
+>>
+>>
+>> For...
+>>
+>> struct A { int x; };
+>> struct B { int y; };
+>> struct C : A, B {};
+>>
+>> int B::*p = (int(B::*))(int(C::*))&A::x;
+>>
+>> ... the 'original member' is A::x, and 'the class containing the original
+>> member' is A, and B is neither a base class or a derived class of A, so the
+>> result (ahem, behavior) is undefined. Since we're talking about *the* class
+>> containing the original member, the normative wording seems unambiguous to
+>> me (and the note is true but not precise, which is what we expect from
+>> notes...).
+>>
+>>
+>> There's definitely no rule that the dynamic type ? i.e. the type of the
+>> complete object, the most-derived class ? directly contains the member to
+>> which the member pointer refers.  I don't see how this note can be "true".
+>>
+>> If it were as you described, wouldn't this have defined behavior:
+>>
+>> struct D : B, A {} d;
+>> int k = d.*p;
+>>
+>> (Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does*
+>> contain the member, A::x, to which the RHS refers?) I'm also not sure which
+>> situations would reach the "Otherwise" case in your interpretation.
+>>
+>>
+>> Good point;  my rule would need to be defined in terms of subobjects.
+>> On the other hand, I don't think you can avoid that.  Consider:
+>>   struct A { int x; };
+>>   struct B : A {};
+>>   struct C : A, C {};
+>>
+>
+> I assume this was intended to be C : A, B ?
+>
+>
+> Yes.
+>
+>
+>   int B::*b = &A::x;
+>>   int C::*c = b;
+>>   int A::*a = (int A::*) c;
+>>
+>
+> That's an error; the 'A' base is ambiguous, and if you disambiguate it by
+> adding an extra layer between A and C, you introduce UB.
+>
+>
+> You're right about the ambiguity, but the second is not true.
+>
+> struct A { int x; };
+> struct B : A {};
+> struct D : A {};
+> struct C : D, B {};
+>
+> int A::*a1 = &A::x;
+> int B::*b = a1;
+> int C::*c = b;
+> int D::*d = (int D::*) c;
+> int A::*a2 = (int A::*) d;
+>
+> Note that D is a derived class of the class containing the original member.
+> That the original member was led along a path through a different class
+> type does not grant us the right to undefined behavior by your
+> interpretation;  for that, you really have to talk about subobjects, not
+> about
+> classes.
+>
+
+Ah, yes, of course you're right. Well, you've convinced me that there's a
+defect in the standard here :-)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/c92557de/attachment.html>
+
+From rjmccall at apple.com  Fri Dec 21 07:48:37 2012
+From: rjmccall at apple.com (John McCall)
+Date: Thu, 20 Dec 2012 23:48:37 -0800
+Subject: [cxx-abi-dev] pointer-to-data-member representation for null
+ pointer is not conforming
+In-Reply-To: <CAGL0aWcH0Mm87xCgXdSap4HwS7bgfjMgAxN9gUJD0h++MgoB9A@mail.gmail.com>
+References: <CAGL0aWeumc=z+H=wZ1bSm9JG-HSjednnaTBJkkQ696KBc1YG4g@mail.gmail.com>
+	<6294AD3A-5F26-48BF-A6E4-F2021E32C738@apple.com>
+	<FE13B418-8D2D-4EE4-B16F-F8CA06C08713@apple.com>
+	<CAGL0aWfEEf+5_8VT7wgn0-CvUHJwUm9g2BZvbYsqkzn3Go2hgw@mail.gmail.com>
+	<8C3B2427-D574-404D-A511-D3E712687BF0@apple.com>
+	<CAGL0aWeHMty5fJHxtsWOfieFhOJKQ+sBh5yZP5ayn3mHQoHAqQ@mail.gmail.com>
+	<AF12549D-8AFF-4C40-A8D1-4EFF1198040D@apple.com>
+	<CAGL0aWesgiV9dTVxcAT=-6jtK2DtdJy6Xxj3jpkm8CXc4J1bAA@mail.gmail.com>
+	<4F05E0B4-291E-4B66-9F20-1636D916535A@apple.com>
+	<CAGL0aWcH0Mm87xCgXdSap4HwS7bgfjMgAxN9gUJD0h++MgoB9A@mail.gmail.com>
+Message-ID: <30C6101D-AB0E-4339-A398-5007482FD665@apple.com>
+
+
+On Dec 20, 2012, at 11:24 PM, Richard Smith <richardsmith at google.com> wrote:
+
+> On Thu, Dec 20, 2012 at 11:13 PM, John McCall <rjmccall at apple.com> wrote:
+> On Dec 20, 2012, at 11:00 PM, Richard Smith <richardsmith at google.com> wrote:
+>> On Thu, Dec 20, 2012 at 10:48 PM, John McCall <rjmccall at apple.com> wrote:
+>> On Dec 20, 2012, at 10:32 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> On Thu, Dec 20, 2012 at 10:02 PM, John McCall <rjmccall at apple.com> wrote:
+>>> On Dec 20, 2012, at 9:37 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> > On Thu, Dec 20, 2012 at 8:53 PM, John McCall <rjmccall at apple.com> wrote:
+>>> > On Dec 20, 2012, at 7:09 PM, John McCall <rjmccall at apple.com> wrote:
+>>> >> On Dec 20, 2012, at 4:19 PM, Richard Smith <richardsmith at google.com> wrote:
+>>> >>> Consider the following:
+>>> >>>
+>>> >>> struct E {};
+>>> >>> struct X : E {};
+>>> >>> struct C : E, X { char x; };
+>>> >>>
+>>> >>> char C::*c1 = &C::x;
+>>> >>> char X::*x = (char(X::*))c1;
+>>> >>> char C::*c2 = x2;
+>>> >>>
+>>> >>> int main() { return c2 != 0; }
+>>> >>>
+>>> >>> I believe this program is valid and has defined behavior; per [expr.static.cast]p12, we can convert a pointer to a member of a derived class to a pointer to a member of a base class, so long as the base class is a base class of the class containing the original member.
+>>> >>>
+>>> >>> Per the ABI, C::x is at offset 0, C::E is at offset 0, and C::X and C::X::E are at offset 1 (they can't go at 0 due to the collision of the empty E base class). So the value of c1 is 0. And the value of x is... -1. Whoops.
+>>> >>>
+>>> >>> Finally, the conversion from x to c2 preserves the -1 value (conversion of a null member pointer produces a null member pointer), giving the wrong value for x2, and resulting in main returning 0, where the standard requires it to return 1 (likewise, returning x != 0 would produce the wrong value).
+>>> >>
+>>> >> Yep.
+>>> >>
+>>> >> Personally, I've been aware of this for awhile and consider it an unfixable defect.  I don't know if it's generally known, though, and I can't find any prior discussion on the list.
+>>> >>
+>>> >> I'm not aware of any non-artificial code that the defect has ever broken;  there are some decent just-so stories for why that might be true:
+>>> >>   (1) Data member pointers provide a really awkward abstraction that just aren't used that much:
+>>> >>     (1a) They let you abstract over any member you want!
+>>> >>     (1b) As long as that member has exactly the right type, not something implicitly convertible to it!
+>>> >>     (1c) And as long as that member is actually stored in a field, not computed from it!
+>>> >>     (1d) And as long as that field is a field of the class or one of its bases, not a field of a field of the class!
+>>> >>   (2) Everything about the syntax of member pointers ? making them, using them, writing their types ? is kindof weird-looking, and many people don't like using them.
+>>> >>   (3) The sorts of low-level programmers who would use this strange abstraction are often more comfortable using offsetof and explicit char* manipulation anyway.
+>>> >>   (4) People usually use data member pointers on hierarchically boring types anyway ? generally leaf classes.
+>>> >>   (5) People usually don't mix data member pointers from different levels of the class hierarchy, and therefore generally don't convert do hierarchy conversions on them.
+>>> >>   (6) People usually don't work with null member pointers ? they use member pointers as a way of abstracting an access for some algorithm, and generally that doesn't admit a null value.
+>>> >>   (6) Vanishingly few non-empty subclasses are ever going to be laid out at an offset of 1:
+>>> >>     (6a) The base class must have an alignment of 1, meaning (for pretty much every platform out there) no virtual functions, no interesting data structures, no pointers, no ints ? nothing but bools and chars and arrays thereof.
+>>> >>     (6b) The derived class cannot have any virtual functions or virtual bases.
+>>> >>     (6c) The derived class must have multiple base classes, the first of which has to be either empty (totally empty, lacking even virtual methods) or size 1.
+>>> >
+>>> > I went to dinner and realized that this point isn't as useful as I thought ? you don't need a base class to be laid out at an offset of 1, you need a base class to be laid out immediately after a base A that has a field of size 1 at offset datasize(A)-1.
+>>> >
+>>> > You need the field to be in the derived class in order for this to be a problem; otherwise, the cast would have undefined behavior. Hence, the base class must be empty, and indeed must be a repeated empty base class (to not be at offset 0).
+>>> 
+>>> I think I see where you're getting that, but I'm not sure that's really
+>>> the intended meaning of the standard here.
+>>> 
+>>> To elaborate, you seem to be interpreting the following text to mean
+>>> that members of *other bases* of the derived class cannot be casted
+>>> to be members of base class:
+>>>   If class B contains the original member, or is a base or derived
+>>>   class of the class containing the original member, the resulting
+>>>   pointer to member points to the original member.  Otherwise, the
+>>>   result of the cast is undefined.
+>>> 
+>>> It does seem to be generally true that "contains" means only direct
+>>> containment;  compare [intro.object]p3:
+>>>   For every object x, there is some object called the complete object
+>>>   of x, determined as follows:
+>>>     - If x is a complete object, then x is the complete object of x.
+>>>     - Otherwise, the complete object of x is the complete object of the
+>>>       (unique) object that contains x.
+>>> 
+>>> And the use of "contains" in the quote above does seem to imply
+>>> only direct containment, because otherwise it wouldn't need to
+>>> include the "base or derived" phrase.
+>>> 
+>>> On the other hand, the note immediately after this uses "contains"
+>>> more loosely:
+>>>   although class B need not contain the original member, the dynamic
+>>>   type of the object on which the pointer to member is dereferenced
+>>>   must contain the original member
+>>> 
+>>> So I'm not convinced that the standard should necessarily be read that
+>>> closely.
+>>> 
+>>> For...
+>>> 
+>>> struct A { int x; };
+>>> struct B { int y; };
+>>> struct C : A, B {};
+>>> 
+>>> int B::*p = (int(B::*))(int(C::*))&A::x;
+>>> 
+>>> ... the 'original member' is A::x, and 'the class containing the original member' is A, and B is neither a base class or a derived class of A, so the result (ahem, behavior) is undefined. Since we're talking about *the* class containing the original member, the normative wording seems unambiguous to me (and the note is true but not precise, which is what we expect from notes...).
+>> 
+>> There's definitely no rule that the dynamic type ? i.e. the type of the
+>> complete object, the most-derived class ? directly contains the member to
+>> which the member pointer refers.  I don't see how this note can be "true".
+>> 
+>>> If it were as you described, wouldn't this have defined behavior:
+>>> 
+>>> struct D : B, A {} d;
+>>> int k = d.*p;
+>>> 
+>>> (Since, per [expr.mptr.oper]p4, the dynamic type of the LHS *does* contain the member, A::x, to which the RHS refers?) I'm also not sure which situations would reach the "Otherwise" case in your interpretation.
+>> 
+>> Good point;  my rule would need to be defined in terms of subobjects.
+>> On the other hand, I don't think you can avoid that.  Consider:
+>>   struct A { int x; };
+>>   struct B : A {};
+>>   struct C : A, C {};
+>> 
+>> I assume this was intended to be C : A, B ?
+> 
+> Yes.
+>  
+>>   int B::*b = &A::x;
+>>   int C::*c = b;
+>>   int A::*a = (int A::*) c;
+>> 
+>> That's an error; the 'A' base is ambiguous, and if you disambiguate it by adding an extra layer between A and C, you introduce UB.
+> 
+> You're right about the ambiguity, but the second is not true.
+> 
+> struct A { int x; };
+> struct B : A {};
+> struct D : A {};
+> struct C : D, B {};
+> 
+> int A::*a1 = &A::x;
+> int B::*b = a1;
+> int C::*c = b;
+> int D::*d = (int D::*) c;
+> int A::*a2 = (int A::*) d;
+> 
+> Note that D is a derived class of the class containing the original member.
+> That the original member was led along a path through a different class
+> type does not grant us the right to undefined behavior by your
+> interpretation;  for that, you really have to talk about subobjects, not about
+> classes.
+> 
+> Ah, yes, of course you're right. Well, you've convinced me that there's a defect in the standard here :-)
+
+There's always another defect in the standard. :)
+
+Unfortunately, I really don't know how to fix this one without a huge wall of text talking about subobjects.  The committee should at least debate whether they want my example to be theoretically valid.
+
+We can then tell them that most existing implementations can only actually support it for members that aren't terminal chars, but I doubt they want to standardize that. :)  (MSVC uses the same -1 value;  I don't know if they have an unchecked-conversion bug like gcc's.)
+
+John.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121220/dc7a1fbf/attachment-0001.html>
+

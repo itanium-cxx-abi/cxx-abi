@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> vtable layout
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3C199908311810.LAA12475%40cllmail.cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000229.html">
+   <LINK REL="Next"  HREF="000227.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>vtable layout</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20vtable%20layout&In-Reply-To=%3C199908311810.LAA12475%40cllmail.cup.hp.com%3E"
+       TITLE="vtable layout">ddd at cup.hp.com
+       </A><BR>
+    <I>Tue Aug 31 18:10:46 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000229.html">vtable layout
+</A></li>
+        <LI>Next message: <A HREF="000227.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#226">[ date ]</a>
+              <a href="thread.html#226">[ thread ]</a>
+              <a href="subject.html#226">[ subject ]</a>
+              <a href="author.html#226">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Christophe:
+</I>&gt;<i>
+</I>&gt;<i> &gt;In terms of performance, the impact is limited, because it will
+</I>&gt;<i> &gt;occur only if you use an A* to call f() or g(). With a B*, a C* or a 
+</I>&gt;<i> &gt;D*, the pair (vtable, offset) is unique. The same offset can be
+</I>&gt;<i> &gt;reused for f() and g() and mean, in one case, &quot;convert_to_X&quot;, in the 
+</I>&gt;<i> &gt;other case, &quot;convert_to_Y&quot;. Same thing for non-virtual inheritance. 
+</I>&gt;<i> &gt;Last, the thunk generated in that case is no worse than the thunk 
+</I>&gt;<i> &gt;that would be generated otherwise: we win in other cases, and don't 
+</I>&gt;<i> &gt;lose in this one.
+</I>&gt;<i>
+</I>&gt;<i> I still don't fully understand.  What cases of virtual inheritance 
+</I>&gt;<i> will not require a thunk?  Is it when the virtual base appears only 
+</I>&gt;<i> once in the hierarchy (and so might as well not have been virtual)? 
+</I>&gt;<i> That is the only time when you can maintain the spatial relationship 
+</I>&gt;<i> between derived and virtual base vtables.
+</I>
+You always require the thunk _generation_. All I am saying is that  
+as long as you use any of the non-virtual bases vtables, I think that  
+you don't need to go through the thunk. In other words, you pay the  
+thunk run-time penalty only when you call the virtual function  
+through the virtual base's vtable (you always pay the space penalty).
+
+
+&gt;<i> And, as Jason points out, you are using the worst kind of thunk, it 
+</I>&gt;<i> probably isn't even on the same page as any of the other code  
+</I>never mind
+&gt;<i> the same cache line.
+</I>
+In the diamond case where the actually called functions are on each  
+side of the diamond, you can't in general generate an adjustment  
+thunk that is close to the target, whichever method you chose. But  
+maybe I missed something in your discussion. Did you find a trick I  
+did not understand?
+
+
+&gt;<i> I interpret some of Christophe's
+</I>&gt;<i> earlier contributions to suggest that we are likely to have just
+</I>&gt;<i> suffered a mispredicted indirect branch, and in words stolen from
+</I>&gt;<i> Gulliver's Travels, which seems to have something to say about
+</I>&gt;<i> almost any situation, we may find the pipeline &quot;lank as a bladder&quot;. 
+</I>
+This is indeed the appropriate interpretation :-) Some simulations  
+we ran here showed 100% misprediction on the first branch in rather  
+common cases.
+
+Regarding whether the second branch would be correctly predicted or  
+not... The documentation I have is quite difficult to decipher, so  
+I'm not too sure. My impression is that at least on one  
+implementation, the branch would predict correctly and not cause an  
+additional penalty.
+
+
+&gt;<i>
+</I>&gt;<i> Let's see how well I can summarize this for nonvirtual inheritance: 
+</I>&gt;<i>
+</I>&gt;<i> On the one hand we have Christophe's reach-back entry point which, 
+</I>&gt;<i> because of RAW dependencies, is intrinsically 3 cycles and may suffer 
+</I>&gt;<i> an extra D-cache miss, but which can always fall through.
+</I>
+Also note Jim's idea of predicating the adjustment, using the low  
+bit of the function pointer. This would mean that the adjustment  
+would probably cost much less than 3 cycles, with an extra cost at  
+call site that we did not analyze yet.
+
+
+&gt;<i> On the other hand we have the thunks we have been discussing, which 
+</I>&gt;<i> are one cycle but only one of them can fall through.  Others will have 
+</I>&gt;<i> a taken branch penalty which may or may not affect throughput.
+</I>&gt;<i>
+</I>&gt;<i> It looks to me that our performance is better in the fall-through case 
+</I>&gt;<i> and, as long as the penalty is 2 cycles or less, at least as good
+</I>&gt;<i> in the other cases, and we don't risk the extra D-cache miss, and  
+</I>we have
+&gt;<i> avoided growing the vtables in a way that has a worst-case 2X  
+</I>expansion.
+
+I think this is a slightly incomplete analysis. Unfortunately, it is  
+unclear to me what exactly I can disclose here. Intel?
+
+
+1/ Misprediction penalty
+
+All I can say is that the hypothesis that the penalty is 2 cycles or  
+less is way too optimistic (by at least a factor of an odd prime  
+number, and even more on the first implementation. What? No, I did  
+not say it!). But, as I said earlier, I don't think that's the major  
+factor.
+
+
+2/ I-cache
+
+You considered a D-cache miss in my proposal. Fair enough. Just note  
+that the memory access is in the vtable, which is frequently  
+accessed. A D-cache miss is &quot;unlikely&quot;, a page fault virtually ( :-)  
+impossible. The same line will probably be reused at the next virtual  
+call to a function of the same class.
+
+On the other hand, an I-cache miss with a thunk model is very  
+likely. The thunk is used for a single (class, member) combination  
+(as opposed to the offset that depends on the class alone). What is  
+close are probably thunks for the same member and different type,  
+which would be reused only if I called the same member function with  
+a different dynamic type.
+
+Last comment on the subject: you _really_ don't want a cache miss,  
+and the I-cache is _really_ small.
+
+
+3/ Locality
+
+In my proposal, the secondary entry point immediately precedes the  
+function. Page faults, cache load and prefetching all benefit from  
+this locality. Locality also exists for the data accesses, which are  
+close to a location immediately accessed (the vtable).
+
+For thunks, this can only be guaranteed to some extent at the  
+page-fault level. A cache line is probably too small for a cache load  
+at the thunk address to also load any code for the function.
+
+
+4/ Memory usage
+
+The memory usage is different. I think for small number of thunks,  
+my proposal is worse (since it uses 48 bytes for the secondary entry  
+point). On the other hand, as the number of adjustments grow, it gets  
+better, since it uses 4 bytes per adjustment rather than 16.
+
+
+5/ Summarizing the cost
+
+Zeroing out what is common (the indirect branch and the possible  
+I-cache miss on the target code), the penalties are something like:
+
+- P1 * A + P2 * B + C for my proposal.
+
+- P3 * A + P4 * B + P5 * D + E for thunks
+
+
+The architectural variables A, B, C, D and E all depend on the IA64  
+implementation being considered:
+
+- A, B are the penalties for L0 cache miss and L1 cache miss
+
+- C is the cost of the adjustment in my proposal. Currently, it is 3  
+cycles, but could be less with Jim's idea.
+
+- D is the cost of a resteer immediately following a mispredicted branch.
+
+- E is the cost of a correctly predicted taken branch.
+
+
+The P1, P2, P3, P4 and P5 are probabilities of something happening  
+while executing C++ code:
+
+- P1, P2 are the probabilities that a L0 or L1 data cache miss  
+occurs in my proposal (either at the time the load is made, or later,  
+because of additional cache pressure)
+
+- P3, P4 are the probabilities that an L0 or L1  I-cache miss occurs  
+for the thunk (or later, as above)
+
+- P5 is the probability that a non-zero resteer occurs following the  
+mispredicted branch. (It may be zero, I'm not sure).
+
+I know for a fact that A and B are much larger than C, D and E. I  
+also assume that P3 &gt; P1 and P4 &gt; P2, given both the cache locality  
+and memory size. Therefore, I believe that the dominant factor is (P3  
+- P1) * A + (P4 - P2) * B. Given the values for A, B, C, D and E on  
+current implementations, this factor remains dominant as long as  
+(P3-P1) or (P4-P2) is roughtly above 15 to 20% (for a C of 3). I  
+believe that's the case, but this remains to be proven by a  
+simulation.
+
+
+Best regards
+Christophe
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000229.html">vtable layout
+</A></li>
+	<LI>Next message: <A HREF="000227.html">vtable layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#226">[ date ]</a>
+              <a href="thread.html#226">[ thread ]</a>
+              <a href="subject.html#226">[ subject ]</a>
+              <a href="author.html#226">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

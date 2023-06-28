@@ -1,0 +1,984 @@
+From donl at cup.hp.com  Fri Feb  2 20:06:34 2001
+From: donl at cup.hp.com (Donald B. Larson)
+Date: Fri, 02 Feb 2001 12:06:34 -0800
+Subject: Referene to Ansi C++ EH spec
+Message-ID: <3A7B134A.BC48510D@cup.hp.com>
+
+Hi:
+	I think I read that Jim Dehnart is no longer at SGI.  THerefore
+where shall I look for the current aCC ABI for language indepandant EH?  Has
+a formal ANSI standards committee placed their approval on this, yet?
+Is the document at http://reality.sgi.com/dehnert_engr/cxx/ kept up
+to date or should I look elsewhere?
+-- 
+
+					Don Larson   
+					Internet and IA_64 Foundation Lab
+					Hewlett Packard   Cupertino, CA
+
+
+
+From samuel at codesourcery.com  Fri Feb  2 20:43:45 2001
+From: samuel at codesourcery.com (Alex Samuel)
+Date: Fri, 2 Feb 2001 12:43:45 -0800 (PST)
+Subject: Referene to Ansi C++ EH spec
+In-Reply-To: <3A7B134A.BC48510D@cup.hp.com>
+References: <3A7B134A.BC48510D@cup.hp.com>
+Message-ID: <14971.7169.198489.108340@watercress.indetermi.net>
+
+Hi all,
+
+The IA64 C++ ABI web site has been installed at its new home, at 
+
+    http://www.codesourcery.com/cxx-abi/
+
+There may be few broken links from this page; I'm still tracking down
+the missing files.  Over the next week, I'll be integrating a few
+modifications that were agreed upon over the last month.  Please let
+me know if you experience any problems.
+
+Thanks again to Jim for maintaining the site and ABI documentation
+thus far.
+
+Regards
+Alex Samuel
+CodeSourcery LLC
+
+
+
+From loewis at informatik.hu-berlin.de  Fri Feb  2 23:08:33 2001
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sat, 3 Feb 2001 00:08:33 +0100 (MET)
+Subject: Referene to Ansi C++ EH spec
+In-Reply-To: <3A7B134A.BC48510D@cup.hp.com> (donl@cup.hp.com)
+References: <3A7B134A.BC48510D@cup.hp.com>
+Message-ID: <200102022308.AAA22499@pandora.informatik.hu-berlin.de>
+
+> 	I think I read that Jim Dehnart is no longer at SGI.  THerefore
+> where shall I look for the current aCC ABI for language indepandant
+> EH?  
+
+Don,
+
+Alex has already answered this one, so I only take the other two.
+
+> Has a formal ANSI standards committee placed their approval on this,
+> yet?
+
+To my knowledge, nobody is seeking ANSI approval for the current
+specification - nor do I personally think that ANSI approval is
+desirable. C++ is an ISO standard, so it might be JTC1/SC22/WG21
+business, but I believe that committee has decided not to deal with
+ABI issues.
+
+Instead, this ABI is rather an extension to the SysV C ABI - so
+whatever consortium or company is in charge of that these days (SCO?)
+needs to approve this specification.
+
+> Is the document at http://reality.sgi.com/dehnert_engr/cxx/ kept up
+> to date or should I look elsewhere?
+
+While Alex' copy is the one that will be maintained, Jim's copy still
+is pretty accurate.
+
+Regards,
+Martin
+
+
+
+From jls at sco.com  Mon Feb  5 17:49:00 2001
+From: jls at sco.com (Jonathan Schilling)
+Date: Mon, 5 Feb 2001 12:49 EST
+Subject: Referene to Ansi C++ EH spec
+Message-ID: <200102051754.f15Hsic22384@nimbus.newjersey.sco.com>
+
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> Instead, this ABI is rather an extension to the SysV C ABI - so
+> whatever consortium or company is in charge of that these days (SCO?)
+> needs to approve this specification.
+
+As I understand it, SCO still has the copyright for the System V C gABI,
+but Intel (or X/Open or somebody non-SCO) owns the copyright for the Intel 
+System V C psABI.
+
+Since the C++ ABI document contains both the generic and processor-specific
+parts mixed together (although fairly well flagged in each particular
+instance), I don't know who would control it.
+
+Jonathan Schilling		SCO, Inc.		jls at sco.com
+
+
+
+
+
+From mark at codesourcery.com  Tue Feb 13 02:36:55 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 12 Feb 2001 18:36:55 -0800
+Subject: ABI bug: virtual destructors vs. delete
+Message-ID: <20010212183655Q.mitchell@codesourcery.com>
+
+
+The ABI presently specifies that we must emit all variants (in-charge,
+not-in-charge, and deleting) for constructors and destructors, even
+when they are not all neeeded.
+
+That is fine, except for the following case:
+
+  struct A  {
+    void operator delete (void*);
+  };
+
+  struct B {
+    void operator delete (void*);
+  };
+
+  struct C : public A, public B {
+    ~C() {}
+  };
+
+In this case, `operator delete' is ambiguous in `C'.  The standard is
+OK with this, since `C::~C' is not a virtual destructor.  However, it
+doesn't make sense for us to try to embed a call to `operator delete'
+in the `C::~C' destructor.
+
+Therefore, we should simply not emit a deleting destructor in this
+case. 
+
+In particular, 5.2.5 should be amended to say:
+
+  The deleting variant of a destructor must not be emitted if
+  the destructor is non-virtual.
+
+The example above should be included in a note.
+
+Alex, if there's no disagreement in the next 48 hours, would you mind
+making this change?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Tue Feb 13 12:19:01 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 13 Feb 2001 12:19:01 +0000
+Subject: ABI bug: virtual destructors vs. delete
+In-Reply-To: <20010212183655Q.mitchell@codesourcery.com>
+References: <20010212183655Q.mitchell@codesourcery.com>
+Message-ID: <u966iesrn2.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> In particular, 5.2.5 should be amended to say:
+
+>   The deleting variant of a destructor must not be emitted if
+>   the destructor is non-virtual.
+
+So 'delete foo;' should call operator delete directly if foo's destructor
+is non-virtual?
+
+Another possible solution would be to just suppress the deleting variant if
+calling op delete would be ill-formed.  That's more like what we've done in
+g++.
+
+Jason
+
+
+
+From mark at codesourcery.com  Tue Feb 13 16:51:45 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 13 Feb 2001 08:51:45 -0800
+Subject: ABI bug: virtual destructors vs. delete
+In-Reply-To: <u966iesrn2.fsf@casey.cambridge.redhat.com>
+References: <20010212183655Q.mitchell@codesourcery.com>
+	<u966iesrn2.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010213085145W.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> In particular, 5.2.5 should be amended to say:
+
+    >> The deleting variant of a destructor must not be emitted if the
+    >> destructor is non-virtual.
+
+    Jason> So 'delete foo;' should call operator delete directly if
+    Jason> foo's destructor is non-virtual?
+
+That was my intention; thanks for making it explicit.
+
+    Jason> Another possible solution would be to just suppress the
+    Jason> deleting variant if calling op delete would be ill-formed.
+    Jason> That's more like what we've done in g++.
+
+That's true -- but more complicated, in that you have to notice the
+ambiguity, rather than just keying off the virtuality.  Also, when you
+actually call delete, you have to simulate the call (in order to be
+sure to issue the error message there), but you then have to actually
+call the deleting destructor instead.
+
+The advantage of your scheme would be that you avoid replicating the
+call to `operator delete' at each delete site; instead, it appears
+only in the deleting destructor, when it exists.
+
+I've already implemented my variant in G++ -- but not checked it in.
+
+I'm cool with either solution -- but I'd like us to make a decision in
+short order.  These days that usually seems to come down to you and
+me, although of course if anyone else out there has an opinion they
+should shout.
+
+What's your preferred solution?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Tue Feb 13 17:12:17 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 13 Feb 2001 17:12:17 +0000
+Subject: ABI bug: virtual destructors vs. delete
+In-Reply-To: <20010213085145W.mitchell@codesourcery.com>
+References: <20010212183655Q.mitchell@codesourcery.com>
+	<u966iesrn2.fsf@casey.cambridge.redhat.com>
+	<20010213085145W.mitchell@codesourcery.com>
+Message-ID: <u9u25yo6by.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Mark" == Mark Mitchell <mark at codesourcery.com> writes:
+
+> What's your preferred solution?
+
+I suppose I actually prefer your scheme, as it can avoid pulling the free
+store code into a program that doesn't use it.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Feb 14 06:39:11 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 13 Feb 2001 22:39:11 -0800
+Subject: ABI bug: virtual destructors vs. delete
+In-Reply-To: <u9u25yo6by.fsf@casey.cambridge.redhat.com>
+References: <u966iesrn2.fsf@casey.cambridge.redhat.com>
+	<20010213085145W.mitchell@codesourcery.com>
+	<u9u25yo6by.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010213223911U.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    >> What's your preferred solution?
+
+    Jason> I suppose I actually prefer your scheme, as it can avoid
+    Jason> pulling the free store code into a program that doesn't use
+    Jason> it.
+
+Great.  Thanks!
+
+Alex, would you mind making the appropriate change to the ABI
+document?
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Sat Feb 17 23:21:48 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 17 Feb 2001 23:21:48 +0000
+Subject: vcall slots and destructors
+Message-ID: <u93ddcrj3n.fsf@casey.cambridge.redhat.com>
+
+I recently noticed that g++ allocates to vcall slots for a virtual
+destructor, one for each of the variants that go into the vtable.  It seems
+to me that we only need one, since they can't be overridden separately.
+
+Also, is it explicitly stated anywhere that the VTT parm comes right after
+'this'?  That makes the most sense to me, but I don't see it written down
+anywhere.
+
+Jason
+
+
+
+From mark at codesourcery.com  Sun Feb 18 05:37:55 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sat, 17 Feb 2001 21:37:55 -0800
+Subject: vcall slots and destructors
+In-Reply-To: <u93ddcrj3n.fsf@casey.cambridge.redhat.com>
+References: <u93ddcrj3n.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010217213755T.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> I recently noticed that g++ allocates to vcall slots for a
+    Jason> virtual destructor, one for each of the variants that go
+    Jason> into the vtable.  It seems to me that we only need one,
+    Jason> since they can't be overridden separately.
+
+I agree.
+
+I will make the appropriate change to G++, and check our other
+implementations.
+
+Alex, I think the change we need is:
+
+  2.5.3:
+
+    Add the following sentence to the second bullet in the second set
+    of bullets:
+
+    "Although a virtual destructor receives two virtual table
+     entries, there is only one vcall offset entry for a virtual
+     destructor.  (Note that any overriding destructor will override
+     both variants.)"
+
+(I'd make this change myself, but I'm not sure what the appropriate
+procedure is.  Feel free to clue me in privately.)
+
+    Jason> Also, is it explicitly stated anywhere that the VTT parm
+    Jason> comes right after 'this'?  That makes the most sense to me,
+    Jason> but I don't see it written down anywhere.
+
+It is stated in 3.3.1:
+
+  They pass the address of the subobject's sub-VTT entry in the VTT as
+  a second parameter when calling the subobject (not-in-charge)
+  constructors and destructors.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at redhat.com  Mon Feb 19 16:58:51 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 19 Feb 2001 16:58:51 +0000
+Subject: Constructor mangling
+Message-ID: <u9r90u8v90.fsf@casey.cambridge.redhat.com>
+
+I notice that g++ includes the VTT parm type in the mangling of the base
+constructor for a class with virtual bases, which seems wrong to me.  I
+propose the following adjustment:
+
+*** abi.html.~1~	Sat Nov 18 00:13:27 2000
+--- abi.html	Mon Feb 19 16:57:23 2001
+*************** Therefore function types always encode a
+*** 4203,4209 ****
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+  Member functions do not encode the type of
+! their implicit <code>this</code> parameter.
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+--- 4203,4209 ----
+  and function manglings can always be distinguished from data manglings
+  by the presence of the type.
+  Member functions do not encode the type of
+! implicit parameters, either <code>this</code> or the VTT parameter.
+  
+  <p>
+  A "Y" prefix for the bare function type encodes extern "C".
+
+
+
+
+From mark at codesourcery.com  Mon Feb 19 18:59:21 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 19 Feb 2001 10:59:21 -0800
+Subject: Constructor mangling
+In-Reply-To: <u9r90u8v90.fsf@casey.cambridge.redhat.com>
+References: <u9r90u8v90.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010219105921X.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> I notice that g++ includes the VTT parm type in the
+    Jason> mangling of the base constructor for a class with virtual
+    Jason> bases, which seems wrong to me.  I propose the following
+    Jason> adjustment:
+
+Yes, that sounds right to me.  In general, there's no need for any
+compiler-generated parameters to appear.  I think that includes:
+
+  - `this' parameter
+  - VTT parameter
+  - Structure return parameters
+
+Are there are any others?
+
+I'll fix this in G++ straight away.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From felix.burton at windriver.com  Wed Feb 21 17:40:10 2001
+From: felix.burton at windriver.com (Burton, Felix)
+Date: Wed, 21 Feb 2001 09:40:10 -0800
+Subject: ELF COMDAT
+Message-ID: <23D782631FEAD311950C00508B65DB299FAAEB@exch-us-02.isi.com>
+
+Hi,
+ 
+Is anybody aware of any existing assembler syntax for the new ELF COMDAT?
+ 
+Thanks,
+ 
+Felix
+ 
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010221/add7f2d7/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Burton, Felix.vcf
+Type: application/octet-stream
+Size: 458 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010221/add7f2d7/attachment.obj>
+
+From rth at redhat.com  Thu Feb 22 18:47:21 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Thu, 22 Feb 2001 10:47:21 -0800
+Subject: eh interface questions
+Message-ID: <20010222104721.A2452@redhat.com>
+
+]  typedef void (*_Unwind_Exception_Cleanup_Fn)
+]              (_Unwind_Reason_Code reason,
+]               struct _Unwind_Exception *exc);
+
+What is the purpose of the reason code here?  Yes, once can indicate
+why someone other than the normal language runtime is deleting the
+exception, but what's the point?
+
+]  _Unwind_Reason_Code (*__personality_routine)
+]          (int version,
+]           _Unwind_Action actions,
+]           uint64 exceptionClass,
+]           struct _Unwind_Exception *exceptionObject,
+]           struct _Unwind_Context *context);
+
+Why bother passing exceptionClass here (and to _Unwind_Stop_Fn) when
+it is available in exceptionObject->exception_class?  And come to 
+think of is, what sort of exceptionClass should longjmp_unwind provide?
+
+]  uint64 _Unwind_GetRegionStart
+]          (struct _Unwind_Context *context);
+
+This is all well and good for function-relative code addresses, but
+what about data addresses?  The HP LSDA, for instance, contains
+GP-relative pointers to type_info objects.  That GP base is of course
+for the target DSO, not necessarily the current DSO.
+
+Given that HPUX and AIX (for example) don't respect a fixed offset
+between text and data segments, certainly something of this nature
+is required.
+
+
+r~
+
+
+
+From christophe_de-dinechin at hp.com  Mon Feb 26 17:53:03 2001
+From: christophe_de-dinechin at hp.com (DE-DINECHIN,CHRISTOPHE (HP-Cupertino,ex1))
+Date: Mon, 26 Feb 2001 10:53:03 -0700
+Subject: eh interface questions
+Message-ID: <878B7E94C206D511895800A0C9F4871C0108C957@xcup01.cup.hp.com>
+
+> From: owner-cxx-abi at corp.sgi.com [mailto:owner-cxx-abi at corp.sgi.com]
+> On Behalf Of Richard Henderson
+> Sent: Thursday, February 22, 2001 10:47 AM
+> To: cxx-abi at corp.sgi.com
+> Cc: Richard Henderson
+> Subject: eh interface questions
+> 
+> 
+> ]  typedef void (*_Unwind_Exception_Cleanup_Fn)
+> ]              (_Unwind_Reason_Code reason,
+> ]               struct _Unwind_Exception *exc);
+> 
+> What is the purpose of the reason code here?  Yes, once can indicate
+> why someone other than the normal language runtime is deleting the
+> exception, but what's the point?
+
+The following reason codes are documented:
+
+*	_URC_FOREIGN_EXCEPTION_CAUGHT = 1: This indicates that a different
+runtime caught this exception. Nested foreign exceptions, or rethrowing a
+foreign exception, result in undefined behaviour. 
+
+*	_URC_FATAL_PHASE1_ERROR = 3: The personality routine encountered an
+error during phase 1, other than the specific error codes defined. 
+
+*	_URC_FATAL_PHASE2_ERROR = 2: The personality routine encountered an
+error during phase 2, for instance a stack corruption. 
+
+
+For a C++ runtime, for instance, reason codes 2 and 3 should result in
+"terminate()" being called. Reason code 1 should not.
+
+
+> ]  _Unwind_Reason_Code (*__personality_routine)
+> ]          (int version,
+> ]           _Unwind_Action actions,
+> ]           uint64 exceptionClass,
+> ]           struct _Unwind_Exception *exceptionObject,
+> ]           struct _Unwind_Context *context);
+> 
+> Why bother passing exceptionClass here (and to _Unwind_Stop_Fn) when
+> it is available in exceptionObject->exception_class?  And come to 
+> think of is, what sort of exceptionClass should 
+> longjmp_unwind provide?
+
+The reason we passed the exception class is 
+1-historical, because it used to not be in the exception object 
+2- for convenience because most personality routines will have to check the
+exception class at the beginning
+
+> 
+> ]  uint64 _Unwind_GetRegionStart
+> ]          (struct _Unwind_Context *context);
+> 
+> This is all well and good for function-relative code addresses, but
+> what about data addresses?  The HP LSDA, for instance, contains
+> GP-relative pointers to type_info objects.  That GP base is of course
+> for the target DSO, not necessarily the current DSO.
+> 
+> Given that HPUX and AIX (for example) don't respect a fixed offset
+> between text and data segments, certainly something of this nature
+> is required.
+
+GP is also stored in the UnwindContext as register GR1.
+
+
+Regards
+Christophe
+
+
+
+From jason at redhat.com  Mon Feb 26 21:07:10 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 26 Feb 2001 21:07:10 +0000
+Subject: eh interface questions
+In-Reply-To: <878B7E94C206D511895800A0C9F4871C0108C957@xcup01.cup.hp.com> ("DE-DINECHIN,CHRISTOPHE's message of "Mon, 26 Feb 2001 10:53:03 -0700")
+References: <878B7E94C206D511895800A0C9F4871C0108C957@xcup01.cup.hp.com>
+Message-ID: <u9wvadp30h.fsf@casey.cambridge.redhat.com>
+
+While we've got you on the line, Richard and I were also wondering about
+how you distinguish in the LSDA between
+
+1) a call that needs no cleanup, so we can just keep unwinding
+2) a call that needs to run destructors and then keep unwinding
+3) a call with a catch(...) handler
+
+My thought was to have a 0 offset for the landing pad in the first case,
+meaning no landing pad; a 0 offset for the action record in the second
+case, meaning no actions; and an action record with a 0 type filter in the
+third case.  What do you folks do?  It's not clear in the document.
+
+Jason
+
+
+
+From rth at redhat.com  Mon Feb 26 21:51:07 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Mon, 26 Feb 2001 13:51:07 -0800
+Subject: eh interface questions
+In-Reply-To: <878B7E94C206D511895800A0C9F4871C0108C957@xcup01.cup.hp.com>; from christophe_de-dinechin@hp.com on Mon, Feb 26, 2001 at 10:53:03AM -0700
+References: <878B7E94C206D511895800A0C9F4871C0108C957@xcup01.cup.hp.com>
+Message-ID: <20010226135107.A10150@redhat.com>
+
+On Mon, Feb 26, 2001 at 10:53:03AM -0700, DE-DINECHIN,CHRISTOPHE wrote:
+> *	_URC_FATAL_PHASE1_ERROR = 3: The personality routine encountered an
+> error during phase 1, other than the specific error codes defined. 
+> 
+> *	_URC_FATAL_PHASE2_ERROR = 2: The personality routine encountered an
+> error during phase 2, for instance a stack corruption. 
+> 
+> For a C++ runtime, for instance, reason codes 2 and 3 should result in
+> "terminate()" being called. Reason code 1 should not.
+
+As I understood things, _URC_FATAL_PHASE1_ERROR is returned from 
+_Unwind_RaiseException to __cxa_throw, which then calls terminate
+directly.  Under what circumstances would generic code delete the
+exception here instead?
+
+I could perhaps see _Unwind_Resume invoking this with
+_URC_FATAL_PHASE2_ERROR, since there's no one to whom we could
+return an error condition.  But I find it mildly unlikely that
+any sort of real phase2 error will ever be preemptively detected
+instead of the program just crashing.
+
+> GP is also stored in the UnwindContext as register GR1.
+
+Ouch.  I missed that.  I presume this is the only register modified
+by the unwinder (as opposed to the personality routine) outside the
+ones properly described by .IA_64.unwind_info?  Are you also assuming
+that R1 is restored by _URC_INSTALL_CONTEXT, and that the landing pad
+needn't bother?
+
+I guess I'll have to invent some other solution for non-ia64, since
+this information is not available via PT_DYNAMIC elsewhere.
+
+
+r~
+
+
+
+From rth at redhat.com  Wed Feb 28 06:40:16 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Tue, 27 Feb 2001 22:40:16 -0800
+Subject: __cxa_rethrow
+Message-ID: <20010227224016.A24699@redhat.com>
+
+How are the following two statements reconciled?
+
+   1.3
+   _Unwind_Resume should not be used to implement rethrowing. To the
+   unwinding runtime, the catch code that rethrows was a handler, and
+   the previous unwinding session was terminated before entering it.
+   Rethrowing is implemented by calling _Unwind_RaiseException again
+   with the same exception object. 
+
+   2.5.4
+   [__cxa_rethrow] then returns to the handler that called it, which
+   must call __cxa_end_catch(), perform any necessary cleanup, and
+   finally call _Unwind_Resume() to continue unwinding. 
+
+Given how _Unwind_Resume is intended to operate wrt Phase1 and Phase2
+of _Unwind_RaiseException -- i.e. properly identifing the Phase1
+indicated catch handler, I think 2.5.4 is incorrect.
+
+There appears to be an intended equivalence between _Unwind_Resume and
+a direct branch (via the HP described [RESX] operator).  But you'd get
+incorrect results if you implemented __cxa_rethrow with [RESX] for the
+following test case:
+
+	inline void foo() throw(B)
+	{
+	  try {
+	    throw A;
+	  } catch (A) {
+	    throw;
+	  }
+	}
+	int main()
+	{
+	  try {
+	    foo();
+	  } catch(...) {
+	  }
+	}
+
+since the [RESX] would resolve to a direct branch to main's catch.
+One needs to go back to the personality routine to discover that
+there is an exception specification disallowing A.
+
+To me it seems much more logical for __cxa_rethrow to do all the work
+coordinating with __cxa_end_catch and to call _Unwind_RaiseException
+again itself, as this would reduce the amount of generated code
+required.  A minor technical point is how the rethrow interacts with
+the surrounding __cxa_end_catch cleanup region -- does the compiler
+arrange for the action chain for __cxa_rethrow to omit the cleanup,
+or does __cxa_end_catch need to be prepared to handle this case? 
+Either works, but unlike some of the other implementation differences
+that can be hidden in the personality routine, this one can't so 
+there would have to be agreement.
+
+Have I missed something?
+
+
+r~
+
+
+
+From rth at redhat.com  Wed Feb 28 07:33:17 2001
+From: rth at redhat.com (Richard Henderson)
+Date: Tue, 27 Feb 2001 23:33:17 -0800
+Subject: __cxa_rethrow
+In-Reply-To: <20010227224016.A24699@redhat.com>; from rth@redhat.com on Tue, Feb 27, 2001 at 10:40:16PM -0800
+References: <20010227224016.A24699@redhat.com>
+Message-ID: <20010227233317.A24729@redhat.com>
+
+On Tue, Feb 27, 2001 at 10:40:16PM -0800, Richard Henderson wrote:
+>    2.5.4
+>    [__cxa_rethrow] then returns to the handler that called it, which
+>    must call __cxa_end_catch(), perform any necessary cleanup, and
+>    finally call _Unwind_Resume() to continue unwinding. 
+
+It just ocurred to me that "returns to the handler" might be misleading
+wording meaning "returns abnormally to the handler", and that things 
+are already as I suggested at the end of my message.
+
+I.e.  a more detailed list of events is
+
+  (1) Check caughtExceptions stack and call terminate if needed.
+  (2) Mark the rethrown exception in some implementation defined way.
+  (3) Call _Unwind_RaiseException.
+  (4) During Phase2 of the unwind, the cleanup handler for the
+      catch block is invoked, which calls __cxa_end_catch,
+      which notices the mark to do the right thing.
+  (5) Unwinding proceeds as normal with _Unwind_Resume or whatever.
+ 
+
+r~
+
+
+
+From dehnert at transmeta.com  Wed Feb 28 08:10:40 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Wed, 28 Feb 2001 00:10:40 -0800
+Subject: __cxa_rethrow
+References: <20010227224016.A24699@redhat.com>
+Message-ID: <3A9CB280.985343B8@transmeta.com>
+
+Richard Henderson wrote:
+> 
+> How are the following two statements reconciled?
+> 
+>    1.3
+>    _Unwind_Resume should not be used to implement rethrowing. To the
+>    unwinding runtime, the catch code that rethrows was a handler, and
+>    the previous unwinding session was terminated before entering it.
+>    Rethrowing is implemented by calling _Unwind_RaiseException again
+>    with the same exception object.
+> 
+>    2.5.4
+>    [__cxa_rethrow] then returns to the handler that called it, which
+>    must call __cxa_end_catch(), perform any necessary cleanup, and
+>    finally call _Unwind_Resume() to continue unwinding.
+
+Christophe can provide more definitive information, but I think that 1.3
+simply means that a rethrow is not accomplished by _just_ directly calling
+_Unwind_Resume.  Instead the user code which is rethrowing must return to
+its personality routine, which has some work to do before resuming.
+
+Jim
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+
+
+From jason at redhat.com  Wed Feb 28 12:25:04 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 28 Feb 2001 12:25:04 +0000
+Subject: [C++ PATCH] ctor vtable vcall offsets
+In-Reply-To: <3A9CC88E.A15F6181@codesourcery.com> (Nathan Sidwell's message of "Wed, 28 Feb 2001 09:44:46 +0000")
+References: <u9snl0ktxf.fsf@casey.cambridge.redhat.com>
+	<20010227102647D.mitchell@codesourcery.com>
+	<u98zmrluml.fsf@casey.cambridge.redhat.com>
+	<20010227130953W.mitchell@codesourcery.com>
+	<3A9CC88E.A15F6181@codesourcery.com>
+Message-ID: <u9n1b7hu5b.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Nathan" == Nathan Sidwell <nathan at codesourcery.com> writes:
+
+[ABI folks: We've been discussing whether or not the example in 5.2.6,
+
+  struct A { virtual void f(); };
+  struct B : virtual public A { int i; };
+  struct C : virtual public A { int j; };
+  struct D : public B, public C {};
+
+actually requires a third-party thunk.  I say it doesn't, since 3.2.4 says
+to call through a C* we must first convert to A*.  Nathan says we should
+just call through C's copy of the A vtable, saving the adjustment but
+requiring an additional, third-party thunk.  Mark was saying the same
+thing, but I appear to have convinced him.]
+
+> Mark Mitchell wrote:
+
+>>[I thought the advantages of taking a primary virtual base were]
+>>
+>> - Space (because we don't have to have another vptr)
+>> 
+>> - Time (because we don't have to convert to the virtual base to
+>> do a virtual call)
+
+> This was my understanding too. I thought the primary motivation for the
+> nearly-empty virtual base optimization was for things like Java interfaces
+> which are such objects (or their equivalent in a C++ heirarchy).
+
+But with Java interfaces we can assume no adjustment is necessary, since no
+adjustment is ever necessary.  With C++ virtual bases, we can't.
+
+> Indeed the
+> ABI doc says as rationale in 2.4 II
+
+> 	In case (2b) above, the use of the first indirect primary base
+> 	class as the derived class' primary base does not save any space in
+> 	the object, and will cause some duplication of virtual function
+> 	pointers in the additional copy of the base classes virtual
+> 	table. The benefit is that using the derived class virtual pointer
+> 	as the base class virtual pointer will often save a load, and no
+> 	adjustment to the this pointer will be required for calls to its
+> 	virtual functions
+
+Hmm, this does seem contradictory.  I suspect that people weren't thinking
+through the ramifications.  In fact, looking back over discussions, I think
+this was my fault; in mail from January of 2000 I suggested this sharing,
+making the same assumption I'm disagreeing with now.  I even claimed that
+converting to a primary virtual base would be a NOP in general.  Mea culpa.
+
+Anyway, my preference would be to change this bit, so that if all our
+nearly empty virtual bases are already indirect primary bases, we just give
+ourselves a new vtable (as Coleen had suggested in the message to which my
+erroneous mail was a response).
+
+Or we could just leave everything as is.  Is anyone from Compaq still on
+the list?  Have you (or anyone else) implemented this?  Who's still working
+on ABI-compliant compilers, anyway?
+
+> Also,
+>     3.2.4 Caller
+
+>    When calling a virtual function f, through a pointer of static type
+>    B*, the caller
+>      * Selects a (possibly improper) subobject A of B such that A
+>        declares f. (In general, A may be the same as B.) (Note that A
+>        need not define f; it may contain either a definition of f, or a
+>        declaration of f as a pure virtual function.)
+> What does 'improper base' mean here? There's no definition of that term.
+> I took it to mean this virtual primary base thing which might have been
+> lost to some other class in the heirarchy, but our vtable still has
+> the right bits in it.
+
+I assume it means that A may not be a proper base of B; that is, it may be
+B itself.  Since that is also said by the second parenthetical note, the
+first should probably be removed.
+
+Note that the conversion language has been in the description all along.
+It seems that Mark questioned it back in Feb 2000, but nobody responded to
+him (on the list, anyway).
+
+> Jason Merrill wrote:
+>> The main problem with third-party thunks is the time penalty for the
+>> indirect branch; that's why we've tried so hard to avoid requiring any.
+
+> By indirect branch you mean you call the thunk which then has to branch
+> to the function as it can't be laid out just before hand?
+
+I'm sorry, my terminology was sloppy.  You always get the indirect branch
+in virtual function calls, and the resulting misprediction penalty.
+
+Third-party thunks have an additional penalty due to non-locality; in
+addition to the cache issues, the direct branch from the thunk to the
+function will also be mispredicted.  Thunks emitted with the function can
+use pc-relative forward branches or just fall through into the function,
+resulting in a much lower penalty.
+
+> If so, you *only* get that constraint on the thunk layout within heirarchies
+> that have lost a primary virtual base.
+
+Right.
+
+> Now, as Mark says, adjusting to the virtual base might well be a waste of
+> time, if the function had been overridden further down the hierarchy - in
+> that case, the overrider will have emitted vcall adjusting thunks for all
+> the base vtables which contain the entry.
+
+Yes, but if it isn't overridden, going through the thunk you propose is
+also a waste of time--and a *lot* more time than the adjustment in the
+caller, which can often be scheduled away.
+
+> As those can be emitted with the overriding function, they can run into
+> that function have no second branch. If the function is not overridden
+> down the heirarchy, then we have to have a vcall adjusting thunk which
+> adjusts the this pointer to the real instance of the virtual base within
+> the dynamic type of the object. The possibility of that thunk's existance
+> known as soon as we have a class with a virtual primary base.  It can be
+> emitted once there, but not sooner.
+
+> Now back to the Java interface case. Interfaces have no implementation, so
+> the virtual functions must be overridden in the class inheriting the
+> interface - so the second half previous paragraph does not apply. That part
+> can only apply in C++, and I believe it to be a sufficiently rare case as to
+> not be a valid reason to forego the time saving the nearly empty
+> virtual base class optimization gives you in the usual case.
+
+And I believe the time savings you mention are not significant enough to
+justify complicating the implementation to deal with this special case,
+especially given the problems with third-party thunks.
+
+Jason
+
+P.S. Weren't we going to move the ABI stuff over to CodeSourcery?
+
+
+
+From jason at redhat.com  Wed Feb 28 12:31:23 2001
+From: jason at redhat.com (Jason Merrill)
+Date: 28 Feb 2001 12:31:23 +0000
+Subject: __cxa_rethrow
+In-Reply-To: <20010227233317.A24729@redhat.com> (Richard Henderson's message of "Tue, 27 Feb 2001 23:33:17 -0800")
+References: <20010227224016.A24699@redhat.com>
+	<20010227233317.A24729@redhat.com>
+Message-ID: <u9hf1fhtus.fsf@casey.cambridge.redhat.com>
+
+>>>>> "Richard" == Richard Henderson <rth at redhat.com> writes:
+
+> On Tue, Feb 27, 2001 at 10:40:16PM -0800, Richard Henderson wrote:
+>> 2.5.4
+>> [__cxa_rethrow] then returns to the handler that called it, which
+>> must call __cxa_end_catch(), perform any necessary cleanup, and
+>> finally call _Unwind_Resume() to continue unwinding. 
+
+> It just ocurred to me that "returns to the handler" might be misleading
+> wording meaning "returns abnormally to the handler", and that things 
+> are already as I suggested at the end of my message.
+
+I think so.
+
+Jason
+
+
+
+From mark at codesourcery.com  Wed Feb 28 17:46:46 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 28 Feb 2001 09:46:46 -0800
+Subject: [C++ PATCH] ctor vtable vcall offsets
+In-Reply-To: <u9n1b7hu5b.fsf@casey.cambridge.redhat.com>
+References: <20010227130953W.mitchell@codesourcery.com>
+	<3A9CC88E.A15F6181@codesourcery.com>
+	<u9n1b7hu5b.fsf@casey.cambridge.redhat.com>
+Message-ID: <20010228094646I.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at redhat.com> writes:
+
+    Jason> P.S. Weren't we going to move the ABI stuff over to
+    Jason> CodeSourcery?
+
+Yup.  The document is there now at:
+
+  http://www.codesourcery.com/cxx-abi/
+
+Alex is working on incorporating the changes that Jim didn't already
+get.  (Alex, is that accurate, or are you already done?)
+
+I'll set up a new ABI mailing list, pointing at the old one, and try
+to get an archive set up as well so that we can have a better record
+of these discussions.
+
+Thanks,
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+

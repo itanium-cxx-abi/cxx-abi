@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Tail padding, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Tail%20padding%2C%20again&In-Reply-To=%3C20001019112918W.mitchell%40codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001246.html">
+   <LINK REL="Next"  HREF="001248.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Tail padding, again</H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Tail%20padding%2C%20again&In-Reply-To=%3C20001019112918W.mitchell%40codesourcery.com%3E"
+       TITLE="Tail padding, again">mark at codesourcery.com
+       </A><BR>
+    <I>Thu Oct 19 18:29:18 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001246.html">2.4.II.2
+</A></li>
+        <LI>Next message: <A HREF="001248.html">C++ ABI: Substitutions and Vendor-Encoded Types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1247">[ date ]</a>
+              <a href="thread.html#1247">[ thread ]</a>
+              <a href="subject.html#1247">[ subject ]</a>
+              <a href="author.html#1247">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I think I recall that the committee was intentionally trying to use
+the tail padding of one object to save space.  For example, consider:
+
+  struct A { short s; char c; };
+  struct B { A a; char d; };
+
+(These are PODs, but you can easily make an equivalent non-POD example).
+
+Here, I think the comittee wanted to give `B' size 4, by packing `d'
+into the tail padding of `A'.
+
+I think this is a mistake.  David Gross came up with the following
+example:
+
+  - Code generator needs to copy dsize, not sizeof, unless it can prove
+    that the object is in a context where tail padding isn't overlayed.
+    Reason?  Tail padding might be overlayed by a volatile field.
+
+    Hence, a non-POD that looks like
+
+      struct S { short sh; char ch; };
+
+    requires ld2/st2/ld1/st1 for a copy instead of ld4/st4 because we
+    might have
+
+      struct T { S s; volatile char d; };
+
+Similarly, people using memcpy to copy around POD components of
+non-PODs will get burned.
+
+This completely breaks user expectation since people routinely expect
+to be able to stick a function or two into a POD without changing its
+layout.
+
+I think we should make the following changes:
+
+  - Make nvsize a multiple of nvalign.  That ensures that we don't
+    have odd sub-components that we can't copy around easily.
+
+  - Allocate `sizeof' bytes for a data member, and `nvsize' bytes for
+    a base class when laying out an object.
+
+Note that this still permits the empty base optimization; nvsize will
+be zero, and sizeof will be 1.
+
+There's an important different between using the tail padding in an
+empty base and the tail padding in a generic object: you know that you
+never have to copy an empty base.
+
+--
+Mark Mitchell                   <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC               <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001246.html">2.4.II.2
+</A></li>
+	<LI>Next message: <A HREF="001248.html">C++ ABI: Substitutions and Vendor-Encoded Types
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1247">[ date ]</a>
+              <a href="thread.html#1247">[ thread ]</a>
+              <a href="subject.html#1247">[ subject ]</a>
+              <a href="author.html#1247">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

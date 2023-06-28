@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Vcall offsets
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Vcall%20offsets&In-Reply-To=%3C200004182151.OAA77828%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000948.html">
+   <LINK REL="Next"  HREF="000943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Vcall offsets</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Vcall%20offsets&In-Reply-To=%3C200004182151.OAA77828%40baalbek.engr.sgi.com%3E"
+       TITLE="Vcall offsets">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Tue Apr 18 21:51:35 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000948.html">substitutions
+</A></li>
+        <LI>Next message: <A HREF="000943.html">Vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#942">[ date ]</a>
+              <a href="thread.html#942">[ thread ]</a>
+              <a href="subject.html#942">[ subject ]</a>
+              <a href="author.html#942">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Once again, I'll take a shot at this one, but please correct my
+misconceptions.
+
+&gt;<i> From: Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> We have:
+</I>&gt;<i> 
+</I>&gt;<i>   [T]he vtable for a virtual base A also includes a vcall offset entry
+</I>&gt;<i>   for each virtual function represented in A's primary vtable and the
+</I>&gt;<i>   secondary vtables from A's non-virtual bases.  The vcall offset
+</I>&gt;<i>   entries are allocated from the inside out, in the the same order as
+</I>&gt;<i>   the functions appear in A's vtables.
+</I>&gt;<i> 
+</I>&gt;<i> Now consider this hierarchy:
+</I>&gt;<i> 
+</I>&gt;<i>     struct A {
+</I>&gt;<i>       int i;
+</I>&gt;<i>       virtual void f ();
+</I>&gt;<i>     };
+</I>&gt;<i> 
+</I>&gt;<i>     struct B {
+</I>&gt;<i>       int j;
+</I>&gt;<i>       virtual void g ();
+</I>&gt;<i>       virtual void h ();
+</I>&gt;<i>     };
+</I>&gt;<i> 
+</I>&gt;<i>     struct C : public A, public B {
+</I>&gt;<i>       virtual void g ();
+</I>&gt;<i>     };
+</I>&gt;<i> 
+</I>&gt;<i> Assume that C is being used as a virtual base.  The question is what
+</I>&gt;<i> vcall offsets are present in C and in what order.  Note that A is the
+</I>&gt;<i> primary base of C.
+</I>&gt;<i> 
+</I>&gt;<i> One reading of the paragraph quoted above could lead one to conclude
+</I>&gt;<i> that C contains 4 vcall offsets:
+</I>&gt;<i> 
+</I>&gt;<i>   o One for `A::f' - A::f appears in C's primary vtable
+</I>&gt;<i>   o One for `B::g' - B::g appears in the secondary vtable for B
+</I>&gt;<i>   o One for `B::h' - B::h appears in the secondary vtable for B
+</I>&gt;<i>   o One for `B::g' - B::g appears in C's primary vtable
+</I>&gt;<i> 
+</I>&gt;<i> I think we should make clear that the last one is not required.  Even
+</I>&gt;<i> though the vtable entry for B::g is replicated, there's no reason to
+</I>&gt;<i> replicate the vcall offset.
+</I>
+I agree with your objective, but would come to a different interpretation.
+I would state the rule for what's included as follows:
+
+ 1) First, whatever's required by the primary base class.
+
+ 2) Next, anything additional (not overrides of the primary base) from
+    the class being laid out.
+
+ 3) Finally, anything additional from the base classes, in declaration
+    preorder for the bases, declaration order for the functions within
+    the bases.
+
+So, I think we need a vcall offset for C::g (2) but not for B::g (3).
+Not a functional difference, but it affects the ordering.
+
+&gt;<i> On to the order of the three remaining entries.  The A::f entry must
+</I>&gt;<i> go closest to the vptr, since A is a primary base.  (It would actually
+</I>&gt;<i> work, here, without that consideration since A is not a primary
+</I>&gt;<i> *virtual* base, but the current document doesn't distinguish these
+</I>&gt;<i> cases and there's no reason why it should.)  Is the final order:
+</I>&gt;<i> 
+</I>&gt;<i>   B::g
+</I>&gt;<i>   B::h
+</I>&gt;<i>   A::f
+</I>&gt;<i>   
+</I>&gt;<i> or:
+</I>&gt;<i> 
+</I>&gt;<i>   B::h
+</I>&gt;<i>   B::g
+</I>&gt;<i>   A::f
+</I>&gt;<i> 
+</I>&gt;<i> ?  &quot;From the inside out&quot; isn't too helpful.  I don't think this
+</I>&gt;<i> matters at all -- except we have to decide.  I like the second order
+</I>&gt;<i> better, I think.
+</I>
+So, applying the above rule, I would get (with the rule number in
+parentheses):
+
+	B::h  (3)
+	C::g  (2)
+	A::f  (1)
+
+I'll try to clarify this rule (or whatever other concensus emerges) in
+the document.  Please comment if this doesn't match your understanding.
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000948.html">substitutions
+</A></li>
+	<LI>Next message: <A HREF="000943.html">Vcall offsets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#942">[ date ]</a>
+              <a href="thread.html#942">[ thread ]</a>
+              <a href="subject.html#942">[ subject ]</a>
+              <a href="author.html#942">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

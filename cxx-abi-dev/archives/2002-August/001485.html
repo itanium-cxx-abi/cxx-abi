@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> C++ ABI: Tail padding 
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B%20ABI%3A%20Tail%20padding%20&In-Reply-To=%3C153670000.1029358568%40warlock.codesourcery.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001484.html">
+   <LINK REL="Next"  HREF="001489.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>C++ ABI: Tail padding </H1>
+    <B>Mark Mitchell</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20C%2B%2B%20ABI%3A%20Tail%20padding%20&In-Reply-To=%3C153670000.1029358568%40warlock.codesourcery.com%3E"
+       TITLE="C++ ABI: Tail padding ">mark at codesourcery.com
+       </A><BR>
+    <I>Wed Aug 14 20:56:08 UTC 2002</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001484.html">implicitly-defined virtual destructors
+</A></li>
+        <LI>Next message: <A HREF="001489.html">C++ ABI: Tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>[Resent with correct address for ABI mailing list in headers.]
+
+It looks like the ABI document meant to require the reuse of tail-padding
+in non PODs, but it doesn't actually say that.
+
+Consider this case, as the canonical example:
+
+  struct S1 {
+    virtual void f();
+    int i;
+    char c1;
+  };
+
+  struct S2 : public S1 {
+    char c2;
+  };
+
+I think the ABI meant to say that you put &quot;c2&quot; in the tail padding for
+S1.  (That is what G++ implements, FWIW.)
+
+However, the ABI doesn't actually say that.  Walking through section 2.4
+of the ABI, we first layout S1.  Let's assume 32-bit pointers and &quot;the
+usual&quot; alignment rules.  Since nvalign(S1) is 4, we set nvsize(S1) to 12:
+
+  After all such components have been allocated, set nvalign(C) = align(C),
+  and set nvsize(C) to the least multiple of nvalign(C) that is greater
+  than or equal to dsize(C).
+
+Having done that, we're not going to make use of the tail padding.  If
+we want to make use of tail padding, we have to not round up nvsize(S1).
+
+Section 2.1 says that nvsize is &quot;dsize(O) minus the size of virtual
+bases&quot;, and the claim is made that nvsize(C) == dsize(C) for classes
+without virtual bases.  The latter claim is in conflict with the layout
+algorithm as quoted above.  Furthermore, &quot;dsize(0) minus the size of
+virtual bases&quot; isn't really very clear; that sounds like
+&quot;dsize(O) - sizeof (V1) - sizeof(V2)...&quot; which is not necessarily
+the same as the part of O that does not contain virtual bases or tail
+padding.
+
+We have a problem here.
+
+Intel's compiler does not pack things into the tail padding.
+
+Neither, I expect, does HP's.
+
+G++ is supposedly within hours of a supposedly ABI-stable release.
+
+Technically, the G++ version is superior.  (It reduces space used by
+objects.)  On the other hand, it was basically impossible for
+implementors to figure out what was intended from the spec.
+
+I think I would prefer to change G++, and drop this idea from the spec,
+even though it is an optimization.
+
+Thoughts?
+
+-- 
+Mark Mitchell                <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC            <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+
+-- 
+Mark Mitchell                <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+CodeSourcery, LLC            <A HREF="http://www.codesourcery.com">http://www.codesourcery.com</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001484.html">implicitly-defined virtual destructors
+</A></li>
+	<LI>Next message: <A HREF="001489.html">C++ ABI: Tail padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

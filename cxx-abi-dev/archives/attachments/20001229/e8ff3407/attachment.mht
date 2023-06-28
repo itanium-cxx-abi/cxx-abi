@@ -1,0 +1,73 @@
+[From nobody Thu Mar  8 00:04:16 2012
+Return-Path: &lt;libstdc++-return-4068-jason=cygnus.com@sources.redhat.com&gt;
+List-Subscribe: &lt;mailto:libstdc++-subscribe@sources.redhat.com&gt;
+List-Post: &lt;mailto:libstdc++@sources.redhat.com&gt;
+From: Kenny Simpson &lt;Kenny.Simpson@gs.com&gt;
+X-Accept-Language: en
+To: libstdc++@sources.redhat.com
+Subject: cxa_vec_dtor question
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+
+Hi,
+  While browsing through gcc sources I came across the __cxa_vec_dtor
+function in libstdc++-v3/libsupc++/vec.cc.  It appeared to be an
+implementation of the underlying delete [] function, however...
+
+  This function uses std::uncaught_exception() to test if a stack unwind
+is currently underway.  This is incorrect.
+&gt; bool unwinding = std::uncaught_exception ();
+(see http://www.peerdirect.com/Resources/gotw047a.html)
+
+  While trying to create a test case to expose the potential bug, I found
+that this function is not called from the resulting program.  Is this function
+currently being used?  My current snapshot does the right thing for my test
+case (2001211), but if cxa_vec_dtor were used, the following test might fail.
+
+  This program should terminate normally, but if __cxa_vec_dtor were used, it
+may call std::terminate instead.
+
+-Kenny
+(not speaking for my employer)
+
+test.cc
+#include &lt;exception&gt;
+
+struct Time_Bomb
+{
+  Time_Bomb() { ++count;}
+  ~Time_Bomb()
+  {
+    --count;
+    if (count == 3) throw false; // kaboom!
+  }
+
+  static int count;
+};
+
+int Time_Bomb::count = 0;
+
+struct S2
+{
+  ~S2()
+  {
+    try {
+      Time_Bomb* bptr = new Time_Bomb[20];
+      delete [] bptr; // this should throw part-way through the cleanup
+    }
+    catch (...) { // but no exception should leave this destructor
+    }
+  }
+};
+
+int main()
+{
+  try {
+    S2 s;
+    throw false;
+  }
+  catch (...) {
+  }
+  return 0;
+}
+]

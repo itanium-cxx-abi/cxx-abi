@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> A complexity in the mangling ABI
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20A%20complexity%20in%20the%20mangling%20ABI&In-Reply-To=%3C20031124033939.GA9731%40alinoe.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001791.html">
+   <LINK REL="Next"  HREF="001793.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>A complexity in the mangling ABI</H1>
+    <B>Carlo Wood</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20A%20complexity%20in%20the%20mangling%20ABI&In-Reply-To=%3C20031124033939.GA9731%40alinoe.com%3E"
+       TITLE="A complexity in the mangling ABI">carlo at alinoe.com
+       </A><BR>
+    <I>Mon Nov 24 03:39:39 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001791.html">[cxx-abi-dev] A complexity in the mangling ABI
+</A></li>
+        <LI>Next message: <A HREF="001793.html">A complexity in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1790">[ date ]</a>
+              <a href="thread.html#1790">[ thread ]</a>
+              <a href="subject.html#1790">[ subject ]</a>
+              <a href="author.html#1790">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, Nov 23, 2003 at 06:40:43PM -0500, Ian Lance Taylor wrote:
+&gt;<i> The mangling ABI says this:
+</I>&gt;<i> 
+</I>&gt;<i> ``For purposes of substitution, given a CV-qualified type, the base
+</I>&gt;<i>   type is substitutible, and the type with all the C, V, and r
+</I>&gt;<i>   qualifiers plus any vendor extended types in the same
+</I>&gt;<i>   order-insensitive set is substitutible; any type with a subset of
+</I>&gt;<i>   those qualifiers is not.  That is, given a type const volatile foo,
+</I>&gt;<i>   the fully qualified type or foo may be substituted, but not volatile
+</I>&gt;<i>   foo nor const foo.  Also, note that the grammar above is written
+</I>&gt;<i>   with the assumption that vendor extended type qualifiers will be in
+</I>&gt;<i>   the order-sensitive (not CV) set.  An appropriate grammar
+</I>&gt;<i>   modification would be necessitated by an order-insensitive vendor
+</I>&gt;<i>   extended type qualifier like const or volatile.''
+</I>&gt;<i> 
+</I>&gt;<i> What I'm thinking about here is the language about vendor extended
+</I>&gt;<i> type qualifiers.  This paragraph states clearly that if a type has
+</I>&gt;<i> more than one order-insensitive qualifier, the base type is
+</I>&gt;<i> substitutable, and the base type with all of the qualifiers is
+</I>&gt;<i> substitutable, but the base type with a subset of the qualifiers is
+</I>&gt;<i> not substitutable.
+</I>[...]
+&gt;<i> I believe that all of the V3 demanglers I am aware of resolve this
+</I>&gt;<i> issue by assuming that all vendor extended type qualifiers are
+</I>&gt;<i> order-insensitive, and thus that when multiple vendor extended type
+</I>&gt;<i> qualifiers are present, or when a vendor extended type qualifier is
+</I>&gt;<i> used with one or more CV-qualifiers, the type may be subset for
+</I>&gt;<i> purposes of substitution.
+</I>
+There are two reasons for this.
+
+Firstly, the only reason that order matters in the mangled name
+is in order not to have two different symbols that essentially
+are the same type.  Thus:
+
+int const volatile
+
+and
+
+int volatile const
+
+much be mangled in the same way (because they ARE the same type,
+you cannot overload a function by exchanging these qualifiers).
+That includes all vendor specified qualifiers.
+
+However, after all order-insensitive qualifiers are _uniquely_
+ordered for the purpose of getting only a different symbol
+name when they really are different, that order doesn't matter
+anymore: Why not keep them in the order that they are put in?
+So, a demangle should simply demangle these symbols as-if the
+order is important (this is reason 1).
+
+It does matter for the substitutions however; and the second
+reason that vendor specified symbols are handled as 100%
+order sensitive (which means they are NOT combined with CV-
+qualifiers to make a single substitution) is because of the
+grammar definition:
+
+&lt;type&gt; ::=
+
+[...]
+	&lt;substitution&gt;
+	&lt;CV-qualifiers&gt; &lt;type&gt;
+	U &lt;source-name&gt; &lt;type&gt;
+[...]
+
+The standard says &quot;everything that can be a &lt;substitution&gt;
+form a substitution itself&quot;.  Therefore 'U &lt;source-name&gt; &lt;type&gt;'
+must be a substitution by itself, for any &lt;type&gt;, including
+&lt;CV-qualifiers&gt; &lt;type&gt;.  And thus will
+U &lt;source-name&gt; &lt;CV-qualifiers&gt; &lt;type&gt;
+cause two substitutions.
+
+The text that you quoted says
+&gt;<i>   Also, note that the grammar above is written
+</I>&gt;<i>   with the assumption that vendor extended type qualifiers will be in
+</I>&gt;<i>   the order-sensitive (not CV) set.
+</I>but this grammar is not given - and thus nobody implemented it.
+
+I agree that this is a lack in the ABI that cannot be solved
+by the demangler - lets just hope that the compiler WILL add
+a substitution for every order-insensitive vendor qualifier,
+unlike what the ABI says - otherwise all demanglers will break.
+If they do that, then there is no problem.
+
+-- 
+Carlo Wood &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">carlo at alinoe.com</A>&gt;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001791.html">[cxx-abi-dev] A complexity in the mangling ABI
+</A></li>
+	<LI>Next message: <A HREF="001793.html">A complexity in the mangling ABI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1790">[ date ]</a>
+              <a href="thread.html#1790">[ thread ]</a>
+              <a href="subject.html#1790">[ subject ]</a>
+              <a href="author.html#1790">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

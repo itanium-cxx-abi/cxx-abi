@@ -1,0 +1,287 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Covariant polymorphic returns and when sharing B-D V-pointers
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Covariant%20polymorphic%20returns%20and%20when%20sharing%20B-D%20V-pointers&In-Reply-To=%3C3771884C.F2E5C689%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000122.html">
+   <LINK REL="Next"  HREF="000124.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Covariant polymorphic returns and when sharing B-D V-pointers</H1>
+    <B>Daveed Vandevoorde</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Covariant%20polymorphic%20returns%20and%20when%20sharing%20B-D%20V-pointers&In-Reply-To=%3C3771884C.F2E5C689%40edg.com%3E"
+       TITLE="Covariant polymorphic returns and when sharing B-D V-pointers">daveed at edg.com
+       </A><BR>
+    <I>Thu Jun 24 01:22:20 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000122.html">Virtual function calls
+</A></li>
+        <LI>Next message: <A HREF="000124.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#123">[ date ]</a>
+              <a href="thread.html#123">[ thread ]</a>
+              <a href="subject.html#123">[ subject ]</a>
+              <a href="author.html#123">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Here is a note explaining some subtleties (and possible solutions) in
+combining V-pointer sharing and covariant polymorphic returns.
+I still owe a note about the handling of nasty dynamic_cast cases
+(hopefully later tonight).
+
+	Daveed
+
+
+A Hairy Example
+---------------
+Covariant polymorphic returns consists in having a virtual overrider function 
+override the type it returns with a type that is derived from all of the return 
+types declared for the overridden (virtual) functions. The complication that 
+this brings is that the static return types of the caller and callee can no 
+longer be determined at compile-time.
+
+The following valid C++ code illustrates this: 
+
+        // Return types: 
+        struct S {}; 
+        struct T {}; 
+        struct U: S, virtual T { virtual ~U(); }; 
+
+        // Covariant classes: 
+        struct A { 
+           virtual S&amp; f(); 
+        }; 
+
+        struct B { 
+           virtual T&amp; f(); 
+        }; 
+
+        struct D: A, B { 
+           virtual U&amp; f(); // Covariant with both A::f and B::f 
+        }; 
+
+        void g(A *p) { 
+           S &amp;r = p-&gt;f(); // OK 
+           // U &amp;r2 = p-&gt;f();  // Would be illegal 
+        } 
+
+        void g(B *p) { 
+           T &amp;r = p-&gt;f(); 
+        }; 
+
+        void g(D *p) { 
+           U &amp;r1 = p-&gt;f(); // OK 
+           S &amp;r2 = p-&gt;f(); // OK 
+           T &amp;r3 = p-&gt;f(); // OK 
+        }
+
+Consider the call in g(B*) above (&quot;T &amp;r = p-&gt;f();&quot;): the callee could very well 
+end up being D::f and thus it is fair to say that (a) the caller does not know 
+the static type declared for the callee, and (b) the callee does not know which 
+type will be expected by the caller. Note also that the dynamic type of the 
+returned object may be different from either of these types (i.e., D::f might 
+return an object that is further derived from U).
+
+
+Solution for the Single Inheritance case 
+----------------------------------------
+The first component of a solution to the above problem is to seek a common point 
+of reference for the caller and the callee. In particular, both can look back along
+the derivation chain to find which base the original, non-overriding virtual function
+introduced as a return type. In the case of single inheritance, the callee can ensure
+that the returned address points to that original base, and the caller can perform
+the inverse transformation (if needed). 
+
+Here is an example: 
+
+        // Return types: 
+        struct T {}; 
+        struct U: T { virtual ~U(); }; 
+
+        // Covariant classes: 
+        struct B { 
+           virtual T&amp; f(); // Original base is T 
+        }; 
+
+        struct D: B { 
+           virtual U&amp; f(); // Covariant return; definition of f 
+                           // will implicitly adjust to original 
+                           // base subobject of type T. 
+        }; 
+
+        void g(B *p) { 
+           T &amp;r = p-&gt;f(); // OK, caller needs no adjustment 
+        }; 
+
+        void g(D *p) { 
+           U &amp;r1 = p-&gt;f(); // OK, adjust from T to U since callee
+                           // is really returning the original base 
+                           // type T. 
+           T &amp;r3 = p-&gt;f(); // OK, no adjustment needed. 
+        }
+
+Unfortunately, this doesn't always work for virtual bases because it is not possible
+to cast from a non-polymorphic virtual base to a derived type (since the base is not
+polymorphic, there is no vtable to find the location of enclosing derivations. The
+proposed solution in that case is for the callee to also return the adjustment from
+the original base to the first enclosing virtual derivation in a second return register
+(assuming the calling conventions allow for at least two return registers).
+If the caller determines that a deeper derivation must be cast to, it can do so
+since the returned adjustment provides access to a virtual table. The following
+example illustrates such an intricate situation: 
+
+        // Return types: 
+        struct VB {}; 
+        struct VD: virtual VB {}; 
+        struct VX: virtual VD {}; 
+
+        // Covariant classes: 
+        struct B { 
+           virtual VB* f(); // Unaware of derivations; hence returns a VB* only. 
+        }; 
+
+        struct D: B { 
+           virtual VD* f() { 
+              return new VX; // Returns a VB* and the offset to the VD* subobject. 
+           } 
+        }; 
+
+        struct X: D { 
+           virtual VX* f() { 
+              return new VX; // Returns a VB* and the offset to the VD* subobject. 
+           }                 // Adjustment to VX* is done on caller (or thunk) side. 
+        }; 
+
+        void f1(B *p) { 
+           VB *r = p-&gt;f(); // No problem, a VB* is what you get. 
+        } 
+
+        void f2(D *p) { 
+           VB *r1 = p-&gt;f(); // No problem either. 
+           VD *r2 = p-&gt;f(); // A VB* is received in first return register; 
+        }                   // add the second register to find the VD*. 
+
+        void f3(X *p) { 
+           VB *r1 = p-&gt;f(); // No problem either. 
+           VD *r2 = p-&gt;f(); // A VB* is received in the first return register; 
+                            // add the second register to find the VD*. 
+           VX *r3 = p-&gt;f(); // A VB* is received in the first return register; 
+                            // add the second register and we're now pointing 
+                            // to a vtable pointer in the VD subobject. Hence 
+                            // a simplified &quot;dynamic_cast&quot;-like operation can 
+        }                   // determine the VX*
+
+This general approach still leaves some options open: 
+
+  . The adjustment to VD* or VX* above could be done by the caller directly, or in
+    a thunk that would be dispatched from an added vtable slot. I would suggest to
+    not introduce thunks unless needed for multiple inheritance cases (see later).
+  . The second return value (the adjustment) is only needed if the original primary
+    virtual base does not have a vtable pointer. However, even if there is a virtual
+    table it could be used. I would suggest to create the second return value only
+    when absolutely needed. This avoids the sometimes unnecessary cost on the callee
+    side. 
+
+
+Multiple Inheritance 
+--------------------
+Reconsider the introductory example. Since there are now multiple derivation
+branches, we can start with the single inheritance convention where the &quot;original
+base&quot; is meant to be &quot;the original leftmost base&quot; (i.e., along the primary derivation
+path). This leaves the case where a base along a secondary derivation path is
+returned: 
+
+        // Return types: 
+        struct S {}; 
+        struct T {}; 
+        struct U: S, virtual T { virtual ~U(); }; 
+
+        // Covariant classes: 
+        struct A { 
+           virtual S&amp; f(); 
+        }; 
+
+        struct B { 
+           virtual T&amp; f(); 
+        }; 
+
+        struct D: A, B { 
+           virtual U&amp; f(); // Covariant with both A::f and B::f 
+        };
+
+        void g(A *p) { 
+           S &amp;r = p-&gt;f(); // Enabled with mechanism above 
+        } 
+
+        void g(B *p) { 
+           T &amp;r = p-&gt;f(); // Still a problem! May return an S&amp;. 
+        };
+
+        void g(D *p) { 
+           U &amp;r1 = p-&gt;f(); // Enabled 
+           S &amp;r2 = p-&gt;f(); // Enabled 
+           T &amp;r3 = p-&gt;f(); // Enabled: add second return value to get a U&amp;, 
+        }                  // then cast to T&amp; (through vtable info).
+
+Note that &quot;leftmost original base&quot; means &quot;the type returned by the leftmost
+non-overridden virtual function&quot;, and not the &quot;leftmost base&quot; of the returned type.
+I.e., if A::f were to return T, then T would be the type pointed to by the physical
+return value of D::f.
+
+For secondary derivation paths, we are saved by the fact that those virtual calls are
+dispatched through a secondary---and therefore different---virtual table. Hence, in
+such cases the secondary vtable slot can be made to point to a stub/thunk that adapts
+the return value: 
+
+        void g(B *p) { 
+           T &amp;r = p-&gt;f(); 
+           // Secondary vtable entry for D::B::f point to stub. 
+           // This stub calls D::f which returns an S&amp;, adjusts 
+           // it to a U&amp;, and then back to T&amp;. 
+        };
+
+The double adjustment may be collapsed into a single constant adjustment if there are
+no virtual bases involved. Otherwise it may be required to use the second return
+value and/or the virtual base offset stored in the returned object vtable. In this
+particular example, we get: 
+
+        S-&gt;U: ret_ptr -= sizeof(void*) 
+        U-&gt;T: ret_ptr += (*(ptrdiff_t**)ret_ptr)[-1]
+
+&lt;end of note&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000122.html">Virtual function calls
+</A></li>
+	<LI>Next message: <A HREF="000124.html">Placement of vtables, inlines and such
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#123">[ date ]</a>
+              <a href="thread.html#123">[ thread ]</a>
+              <a href="subject.html#123">[ subject ]</a>
+              <a href="author.html#123">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

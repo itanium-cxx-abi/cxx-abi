@@ -1,0 +1,290 @@
+From yanshi at ca.ibm.com  Tue Jun  1 15:57:58 2004
+From: yanshi at ca.ibm.com (Yan Shi)
+Date: Tue, 1 Jun 2004 11:57:58 -0400
+Subject: How to layout the class (with bitfield members) in the inheritance
+ hierarchy on GCC 3.3
+Message-ID: <OFFCC788CE.496B2486-ON85256EA6.0051029F-85256EA6.0057BAF1@ca.ibm.com>
+
+
+
+
+
+Hi,
+
+According to C++ ABI 2.4 Non-POD Class Types defintion:
+"Allocation of Members Other Than Virtual Bases
+For each data component D (first the primary base of C, if any, then the
+non-primary, non-virtual direct base classes in declaration order, then the
+non-static data members in declaration order), allocate as follows:
+
+If D is a bitfield, i.e. declared as "T [b]: n;", for some integral POD
+type T and bit count n:
+There are two cases depending on sizeof(T) and n:
+
+If sizeof(T)*8 >= n, the bitfield is allocated as required by the
+underlying C psABI. That is, it will be placed in the next available n
+bits, subject to the constraint that it does not cross an alignment
+boundary for type T.
+If dsize(C) > 0, and the byte at offset dsize(C) - 1 is partially filled by
+a bitfield, and that bitfield is also a data member declared in C (but not
+in one of C's proper base classes), the next available bits are the
+unfilled bits at offset dsize(C) - 1. Otherwise, the next available bits
+are at offset dsize(C).
+
+Update align(C) to max (align(C), align(T)). "
+
+
+For the following test cases, the bitfield members (b0, b1, b2, b3, b4),
+should all be allocated together in 4 bytes, therefore the total size of
+struct B4 (test2.C) should be 8 bytes and the alignment of struct B4 is 4
+bytes.
+
+However, I tried both test cases with GCC 3.3 on SLES9 Linux, the size of
+struct B4 (test2.C) is 12 bytes, while the alignment of struct B4 is 4
+bytes on 32-bit mode, which does not agree with the ABI definition.  Could
+some one please explain what the rules/algorithm for such behavior in GCC
+3.3?
+
+Here are the attached test cases, actual/expected struct layout, and my
+observations:
+|-------+---------------------------------+-------------------------------|
+|       |      test.C                     |    test2.C                    |
+|-------+---------------------------------+-------------------------------|
+|test   |struct B0     {                  |struct B0     {                |
+|cases  |        int b0 :1;               |        virtual void foo() {}; |
+|       |};                               |<===== with vft table          |
+|       |struct B1 : public B0 {          |        int b0 :1;;            |
+|       |        int b1 :10;              |};                             |
+|       |};                               |struct B1 : public B0 {        |
+|       |                                 |        int b1 :10;            |
+|       |struct B2 : public B1  {         |};                             |
+|       |        int b2 :1;               |                               |
+|       |};                               |struct B2 : public B1  {       |
+|       |                                 |        int b2 :1;             |
+|       |struct B3 : public B2  {         |};                             |
+|       |        int b3 :1;               |                               |
+|       |};                               |struct B3 : public B2  {       |
+|       |                                 |        int b3 :1;             |
+|       |struct B4 : public B3  {         |};                             |
+|       |        int b4 :6;               |                               |
+|       |};                               |struct B4 : public B3  {       |
+|       |                                 |        int b4 :1;             |
+|       |(See attached file: test.C)      |};                             |
+|       |                                 |(See attached file: test2.C)   |
+|-------+---------------------------------+-------------------------------|
+|Dump   |--b4.b0--- dumping 12 bytes----- |--b4.b0--- dumping 12          |
+|struct |10000000 00000000 00000000       |bytes-----                     |
+|B4     |00000000                         |00000000 00000000 00000000     |
+|member |00000000 00000000 00000000       |00000000                       |
+|layout |00000000                         |10000000 00000000 00000000     |
+|       |00000000 00000000 00000000       |00000000                       |
+|on     |00000000                         |00000000 00000000 00000000     |
+|32-bit |                                 |00000000                       |
+|mode   |--b4.b1--- dumping 12 bytes----- |                               |
+|       |00000000 00000000 00000000       |--b4.b1--- dumping 12          |
+|(GCC   |00000000                         |bytes-----                     |
+|3.3    |11111111 11000000 00000000       |00000000 00000000 00000000     |
+|ouput) |00000000                         |00000000                       |
+|       |00000000 00000000 00000000       |01111111 11100000 00000000     |
+|       |00000000                         |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |--b4.b2--- dumping 12 bytes----- |00000000                       |
+|       |00000000 00000000 00000000       |                               |
+|       |00000000                         |--b4.b2--- dumping 12          |
+|       |00000000 00100000 00000000       |bytes-----                     |
+|       |00000000                         |00000000 00000000 00000000     |
+|       |00000000 00000000 00000000       |00000000                       |
+|       |00000000                         |00000000 00010000 00000000     |
+|       |                                 |00000000                       |
+|       |--b4.b3--- dumping 12 bytes----- |00000000 00000000 00000000     |
+|       |00000000 00000000 00000000       |00000000                       |
+|       |00000000                         |                               |
+|       |00000000 00000000 00000000       |--b4.b3--- dumping 12          |
+|       |10000000                         |bytes-----                     |
+|       |00000000 00000000 00000000       |00000000 00000000 00000000     |
+|       |00000000                         |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |--b4.b4--- dumping 12 bytes----- |10000000                       |
+|       |00000000 00000000 00000000       |00000000 00000000 00000000     |
+|       |00000000                         |00000000                       |
+|       |00000000 00000000 00000000       |                               |
+|       |01111110                         |--b4.b4--- dumping 12          |
+|       |00000000 00000000 00000000       |bytes-----                     |
+|       |00000000                         |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |01000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|-------+---------------------------------+-------------------------------|
+|Dump   |the same as the output on 32-bit |--b4.b0--- dumping 16          |
+|struct |mode                             |bytes-----                     |
+|B4     |                                 |00000000 00000000 00000000     |
+|member |                                 |00000000                       |
+|layout |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|on     |                                 |10000000 00000000 00000000     |
+|64-bit |                                 |00000000                       |
+|mode   |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|(GCC   |                                 |                               |
+|3.3    |                                 |--b4.b1--- dumping 16          |
+|ouput) |                                 |bytes-----                     |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |01111111 11100000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |                               |
+|       |                                 |--b4.b2--- dumping 16          |
+|       |                                 |bytes-----                     |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00010000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |                               |
+|       |                                 |--b4.b3--- dumping 16          |
+|       |                                 |bytes-----                     |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |10000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |                               |
+|       |                                 |--b4.b4--- dumping 16          |
+|       |                                 |bytes-----                     |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |01000000                       |
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|-------+---------------------------------+-------------------------------|
+|Observa| (1) it cannot put more than two |the same observation as test.C |
+|tion   |bit fields from different classes|                               |
+|       |in a byte.                       |                               |
+|       | (2) if previous bits exactly fit|                               |
+|       |the byte container (all 8 bits   |                               |
+|       |are used, no remaining free      |                               |
+|       |bits), then pad the following    |                               |
+|       |bits that is from different      |                               |
+|       |classes tightly                  |                               |
+|       |(3) else, pad the following bits |                               |
+|       |that is from different classes   |                               |
+|       |one byte after the previous      |                               |
+|       |bit-ending byte (vacate one byte)|                               |
+|       |(4) Question: why vacate last    |                               |
+|       |4-byte in struct B4 (useless     |                               |
+|       |padding)?                        |                               |
+|-------+---------------------------------+-------------------------------|
+|Suggest|--b4.b0--- dumping 4 bytes-----  |--b4.b0--- dumping 8 bytes-----|
+|ed     |10000000 00000000 00000000       |00000000 00000000 00000000     |
+|layout |00000000                         |00000000                       |
+|on     |                                 |10000000 00000000 00000000     |
+|32-bit |--b4.b1--- dumping 4 bytes-----  |00000000                       |
+|mode   |01111111 11100000 00000000       |                               |
+|       |00000000                         |--b4.b1--- dumping 8 bytes-----|
+|       |                                 |00000000 00000000 00000000     |
+|       |--b4.b2--- dumping 4 bytes-----  |00000000                       |
+|       |00000000 00010000 00000000       |01111111 11100000 00000000     |
+|       |00000000                         |00000000                       |
+|       |                                 |                               |
+|       |--b4.b3--- dumping 4 bytes-----  |--b4.b2--- dumping 8 bytes-----|
+|       |00000000 00001000 00000000       |00000000 00000000 00000000     |
+|       |00000000                         |00000000                       |
+|       |                                 |00000000 00010000 00000000     |
+|       |--b4.b4--- dumping 4 bytes-----  |00000000                       |
+|       |00000000 00000111 11100000       |                               |
+|       |00000000                         |--b4.b3--- dumping 8 bytes-----|
+|       |                                 |00000000 00000000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |00000000 00001000 00000000     |
+|       |                                 |00000000                       |
+|       |                                 |                               |
+|       |                                 |--b4.b4--- dumping 4 bytes-----|
+|       |                                 |00000000 00000111 11100000     |
+|       |                                 |00000000                       |
+|-------+---------------------------------+-------------------------------|
+
+
+Your reply will be appreciated.
+
+Best regards,
+
+Yan (Barbara) Shi
+C++ Front End and Runtime Development
+Email: yanshi at ca.ibm.com
+Tel: (905) 413-3813   Tie: 969-3813   Location: C2/KD2/8200/MKM
+IBM Toronto Laboratory, 8200 Warden Ave, Markham, Ontario, Canada L6G 1C7
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.C
+Type: application/octet-stream
+Size: 1537 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment.obj>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test2.C
+Type: application/octet-stream
+Size: 1567 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20040601/498cff76/attachment-0001.obj>
+
+From mark at codesourcery.com  Wed Jun  2 01:12:01 2004
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 01 Jun 2004 18:12:01 -0700
+Subject: [cxx-abi-dev] How to layout the class (with bitfield members)
+ in the inheritance hierarchy on GCC 3.3
+In-Reply-To: <OFFCC788CE.496B2486-ON85256EA6.0051029F-85256EA6.0057BAF1@ca.ibm.com>
+References: <OFFCC788CE.496B2486-ON85256EA6.0051029F-85256EA6.0057BAF1@ca.ibm.com>
+Message-ID: <40BD2961.6000508@codesourcery.com>
+
+Yan Shi wrote:
+
+> 
+> 
+> 
+> Hi,
+> 
+> According to C++ ABI 2.4 Non-POD Class Types defintion:
+> "Allocation of Members Other Than Virtual Bases
+> For each data component D (first the primary base of C, if any, then the
+> non-primary, non-virtual direct base classes in declaration order, then the
+> non-static data members in declaration order), allocate as follows:
+> 
+> For the following test cases, the bitfield members (b0, b1, b2, b3, b4),
+> should all be allocated together in 4 bytes, therefore the total size of
+> struct B4 (test2.C) should be 8 bytes and the alignment of struct B4 is 4
+> bytes.
+> 
+> However, I tried both test cases with GCC 3.3 on SLES9 Linux, the size of
+> struct B4 (test2.C) is 12 bytes, while the alignment of struct B4 is 4
+> bytes on 32-bit mode, which does not agree with the ABI definition.  Could
+> some one please explain what the rules/algorithm for such behavior in GCC
+> 3.3?
+
+G++ 3.3 has known bugs in this area of the ABI.  We believe that those 
+bugs have been corrected in GCC 3.4.0.  You might also try 
+"-fabi-version=0" with G++ 3.3, which eliminates some of the bugs. 
+(Some of the bugs were preservedin 3.3 for backwards compatibility with 
+earlier versions of G++.)
+
+-- 
+Mark Mitchell
+CodeSourcery, LLC
+mark at codesourcery.com
+
+

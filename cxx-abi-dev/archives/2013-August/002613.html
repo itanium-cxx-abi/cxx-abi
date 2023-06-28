@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Literal%20operator%20functions%20with%20%27li%3Clength%2C%20ID%3E%27&In-Reply-To=%3C060DD4F9-1298-41A2-BDFA-AB5FBFB16F68%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002612.html">
+   <LINK REL="Next"  HREF="002614.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Literal%20operator%20functions%20with%20%27li%3Clength%2C%20ID%3E%27&In-Reply-To=%3C060DD4F9-1298-41A2-BDFA-AB5FBFB16F68%40edg.com%3E"
+       TITLE="[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'">mjh at edg.com
+       </A><BR>
+    <I>Fri Aug  9 15:42:47 UTC 2013</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002612.html">[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'
+</A></li>
+        <LI>Next message: <A HREF="002614.html">[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2613">[ date ]</a>
+              <a href="thread.html#2613">[ thread ]</a>
+              <a href="subject.html#2613">[ subject ]</a>
+              <a href="author.html#2613">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Aug 7, 2013, at 3:26 PM, Richard Smith &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">richardsmith at google.com</A>&gt; wrote:
+
+&gt;<i> One follow-up related to the example that is given above; our UDL mangling produces a slightly different mangled name for this example: _Z1fIiEDTcmclL_Zli2_wPKcELA4_S0_EEfp_ET_, reflecting a difference in the cv-qualification of the type of the argument that is being passed to the literal operator.  Clang's demangled name reflects the use of &quot;char [4]&quot; as the argument type and we're using &quot;const char [4]&quot;:
+</I>&gt;<i> 
+</I>&gt;<i> &lt; decltype(((operator &quot;&quot; _w((char [4])&quot;...&quot;),param#1))) f&lt;int&gt;(T1)
+</I>&gt;<i> ---
+</I>&gt;<i> &gt; decltype(((operator &quot;&quot; _w((const char [4])&quot;...&quot;),param#1))) f&lt;int&gt;(T1)
+</I>&gt;<i> 
+</I>&gt;<i> From a Standards point-of-view, we think &quot;const char [4]&quot; is correct here (the call to a raw literal operator X is defined to be equivalent to operator &quot;&quot; X(&quot;n&quot;), and the type of &quot;n&quot; is &quot;array of const char&quot;).  Is this a clang bug or the result of some implicit conversion (and if so, should it be reflected in the mangling)?
+</I>&gt;<i> 
+</I>&gt;<i> It looks like this was a transient bug -- I agree that your mangling is the correct one, and it's also the one that Clang trunk produces. 
+</I>
+Thanks for that confirmation.
+
+Another discrepancy seems to be in the use of &lt;unresolved-name&gt; production.  For example:
+
+  typedef __SIZE_TYPE__ size_t;
+  void *operator &quot;&quot; _s(unsigned long long) {}
+  void *operator new(size_t) {}
+  void *f(unsigned long long) {}
+  template&lt;typename T&gt; auto f1(T x)-&gt;decltype(operator &quot;&quot; _s(x));
+  template&lt;typename T&gt; auto f2(T x)-&gt;decltype(operator new(x));
+  template&lt;typename T&gt; auto f3(T x)-&gt;decltype(f(x));
+  int main() {
+    f1(0);  // neither g++ nor clang use &lt;unresolved-name&gt; for operator &quot;&quot; _s
+            // g++:      _Z2f1IiEDTclli2_sfp_EET_
+            // clang:    _Z2f1IiEDTclli2_sfp_EET_
+            // expected: _Z2f1IiEDTclonli2_sfp_EET_
+    f2(0);  // g++ uses &lt;unresolved-name&gt; for operator new
+            // g++:      _Z2f2IiEDTclonnwfp_EET_
+            // clang:    _Z2f2IiEDTclnwfp_EET_
+            // expected: _Z2f2IiEDTclonnwfp_EET_
+    f3(0);  // g++ and clang use &lt;unresolved-name&gt; for f
+            // g++:      _Z2f3IiEDTcl1ffp_EET_
+            // clang:    _Z2f3IiEDTcl1ffp_EET_
+            // expected: _Z2f3IiEDTcl1ffp_EET_
+  }
+
+[Mangled names are from g++ 4.8.1 and clang 3.3.]   We believe &lt;unresolved-name&gt; should be used for all of these cases.
+
+There's another issue here: demangling the &quot;li&quot; &lt;operator-name&gt;.  Each &lt;operator-name&gt; has an implied number of arguments (except the vendor extended operator where the number is explicitly supplied), but a literal operator can have zero, one or two arguments, so it's not clear which of these applies:
+
+  &lt;expression&gt; ::= &lt;unary operator-name&gt; &lt;expression&gt;
+               ::= &lt;binary operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+
+Though GNU cxxfilt (from binutils 2.23) demangles the two names in this example properly:
+
+  typedef __SIZE_TYPE__ size_t;
+  void operator &quot;&quot; _s(const char *) {}
+  void operator &quot;&quot; _s(const char *, size_t) {}
+  template&lt;typename T&gt; auto f1(T x)-&gt;decltype(operator &quot;&quot; _s(x));
+  template&lt;typename T&gt; auto f2(T x)-&gt;decltype(operator &quot;&quot; _s(x, 0));
+  int main() {
+    f1(&quot;xyz&quot;);  // _Z2f1IPKcEDTclli2_sfp_EET_
+    f2(&quot;xyz&quot;);  // _Z2f2IPKcEDTclli2_sfp_Li0EEET_
+  }
+
+Note that if the &lt;unresolved-name&gt; mangling is used here (i.e., with &quot;clonli&quot; rather than &quot;clli&quot;), there's no issue with the arguments because &lt;unresolved-name&gt; (rather than &lt;unary/binary operator-name&gt;) is used as the first argument to the &quot;cl&quot; and the remaining &lt;expressions&gt; are parsed as arguments to the &quot;cl&quot; (not the &quot;li&quot;).  That's also the case with mangled names of the form &quot;clL_Zli2_x...&quot; (where &lt;expr-primary&gt; is used for the first &quot;cl&quot; &lt;expression&gt;&quot;).
+
+An observation: because the &quot;li&quot; mangling always involves mangling of the implicit call to the literal operator, and the &quot;cl&quot; mangling already handles a variable number of &lt;expression&gt;s, we need to ensure that the arguments to the literal operator are demangled by the &quot;cl&quot; production, not the &quot;li&quot; production; i.e., either we don't produce mangled names with &quot;clli&quot; (because &lt;unresolved-name&gt; or &lt;expr-primary&gt; should instead be used), or we make a special case for &quot;li&quot; that it effectively takes zero &lt;expression&gt; arguments:
+
+	&lt;expression&gt; ::= &lt;nullary operator-name&gt;	# literal operand (no arguments)
+
+I'd prefer the first of these options (I haven't seen an example where the &quot;clli&quot; mangling makes sense), but I think demanglers need to implement the second option in order to deal with existing practice.
+
+Mike Herrick
+Edison Design Group
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002612.html">[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'
+</A></li>
+	<LI>Next message: <A HREF="002614.html">[cxx-abi-dev] Literal operator functions with 'li&lt;length, ID&gt;'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2613">[ date ]</a>
+              <a href="thread.html#2613">[ thread ]</a>
+              <a href="subject.html#2613">[ subject ]</a>
+              <a href="author.html#2613">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

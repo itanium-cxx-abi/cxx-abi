@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> When should value parameters be destroyed?
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20When%20should%20value%20parameters%20be%20destroyed%3F&In-Reply-To=%3C200009291915.MAA46046%40baalbek.engr.sgi.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001224.html">
+   <LINK REL="Next"  HREF="001226.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>When should value parameters be destroyed?</H1>
+    <B>Jim Dehnert</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20When%20should%20value%20parameters%20be%20destroyed%3F&In-Reply-To=%3C200009291915.MAA46046%40baalbek.engr.sgi.com%3E"
+       TITLE="When should value parameters be destroyed?">dehnert at baalbek.engr.sgi.com
+       </A><BR>
+    <I>Fri Sep 29 19:15:24 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001224.html">When should value parameters be destroyed?
+</A></li>
+        <LI>Next message: <A HREF="001226.html">When should value parameters be destroyed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Martin von Loewis &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">loewis at informatik.hu-berlin.de</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt; Those of us present could not remember why destructors were included
+</I>&gt;<i> &gt; here, and decided it was probably a mistake, and intend to remove it
+</I>&gt;<i> &gt; (for both value parameters and results), if a request for rationale
+</I>&gt;<i> &gt; yields nothing.  Consider this message such a request.
+</I>&gt;<i> 
+</I>&gt;<i> Maybe that was an overlap in messages, but it appears that Daveed
+</I>&gt;<i> already pointed to the right place: 5.2.2/4 explains the life time of
+</I>&gt;<i> parameters. Mark's reference of 12.2/3 is not relevant - parameters
+</I>&gt;<i> are not temporaries; instead, temporaries may be used to initialize
+</I>&gt;<i> the parameters.
+</I>
+Yes, it was an overlap.
+
+&gt;<i> The critical point is that access checks must be made in the caller,
+</I>&gt;<i> so
+</I>&gt;<i> 
+</I>&gt;<i> struct A{
+</I>&gt;<i> private:
+</I>&gt;<i>   ~A();
+</I>&gt;<i>   friend void bar();
+</I>&gt;<i> };
+</I>&gt;<i> 
+</I>&gt;<i> void foo(A a){
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> void bar(){
+</I>&gt;<i>   A a;
+</I>&gt;<i>   foo(a);
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> Since g++ invokes the destructor in the callee, it incorrectly rejects
+</I>&gt;<i> this code:
+</I>&gt;<i> 
+</I>&gt;<i> a.cc: In function `void foo(A)':
+</I>&gt;<i> a.cc:3: `A::~A()' is private
+</I>&gt;<i> a.cc:7: within this context
+</I>&gt;<i> 
+</I>&gt;<i> Of course, the compiler could *still* invoke the destructor in the
+</I>&gt;<i> callee under the as-if-rule, provided the access check occurs in the
+</I>&gt;<i> caller.
+</I>
+But the access check is compile-time, right?  There's nothing to
+prevent a compiler from doing it at the call, but still calling the
+parameter destructor in the callee (without checking), right?
+Nevertheless:
+
+&gt;<i> That gets tricky since there are other conditions as well, e.g. that
+</I>&gt;<i> destruction must occur outside a function-try-block of the callee - so
+</I>&gt;<i> I'm in favour of having the caller destroy the object.
+</I>
+This seems important to me.  One could still, I suppose, call the
+destructor in the callee, but outside its try-block if any.  But this
+gets to be a complicated implementation, and I don't think we want to
+require this treatment.  The ABI must choose one approach, so I guess
+I'm now convinced it should be to invoke the destructor in the caller.
+Anyone else have issues to raise before I make that explicit?
+
+&gt;<i> I have also concerns about the callee invoking the copy constructor,
+</I>&gt;<i> if any. 8.5/12 states that parameter passing is copy-initialization,
+</I>&gt;<i> and 12.8.15 gives permission to elide the call to the copy
+</I>&gt;<i> constructor. Is this ABI giving the same permission to
+</I>&gt;<i> implementations?
+</I>
+Yes, it does.  The second bullet in 3.1.1 leaves parameter construction
+to the caller, which can elide it when allowed to do so, e.g. in your
+example below.  (The fourth bullet is a typo -- &quot;copy constructor&quot;
+should have read &quot;destructor,&quot; and will soon.)
+
+&gt;<i> Consider
+</I>&gt;<i> 
+</I>&gt;<i> struct A{
+</I>&gt;<i>   A(int);
+</I>&gt;<i>   A(const A&amp;);
+</I>&gt;<i>   ~A();
+</I>&gt;<i> };
+</I>&gt;<i> 
+</I>&gt;<i> void foo(A a){}
+</I>&gt;<i> 
+</I>&gt;<i> int getint();
+</I>&gt;<i> 
+</I>&gt;<i> void bar(){
+</I>&gt;<i>   foo(getint());
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> In C++, two sequences of calls are possible:
+</I>&gt;<i> 
+</I>&gt;<i> 1. getint, A(int), A(const A&amp;), foo, ~A, ~A.
+</I>&gt;<i> 2. geting, A(int), foo, ~A.
+</I>&gt;<i> 
+</I>&gt;<i> It appears that the ABI mandates sequence A, since the copy ctor will
+</I>&gt;<i> be called inside foo. I think this is not desirable; furthermore, the
+</I>&gt;<i> same issue with access check and function-try-blocks arises.
+</I>
+My mistake (editorial) -- see above.  The ABI doesn't mandate (1).
+
+&gt;<i> So I propose to take 5.2.2 literal, and require parameter ctors and
+</I>&gt;<i> dtors to be called *in* the caller.
+</I>
+Agreed.  If anyone feels differently about this, speak up now...
+
+Jim
+
+-	    Jim Dehnert		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at sgi.com</A>
+				(650)933-4272
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001224.html">When should value parameters be destroyed?
+</A></li>
+	<LI>Next message: <A HREF="001226.html">When should value parameters be destroyed?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

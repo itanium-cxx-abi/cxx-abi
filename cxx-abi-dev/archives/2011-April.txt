@@ -1,0 +1,655 @@
+From rjmccall at apple.com  Sun Apr 24 06:22:16 2011
+From: rjmccall at apple.com (John McCall)
+Date: Sat, 23 Apr 2011 23:22:16 -0700
+Subject: namespace-qualified unresolved-names
+Message-ID: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+
+Consider the following:
+
+  namespace ns {
+    int foo(int);
+    short foo(short);
+  }
+
+  template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t)) {
+    return ns::foo(t);
+  }
+
+  short test(short x) { return forward_foo(x); }
+
+gcc-4.6 mangles forward_foo<short> as:
+  _Z11forward_fooIsEDTcl3foofp_EET_
+
+This seems obviously wrong:  the qualifier has completely disappeared,
+and this now looks like an unqualified call.  I believe the correct
+mangling falls under the fourth production for <unresolved-name>:
+  <unresolved-name> ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+In that case, the mangling should be:
+  _Z11forward_fooIsEDTclsr2nsE3foofp_EET_
+
+Right?  I just want to verify that, because I have some follow-ups. :)
+
+1. When mangling a namespace qualifier for an unresolved-name,
+should we mangle the full namespace path or just what was written?
+  namespace outer {
+    namespace ns { ... }
+    template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+    // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+  }
+
+The 'gs' does not seem to be useful in the case of a non-member
+unresolved-name with a qualifier.
+
+2. Should we look through template aliases?
+  namespace alias = ns;
+  template <typename T> auto forward_foo(T t) -> decltype(alias::foo(t));
+  // sr2nsE3foo or sr5aliasE3foo ?
+
+2a. If we look through template aliases, what happens to prefix
+nested name specifiers?
+  namespace nsx { namespace alias = ns; }
+  template <typename T> auto forward_foo(T t) -> decltype(nsx::alias::foo(t));
+  // sr2nsE3foo ?
+
+2b. Specifically, what about global prefixes?
+  template <typename T> auto forward_foo(T t) -> decltype(::alias::foo(t));
+  // sr2nsE3foo or gssr2nsE3foo ?
+
+John.
+
+
+From rjmccall at apple.com  Sun Apr 24 06:34:56 2011
+From: rjmccall at apple.com (John McCall)
+Date: Sat, 23 Apr 2011 23:34:56 -0700
+Subject: mangling parenthesized vs. non-parenthesized calls
+Message-ID: <0E4512F7-704E-4468-9084-E4E9B6DDB50E@apple.com>
+
+Parentheses in C++ don't matter except when they do.  One case
+that our mangling doesn't seem to capture correctly is when a call
+operand is an unqualified id-expression, e.g.:
+
+  template <class T> auto call(T t) -> decltype(foo(t)) {
+    return foo(t);
+  }
+
+vs.
+
+  template <class T> auto call(T t) -> decltype((foo)(t)) {
+    return foo(t);
+  }
+
+In the second case, argument-dependent lookup is suppressed,
+but both will be mangled identically because parentheses are
+dropped and we only have one call mangling.
+
+We probably don't want to change the mangling for calls in
+general, so I would suggest
+  <expression> ::= cp <simple-id> <expression>* E
+which will *only* be used for calls where the function operand
+is parenthesized and where ADL would be triggered if it weren't.
+
+John.
+
+
+From daveed at edg.com  Mon Apr 25 16:24:15 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 25 Apr 2011 12:24:15 -0400
+Subject: [cxx-abi-dev] mangling parenthesized vs. non-parenthesized calls
+In-Reply-To: <0E4512F7-704E-4468-9084-E4E9B6DDB50E@apple.com>
+References: <0E4512F7-704E-4468-9084-E4E9B6DDB50E@apple.com>
+Message-ID: <80409A65-465C-4799-B1ED-5C035A6B378C@edg.com>
+
+
+On Apr 24, 2011, at 2:34 AM, John McCall wrote:
+
+> Parentheses in C++ don't matter except when they do.  One case
+> that our mangling doesn't seem to capture correctly is when a call
+> operand is an unqualified id-expression, e.g.:
+> 
+>  template <class T> auto call(T t) -> decltype(foo(t)) {
+>    return foo(t);
+>  }
+> 
+> vs.
+> 
+>  template <class T> auto call(T t) -> decltype((foo)(t)) {
+>    return foo(t);
+>  }
+> 
+> In the second case, argument-dependent lookup is suppressed,
+> but both will be mangled identically because parentheses are
+> dropped and we only have one call mangling.
+
+
+Nice catch!
+
+
+> 
+> We probably don't want to change the mangling for calls in
+> general, so I would suggest
+>  <expression> ::= cp <simple-id> <expression>* E
+> which will *only* be used for calls where the function operand
+> is parenthesized and where ADL would be triggered if it weren't.
+
+Yes, that seems reasonable.
+
+	Daveed
+
+
+
+From rjmccall at apple.com  Mon Apr 25 17:40:19 2011
+From: rjmccall at apple.com (John McCall)
+Date: Mon, 25 Apr 2011 10:40:19 -0700
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+ <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com>
+Message-ID: <51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com>
+
+On Apr 25, 2011, at 9:59 AM, James Widman wrote:
+> On 24 Apr 2011, at 02:22, John McCall wrote:
+>> 1. When mangling a namespace qualifier for an unresolved-name,
+>> should we mangle the full namespace path or just what was written?
+>> namespace outer {
+>>   namespace ns { ... }
+>>   template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>>   // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>> }
+> 
+> I think the answer is "just what was written" (i.e., you use the raw sequence of tokens) because of 14.4 [temp.type] p2:
+> 
+>        If an expression e involves a template parameter,
+>        decltype(e) denotes a unique dependent type. Two such
+>        /decltype-specifiers/ refer to the same type only if their
+>        /expression/s [grammar term] are equivalent (14.5.6.1).
+>        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>        [Note: however, it may be aliased, e.g., by a
+>        typedef-name. end note ]
+> 
+> So the type given by:
+> 
+>   decltype(inner::foo(t))
+> 
+> ... is not the type given by:
+> 
+>   decltype(outer::inner::foo(t))
+> 
+> ... because the /expression/s are different (because the token sequences are different).
+
+I agree that [temp.over.link] gives us the right to mangle these
+differently if we want:  they're "functionally equivalent" but not
+"equivalent", and so the behavior is undefined.  That doesn't
+actually mean we have to distinguish them ? this is our cover
+for not mangling parentheses in general ? but I have no real
+complaint with doing so.  I just want there to be a rule. :)
+
+>> The 'gs' does not seem to be useful in the case of a non-member
+>> unresolved-name with a qualifier.
+>> 
+>> 2. Should we look through template aliases?
+>> namespace alias = ns;
+> 
+> (That's a namespace alias [namespace.alias], although it's good to consider namespace aliases in addition to alias templates [temp.alias].)
+
+...wow.  I really did mean to say "namespace alias", but somehow
+I seem to have used "template alias" consistently.  Someone's been
+working on them in Clang, so they're on my mind...
+
+John.
+
+From widman at gimpel.com  Mon Apr 25 16:59:20 2011
+From: widman at gimpel.com (James Widman)
+Date: Mon, 25 Apr 2011 12:59:20 -0400
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+Message-ID: <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com>
+
+
+On 24 Apr 2011, at 02:22, John McCall wrote:
+
+> Consider the following:
+> 
+>  namespace ns {
+>    int foo(int);
+>    short foo(short);
+>  }
+> 
+>  template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t)) {
+>    return ns::foo(t);
+>  }
+> 
+>  short test(short x) { return forward_foo(x); }
+> 
+> gcc-4.6 mangles forward_foo<short> as:
+>  _Z11forward_fooIsEDTcl3foofp_EET_
+> 
+> This seems obviously wrong:  the qualifier has completely disappeared,
+> and this now looks like an unqualified call.  I believe the correct
+> mangling falls under the fourth production for <unresolved-name>:
+>  <unresolved-name> ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+> In that case, the mangling should be:
+>  _Z11forward_fooIsEDTclsr2nsE3foofp_EET_
+
+I'm not sure if that's completely right (because I haven't carefully read the current mangling rules), but I am pretty sure that "2ns" needs to be there.
+
+> Right?  I just want to verify that, because I have some follow-ups. :)
+> 
+> 1. When mangling a namespace qualifier for an unresolved-name,
+> should we mangle the full namespace path or just what was written?
+>  namespace outer {
+>    namespace ns { ... }
+>    template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>    // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>  }
+
+I think the answer is "just what was written" (i.e., you use the raw sequence of tokens) because of 14.4 [temp.type] p2:
+
+        If an expression e involves a template parameter,
+        decltype(e) denotes a unique dependent type. Two such
+        /decltype-specifiers/ refer to the same type only if their
+        /expression/s [grammar term] are equivalent (14.5.6.1).
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        [Note: however, it may be aliased, e.g., by a
+        typedef-name. end note ]
+
+So the type given by:
+
+   decltype(inner::foo(t))
+
+... is not the type given by:
+
+   decltype(outer::inner::foo(t))
+
+... because the /expression/s are different (because the token sequences are different).
+
+> The 'gs' does not seem to be useful in the case of a non-member
+> unresolved-name with a qualifier.
+> 
+> 2. Should we look through template aliases?
+>  namespace alias = ns;
+
+(That's a namespace alias [namespace.alias], although it's good to consider namespace aliases in addition to alias templates [temp.alias].)
+
+>  template <typename T> auto forward_foo(T t) -> decltype(alias::foo(t));
+>  // sr2nsE3foo or sr5aliasE3foo ?
+
+Again, I think 14.4 implies the use of the raw sequence of tokens.  So no, you don't look through aliases.
+
+> 2a. If we look through template aliases, what happens to prefix
+> nested name specifiers?
+>  namespace nsx { namespace alias = ns; }
+>  template <typename T> auto forward_foo(T t) -> decltype(nsx::alias::foo(t));
+>  // sr2nsE3foo ?
+
+Ditto.
+
+> 2b. Specifically, what about global prefixes?
+>  template <typename T> auto forward_foo(T t) -> decltype(::alias::foo(t));
+>  // sr2nsE3foo or gssr2nsE3foo ?
+
+Ditto.
+
+James Widman  
+-- 
+Gimpel Software 
+http://gimpel.com
+
+
+
+
+
+From widman at gimpel.com  Mon Apr 25 20:51:27 2011
+From: widman at gimpel.com (James Widman)
+Date: Mon, 25 Apr 2011 16:51:27 -0400
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com> <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com> <51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com>
+Message-ID: <4C533470-73E4-4D6C-877A-0D7E5F60F24A@gimpel.com>
+
+
+On 25 Apr 2011, at 13:40, John McCall wrote:
+
+> On Apr 25, 2011, at 9:59 AM, James Widman wrote:
+>> On 24 Apr 2011, at 02:22, John McCall wrote:
+>>> 1. When mangling a namespace qualifier for an unresolved-name,
+>>> should we mangle the full namespace path or just what was written?
+>>> namespace outer {
+>>>  namespace ns { ... }
+>>>  template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>>>  // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>>> }
+>> 
+>> I think the answer is "just what was written" (i.e., you use the raw sequence of tokens) because of 14.4 [temp.type] p2:
+>> 
+>>       If an expression e involves a template parameter,
+>>       decltype(e) denotes a unique dependent type. Two such
+>>       /decltype-specifiers/ refer to the same type only if their
+>>       /expression/s [grammar term] are equivalent (14.5.6.1).
+>>       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>>       [Note: however, it may be aliased, e.g., by a
+>>       typedef-name. end note ]
+>> 
+>> So the type given by:
+>> 
+>>  decltype(inner::foo(t))
+>> 
+>> ... is not the type given by:
+>> 
+>>  decltype(outer::inner::foo(t))
+>> 
+>> ... because the /expression/s are different (because the token sequences are different).
+> 
+> I agree that [temp.over.link] gives us the right to mangle these
+> differently if we want:  they're "functionally equivalent" but not
+> "equivalent", and so the behavior is undefined.  That doesn't
+> actually mean we have to distinguish them ? this is our cover
+> for not mangling parentheses in general ? but I have no real
+> complaint with doing so.  I just want there to be a rule. :)
+
+<nod>
+
+Incidentally, the "implementation" that I work on is not really an implementation; so, among other things, we don't actually need to generate mangled names, so this would not even apply to us.
+
+But having said that, I prefer a mangling rule that just uses a translation of the raw token sequence for the following reasons:
+
+1)
+It's probably harder to implement that rule incorrectly.  (For example, the implementor does not need to consider whether a call was written as foo(t) vs. (foo)(t) because you don't even need to think in terms of whether the expression involves a call.)
+
+2)
+Suppose you have two /expression/s that are functionally equivalent but not equivalent and they both involve the same template parameters.  If the language rules ever change such that they are no longer functionally equivalent, the mangling rule would not need to change.
+
+James Widman  
+-- 
+Gimpel Software 
+http://gimpel.com
+
+
+
+From doug.gregor at gmail.com  Mon Apr 25 21:21:02 2011
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 25 Apr 2011 14:21:02 -0700
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <4C533470-73E4-4D6C-877A-0D7E5F60F24A@gimpel.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+	<FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com>
+	<51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com>
+	<4C533470-73E4-4D6C-877A-0D7E5F60F24A@gimpel.com>
+Message-ID: <BANLkTimr6=iwrgT-kB4FNQNKB6F29yRQ5g@mail.gmail.com>
+
+On Mon, Apr 25, 2011 at 1:51 PM, James Widman <widman at gimpel.com> wrote:
+>
+> On 25 Apr 2011, at 13:40, John McCall wrote:
+>
+>> On Apr 25, 2011, at 9:59 AM, James Widman wrote:
+>>> On 24 Apr 2011, at 02:22, John McCall wrote:
+>>>> 1. When mangling a namespace qualifier for an unresolved-name,
+>>>> should we mangle the full namespace path or just what was written?
+>>>> namespace outer {
+>>>> ?namespace ns { ... }
+>>>> ?template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>>>> ?// sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>>>> }
+>>>
+>>> I think the answer is "just what was written" (i.e., you use the raw sequence of tokens) because of 14.4 [temp.type] p2:
+>>>
+>>> ? ? ? If an expression e involves a template parameter,
+>>> ? ? ? decltype(e) denotes a unique dependent type. Two such
+>>> ? ? ? /decltype-specifiers/ refer to the same type only if their
+>>> ? ? ? /expression/s [grammar term] are equivalent (14.5.6.1).
+>>> ? ? ? ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>>> ? ? ? [Note: however, it may be aliased, e.g., by a
+>>> ? ? ? typedef-name. end note ]
+>>>
+>>> So the type given by:
+>>>
+>>> ?decltype(inner::foo(t))
+>>>
+>>> ... is not the type given by:
+>>>
+>>> ?decltype(outer::inner::foo(t))
+>>>
+>>> ... because the /expression/s are different (because the token sequences are different).
+>>
+>> I agree that [temp.over.link] gives us the right to mangle these
+>> differently if we want: ?they're "functionally equivalent" but not
+>> "equivalent", and so the behavior is undefined. ?That doesn't
+>> actually mean we have to distinguish them ? this is our cover
+>> for not mangling parentheses in general ? but I have no real
+>> complaint with doing so. ?I just want there to be a rule. :)
+>
+> <nod>
+>
+> Incidentally, the "implementation" that I work on is not really an implementation; so, among other things, we don't actually need to generate mangled names, so this would not even apply to us.
+>
+> But having said that, I prefer a mangling rule that just uses a translation of the raw token sequence for the following reasons:
+>
+> 1)
+> It's probably harder to implement that rule incorrectly. ?(For example, the implementor does not need to consider whether a call was written as foo(t) vs. (foo)(t) because you don't even need to think in terms of whether the expression involves a call.)
+
+I think the situation is rather the opposite: it takes quite a bit
+more effort for an implementation to track exactly how a declaration
+was written in the source code, since that information hasn't
+traditionally been required for compilation. I, personally, would tend
+toward resolving whatever we can resolve and mangling based on that.
+
+> 2)
+> Suppose you have two /expression/s that are functionally equivalent but not equivalent and they both involve the same template parameters. ?If the language rules ever change such that they are no longer functionally equivalent, the mangling rule would not need to change.
+
+This seems like an unlikely language direction to me.
+
+  - Doug
+
+
+From widman at gimpel.com  Mon Apr 25 21:35:18 2011
+From: widman at gimpel.com (James Widman)
+Date: Mon, 25 Apr 2011 17:35:18 -0400
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <BANLkTimr6=iwrgT-kB4FNQNKB6F29yRQ5g@mail.gmail.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com> <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com> <51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com> <4C533470-73E4-4D6C-877A-0D7E5F60F24A@gimpel.com> <BANLkTimr6=iwrgT-kB4FNQNKB6F29yRQ5g@mail.gmail.com>
+Message-ID: <7D622155-EE4D-42F7-8470-E9C161E1A0E2@gimpel.com>
+
+
+On 25 Apr 2011, at 17:21, Doug Gregor wrote:
+
+> On Mon, Apr 25, 2011 at 1:51 PM, James Widman <widman at gimpel.com> wrote:
+>> 
+>> On 25 Apr 2011, at 13:40, John McCall wrote:
+>> 
+>>> On Apr 25, 2011, at 9:59 AM, James Widman wrote:
+>>>> On 24 Apr 2011, at 02:22, John McCall wrote:
+>>>>> 1. When mangling a namespace qualifier for an unresolved-name,
+>>>>> should we mangle the full namespace path or just what was written?
+>>>>> namespace outer {
+>>>>>  namespace ns { ... }
+>>>>>  template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>>>>>  // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>>>>> }
+>>>> 
+>>>> I think the answer is "just what was written" (i.e., you use the raw sequence of tokens) because of 14.4 [temp.type] p2:
+>>>> 
+>>>>       If an expression e involves a template parameter,
+>>>>       decltype(e) denotes a unique dependent type. Two such
+>>>>       /decltype-specifiers/ refer to the same type only if their
+>>>>       /expression/s [grammar term] are equivalent (14.5.6.1).
+>>>>       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>>>>       [Note: however, it may be aliased, e.g., by a
+>>>>       typedef-name. end note ]
+>>>> 
+>>>> So the type given by:
+>>>> 
+>>>>  decltype(inner::foo(t))
+>>>> 
+>>>> ... is not the type given by:
+>>>> 
+>>>>  decltype(outer::inner::foo(t))
+>>>> 
+>>>> ... because the /expression/s are different (because the token sequences are different).
+>>> 
+>>> I agree that [temp.over.link] gives us the right to mangle these
+>>> differently if we want:  they're "functionally equivalent" but not
+>>> "equivalent", and so the behavior is undefined.  That doesn't
+>>> actually mean we have to distinguish them ? this is our cover
+>>> for not mangling parentheses in general ? but I have no real
+>>> complaint with doing so.  I just want there to be a rule. :)
+>> 
+>> <nod>
+>> 
+>> Incidentally, the "implementation" that I work on is not really an implementation; so, among other things, we don't actually need to generate mangled names, so this would not even apply to us.
+>> 
+>> But having said that, I prefer a mangling rule that just uses a translation of the raw token sequence for the following reasons:
+>> 
+>> 1)
+>> It's probably harder to implement that rule incorrectly.  (For example, the implementor does not need to consider whether a call was written as foo(t) vs. (foo)(t) because you don't even need to think in terms of whether the expression involves a call.)
+> 
+> I think the situation is rather the opposite: it takes quite a bit
+> more effort for an implementation to track exactly how a declaration
+> was written in the source code, since that information hasn't
+> traditionally been required for compilation.
+
+Ah.
+
+(It probably would be straightforward for a token-cache implementation, but I forgot about the tree implementations.  I see your point.)
+
+James Widman  
+-- 
+Gimpel Software 
+http://gimpel.com
+
+
+
+From daveed at edg.com  Fri Apr 29 21:41:23 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 29 Apr 2011 17:41:23 -0400
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com>
+Message-ID: <19E0FBCA-4690-4E61-9899-A001D558A04F@edg.com>
+
+
+On Apr 24, 2011, at 2:22 AM, John McCall wrote:
+
+> Consider the following:
+> 
+>  namespace ns {
+>    int foo(int);
+>    short foo(short);
+>  }
+> 
+>  template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t)) {
+>    return ns::foo(t);
+>  }
+> 
+>  short test(short x) { return forward_foo(x); }
+> 
+> gcc-4.6 mangles forward_foo<short> as:
+>  _Z11forward_fooIsEDTcl3foofp_EET_
+> 
+> This seems obviously wrong:  the qualifier has completely disappeared,
+> and this now looks like an unqualified call.  I believe the correct
+> mangling falls under the fourth production for <unresolved-name>:
+>  <unresolved-name> ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+> In that case, the mangling should be:
+>  _Z11forward_fooIsEDTclsr2nsE3foofp_EET_
+> 
+> Right?
+
+
+Yes.  (That's what we produce.)
+
+>  I just want to verify that, because I have some follow-ups. :)
+> 
+> 1. When mangling a namespace qualifier for an unresolved-name,
+> should we mangle the full namespace path or just what was written?
+>  namespace outer {
+>    namespace ns { ... }
+>    template <typename T> auto forward_foo(T t) -> decltype(ns::foo(t));
+>    // sr2nsE3foo or sr5outer2nsE3foo or gssr5outer2nsE3foo ?
+>  }
+> 
+> The 'gs' does not seem to be useful in the case of a non-member
+> unresolved-name with a qualifier.
+
+
+
+Generally speaking, I think the encoding should reflect the source form.  So here that argues for sr2nsE3foo.
+
+(I agree with James' arguments here.)
+
+
+> 
+> 2. Should we look through template aliases?
+>  namespace alias = ns;
+>  template <typename T> auto forward_foo(T t) -> decltype(alias::foo(t));
+>  // sr2nsE3foo or sr5aliasE3foo ?
+
+
+Good question.  Our current implementation reflects the source form: sr5aliasE3foo.  However we do "look through" typedefs; so perhaps looking through namespace aliases would make more sense.
+
+
+> 
+> 2a. If we look through template aliases, what happens to prefix
+> nested name specifiers?
+>  namespace nsx { namespace alias = ns; }
+>  template <typename T> auto forward_foo(T t) -> decltype(nsx::alias::foo(t));
+>  // sr2nsE3foo ?
+
+
+
+We produce sr3nsx5aliasE3foo.
+
+
+> 
+> 2b. Specifically, what about global prefixes?
+>  template <typename T> auto forward_foo(T t) -> decltype(::alias::foo(t));
+>  // sr2nsE3foo or gssr2nsE3foo ?
+
+
+We produce gssr5aliasE3foo.
+
+	Daveed
+
+
+
+From daveed at edg.com  Fri Apr 29 21:46:40 2011
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 29 Apr 2011 17:46:40 -0400
+Subject: [cxx-abi-dev] namespace-qualified unresolved-names
+In-Reply-To: <BANLkTimr6=iwrgT-kB4FNQNKB6F29yRQ5g@mail.gmail.com>
+References: <3F5F6400-31DB-47E6-A93D-6E482416C104@apple.com> <FE2EBD09-6E10-490F-B8D7-CD3202C71FF2@gimpel.com> <51EA7D52-58D3-41B1-957A-06A80A482E35@apple.com> <4C533470-73E4-4D6C-877A-0D7E5F60F24A@gimpel.com> <BANLkTimr6=iwrgT-kB4FNQNKB6F29yRQ5g@mail.gmail.com>
+Message-ID: <16CCD9C3-AC9D-4C0B-A46C-85DED3270EF4@edg.com>
+
+
+On Apr 25, 2011, at 5:21 PM, Doug Gregor wrote:
+
+> On Mon, Apr 25, 2011 at 1:51 PM, James Widman <widman at gimpel.com> wrote:
+>> 
+[...]
+>> 
+>> But having said that, I prefer a mangling rule that just uses a translation of the raw token sequence for the following reasons:
+>> 
+>> 1)
+>> It's probably harder to implement that rule incorrectly.  (For example, the implementor does not need to consider whether a call was written as foo(t) vs. (foo)(t) because you don't even need to think in terms of whether the expression involves a call.)
+> 
+> I think the situation is rather the opposite: it takes quite a bit
+> more effort for an implementation to track exactly how a declaration
+> was written in the source code, since that information hasn't
+> traditionally been required for compilation.
+
+True.
+
+> I, personally, would tend
+> toward resolving whatever we can resolve and mangling based on that.
+> 
+>> 2)
+>> Suppose you have two /expression/s that are functionally equivalent but not equivalent and they both involve the same template parameters.  If the language rules ever change such that they are no longer functionally equivalent, the mangling rule would not need to change.
+> 
+> This seems like an unlikely language direction to me.
+
+
+It doesn't seem that unlikely to me.  On the contrary, it feels much like something that could fall out of the kind of "small tweak" in the core language that the committee regularly approves as part of resolving defects.
+
+	Daveed
+
+
+

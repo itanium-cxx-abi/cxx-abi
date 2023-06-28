@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Name mangling for explicit overriders
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Name%20mangling%20for%20explicit%20overriders&In-Reply-To=%3C89300E6F-C0DE-11D7-A486-000393576EFA%40cup.hp.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001756.html">
+   <LINK REL="Next"  HREF="001758.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Name mangling for explicit overriders</H1>
+    <B>Christophe de Dinechin</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Name%20mangling%20for%20explicit%20overriders&In-Reply-To=%3C89300E6F-C0DE-11D7-A486-000393576EFA%40cup.hp.com%3E"
+       TITLE="[cxx-abi-dev] Name mangling for explicit overriders">ddd at cup.hp.com
+       </A><BR>
+    <I>Mon Jul 28 09:33:24 UTC 2003</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001756.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+        <LI>Next message: <A HREF="001758.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1757">[ date ]</a>
+              <a href="thread.html#1757">[ thread ]</a>
+              <a href="subject.html#1757">[ subject ]</a>
+              <a href="author.html#1757">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mark,
+
+
+I think that adding a vendor-specific namespace is a good idea. It 
+makes it possible for an arbitrary demangler to emit something like 
+&quot;_Zxxx... (EDG extension)&quot;.
+
+What remains unclear is what you are allowed to do with such symbols. 
+In the EDG / MS extension example given, is there any implication 
+regarding this-pointer adjustment? Is a third-party linker allowed to 
+process object files with such vendor-specific extensions? What kind of 
+link-time optimizations are prevented by the presence of such a special 
+symbol? If you can't link them, then you might as well mark the object 
+as belonging to another ABI...
+
+Also, making the &quot;extension tag&quot; a prefix of the whole symbol means 
+that you can't demangle anything. What about combining your idea with 
+the EDG approach and reserving &quot;O&quot; for extensions? So you'd have 
+something like Ov3EDG &lt;length&gt; &lt;vendor-specific&gt;, so that any demangler 
+could show something like &quot;D::f [with an EDG-specific extension]&quot;, and 
+the EDG demangler would show &quot;D::f [overriding B2::f]&quot; as proposed.
+
+I also really appreciate that EDG tries to make sure that even their 
+proprietary extensions are known to the rest of the ABI users. I 
+recommend that we keep track of such extensions in the document when 
+vendors are kind enough to share them. What about an appendix to the 
+ABI?
+
+
+Regards
+Christophe
+
+On Sunday, Jul 27, 2003, at 20:24 Europe/Paris, Mark Mitchell wrote:
+
+&gt;<i> On Sun, 2003-07-27 at 05:21, J. Stephen Adamczyk wrote:
+</I>&gt;&gt;<i> We recently implemented the Microsoft extension that allows explicit
+</I>&gt;&gt;<i> specification of overriding on derived class virtual functions.
+</I>&gt;&gt;<i> For example:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> 	struct B1 {
+</I>&gt;&gt;<i> 	  virtual void f() = 0;
+</I>&gt;&gt;<i> 	};
+</I>&gt;&gt;<i> 	struct B2 {
+</I>&gt;&gt;<i> 	  virtual void f() = 0;
+</I>&gt;&gt;<i> 	};
+</I>&gt;&gt;<i> 	struct D: B1, B2 {
+</I>&gt;&gt;<i> 	  virtual void B1::f() {}  // Overrides B1::f (only)
+</I>&gt;&gt;<i> 	  virtual void B2::f() {}  // Overrides B2::f (only)
+</I>&gt;&gt;<i> 	};
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> (Hey, we didn't invent it; we're just implementing it for Microsoft
+</I>&gt;&gt;<i> compatibility. :-) )
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This has a name mangling implication: as shown in the above example,
+</I>&gt;&gt;<i> you can end up with two member functions in a given class that have
+</I>&gt;&gt;<i> the same name and signature, and differ only in the function that
+</I>&gt;&gt;<i> they override.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Here's the extension we made to name mangling, so that others who
+</I>&gt;&gt;<i> have to do this feature might do it the same way, or so that anyone
+</I>&gt;&gt;<i> who sees a problem with what we did can warn us now before we ship
+</I>&gt;&gt;<i> it.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> We added a rule for &lt;encoding&gt;:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   &lt;encoding&gt; ::= &lt;function name&gt; O &lt;nested-name&gt; &lt;bare-function-type&gt;
+</I>&gt;<i>
+</I>&gt;<i> I've suggested before that we should have a portion of the mangling
+</I>&gt;<i> namespace (i.e., the names that begin with &quot;_Z&quot;) reserved for vendor
+</I>&gt;<i> extensions.
+</I>&gt;<i>
+</I>&gt;<i> I'm not 100% sure that the following scheme will not conflict with
+</I>&gt;<i> anything else, but it will serve as an illustration:
+</I>&gt;<i>
+</I>&gt;<i>   _Z v &lt;length number&gt; &lt;vendor identifier&gt; ...
+</I>&gt;<i>
+</I>&gt;<i> The idea is that all EDG-specific manglings would begin with:
+</I>&gt;<i>
+</I>&gt;<i>   _Zv3EDG
+</I>&gt;<i>
+</I>&gt;<i> The characters that follow that point would be entirely up to you.
+</I>&gt;<i>
+</I>&gt;<i> That would keep the manglings that you add from getting in the way of
+</I>&gt;<i> any future extensions of the base standard.  In other words, if some 
+</I>&gt;<i> new
+</I>&gt;<i> feature C++ 2017 caused us to add a mangling, we wouldn't have to
+</I>&gt;<i> remember that EDG is already using this bit with the &quot;O&quot; in the middle
+</I>&gt;<i> of it for this Microsoft thing.
+</I>&gt;<i>
+</I>&gt;<i> What do you think of this idea?  What do other people think?
+</I>&gt;<i>
+</I>&gt;<i> -- 
+</I>&gt;<i> Mark Mitchell
+</I>&gt;<i> CodeSourcery, LLC
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001756.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+	<LI>Next message: <A HREF="001758.html">[cxx-abi-dev] Name mangling for explicit overriders
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1757">[ date ]</a>
+              <a href="thread.html#1757">[ thread ]</a>
+              <a href="subject.html#1757">[ subject ]</a>
+              <a href="author.html#1757">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Virtual function call stuff, again
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3Cu9r9e4reki.fsf%40yorick.cygnus.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000649.html">
+   <LINK REL="Next"  HREF="000609.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Virtual function call stuff, again</H1>
+    <B>Jason Merrill</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Virtual%20function%20call%20stuff%2C%20again&In-Reply-To=%3Cu9r9e4reki.fsf%40yorick.cygnus.com%3E"
+       TITLE="Virtual function call stuff, again">jason at cygnus.com
+       </A><BR>
+    <I>Tue Feb 22 23:40:45 UTC 2000</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000649.html">Virtual function call stuff, again
+</A></li>
+        <LI>Next message: <A HREF="000609.html">Vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#631">[ date ]</a>
+              <a href="thread.html#631">[ thread ]</a>
+              <a href="subject.html#631">[ subject ]</a>
+              <a href="author.html#631">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; writes:
+</I>
+ &gt;&gt;&gt;&gt;&gt;&gt; Mark Mitchell &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mark at codesourcery.com</A>&gt; writes:
+
+ &gt;&gt;   o Suppose a class `A' defines a virtual function `A::f'.  The 
+ &gt;&gt;     primary vtable for `A' contains a pointer to an entry point
+ &gt;&gt;     that performs no adjustment.
+
+ &gt;&gt;   o Suppose that a class `A' declares a virtual function `A::f', 
+ &gt;&gt;     and suppose that `A' is a base class in a hierarchy dominated 
+ &gt;&gt;     by another class `B'.  Suppose that the unique final overrider for
+ &gt;&gt;     `A::f' in `B' is `C::f'.  We must determine what entry point
+ &gt;&gt;     is used for `f' in the `A-in-B' secondary vtable.  Here is the
+ &gt;&gt;     algorithm:
+
+Oops; I missed the basic misunderstanding in my previous reply.
+
+Actually, the algorithm for this case is very simple: use the same entry
+point as is used in the 'A-in-C' secondary vtable.  Since 'B' does not
+override 'f', it does not introduce a new entry point.  That's the primary
+design goal.
+
+So the interesting question is, what do you put in the 'A-in-C' secondary
+vtable?
+
+ &gt;&gt;     - Find any path from `B' to `C' in the inheritance graph for `B'.
+
+...from 'C' to 'A'...for 'C'.
+
+ &gt;&gt;     - If there is no virtual base along the path, then create
+ &gt;&gt;       an entry point which adjusts the `this' pointer from `A' to `C'.
+ &gt;&gt;       This value can be computed statically when the `A-in-B' vtable
+ &gt;&gt;       is created.  Then transfer control to the non-adjusting entry
+ &gt;&gt;       point for `C::f'.
+
+...when the 'A-in-C' vtable is created.
+
+ &gt;&gt;     - If there is a virtual base along this path, let `V' be the
+ &gt;&gt;       virtual base nearest to `C' along the path.  (In fact, `V'
+ &gt;&gt;       will be `C' itself if `C' is a virtual base.)
+
+ &gt;   Rather, nearest to 'A'.
+
+ &gt; How is that defined?  We're looking at paths between `B' and `C'.  But
+ &gt; maybe I got that wrong, too?
+
+Yes; see above.
+
+ &gt;&gt;       (Note that the choice of `V' is independent of the choice of path.
+ &gt;&gt;       If there was more than one path, then there must have been a
+ &gt;&gt;       virtual base along all of the paths, and there is a unique one
+ &gt;&gt;       closest to `C'.)
+
+ &gt;   No; we're looking for the most-derived base subobject of which our A is a
+ &gt;   non-virtual base, which is unique.
+
+ &gt; Something is under-specified there.  (We're looking for something that
+ &gt; is a virtual base, right?)  How, exactly, do we find `V'?  That's the
+ &gt; part that still seems most unclear to me.
+
+Walk down the inheritance chain from A to C, and stop when you see the
+first use of virtual inheritance.
+
+ &gt;&gt;       Now, create an entry point which first performs the adjustment
+ &gt;&gt;       from `A' to `V'.  (This value can be computed statically, when
+ &gt;&gt;       the `A-in-B' vtable is created.)  Then, adjust the `this'
+
+'A-in-C'
+
+ &gt;&gt;       pointer by the vcall offset stored in the secondary vtable for
+ &gt;&gt;       `V' (i.e., the `V-in-B' vtable).  (This adjustment will adjust
+ &gt;&gt;       the `this' pointer from `V' to `C'.)  Finally, transfer control
+ &gt;&gt;       to the non-adjusting entry point for `C::f'.
+
+'V-in-B' is correct here.  When B is defined, the only thing that needs to
+change in the secondary vtable for V is the vcall offset, not the entry
+point.
+
+ &gt;   If C is different from A, but A is the same as V, then we need one entry
+ &gt;   point directly before the main function, which adds the vcall offset and
+ &gt;   falls through.
+
+ &gt;   If C != A != V, and V overrides f, then we need one more entry point,
+ &gt;   so we get:
+
+ &gt;   A vtable entry point
+ &gt;      adjusts the A* to a V* by a constant offset and falls through to
+ &gt;   V vtable entry point
+ &gt;      adjusts the V* to a C* by the vcall offset in the vtable and falls
+ &gt;      through to
+ &gt;   C::f
+
+ &gt; How does that work if there is more than one `A'?  I understand that
+ &gt; more than one `V' could be handled by having different vcall offsets
+ &gt; for each `V'.
+
+If there is more than one A, then you can't just fall through, you have to
+branch.  So you would add (at the beginning of the above):
+
+A1 vtable entry point
+  adjusts the A1* to a V* by a constant offset and jumps to the V entry point
+
+But you can use a PC-relative branch in this situation, so the performance
+hit is small.
+
+ &gt; Our first priority is to provide a conforming implementation.  I
+ &gt; expect that will mean that we don't take full advantage of the new
+ &gt; ABI.  But, the good news is that, because it's an ABI, we can take
+ &gt; more advantage of it later and still link with things produced by
+ &gt; earlier versions of the compiler.
+
+Fair enough.
+
+Jason
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000649.html">Virtual function call stuff, again
+</A></li>
+	<LI>Next message: <A HREF="000609.html">Vtables
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#631">[ date ]</a>
+              <a href="thread.html#631">[ thread ]</a>
+              <a href="subject.html#631">[ subject ]</a>
+              <a href="author.html#631">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

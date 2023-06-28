@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> thread-safe local static variable initialization
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20thread-safe%20local%20static%20variable%20initialization&In-Reply-To=%3C199906080022.UAA25267%40kauai.newjersey.sco.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000078.html">
+   <LINK REL="Next"  HREF="000080.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>thread-safe local static variable initialization</H1>
+    <B>Jonathan Schilling</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20thread-safe%20local%20static%20variable%20initialization&In-Reply-To=%3C199906080022.UAA25267%40kauai.newjersey.sco.com%3E"
+       TITLE="thread-safe local static variable initialization">jls at sco.com
+       </A><BR>
+    <I>Mon Jun  7 23:54:00 UTC 1999</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000078.html">thread-safe local static variable initialization
+</A></li>
+        <LI>Next message: <A HREF="000080.html">thread-safe local static variable initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#79">[ date ]</a>
+              <a href="thread.html#79">[ thread ]</a>
+              <a href="subject.html#79">[ subject ]</a>
+              <a href="author.html#79">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> From: Jim Dehnert &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">dehnert at baalbek.engr.sgi.com</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> &gt; [Mike Ball said]
+</I>&gt;<i> &gt; As far as I can tell, the language says that the automatic blocking
+</I>&gt;<i> &gt; issue isn't a valid approach.  It says what has to happen, and
+</I>&gt;<i> &gt; it isn't that.
+</I>&gt;<i> 
+</I>&gt;<i> Are you referring to the statement in 6.7 that &quot;If control re-enters
+</I>&gt;<i> the declaration (recursively) while the object is being initialized,
+</I>&gt;<i> the behavior is undefined?&quot;  
+</I>
+No, 6.7 /4 is referring to a single-threaded program where the static
+local variable initialization expression calls the function containing
+the static local.
+
+The standard is mute on multiple threads of control in general, so 
+there is no requirement in the language to support what I'm talking
+about. But as a practical matter compilers have to do it (Watcom gave
+a paper on their approach during the standardization process, if I
+remember).  This example using UI/SVR4 threads will usually show whether 
+a compiler does it or not: 
+
+thr5.C:
+// static local initialization and threads
+
+#include &lt;stdlib.h&gt;
+#define EXIT(a) exit(a)
+#define THR_EXIT() thr_exit(0)
+
+#include &lt;thread.h&gt;
+
+int init_count = 0;
+int start_count = 0;
+
+int init()
+{
+	::thr_yield();
+	return ++init_count;
+}
+
+void* start(void* s)
+{
+	start_count++;
+	static int i = init();
+	if (i != 1) EXIT(5);
+	THR_EXIT();
+	return 0;
+}
+		
+int main()
+{
+	thread_t t1, t2;
+	if (::thr_create(0, 0, start, 0, 0L, &amp;t1) != 0) EXIT(1);
+	if (::thr_create(0, 0, start, 0, 0L, &amp;t2) != 0) EXIT(2);
+	if (::thr_join(t1, 0, 0) != 0) EXIT(3);
+	if (::thr_join(t2, 0, 0) != 0) EXIT(4);
+	if (start_count != 2)
+		EXIT(6);
+	if (init_count != 1)
+		EXIT(7);
+	THR_EXIT();
+}
+
+When compiled with CC -Kthread thr5.C on UnixWare 7, for instance,
+it passes by returning 0.  When compiled with CC -mt thr5.C on
+Solaris/x86 C++ 4.2 (sorry don't have the latest version!), it
+fails by returning 5.
+
+If there's a way of supporting this without affecting the ABI,
+I'll be happy to be enlightened :)
+
+Jonathan Schilling		SCO, Inc.		<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jls at sco.com</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000078.html">thread-safe local static variable initialization
+</A></li>
+	<LI>Next message: <A HREF="000080.html">thread-safe local static variable initialization
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#79">[ date ]</a>
+              <a href="thread.html#79">[ thread ]</a>
+              <a href="subject.html#79">[ subject ]</a>
+              <a href="author.html#79">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

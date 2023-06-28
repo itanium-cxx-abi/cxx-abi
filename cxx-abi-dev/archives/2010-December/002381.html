@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> Additional mangled encodings for variadic templates
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Additional%20mangled%20encodings%20for%20variadic%20templates&In-Reply-To=%3CC819E88A-5AFA-43B4-9AE6-DC162B79F5C4%40edg.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002382.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>Additional mangled encodings for variadic templates</H1>
+    <B>Mike Herrick</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20Additional%20mangled%20encodings%20for%20variadic%20templates&In-Reply-To=%3CC819E88A-5AFA-43B4-9AE6-DC162B79F5C4%40edg.com%3E"
+       TITLE="Additional mangled encodings for variadic templates">mjh at edg.com
+       </A><BR>
+    <I>Wed Dec  8 21:29:49 UTC 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002382.html">Mangling ambiguity with argument packs in template argument lists
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2381">[ date ]</a>
+              <a href="thread.html#2381">[ thread ]</a>
+              <a href="subject.html#2381">[ subject ]</a>
+              <a href="author.html#2381">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Nov 30, 2010, at 5:20 PM, Mike Herrick wrote:
+
+&gt;<i> It appears that there are a few missing encodings in the IA-64 ABI document having to do with variadic templates and function parameters.
+</I>&gt;<i> 
+</I>&gt;<i> Take for example:
+</I>&gt;<i> 
+</I>&gt;<i>  template&lt;class T, class... U&gt; auto f1(T x, U... y) -&gt; decltype(sizeof...(y),x);
+</I>&gt;<i>  int main() {
+</I>&gt;<i>    f1(0, 'c');
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i> The only option to encode a sizeof...() expression is:
+</I>&gt;<i> 
+</I>&gt;<i>  &lt;expression&gt; ::= sZ &lt;template-param&gt;         # size of a parameter pack
+</I>&gt;<i> 
+</I>&gt;<i> but the argument to sizeof...() in f1 above is a function parameter, not a template parameter.  Similarly, in this example:
+</I>&gt;<i> 
+</I>&gt;<i>  template&lt;class... T&gt; void f(T... t);
+</I>&gt;<i>  template&lt;class T, class... U&gt; auto f2(T x, U... y) -&gt; decltype(f(y...),x);
+</I>&gt;<i>  int main() {
+</I>&gt;<i>    f2(0, 'c');
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i> there appears to be no encoding for the function parameter pack expansion (i.e., y...) in this context; the only pack expansion is in &lt;template-arg&gt;:
+</I>&gt;<i> 
+</I>&gt;<i>  &lt;template-arg&gt; ::= sp &lt;expression&gt;           # pack expansion (C++0x)
+</I>&gt;<i> 
+</I>&gt;<i> but y... is used in an &lt;expression&gt; context.
+</I>&gt;<i> 
+</I>&gt;<i> I think adding these two productions to &lt;expression&gt; will address these problems:
+</I>&gt;<i> 
+</I>&gt;<i>                 ::= sZ &lt;function-param&gt;       # size of a function parameter pack
+</I>&gt;<i>                 ::= sp &lt;expression&gt;           # expression pattern expansion
+</I>&gt;<i> 
+</I>&gt;<i> g++ 4.5.1 seems to already be using the second of these; the &quot;sZ&quot; mangling doesn't appear to be implemented in g++ as yet.
+</I>&gt;<i> 
+</I>&gt;<i> We'd also like to propose removing this production:
+</I>&gt;<i> 
+</I>&gt;<i>  &lt;template-arg&gt; ::= sp &lt;expression&gt;           # pack expansion (C++0x)
+</I>&gt;<i> 
+</I>&gt;<i> from the existing grammar.  If needed, this can be mangled with the existing rule (and the newly proposed rule above):
+</I>&gt;<i> 
+</I>&gt;<i>                 ::= X &lt;expression&gt; E          # expression
+</I>&gt;<i> 
+</I>&gt;<i> Keeping the existing rule as it is eliminates any future use of &quot;p&quot; as a single-letter &lt;type&gt; code (since &lt;template-arg&gt; can also be a &lt;type&gt; and &quot;s&quot; is already a valid &lt;type&gt; encoding).  Currently &quot;p&quot; is one of the few single-letter &lt;type&gt; codes not in use.  We realize this may not be practical due to backward compatibility issues.
+</I>&gt;<i> 
+</I>&gt;<i> Is there any other implementation experience for these cases?
+</I>
+Here's the diff for the proposed changes above:
+
+*** abi.orig.html       Wed Dec  8 14:26:04 2010
+--- abi.html    Wed Dec  8 14:29:12 2010
+***************
+*** 4600,4606 ****
+                   ::= X &lt;expression&gt; E                                   # expression
+                   ::= &lt;expr-primary&gt;                                     # simple expressions
+                   ::= I &lt;template-arg&gt;* E                                # argument pack
+-                  ::= sp &lt;expression&gt;                                    # pack expansion (C++0x)
+  
+    &lt;expression&gt; ::= &lt;&lt;i&gt;unary&lt;/i&gt; operator-name&gt; &lt;expression&gt;
+                 ::= &lt;&lt;i&gt;binary&lt;/i&gt; operator-name&gt; &lt;expression&gt; &lt;expression&gt;
+--- 4600,4605 ----
+***************
+*** 4630,4635 ****
+--- 4629,4636 ----
+                 ::= pt &lt;expression&gt; &lt;unresolved-name&gt;                    # expr-&gt;name
+                 ::= ds &lt;expression&gt; &lt;expression&gt;                         # expr.*expr
+                 ::= sZ &lt;template-param&gt;                                  # size of a parameter pack
++                ::= sZ &lt;function-param&gt;                                  # size of a function parameter pack
++                ::= sp &lt;expression&gt;                                      # pack expansion
+                 ::= tw &lt;expression&gt;                                      # throw expression
+                 ::= tr                                                   # throw with no operand (rethrow)
+                 ::= &lt;unresolved-name&gt;                                    # f(p), N::f(p), ::f(p),
+
+Are there any objections to removing the &quot;sp&quot; mangling from &lt;template-arg&gt; from vendors who might already have implemented this scheme?
+
+Mike.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002382.html">Mangling ambiguity with argument packs in template argument lists
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2381">[ date ]</a>
+              <a href="thread.html#2381">[ thread ]</a>
+              <a href="subject.html#2381">[ subject ]</a>
+              <a href="author.html#2381">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2496 @@
+From dehnert at baalbek.engr.sgi.com  Wed Dec  1 02:23:32 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 30 Nov 1999 18:23:32 -0800 (PST)
+Subject: Collision-resistant hashing
+Message-ID: <199912010223.SAA03014@baalbek.engr.sgi.com>
+
+I'm intrigued by Jonathon's idea of separating the link name from the
+"real" mangled name.  Suppose we used the collision-resistant hash to
+generate the names in the linker symbol table from the agreed-upon
+mangled names, and included the mangled names in a separate table
+to provide de-mangling capability.  This table could include the
+hashed name mapping, or we could just apply the hash function to
+the list if needed.
+
+Note that this wouldn't save object file space relative to just using
+a compact mangling scheme, since we still include the names, but it
+would mean that the linker could see only short names.  I could imagine
+a linking speed benefit.  Any opinions?
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec  1 02:27:35 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 30 Nov 1999 18:27:35 -0800 (PST)
+Subject: Agenda for 2 December meeting
+Message-ID: <199912010227.SAA03084@baalbek.engr.sgi.com>
+
+Following is an updated agenda.  The status pages are updated and on
+the web at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+The agenda is based on these priorities:
+
+  A) Exception handling, if we can get an updated description from
+     Christophe.
+
+  B) Virtual function call closure.
+
+  C) Initialization.
+
+  D) Mangling.
+
+So, take a look at the material associated with these issues:
+
+  1) D-*:  Exceptions (if we can get updated document from Christophe).
+
+  2) B-1:  Virtual function calls.  Jason's writeup is included in the
+     open issues page.
+
+  3) C-2:  Static link initialization and priorities.  Let's discuss
+     this further.  See the proposal in the open issues page, and my
+     additional commentary mailed 2-3 weeks ago.
+
+  4) C-3:  From my notes, we've apparently not discussed this
+     proposal.  Let's do that.
+
+  5) C-1:  The resolution to this probably hangs on C-2/C-3.
+
+  6) G-3:  Inlined routine linkage.  Please verify with your linker
+     people that it is suitable to make the proposed string duplicate
+     removal mandatory.
+
+  7) F-*:  Mangling.  We're awaiting a proposal from Daveed.  However,
+     think about Jonathon's idea of a collision-resistant hash.
+
+Issues that are active and awaiting proposals:
+
+  1) D-1 to D-3:  Christophe will produce a minimal version of the C++
+     exception level API.  Wait -- but this is the current highest
+     priority, since it has potential significant effects on the base
+     ABI.  Closing D-9 is waiting for this, too.
+
+  2) C-4:  Daveed will write up construction vtables so we can
+     verify.  Wait.
+
+  3) F-1, F-2:  Daveed will produce an initial proposal.  Wait.
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Wed Dec  1 06:11:29 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 30 Nov 1999 22:11:29 -0800
+Subject: Collision-resistant hashing
+In-Reply-To: <199912010223.SAA03014@baalbek.engr.sgi.com>
+References: <199912010223.SAA03014@baalbek.engr.sgi.com>
+Message-ID: <19991130221129M.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> I'm intrigued by Jonathon's idea of separating the link name
+    Jim> from the "real" mangled name.  Suppose we used the
+
+I thought that was my idea. :-) :-) Maybe I didn't state it this
+particular option.
+
+    Jim> collision-resistant hash to generate the names in the linker
+    Jim> symbol table from the agreed-upon mangled names, and included
+    Jim> the mangled names in a separate table to provide de-mangling
+    Jim> capability.  This table could include the hashed name
+    Jim> mapping, or we could just apply the hash function to the list
+    Jim> if needed.
+
+    Jim> Note that this wouldn't save object file space relative to
+    Jim> just using a compact mangling scheme, since we still include
+    Jim> the names, but it would mean that the linker could see only
+    Jim> short names.  I could imagine a linking speed benefit.  Any
+    Jim> opinions?
+
+There's still a space benefit as well: you can drop the demangling
+table when not compiling with -g, or with `strip', say.  For example,
+you could ship a shared library without the demangling table, but
+still allow people to link to it.
+
+Also, you can still save a lot of space in assembly output.  Debuggers
+probably run a little more quickly too.
+
+This is essentially what I intended my original proposal to be, so I'm
+in favor.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Wed Dec  1 09:57:36 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Wed, 1 Dec 1999 10:57:36 +0100
+Subject: Collision-resistant hashing
+In-Reply-To: <199912010223.SAA03014@baalbek.engr.sgi.com>
+	(dehnert@baalbek.engr.sgi.com)
+References: <199912010223.SAA03014@baalbek.engr.sgi.com>
+Message-ID: <199912010957.KAA17059@pandora>
+
+> Note that this wouldn't save object file space relative to just using
+> a compact mangling scheme, since we still include the names, but it
+> would mean that the linker could see only short names.  I could imagine
+> a linking speed benefit.  Any opinions?
+
+The only problem I see is that linkers probably don't know what to do
+with these sections, other than concatenating them. So when you have
+the original names included, the object file size might actually grow
+after linking, compared to a more traditional mangling implementation.
+
+Of course, if that's the C++ ABI, linkers will learn to intelligently
+combine these sections - which, in turn, might drop linker speed,
+again.
+
+Regards,
+Martin
+
+
+
+From jls at sco.com  Wed Dec  1 11:39:00 1999
+From: jls at sco.com (Jonathan Schilling)
+Date: Wed, 1 Dec 1999 06:39 EST
+Subject: Collision-resistant hashing
+Message-ID: <199912011156.GAA23389@kauai.newjersey.sco.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> >>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+> 
+>     Jim> I'm intrigued by Jonathon's idea of separating the link name
+>     Jim> from the "real" mangled name.  Suppose we used the
+> 
+> I thought that was my idea. :-) :-) 
+
+It was!  I just made a comment on one point and Jim must have misread
+the mail quotings.  
+
+In fact, I'm a little skeptical about this approach.  It probably
+violates the user expectation that the linker symbol table name is
+also the mangled name; they won't realize that there's a side table
+somewhere that is needed to correlate the two.  And I think "c++filt" 
+has to work all the time, not just when code is built with -g.  
+
+On the other hand space/speed savings are certainly desirable.  If
+simple mangled name compression can't come close to what the hashing
+approach offers, then the latter is worth considering; my point is
+just that it should be as transparent and unsurprising as possible.
+
+Jonathan Schilling		SCO, Inc.		jls at sco.com
+
+
+
+From jls at sco.com  Wed Dec  1 15:52:00 1999
+From: jls at sco.com (Jonathan Schilling)
+Date: Wed, 1 Dec 1999 10:52 EST
+Subject: Collision-resistant hashing
+Message-ID: <199912011559.KAA24310@kauai.newjersey.sco.com>
+
+Another thought on this is that there are currently times when users 
+*have* to use the names linkers see for symbols, such as when passing 
+in -B options to the linker (such as -Bsymbolic to protect a name in
+a dynamic library from being overridden).  If the linker symbol
+table name is based on a hash, it may be more difficult for users
+to figure out the name to pass in.  The general problem is that
+there often aren't "mangle" utilities that linkers can use, and 
+thus you can't pass in a real C++ name.
+
+(From discussions with the IA-64 ABI people here, I understand 
+that there will now be "protected" and "hidden" attributes for symbols
+in object files that can be turned on via a source language pragma.  
+This would allow real names to be used and avoid linker -B options.  
+If so for all such options then the hashing scheme wouldn't be an issue.)
+
+Jonathan Schilling		SCO, Inc.		jls at sco.com
+
+
+
+From mark at codesourcery.com  Wed Dec  1 16:40:43 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 01 Dec 1999 08:40:43 -0800
+Subject: Collision-resistant hashing
+In-Reply-To: <199912011156.GAA23389@kauai.newjersey.sco.com>
+References: <199912011156.GAA23389@kauai.newjersey.sco.com>
+Message-ID: <19991201084043Y.mitchell@codesourcery.com>
+
+>>>>> "Jonathan" == Jonathan Schilling <jls at sco.com> writes:
+
+    >> From: Mark Mitchell <mark at codesourcery.com>
+    >> 
+    >> >>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com>
+    >> writes:
+    >> 
+    Jim> I'm intrigued by Jonathon's idea of separating the link name
+    Jim> from the "real" mangled name.  Suppose we used the
+    >>  I thought that was my idea. :-) :-)
+
+    Jonathan> It was!  I just made a comment on one point and Jim must
+    Jonathan> have misread the mail quotings.
+
+Not that it matters; that's why I smiled.
+
+    Jonathan> In fact, I'm a little skeptical about this approach.  It
+    Jonathan> probably violates the user expectation that the linker
+    Jonathan> symbol table name is also the mangled name; they won't
+    Jonathan> realize that there's a side table somewhere that is
+    Jonathan> needed to correlate the two.  And I think "c++filt" has
+    Jonathan> to work all the time, not just when code is built with
+    Jonathan> -g.
+
+Well, that's not, strictly speaking, an ABI issue.  Perhaps your
+compiler would keep the sections unless `strip' is used; another might
+never emit them in the first place.  I can imagine different user
+communities having different needs here.
+
+>From an ABI point of view, we need to say how one program can be
+linked with another, so that requires specifying the mangling.  We
+need to specify how the linker handles any special sections (like the
+hashed-name-to-long-mangled name section).  It would also be nice if
+debuggers could handle ABI-compliant programs without knowing which
+compiler created them; that requires defining a way to get the long
+names out.  But, specifying exactly when the table is present seems to
+me exactly akin to specifying when debugging information is present.
+
+One interesting bit is that with a 160-bit hash (the length often used
+for serious cryptographic purposes) you can be basically assured that
+no two mangled names in the universe ever until the sun burns out will
+collide.  So, you could actually use a global repository
+(mangled-name.com) to store all of them.  Startup, anyone?  :-) :-)
+Seriously, some toolchains could conceivably put mangled names in some
+kind of system-global repository (in ~/.mangled-names) or some such
+rather than use the special section.  
+
+I don't really think that's a good idea, but I don't see it as an ABI
+issue either.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Wed Dec  1 16:53:22 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 01 Dec 1999 08:53:22 -0800
+Subject: Collision-resistant hashing
+In-Reply-To: <199912011559.KAA24310@kauai.newjersey.sco.com>
+References: <199912011559.KAA24310@kauai.newjersey.sco.com>
+Message-ID: <19991201085322W.mitchell@codesourcery.com>
+
+>>>>> "Jonathan" == Jonathan Schilling <jls at sco.com> writes:
+
+    Jonathan> Another thought on this is that there are currently
+    Jonathan> times when users *have* to use the names linkers see for
+    Jonathan> symbols, such as when passing in -B options to the
+    Jonathan> linker (such as -Bsymbolic to protect a name in a
+    Jonathan> dynamic library from being overridden).  If the linker
+    Jonathan> symbol table name is based on a hash, it may be more
+    Jonathan> difficult for users to figure out the name to pass in.
+    Jonathan> The general problem is that there often aren't "mangle"
+    Jonathan> utilities that linkers can use, and thus you can't pass
+    Jonathan> in a real C++ name.
+
+Yup.  Then again, typing a 2K mangled identifier to use with -B isn't
+a lot of fun either!
+
+These usability points are valid.  I'm not convinced either way, but
+I'm glad we're having this discussion; that was my point in suggesting
+this option.
+
+But, nm/c++filt could have an option whereby it prints out the mapping
+from demangled names to hashed names so that the user could figure out
+what hashed name to use.
+  
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Dec  2 02:45:29 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 1 Dec 1999 18:45:29 -0800 (PST)
+Subject: Exception handling from Christophe
+Message-ID: <199912020245.SAA06872@baalbek.engr.sgi.com>
+
+Christophe has contributed a revised document, but it bounced from our
+reflector due to size.  Sooo, pending fixing that problem, I've put it
+up on our web site, with a link from the summary page.  It's password
+protected like the contact page:  password is "not an orc".
+
+	http://reality.sgi.com/dehnert_engr/cxx/exceptions.pdf
+
+Since this is important, we'll try to discuss it tomorrow in spite of
+the late notice unless most aren't ready.  Please try to look it over.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From jason at cygnus.com  Thu Dec  2 22:54:06 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 02 Dec 1999 14:54:06 -0800
+Subject: Collision-resistant hashing
+In-Reply-To: Mark Mitchell's message of "Wed, 01 Dec 1999 08:53:22 -0800"
+References: <199912011559.KAA24310@kauai.newjersey.sco.com> <19991201085322W.mitchell@codesourcery.com>
+Message-ID: <u9vh6huf75.fsf@yorick.cygnus.com>
+
+I just talked to one of our linker guys about this issue, and he was
+extremely skeptical that symbol length was significant to linker
+performance; as Christophe suggested at the meeting today, the linker only
+sees the symbol name when it's read in for internal hashing; after that,
+we're dealing with a pointer.
+
+Jason
+
+
+
+From jason at cygnus.com  Fri Dec  3 01:43:02 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Thu, 2 Dec 1999 17:43:02 -0800
+Subject: EH doc tweaks
+Message-ID: <199912030143.RAA00655@yorick.cygnus.com>
+
+The note at the top of page 3 says that there are no plans to interoperate
+with Java; I believe that has changed.  Similarly, it seems 12.2 should be
+updated.
+
+3.7/1, page 6: "The interpretation of this language-specific routine":
+  "routine" should be "portion" or "information".
+
+  Also "language-specificdata area" is missing a space.
+
+5.2.1/1, bottom of page 11: "This storage must persists" should be "persist"
+
+5.4/3, p14: "related to" is not normative; perhaps "the __type_info object
+  may be of a type derived from std::type_info"?
+
+5.5, p15: "best possible one action" should be "best possible action"
+
+6.1, p18: "end_catch(exception)" is missing the initial "__".
+BTW, we had said that these functions would not be mangled, but you have
+overloaded __end_catch.
+
+More as I keep reading...
+
+Jason
+
+
+
+From mark at codesourcery.com  Fri Dec  3 01:55:30 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 02 Dec 1999 17:55:30 -0800
+Subject: Collision-resistant hashing
+In-Reply-To: <u9vh6huf75.fsf@yorick.cygnus.com>
+References: <199912011559.KAA24310@kauai.newjersey.sco.com>
+	<19991201085322W.mitchell@codesourcery.com>
+	<u9vh6huf75.fsf@yorick.cygnus.com>
+Message-ID: <19991202175530C.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at cygnus.com> writes:
+
+    Jason> I just talked to one of our linker guys about this issue,
+    Jason> and he was extremely skeptical that symbol length was
+    Jason> significant to linker performance; as Christophe suggested
+    Jason> at the meeting today, the linker only sees the symbol name
+    Jason> when it's read in for internal hashing; after that, we're
+    Jason> dealing with a pointer.
+
+I believe that.  We came up with this idea to get around symbol-length
+restrictions; in general, the win is going to be space, not time.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at cygnus.com  Fri Dec  3 22:30:43 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 03 Dec 1999 14:30:43 -0800
+Subject: fwd re: vtable format
+Message-ID: <u9puwnslm4.fsf@yorick.cygnus.com>
+
+Richard Henderson says there's no way to write the vtables the way we
+decided, at least with the current gABI...
+
+------- Start of forwarded message -------
+Date: Fri, 3 Dec 1999 14:27:27 -0800
+From: Richard Henderson <rth at cygnus.com>
+To: Jason Merrill <jason at cygnus.com>
+Cc: law at cygnus.com, Alex Samuel <samuel at codesourcery.com>,
+        gcc-patches at gcc.gnu.org, wilson at cygnus.com
+Subject: Re: PATCH: C data layout tests for IA-64 ABI
+Message-ID: <19991203142727.A3063 at cygnus.com>
+References: <1871.944250173 at upchuck> <u9wvqvsmh1.fsf at yorick.cygnus.com>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+
+On Fri, Dec 03, 1999 at 02:12:10PM -0800, Jason Merrill wrote:
+> The ia64 C++ ABI committee has decided to use the descriptors.  If this
+> doesn't make sense (i.e. if there's no way to express such a thing to the
+> assembler), now's the time to let us know...:)
+
+You mean you want the vtable to look like
+
+	struct { void *code, *gp } vtable[];
+
+There are no suitable IA-64 relocations to express this.
+
+
+r~
+------- End of forwarded message -------
+
+
+
+From dehnert at baalbek.engr.sgi.com  Mon Dec  6 22:53:32 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 6 Dec 1999 14:53:32 -0800 (PST)
+Subject: fwd re: vtable format
+Message-ID: <199912062253.OAA19654@baalbek.engr.sgi.com>
+
+The following issue has arisen in the C++ ABI group.  We have agreed
+that virtual function tables will contain function descriptors (i.e.
+pointer/gp pairs) instead of pointers to them, primarily for the
+performance benefit of not doing an extra indirection.
+
+Richard Henderson of Cygnus points out that the IA-64 relocations don't
+really support doing this.  However, the R_IA_64_IPLT*SB relocations do
+perform the correct action.  The problem is that they are currently
+specified to be valid only in executables and shared objects.  I
+believe that the problem can be solved by simply removing this
+restriction.  The static linker support required shouldn't be major --
+it would presumably just pass the relocations through to the linked
+object and let the dynamic linker deal with them.
+
+Am I missing something?  Comments?
+
+Jim
+
+> To: cxx-abi at corp.sgi.com
+> Subject: fwd re: vtable format
+> X-UIDL: 944516616.004
+> From: Jason Merrill <jason at cygnus.com>
+> Date: 03 Dec 1999 14:30:43 -0800
+> 
+> Richard Henderson says there's no way to write the vtables the way we
+> decided, at least with the current gABI...
+> 
+> ------- Start of forwarded message -------
+> Date: Fri, 3 Dec 1999 14:27:27 -0800
+> From: Richard Henderson <rth at cygnus.com>
+> To: Jason Merrill <jason at cygnus.com>
+> Cc: law at cygnus.com, Alex Samuel <samuel at codesourcery.com>,
+>         gcc-patches at gcc.gnu.org, wilson at cygnus.com
+> Subject: Re: PATCH: C data layout tests for IA-64 ABI
+> Message-ID: <19991203142727.A3063 at cygnus.com>
+> References: <1871.944250173 at upchuck> <u9wvqvsmh1.fsf at yorick.cygnus.com>
+> 
+> On Fri, Dec 03, 1999 at 02:12:10PM -0800, Jason Merrill wrote:
+> > The ia64 C++ ABI committee has decided to use the descriptors.  If this
+> > doesn't make sense (i.e. if there's no way to express such a thing to the
+> > assembler), now's the time to let us know...:)
+> 
+> You mean you want the vtable to look like
+> 
+> 	struct { void *code, *gp } vtable[];
+> 
+> There are no suitable IA-64 relocations to express this.
+> 
+> 
+> r~
+> ------- End of forwarded message -------
+> 
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Dec  7 00:44:32 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 6 Dec 1999 16:44:32 -0800 (PST)
+Subject: C++ ABI status pages
+Message-ID: <199912070044.QAA20504@baalbek.engr.sgi.com>
+
+The pages on the web have been updated for the 2 December meeting.
+Please check the closed issues in particular to verify that the descriptions
+are adequate and clear.
+
+I'll send an agenda for Thursday, but the main priority will be reaching
+closure on exception handling, followed by mangling if we can get Daveed
+to deliver his proposal :-).
+
+Jim
+-		Jim Dehnert  x3-4272
+
+
+
+From dfp at sco.com  Tue Dec  7 14:27:00 1999
+From: dfp at sco.com (dfp at sco.com)
+Date: Tue, 7 Dec 1999 09:27 EST
+Subject: [ia64-abi] Re:  fwd re: vtable format
+Message-ID: <199912071427.JAA22448@sfinx.newjersey.sco.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+
+> The following issue has arisen in the C++ ABI group.  We have agreed
+> that virtual function tables will contain function descriptors (i.e.
+> pointer/gp pairs) instead of pointers to them, primarily for the
+> performance benefit of not doing an extra indirection.
+> 
+> Richard Henderson of Cygnus points out that the IA-64 relocations don't
+> really support doing this.  However, the R_IA_64_IPLT*SB relocations do
+> perform the correct action.  The problem is that they are currently
+> specified to be valid only in executables and shared objects.  I
+> believe that the problem can be solved by simply removing this
+> restriction.  The static linker support required shouldn't be major --
+> it would presumably just pass the relocations through to the linked
+> object and let the dynamic linker deal with them.
+
+The only potential issue that I see is that the R_IA_64_IPLT[LM]SB
+relocations have no well-defined addend.  This isn't an issue with
+executable and shared objects since these always occur in plain
+"REL" not "RELA" containers.  But, most relocations for IA64 object
+files use RELA containers.  I suppose you could use a separate
+relocation section just for the vtables instead.  This would make
+it even easier to have ld just pass them on to the dynamic linker.
+
+Dave Prosser dfp at sco.com (908)790-2358 Rm A332, SCO, Murray Hill, NJ
+-----BEGIN PGP SIGNATURE-----
+Version: 2.6.2
+
+iQCVAwUBOE0ZTL3l4qe5Xxg5AQHRQQP/UyFUnB5TQ1AC7rLjEP8DXUu56A6DqpWk
+kkHU85FEov9sACnEVgiCMTSUTHmfM5l4xNgi7JOxr8T2eVvkX29vV4lMFzE8cP4H
+kw+6CviLKGOOAUasBJ0dSjkLri/QrV8hmQL+PWu/fYXa53sKjHU/8Hhfkb9aRadk
+5UXDV8cXRC4=
+=cTD0
+-----END PGP SIGNATURE-----
+
+
+
+From drepper at cygnus.com  Tue Dec  7 16:50:38 1999
+From: drepper at cygnus.com (Ulrich Drepper)
+Date: 07 Dec 1999 08:50:38 -0800
+Subject: [ia64-abi] Re:  fwd re: vtable format
+In-Reply-To: dfp@sco.com's message of "Tue, 7 Dec 1999 09:27 EST"
+References: <199912071427.JAA22448@sfinx.newjersey.sco.com>
+Message-ID: <m3aenmlmox.fsf@localhost.localnet>
+
+dfp at sco.com writes:
+
+> The only potential issue that I see is that the R_IA_64_IPLT[LM]SB
+> relocations have no well-defined addend.  This isn't an issue with
+> executable and shared objects since these always occur in plain
+> "REL" not "RELA" containers.
+
+Wrong.  We explicitly agreed that RELA binaries are allowed.
+
+-- 
+---------------.      drepper at gnu.org  ,-.   1325 Chesapeake Terrace
+Ulrich Drepper  \    ,-------------------'   \  Sunnyvale, CA 94089 USA
+Cygnus Solutions `--' drepper at cygnus.com   `------------------------
+
+
+
+From dfp at sco.com  Tue Dec  7 18:24:00 1999
+From: dfp at sco.com (dfp at sco.com)
+Date: Tue, 7 Dec 1999 13:24 EST
+Subject: [ia64-abi] Re:  fwd re: vtable format
+Message-ID: <199912071824.NAA22867@sfinx.newjersey.sco.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+
+drepper at cygnus.com wrote:
+
+> > The only potential issue that I see is that the R_IA_64_IPLT[LM]SB
+> > relocations have no well-defined addend.  This isn't an issue with
+> > executable and shared objects since these always occur in plain
+> > "REL" not "RELA" containers.
+> 
+> Wrong.  We explicitly agreed that RELA binaries are allowed.
+
+Thanks for the quick reply.
+
+You're right that we decided to permit implementations to use RELA
+sections for executable and shared objects.  Did we define the
+addend for R_IA_64_IPLT[LM]SB relocations?  As I recall--and since
+Joel isn't here, I'm going on just my memory--we didn't settle on any.
+
+Dave Prosser dfp at sco.com (908)790-2358 Rm A332, SCO, Murray Hill, NJ
+-----BEGIN PGP SIGNATURE-----
+Version: 2.6.2
+
+iQCVAwUBOE1Q4r3l4qe5Xxg5AQHfEAP9Ecg5fKruhb2wsbh7nAVo3HL+ijvKdY7v
+1wke1majFBJLVYBTkp7Jd9gXkeV30DZR5LcP7140k/F7XPVITbB+qeq4HNDBuJzF
+Q4F33CpXxR8VmV4SDZX95Y0EqevHxfh2qf+LoKXv5yqizYzgZBhkKRKG5Q1V7EI7
+z9cfO6SGF+U=
+=SAn2
+-----END PGP SIGNATURE-----
+
+
+
+From dehnert at sgi.com  Wed Dec  8 02:12:51 1999
+From: dehnert at sgi.com (Jim Dehnert)
+Date: Tue, 07 Dec 1999 18:12:51 -0800
+Subject: [ia64-abi] Re:  fwd re: vtable format
+References: <199912071427.JAA22448@sfinx.newjersey.sco.com>
+Message-ID: <384DBEA3.B106232C@sgi.com>
+
+dfp at sco.com wrote:
+> 
+> The only potential issue that I see is that the R_IA_64_IPLT[LM]SB
+> relocations have no well-defined addend.  This isn't an issue with
+> executable and shared objects since these always occur in plain
+> "REL" not "RELA" containers.  But, most relocations for IA64 object
+> files use RELA containers.  I suppose you could use a separate
+> relocation section just for the vtables instead.  This would make
+> it even easier to have ld just pass them on to the dynamic linker.
+> 
+> Dave Prosser dfp at sco.com (908)790-2358 Rm A332, SCO, Murray Hill, NJ
+
+I think that even this is not a problem.  The current definition
+says that the addend from a RELA relocation is added to the referenced
+function address, and that seems adequate.
+
+(It does strike me upon rereading our definition that it is never
+explicitly stated where the "address of the referenced function" comes
+from.  We should say that this relocation uses an S (REL) or S+A (RELA)
+relocation calculation, and that the gp value to be used is that for
+the DSO where S is defined.  Mats and Sunil?)
+
+Jim
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec  8 02:06:02 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 7 Dec 1999 18:06:02 -0800 (PST)
+Subject: vtable format
+Message-ID: <199912080206.SAA22923@baalbek.engr.sgi.com>
+
+
+dfp at sco.com wrote:
+> 
+> The only potential issue that I see is that the R_IA_64_IPLT[LM]SB
+> relocations have no well-defined addend.  This isn't an issue with
+> executable and shared objects since these always occur in plain
+> "REL" not "RELA" containers.  But, most relocations for IA64 object
+> files use RELA containers.  I suppose you could use a separate
+> relocation section just for the vtables instead.  This would make
+> it even easier to have ld just pass them on to the dynamic linker.
+> 
+> Dave Prosser dfp at sco.com (908)790-2358 Rm A332, SCO, Murray Hill, NJ
+
+I think that even this is not a problem.  The current definition
+says that the addend from a RELA relocation is added to the referenced
+function address, and that seems adequate.
+
+(It does strike me upon rereading our definition that it is never
+explicitly stated where the "address of the referenced function" comes
+from.  We should say that this relocation uses an S (REL) or S+A (RELA)
+relocation calculation, and that the gp value to be used is that for
+the DSO where S is defined.  Mats and Sunil?)
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Wed Dec  8 15:54:23 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 08 Dec 1999 07:54:23 -0800
+Subject: vtable format
+In-Reply-To: <199912080206.SAA22923@baalbek.engr.sgi.com>
+References: <199912080206.SAA22923@baalbek.engr.sgi.com>
+Message-ID: <19991208075423L.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+It occurs to me that one minor consequence of the
+vtables-contain-descriptors-not-pointers is that the (sometimes)
+useful extension of getting a function pointer given a
+pointer-to-member function is no longer implementable, if you're
+expecting two pointers to the same function to have the same value.
+
+I don't think this really matters, but it's worth noting.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec  8 22:12:29 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 8 Dec 1999 14:12:29 -0800 (PST)
+Subject: Exception document
+Message-ID: <199912082212.OAA25153@baalbek.engr.sgi.com>
+
+Christophe's update of the exception document is now on the web site
+in place of the previous one, linked from the summary page.
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec  8 22:27:13 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 8 Dec 1999 14:27:13 -0800 (PST)
+Subject: Agenda
+Message-ID: <199912082227.OAA25220@baalbek.engr.sgi.com>
+
+Here's an updated agenda, reflecting last week's progress...
+The status pages are updated and on the web at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+The agenda is based on these priorities:
+
+  A) Exception handling, if we can get an updated description from
+     Christophe.
+
+  B) Initialization.
+
+  C) Mangling.
+
+So, take a look at the material associated with these issues:
+
+  1) D-*:  Exceptions (based on updated document from Christophe,
+     also on the web, with the same password).
+
+  2) C-2:  Static link initialization and priorities.
+     Is there any further feedback from members about preferences?
+
+  3) F-*:  Mangling.  We're awaiting a proposal from Daveed.
+
+Issues that are active and awaiting proposals:
+
+  a) C-4:  Daveed will write up construction vtables so we can
+     verify.  Wait.
+
+  b) F-1, F-2:  Daveed will produce an initial proposal.  Wait.
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Dec 10 02:38:39 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 9 Dec 1999 18:38:39 -0800 (PST)
+Subject: COMDAT and section index proposals
+Message-ID: <199912100238.SAA29194@baalbek.engr.sgi.com>
+
+I submitted (for the C++ ABI group) two proposals in mid October:
+#72 defining group (a.k.a. COMDAT) sections, and #74 proposing an
+approach to eliminating the 64K section limit.  Due to the focus
+on the draft psABI cleanup, we have not begun discussion of them.
+However, a number of ongoing implementation efforts are dependent
+on resolution of at least issue #72.
+
+It would be very helpful if we could jumpstart the issue via email
+discussion before meeting in January.  The proposals are in the
+latest IA-64 ABI open issues document, or can be found on my web
+page at:
+
+COMDAT:
+	http://reality.sgi.com/dehnert_engr/abi/prop-72-comdat.html
+	http://reality.sgi.com/dehnert_engr/abi/prop-72-comdat.pdf
+Section indices:
+	http://reality.sgi.com/dehnert_engr/abi/prop-74-sindex.html
+	http://reality.sgi.com/dehnert_engr/abi/prop-74-sindex.pdf
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Tue Dec 14 21:16:11 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 14 Dec 1999 13:16:11 -0800
+Subject: Data Layout
+Message-ID: <19991214131611K.mitchell@codesourcery.com>
+
+
+Folks --
+
+  We've started implementing the C++ ABI in g++.  Implementation
+efforts tend to uncover a few rough edges in specifications, and the
+draft ABI looks to be no exception. :-) We'll send along questions,
+and suggested clarifications, as we encounter them.  Picking these
+kinds of nits is going to be important if the various implementations
+are really going to interoperate.
+
+  Question:
+
+    Does the presence of a zero-width bit-field prevent a class from
+    being empty?
+
+  Suggested Resolution:
+
+    No.  Amend the definition of an "empty class" to read:
+
+      A class with no non-static data members other than zero-width
+      bitfields, no virtual functions, no virtual base classes, and no
+      non-empty non-virtual base classes.
+
+    Amend the definition of a "nearly empty class" to read:
+
+      A class, the objects of which contain only a Vptr and zero-width
+      bitfields.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec 15 08:25:31 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 15 Dec 1999 00:25:31 -0800 (PST)
+Subject: Request for priority initialization feedback (from C++ ABI group)
+Message-ID: <199912150825.AAA44145@baalbek.engr.sgi.com>
+
+
+An issue is under discussion in the C++ ABI group for which we would
+like broader feedback.  A feature of several implementations that we
+would like to standardize allows assigning priorities to initialization
+calls (primarily, but not exclusively, global object constructors).
+This leads to a requirement for sorting (with the priority as key) the
+set of initialization operations (equivalent to the .init_array
+entries).
+
+You can find the issue discussion on our web page at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-open.html#C2
+
+There are two outstanding proposals.  One is described as part of the
+above at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-open.html#c2-proposal
+
+(Ignore the part about generalized sorting for purposes of this
+discussion.)  It defines a new section type, and allows implementations
+ranging from essentially no static linker work (it must recognize the
+distinct section, but may do nothing but combine them and leave the
+sorting to the runtime) to linker sorting (which may be a simple
+in-place sort after combining the sections).
+
+The second proposal is to use the equivalent of a current gnu feature,
+which treats a section name suffix of the form "$abc" as a sort key,
+and requires the linker to sort the sections before combining them.
+
+We are looking for opinions about the two approaches.  I would
+characterize their respective advantages as follows (note that I wrote
+the first one, and presumably have some bias :-) :
+
+First approach:
+
+ 1) Some participants are concerned about their ability to _require_
+    the linker to do the sorting, although there is concensus that it
+    is better to do it at link time than at runtime.  (We are
+    particularly interested in whether this is a major concern.)
+    The first approach allows the linker to do virtually nothing
+    besides normal section coalescing.
+
+ 2) The actual sort operation, if the linker does it (or the runtime
+    for that matter), can be a simple in-place sort of the coalesced
+    section.  It does not require the linker to sort input sections
+    before coalescing them.
+
+ 3) There is no sensitivity to the section name (one of SGI's pet
+    peeves).
+
+Second approach:
+
+ 1) More generality -- the same sorting mechanism can be used for other
+    applications once implemented.  (Of course, it can be implemented
+    whether or not it is used for initialization priority.)
+
+ 2) Existing implementation (in gnu ld).
+
+Note that both approaches need to be prepared to expand pointers to
+64-bits if 32-bit objects are used for 64-bit programs.  This
+observation hasn't been made in our discussions, but means that the
+second approach cannot be implemented in completely general ignorance
+of the kind of section involved.  (The proposal for the first approach
+mentions this.)
+
+Thoughts and relevant information?
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec 15 08:31:16 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 15 Dec 1999 00:31:16 -0800 (PST)
+Subject: Agenda for Thursday
+Message-ID: <199912150831.AAA44607@baalbek.engr.sgi.com>
+
+Following is an updated agenda.  The status pages are updated and on
+the web at:
+
+	http://reality.sgi.com/dehnert_engr/cxx/cxx-summary.html
+
+The contact info page is now also there, in password-protected PDF only
+for privacy.  The password is "not an orc".
+
+The agenda is based on these priorities:
+
+  A) Exception handling, if we can get an updated description from
+     Christophe.
+
+  B) Initialization.
+
+  C) Mangling.
+
+So, take a look at the material associated with these issues:
+
+  1) D-*:  Exceptions (based on updated document from Christophe).
+     Please check over the document closely and email any typos or
+     issues you see.  We intend to accept the proposal at this
+     meeting, and deal with any residual problems as distinct issues.
+
+  2) D-9:  My impression is that this issue is resolved except for
+     details like the name.  Can we choose a name for the full-cleanup
+     version of longjmp and close this?
+
+  3) C-2:  Static link initialization and priorities.
+     Is there any further feedback from members about preferences?
+
+  4) F-*:  Mangling.  We're awaiting a proposal from Daveed.
+
+  5) Holiday meeting schedule.  If we close exceptions, should we
+     adjourn until 6 January?
+
+Issues that are active and awaiting proposals:
+
+  a) C-4:  Daveed will write up construction vtables so we can
+     verify.  Wait.
+
+  b) F-1, F-2:  Daveed will produce an initial proposal.  Wait.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Thu Dec 16 00:00:41 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 15 Dec 1999 16:00:41 -0800
+Subject: __cxa_atexit prototype
+Message-ID: <19991215160041M.mitchell@codesourcery.com>
+
+
+Issue:
+
+  The type of __cxa_atexit involves a type `dso_handle'.  This type is
+  undefined.  
+
+Suggested Resolution:
+
+  Replace all occurrences of this type with `void *'.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at cygnus.com  Wed Dec 15 09:43:46 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: Wed, 15 Dec 1999 01:43:46 -0800
+Subject: More EH document comments
+Message-ID: <199912150943.BAA11244@casey.cygnus.com>
+
+Sorry this is so terse...
+
+8.3.3: setups -> sets up, notaltered -> not altered
+9.2: Some of this seems obsolete, since we decided not to have an 
+allocating entry point (C-6).
+
+How do we know to call terminate() if there's no handler (rather than
+some other language's semantics)?  Something in the personality of the
+thrown object?
+
+11.6: Why would we need to pass in the unexpected_handler?  Can't the runtime
+get it from the exception header?  ...but what happens if there is no 
+current exception?
+
+11.11: We decided that we can catch foreign exceptions.
+  "alternate return code"?  Do you mean "landing pad"?
+
+11.12.1: 13.7 says we return the adjusted object pointer, but the sample
+  implementation returns void.
+
+11.12.2: The sample implementation won't work; we can finish exceptions 
+   other than in strict LIFO order, in cases involving rethrow.
+  6.1 doesn't pass the 'thrown' argument (and is the only relevant code
+   sample).  Didn't you say it wasn't necessary?
+
+Jason
+
+
+
+From coleen at zko.dec.com  Thu Dec 16 19:58:46 1999
+From: coleen at zko.dec.com (Coleen Phillimore)
+Date: Thu, 16 Dec 1999 14:58:46 -0500
+Subject: Notes about __cxa_end_catch
+Message-ID: <38594476.DE6509A3@zko.dec.com>
+
+/*
+Regarding the discussion of __cxa_end_catch:
+
+If you need to clean up more than one live exception from a
+catch handler, don't you need a 'count' parameter to
+__cxa_end_catch?  In this case, you destroy both X and
+Y objects (whether or not they're both on the stack,
+or just X is).
+
+Our equivalent of end_catch has a count parameter which
+is set to the number of live exception objects to
+delete and is used for branching out of the nested catch
+clause (not by rethrow).
+*/
+struct X { X(); ~X(); };
+struct Y { Y(); ~Y(); };
+extern "C" int printf(const char *,...);
+main()
+{
+  try {
+    throw X();
+  } catch (X x) {
+    try {
+        throw Y();
+    } catch(...) {
+        //generates __cxa_end_catch(/*levels=*/2)
+        return 1;
+    }
+  }
+}
+
+-- 
+-----------------------------------------------------------------------
+Coleen Phillimore                  | mailto:coleen at zko.dec.com
+Compaq Computer Corp.   Nashua, NH | COMPAQ C++ Compiler Development
+-----------------------------------------------------------------------
+
+
+
+From loewis at informatik.hu-berlin.de  Thu Dec 16 20:03:48 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Thu, 16 Dec 1999 21:03:48 +0100
+Subject: __cxa_atexit prototype
+In-Reply-To: <19991215160041M.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Wed, 15 Dec 1999 16:00:41 -0800)
+References: <19991215160041M.mitchell@codesourcery.com>
+Message-ID: <199912162003.VAA24716@pandora>
+
+>   The type of __cxa_atexit involves a type `dso_handle'.  This type is
+>   undefined.  
+> 
+> Suggested Resolution:
+> 
+>   Replace all occurrences of this type with `void *'.
+
+There is another issue here. I tried implementing this approach in
+gcc, for x86 ELF32 (Linux in particular), and found it
+unimplementable; maybe I was just stupid.
+
+The problem was to get at the dso_handle, inside the object file for a
+translation unit. Say, crtsomething.o exports a symbol __dso_handle,
+whose address is passed to __cxa_atexit. One copy of crtsomething.o
+gets linked into each DSO. Inside each translation unit, you want to
+get at the address of the __dso_handle defined *in your own DSO*.  I
+understand that -Bsymbolic does that, but requiring -Bsymbolic was
+inacceptable. Does the base ABI offer a better mechanism?
+
+Regards,
+Martin
+
+
+
+
+From mark at codesourcery.com  Thu Dec 16 20:39:22 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Dec 1999 12:39:22 -0800
+Subject: __cxa_atexit prototype
+In-Reply-To: <199912162003.VAA24716@pandora>
+References: <19991215160041M.mitchell@codesourcery.com>
+	<199912162003.VAA24716@pandora>
+Message-ID: <19991216123922O.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+    >> The type of __cxa_atexit involves a type `dso_handle'.  This
+    >> type is undefined.
+    >> 
+    >> Suggested Resolution:
+    >> 
+    >> Replace all occurrences of this type with `void *'.
+
+    Martin> There is another issue here. I tried implementing this
+    Martin> approach in gcc, for x86 ELF32 (Linux in particular), and
+    Martin> found it unimplementable; maybe I was just stupid.
+
+I haven't gotten that far, yet.  But what you say does indeed seem
+like a problem.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Thu Dec 16 23:51:16 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Dec 1999 15:51:16 -0800
+Subject: __cxa_finalize
+Message-ID: <19991216155116H.mitchell@codesourcery.com>
+
+
+Why does the ABI says that __cxa_finalize should be called with a NULL
+parameter from the main program in the .fini section?  Why not just
+let normal atexit processing take place when exit is called?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Fri Dec 17 00:03:06 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Dec 1999 16:03:06 -0800
+Subject: __cxa_finalize and `on_exit'
+Message-ID: <19991216160306E.mitchell@codesourcery.com>
+
+
+The GNU C library supports the BSD/SunOS-ish `on_exit' as well as
+`atexit'.  A function registered with on_exit is just like one
+registered with atexit, except that it (like functions registered with
+__cxa_atexit) takes a parameter, and that parameter is registered at
+on_exit time.
+
+In addition, the function registered with on_exit is passed the
+exit-status when exit is called.
+
+But, __cxa_finalize doesn't know the exit-status, even when called
+with NULL to indicate that the main program is exiting, so it can't
+call the on_exit functions correctly.
+
+I suggest that we mandate that __cxa_finalize is always called with a
+non-NULL parameter, or that it immediately return if passed a NULL
+parameter.
+
+Let's just let exit do it's normal thing (which will include calling
+__cxa_atexit-registered functions), and use __cxa_finalize only for
+DSOs.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From ddd at cup.hp.com  Fri Dec 17 01:19:38 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Fri, 17 Dec 1999 01:19:38 +0000
+Subject: Why __cxa_end_catch does not take an argument...
+Message-ID: <38598FAA.2A9E827F@cup.hp.com>
+
+Folks,
+
+
+The reason __cxa_end_catch does not need the exception argument is that the
+exceptions it is interested in are in the "caught stack". When you rethrow, the
+exception you rethrow is also on this caught stack (it is indeed the top of the
+stack). So you don't need a separate copy or argument.
+
+All you need is a flag set by __rethrow, saying "this top exception is the one
+being just rethrown". In that case, when __end_catch finds that the exception
+exits its last catch block, it will not delete it. Instead, the exception will
+just be popped from the stack. As a result, the exception being rethrown remains
+on the caught stack until you exit the last catch that caught it, and then
+becomes referred to only through the exception object passed in the runtime
+(that is, it becomes similar to a new exception being thrown: it does not appear
+in the caught stack.) This is the "stack + 1" model I mentioned...
+
+__begin_catch clears the flag, in case you catch the rethrown exception before
+exiting the last catch handler.
+
+This mechanism is actually correctly specified in the description of
+__cxa_end_catch (see in particular the last bullet):
+
+Upon exit from the handler by any means, the epilogue calls __cxa_end_catch(),
+which:
+- Locates the most recently caught exception and decrements its handler count.
+- Removes the exception from the "caught" stack if the handler count goes to
+zero.
+- Destroys the exception if the handler count goes to zero, and the exception
+was not re-thrown by throw;.
+
+What is unclear, though, is the fact that __rethrow needs to pass a flag to
+__end_catch for that purpose, and also that the flag is stored in the high bit
+of the handlerCount (which is why it did not appear in the specification...).
+And, by the way, looking back at that code made me find a bug in my current
+implementation, thanks :-)
+
+More editing ahead...
+
+
+Best regards
+Christophe
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Dec 17 01:34:15 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 16 Dec 1999 17:34:15 -0800 (PST)
+Subject: __cxa_atexit prototype
+References: <19991215160041M.mitchell@codesourcery.com>
+Message-ID: <199912170134.RAA31653@baalbek.engr.sgi.com>
+
+> Date: Thu, 16 Dec 1999 21:03:48 +0100
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> To: mark at codesourcery.com
+> 
+> >   The type of __cxa_atexit involves a type `dso_handle'.  This type is
+> >   undefined.  
+> > 
+> > Suggested Resolution:
+> > 
+> >   Replace all occurrences of this type with `void *'.
+> 
+> There is another issue here. I tried implementing this approach in
+> gcc, for x86 ELF32 (Linux in particular), and found it
+> unimplementable; maybe I was just stupid.
+> 
+> The problem was to get at the dso_handle, inside the object file for a
+> translation unit. Say, crtsomething.o exports a symbol __dso_handle,
+> whose address is passed to __cxa_atexit. One copy of crtsomething.o
+> gets linked into each DSO. Inside each translation unit, you want to
+> get at the address of the __dso_handle defined *in your own DSO*.  I
+> understand that -Bsymbolic does that, but requiring -Bsymbolic was
+> inacceptable. Does the base ABI offer a better mechanism?
+
+The generic ABI has been modified (by the IA-64 ABI group) to add an
+"export class" to symbols.  One of the possible settings of the export
+class is "protected," which means that references from within the
+executable being linked are linked to the copy defined in that
+executable, and not subject to preemption by a symbol from another DSO.
+That is, it is the -Bsymbolic effect on a per-symbol basis, and can be
+set by the compiler.
+
+The solution, then, is that the __dso_handle symbol generated by the
+linker (or some runtime module) is made protected.  Obviously, this
+requires implementation of the new symbol export class feature.
+
+(The other new export classes are "hidden," which are symbols visible
+only from within the same executable object and are converted to LOCAL
+or removed by the linker, and "internal," which are at least as
+restricted as hidden, with the psABI allowed to apply further
+restrictions.  The MIPS psABI requires that objects named by internal
+symbols not be referenced from outside the linked object, either by
+name or via pointers passed out.  In fact, therefore, __dso_handle
+could be made either protected or hidden, and hidden might be cleaner.)
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From jason at cygnus.com  Fri Dec 17 02:13:31 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 16 Dec 1999 18:13:31 -0800
+Subject: Why __cxa_end_catch does not take an argument...
+In-Reply-To: Christophe de Dinechin's message of "Fri, 17 Dec 1999 01:19:38 +0000"
+References: <38598FAA.2A9E827F@cup.hp.com>
+Message-ID: <u93dt2e2lw.fsf@yorick.cygnus.com>
+
+Yup, that should work.
+
+Jason
+
+
+
+From jason at cygnus.com  Fri Dec 17 02:10:55 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 16 Dec 1999 18:10:55 -0800
+Subject: Notes about __cxa_end_catch
+In-Reply-To: Coleen Phillimore's message of "Thu, 16 Dec 1999 14:58:46 -0500"
+References: <38594476.DE6509A3@zko.dec.com>
+Message-ID: <u966xye2q8.fsf@yorick.cygnus.com>
+
+>>>>> Coleen Phillimore <coleen at zko.dec.com> writes:
+
+ > If you need to clean up more than one live exception from a
+ > catch handler, don't you need a 'count' parameter to
+ > __cxa_end_catch?
+
+No, you can just call it multiple times.
+
+Jason
+
+
+
+From ddd at cup.hp.com  Fri Dec 17 02:29:40 1999
+From: ddd at cup.hp.com (Christophe de Dinechin)
+Date: Fri, 17 Dec 1999 02:29:40 +0000
+Subject: Notes about __cxa_end_catch
+References: <38594476.DE6509A3@zko.dec.com>
+Message-ID: <3859A014.D93DBBF4@cup.hp.com>
+
+Coleen Phillimore wrote:
+> 
+> /*
+> Regarding the discussion of __cxa_end_catch:
+> 
+> If you need to clean up more than one live exception from a
+> catch handler, don't you need a 'count' parameter to
+> __cxa_end_catch?  In this case, you destroy both X and
+> Y objects (whether or not they're both on the stack,
+> or just X is).
+> 
+> Our equivalent of end_catch has a count parameter which
+> is set to the number of live exception objects to
+> delete and is used for branching out of the nested catch
+> clause (not by rethrow).
+> */
+> struct X { X(); ~X(); };
+> struct Y { Y(); ~Y(); };
+> extern "C" int printf(const char *,...);
+> main()
+> {
+>   try {
+>     throw X();
+>   } catch (X x) {
+>     try {
+>         throw Y();
+>     } catch(...) {
+>         //generates __cxa_end_catch(/*levels=*/2)
+>         return 1;
+>     }
+>   }
+> }
+> 
+
+Two __cxa_end_catch calls need to be generated here, since you are closing two
+catch clauses. Thus, the code for the above will look like:
+
+
+main:
+	X *thrown = __allocate_exception(sizeof(X));
+	__throw(thrown);	// Landing pad LP1
+
+LP1:
+	// Pushes the X on the caught stack
+	X* xptr = __begin_catch(exc)
+	Y *thrown = __allocate_exception(sizeof(Y));
+	__throw(thrown);	// Landing pad LP2
+
+LP2:
+	// Pushes the Y on the exception stack
+	return_value = 1;
+	goto exiting_inner_catch;
+
+exiting_inner_catch:
+	// Pops Y off the stack, delete it
+	__end_catch();
+	goto exiting_outer_catch;
+
+exiting_outer_catch:
+	// Pops X off the stack, delete it
+	__end_catch();
+	goto return_point;
+
+return_point:
+	...
+
+This is very similar to what you need to do for locals in each of the catch
+blocks anyway. I am against having an extra argument, because it would be quite
+detrimental in the general case (where you close only one catch clause).
+
+
+Christophe
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Dec 17 03:40:53 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 16 Dec 1999 19:40:53 -0800 (PST)
+Subject: __cxa_finalize and `on_exit'
+Message-ID: <199912170340.TAA50270@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> Date: Thu, 16 Dec 1999 15:51:16 -0800
+> 
+> Why does the ABI says that __cxa_finalize should be called with a NULL
+> parameter from the main program in the .fini section?  Why not just
+> let normal atexit processing take place when exit is called?
+
+There's a circularity problem, due to the need to register "normal"
+atexit calls to get them in the proper sequence.  Rather than do a
+traditional atexit registration, in C++ atexit must register the calls
+in the same sequence used for destructors.  So you can't just register
+__cxa_finalize with atexit, because it would end up invoking itself.
+
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> Date: Thu, 16 Dec 1999 16:03:06 -0800
+> 
+> The GNU C library supports the BSD/SunOS-ish `on_exit' as well as
+> `atexit'.  A function registered with on_exit is just like one
+> registered with atexit, except that it (like functions registered with
+> __cxa_atexit) takes a parameter, and that parameter is registered at
+> on_exit time.
+
+__cxa_atexit registers a parameter with the function to be called,
+so this aspect of on_exit could be supported already by the proposal,
+as you observe.
+
+> In addition, the function registered with on_exit is passed the
+> exit-status when exit is called.
+> 
+> But, __cxa_finalize doesn't know the exit-status, even when called
+> with NULL to indicate that the main program is exiting, so it can't
+> call the on_exit functions correctly.
+> 
+> I suggest that we mandate that __cxa_finalize is always called with a
+> non-NULL parameter, or that it immediately return if passed a NULL
+> parameter.
+> 
+> Let's just let exit do it's normal thing (which will include calling
+> __cxa_atexit-registered functions), and use __cxa_finalize only for
+> DSOs.
+
+It's not clear how exit "doing its normal thing" solves the circularity
+problem above.  The conclusion we came to was that the normal thing
+today means that noone is conforming to the standard, and that's one of
+our objectives (for normal exits, as opposed to dynamic DSO unloading).
+
+We can certainly deal with the exit status by passing that to
+__cxa_finalize when the current DSO handle is NULL, if that's desirable
+(e.g. to integrate Sun's on_exit into the scheme).  That would involve
+changing to:
+
+	void __cxa_finalize ( void *dso_handle, int exit_status );
+
+and calling the registered functions *f with
+
+	void (*f) ( void *registered_p, int exit_status );
+
+We would have to identify what exit_status to use on early DSO unload,
+i.e. when dso_handle is non-NULL -- it could be zero, or undefined, or
+some selected value.
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Fri Dec 17 05:28:30 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Thu, 16 Dec 1999 21:28:30 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <199912170340.TAA50270@baalbek.engr.sgi.com>
+References: <199912170340.TAA50270@baalbek.engr.sgi.com>
+Message-ID: <19991216212830W.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    >> From: Mark Mitchell <mark at codesourcery.com> Date: Thu, 16 Dec
+    >> 1999 15:51:16 -0800
+    >> 
+    >> Why does the ABI says that __cxa_finalize should be called with
+    >> a NULL parameter from the main program in the .fini section?
+    >> Why not just let normal atexit processing take place when exit
+    >> is called?
+
+    Jim> There's a circularity problem, due to the need to register
+    Jim> "normal" atexit calls to get them in the proper sequence.
+    Jim> Rather than do a traditional atexit registration, in C++
+    Jim> atexit must register the calls in the same sequence used for
+    Jim> destructors.  So you can't just register __cxa_finalize with
+    Jim> atexit, because it would end up invoking itself.
+
+Oh, I understand; that's not what I was suggesting.
+
+What I'm suggesting is:
+
+  o As in the ABI, atexit calls __cxa_atexit.
+
+  o When `exit' is called, it invokes all the things registered with
+    all of __cxa_atexit, atexit, and (possibly) on_exit.
+
+  o When a shared library is unloaded, it calls __cxa_finalize, which
+    behaves exactly as in the ABI.
+
+  o When a main program exits, it does not call __cxa_finalize.
+    Instead, it just calls exit.  That does the things described
+    above.
+
+There's no circularity there.  And on_exit calls still work.  There's
+no need to call on_exit functions when a dso is unloaded, so there's
+no need to modify __cxa_finalize in any way.  Whether __cxa_finalize
+and exit actually share common code or not is up to the implementors;
+what is clear is that they must share the same list of registered
+functions.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Fri Dec 17 10:52:04 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Fri, 17 Dec 1999 11:52:04 +0100
+Subject: __cxa_atexit prototype
+In-Reply-To: <199912170134.RAA31653@baalbek.engr.sgi.com>
+	(dehnert@baalbek.engr.sgi.com)
+References: <19991215160041M.mitchell@codesourcery.com> <199912170134.RAA31653@baalbek.engr.sgi.com>
+Message-ID: <199912171052.LAA02566@pandora>
+
+> The generic ABI has been modified (by the IA-64 ABI group) to add an
+> "export class" to symbols.  One of the possible settings of the export
+> class is "protected," which means that references from within the
+> executable being linked are linked to the copy defined in that
+> executable, and not subject to preemption by a symbol from another
+> DSO.
+
+Sounds very good. I could not find a reference to the new gABI on the 
+you C++ ABI pages; is that available to the public?
+
+> That is, it is the -Bsymbolic effect on a per-symbol basis, and can be
+> set by the compiler.
+
+Also, is this a property of the definition, or of the reference?
+Ideally, linkage should fail if __dso_handle is not defined within the
+DSO. I understand that can be also achieved by all definitions of
+__dso_handle being hidden, but 'protected undefined' or similar would
+be even better, IMO.
+
+Thanks for the information,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Dec 17 23:39:59 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Dec 1999 15:39:59 -0800 (PST)
+Subject: __cxa_atexit prototype
+References: <19991215160041M.mitchell@codesourcery.com>
+    <199912170134.RAA31653@baalbek.engr.sgi.com>
+Message-ID: <199912172339.PAA52730@baalbek.engr.sgi.com>
+
+> From: Martin von Loewis <loewis at informatik.hu-berlin.de>
+> 
+> > The generic ABI has been modified (by the IA-64 ABI group) to add an
+> > "export class" to symbols.  One of the possible settings of the export
+> > class is "protected," which means that references from within the
+> > executable being linked are linked to the copy defined in that
+> > executable, and not subject to preemption by a symbol from another
+> > DSO.
+> 
+> Sounds very good. I could not find a reference to the new gABI on the 
+> you C++ ABI pages; is that available to the public?
+
+Not yet, I think.  I have copied the symbol visibility specification to
+my web site, and you can get it at:
+
+	http://reality.sgi.com/dehnert_engr/abi/symbol-visibility.html
+
+SCO:  Is this OK?  I extracted just the st_other visibility material,
+and left your copyright notice at the bottom.  If that's still a
+problem, I can (a) remove it entirely, (b) convert it to PDF with
+our usual password, or (c) include the entire section.
+
+> > That is, it is the -Bsymbolic effect on a per-symbol basis, and can be
+> > set by the compiler.
+> 
+> Also, is this a property of the definition, or of the reference?
+
+Either.  The most restrictive visibility constraint is propagated.
+
+> Ideally, linkage should fail if __dso_handle is not defined within the
+> DSO.
+
+Yes, it does.
+
+> I understand that can be also achieved by all definitions of
+> __dso_handle being hidden, but 'protected undefined' or similar would
+> be even better, IMO.
+
+Undefined symbols can be protected.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Fri Dec 17 23:50:28 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Dec 1999 15:50:28 -0800 (PST)
+Subject: __cxa_finalize and `on_exit'
+References: <199912170340.TAA50270@baalbek.engr.sgi.com>
+Message-ID: <199912172350.PAA38218@baalbek.engr.sgi.com>
+
+> From mitchell at codesourcery.com  Thu Dec 16 21:30:53 1999
+> From: Mark Mitchell <mark at codesourcery.com>
+> Date: Thu, 16 Dec 1999 21:28:30 -0800
+> 
+> What I'm suggesting is:
+> 
+>   o As in the ABI, atexit calls __cxa_atexit.
+> 
+>   o When `exit' is called, it invokes all the things registered with
+>     all of __cxa_atexit, atexit, and (possibly) on_exit.
+> 
+>   o When a shared library is unloaded, it calls __cxa_finalize, which
+>     behaves exactly as in the ABI.
+> 
+>   o When a main program exits, it does not call __cxa_finalize.
+>     Instead, it just calls exit.  That does the things described
+>     above.
+> 
+> There's no circularity there.  And on_exit calls still work.  There's
+> no need to call on_exit functions when a dso is unloaded, so there's
+> no need to modify __cxa_finalize in any way.  Whether __cxa_finalize
+> and exit actually share common code or not is up to the implementors;
+> what is clear is that they must share the same list of registered
+> functions.
+
+OK, I understand now.  This could work, _except_ that it would fail to
+put the on_exit calls into "proper" sequence without further
+modification.  This isn't a Standard issue, of course, since on_exit is
+a non-standard extension, but my guess is that users think of it as
+equivalent to atexit (with enhancements).  So wouldn't it be cleaner to
+finish the job?
+
+Anyone else have comments?  Should we reopen this issue?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Dec 18 01:41:26 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Dec 1999 17:41:26 -0800 (PST)
+Subject: __cxa_atexit prototype
+Message-ID: <199912180141.RAA53313@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> Issue:
+> 
+>   The type of __cxa_atexit involves a type `dso_handle'.  This type is
+>   undefined.  
+> 
+> Suggested Resolution:
+> 
+>   Replace all occurrences of this type with `void *'.
+
+I've added this clarification to the closed issue C-3.  If anyone
+thinks it should be resolved otherwise, speak up and I'll reopen it.
+(We may do so for other reasons, but this one is clear, I think.)
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Sat Dec 18 02:06:38 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 17 Dec 1999 18:06:38 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <199912172350.PAA38218@baalbek.engr.sgi.com>
+References: <199912170340.TAA50270@baalbek.engr.sgi.com>
+	<199912172350.PAA38218@baalbek.engr.sgi.com>
+Message-ID: <19991217180638W.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> OK, I understand now.  This could work, _except_ that it
+    Jim> would fail to put the on_exit calls into "proper" sequence
+    Jim> without further modification.  This isn't a Standard issue,
+
+Why?
+
+    Jim> of course, since on_exit is a non-standard extension, but my
+    Jim> guess is that users think of it as equivalent to atexit (with
+    Jim> enhancements).  So wouldn't it be cleaner to finish the job?
+
+I believe I did; I just implemented this in GNU libc.  All of atexit,
+on_exit, and __cxa_atexit share the same list of exit functions.  When
+__cxa_finalize is called from a DSO, only __cxa_atexit functions are
+called.  When exit is called (on exit from the main executable), all
+of the functions are called, in reverse order of registration.  The
+main executable therefore does not call __cxa_finalize at all.  Works
+like a charm, as far as I can tell.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Sat Dec 18 02:08:44 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Fri, 17 Dec 1999 18:08:44 -0800 (PST)
+Subject: Data Layout
+Message-ID: <199912180208.SAA53208@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+>   Question:
+> 
+>     Does the presence of a zero-width bit-field prevent a class from
+>     being empty?
+> 
+>   Suggested Resolution:
+> 
+>     No.  Amend the definition of an "empty class" to read:
+> 
+>       A class with no non-static data members other than zero-width
+>       bitfields, no virtual functions, no virtual base classes, and no
+>       non-empty non-virtual base classes.
+> 
+>     Amend the definition of a "nearly empty class" to read:
+> 
+>       A class, the objects of which contain only a Vptr and zero-width
+>       bitfields.
+
+I've added this as issue A-15.  Is there an issue with maintaining
+distinct addresses for multiple zero-width bitfields, or is that not a
+problem?
+
+Jim
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Sat Dec 18 02:09:47 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 17 Dec 1999 18:09:47 -0800
+Subject: __cxa_atexit prototype
+In-Reply-To: <199912180141.RAA53313@baalbek.engr.sgi.com>
+References: <199912180141.RAA53313@baalbek.engr.sgi.com>
+Message-ID: <19991217180947J.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> I've added this clarification to the closed issue C-3.  If
+    Jim> anyone thinks it should be resolved otherwise, speak up and
+    Jim> I'll reopen it.  (We may do so for other reasons, but this
+    Jim> one is clear, I think.)
+
+Thanks!
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From mark at codesourcery.com  Sat Dec 18 02:53:12 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 17 Dec 1999 18:53:12 -0800
+Subject: Data Layout
+In-Reply-To: <199912180208.SAA53208@baalbek.engr.sgi.com>
+References: <199912180208.SAA53208@baalbek.engr.sgi.com>
+Message-ID: <19991217185312I.mitchell@codesourcery.com>
+
+>>>>> "Jim" == Jim Dehnert <dehnert at baalbek.engr.sgi.com> writes:
+
+    Jim> I've added this as issue A-15.  Is there an issue with
+    Jim> maintaining distinct addresses for multiple zero-width
+    Jim> bitfields, or is that not a problem?
+
+I do not believe that is a problem; zero-width bitfields cannot be
+named.  They serve only to align following bitfields.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Sat Dec 18 18:58:35 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Sat, 18 Dec 1999 19:58:35 +0100
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <19991217180638W.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Fri, 17 Dec 1999 18:06:38 -0800)
+References: <199912170340.TAA50270@baalbek.engr.sgi.com>
+	<199912172350.PAA38218@baalbek.engr.sgi.com> <19991217180638W.mitchell@codesourcery.com>
+Message-ID: <199912181858.TAA21772@pandora>
+
+> I believe I did; I just implemented this in GNU libc.  All of atexit,
+> on_exit, and __cxa_atexit share the same list of exit functions.  When
+> __cxa_finalize is called from a DSO, only __cxa_atexit functions are
+> called.  When exit is called (on exit from the main executable), all
+> of the functions are called, in reverse order of registration.  The
+> main executable therefore does not call __cxa_finalize at all.  Works
+> like a charm, as far as I can tell.
+
+I believe the issue here is the support of non-integrated C and C++
+libraries. You've been modifying the C library, which is the right
+approach if possible. In some cases, it might not be feasible, and I
+believe Jim's proposal is to offer a fall-back for this case, with
+degraded functionality. I don't know whether this actually works,
+though.
+
+If you don't have integrated C and C++ libraries, you'll still have
+the need for cxa_atexit, but you can't put that into the C libraries'
+atexit. Fortunately, that is not required by the international
+standards - all that is required is interworking with std::atexit. So
+you have std::atexit invoke __cxa_atexit, and get the right
+interleaving. Of course, that won't cover atexit calls made from C
+objects, but that is not feasible, anyway.
+
+Then, of course, the question is how to run the __cxa_atexit list at
+the end of the program. To do so, the proposal is to put a
+__cxa_finalize call into the .fini section.
+
+Unfortunately, it seems that this approach breaks the case when you do
+integrate the C and C++ libraries; in this case, the extra call gets
+in the way of extern "C" atexit processing, which must be placed into
+the runtime system very cautiously.
+
+My proposal: it is left unspecified by the ABI how exactly the
+__cxa_atexit list is invoked - whoever provides the implementation of
+__cxa_atexit and __cxa_finalize is also responsible for having the
+finalizers called at the right point in time (i.e. as a result of
+std::exit invocation).
+
+Regards,
+Martin
+
+
+
+From mark at codesourcery.com  Sat Dec 18 19:30:16 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sat, 18 Dec 1999 11:30:16 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <199912181858.TAA21772@pandora>
+References: <199912172350.PAA38218@baalbek.engr.sgi.com>
+	<19991217180638W.mitchell@codesourcery.com>
+	<199912181858.TAA21772@pandora>
+Message-ID: <19991218113016I.mitchell@codesourcery.com>
+
+>>>>> "Martin" == Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+    Martin> I believe the issue here is the support of non-integrated
+    Martin> C and C++ libraries. You've been modifying the C library,
+
+I see.  The ABI documents do strongly suggest integration in the C
+library, but I can see that it would be nice to support the
+functionality even without integration.
+
+    Martin> My proposal: it is left unspecified by the ABI how exactly
+    Martin> the __cxa_atexit list is invoked - whoever provides the
+    Martin> implementation of __cxa_atexit and __cxa_finalize is also
+    Martin> responsible for having the finalizers called at the right
+    Martin> point in time (i.e. as a result of std::exit invocation).
+
+Sounds reasonable to me.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at cygnus.com  Sun Dec 19 18:02:49 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 19 Dec 1999 10:02:49 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: Martin von Loewis's message of "Sat, 18 Dec 1999 19:58:35 +0100"
+References: <199912170340.TAA50270@baalbek.engr.sgi.com> <199912172350.PAA38218@baalbek.engr.sgi.com> <19991217180638W.mitchell@codesourcery.com> <199912181858.TAA21772@pandora>
+Message-ID: <u97liadd12.fsf@yorick.cygnus.com>
+
+>>>>> Martin von Loewis <loewis at informatik.hu-berlin.de> writes:
+
+ > Then, of course, the question is how to run the __cxa_atexit list at
+ > the end of the program. To do so, the proposal is to put a
+ > __cxa_finalize call into the .fini section.
+
+ > Unfortunately, it seems that this approach breaks the case when you do
+ > integrate the C and C++ libraries; in this case, the extra call gets
+ > in the way of extern "C" atexit processing, which must be placed into
+ > the runtime system very cautiously.
+
+How so?  I would think you could just register __cxa_finalize (NULL) (or
+equivalent) with the C atexit.  Then exit runs all the destructors, and the
+calls in .fini do nothing, because everything has already been
+deregistered.  The atexit chain is run before .fini stuff, I'm pretty sure.
+
+ > My proposal: it is left unspecified by the ABI how exactly the
+ > __cxa_atexit list is invoked - whoever provides the implementation of
+ > __cxa_atexit and __cxa_finalize is also responsible for having the
+ > finalizers called at the right point in time (i.e. as a result of
+ > std::exit invocation).
+
+That won't work; anything that involves .fini must be specified by the ABI.
+
+Jason
+
+
+
+From mark at codesourcery.com  Sun Dec 19 20:53:42 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 19 Dec 1999 12:53:42 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <u97liadd12.fsf@yorick.cygnus.com>
+References: <19991217180638W.mitchell@codesourcery.com>
+	<199912181858.TAA21772@pandora>
+	<u97liadd12.fsf@yorick.cygnus.com>
+Message-ID: <19991219125342K.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at cygnus.com> writes:
+
+    Jason> How so?  I would think you could just register
+    Jason> __cxa_finalize (NULL) (or equivalent) with the C atexit.
+    Jason> Then exit runs all the destructors, and the calls in .fini
+    Jason> do nothing, because everything has already been
+    Jason> deregistered.  The atexit chain is run before .fini stuff,
+    Jason> I'm pretty sure.
+
+Perhaps you missed the earlier thread.  The problem is that
+__cxa_finalize does not take the exit code, so it cannot call on_exit
+functions.  In general, if the system `exit' routine wants to do other
+work, calling functions registered by means other than atexit or
+__cxa_atexit, and interleaved with calls to those functions, we need
+to let `exit' do its thing, rather than trying to push everything into
+__cxa_finalize.
+
+There's no need to call __cxa_finalize in the main program; just
+specify that functions registered with __cxa_atexit, but not already
+called by __cxa_finalize from DSOs, are called, interleaved
+appropriately with atexit functions, by `exit'.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From jason at cygnus.com  Mon Dec 20 01:29:25 1999
+From: jason at cygnus.com (Jason Merrill)
+Date: 19 Dec 1999 17:29:25 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: Mark Mitchell's message of "Sun, 19 Dec 1999 12:53:42 -0800"
+References: <19991217180638W.mitchell@codesourcery.com> <199912181858.TAA21772@pandora> <u97liadd12.fsf@yorick.cygnus.com> <19991219125342K.mitchell@codesourcery.com>
+Message-ID: <u9r9gibdsa.fsf@yorick.cygnus.com>
+
+>>>>> Mark Mitchell <mark at codesourcery.com> writes:
+
+ > Perhaps you missed the earlier thread.  The problem is that
+ > __cxa_finalize does not take the exit code, so it cannot call on_exit
+ > functions.
+
+Yes, I remember the earlier discussion; I'm talking about the case Martin
+brought up.  That is, when we can't modify the C library, so we need to
+handle destructors and std::atexit separately.  In that case, we would need
+to keep a separate list for C++ bits.
+
+Jason
+
+
+
+From mark at codesourcery.com  Mon Dec 20 01:39:20 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Sun, 19 Dec 1999 17:39:20 -0800
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <u9r9gibdsa.fsf@yorick.cygnus.com>
+References: <u97liadd12.fsf@yorick.cygnus.com>
+	<19991219125342K.mitchell@codesourcery.com>
+	<u9r9gibdsa.fsf@yorick.cygnus.com>
+Message-ID: <19991219173920D.mitchell@codesourcery.com>
+
+>>>>> "Jason" == Jason Merrill <jason at cygnus.com> writes:
+
+>>>>> Mark Mitchell <mark at codesourcery.com> writes:
+
+    >> Perhaps you missed the earlier thread.  The problem is that
+    >> __cxa_finalize does not take the exit code, so it cannot call
+    >> on_exit functions.
+
+    Jason> Yes, I remember the earlier discussion; I'm talking about
+    Jason> the case Martin brought up.  That is, when we can't modify
+    Jason> the C library, so we need to handle destructors and
+    Jason> std::atexit separately.  In that case, we would need to
+    Jason> keep a separate list for C++ bits.
+
+I'm a little bit confused.  The ABI documents clearly say that
+inegration with the C library is expected.  So, why are we worrying
+about this case?  But OK.
+
+The problem is that something different needs to happen in the
+integrated and unintegrated cases:
+
+  o Integrated case
+
+    Calling __cxa_finalize from the main program, either directly
+    or via atexit, is bad: it means that __cxa_atexit/atexit calls
+    may not be properly interleaved with on_exit.
+
+  o Unintegrated case
+
+    We need to call __cxa_finalize from the main program to run
+    cleanups.
+
+But, an ABI-compliant program doesn't know which case it's going to
+wind up with.  So, what's it to do?
+
+One possibility: check a weak variable, defined to a non-zero value in
+an integrated library.  If the variable is non-zero, we don't need to
+register __cxa_finalize for the main program.  If it is zero, then we
+know we've got an unintegrated library, and we have to register
+__cxa_finalize, either in via fini processing or via the C atexit
+routine.  Does that work?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From loewis at informatik.hu-berlin.de  Mon Dec 20 11:27:46 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Mon, 20 Dec 1999 12:27:46 +0100
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <u97liadd12.fsf@yorick.cygnus.com> (message from Jason Merrill on
+	19 Dec 1999 10:02:49 -0800)
+References: <199912170340.TAA50270@baalbek.engr.sgi.com> <199912172350.PAA38218@baalbek.engr.sgi.com> <19991217180638W.mitchell@codesourcery.com> <199912181858.TAA21772@pandora> <u97liadd12.fsf@yorick.cygnus.com>
+Message-ID: <199912201127.MAA29684@pandora>
+
+> How so?  I would think you could just register __cxa_finalize (NULL) (or
+> equivalent) with the C atexit.  Then exit runs all the destructors, and the
+> calls in .fini do nothing, because everything has already been
+> deregistered.  The atexit chain is run before .fini stuff, I'm
+> pretty sure.
+
+The current draft says, in C-3
+
+# Finally, a main program should be linked with a FINI call to
+# __cxa_finalize with NULL parameter.
+
+I'd agree that registering cxa_finalize(0) with the C atexit is indeed
+an option; the ABI says otherwise.
+
+>  > My proposal: it is left unspecified by the ABI how exactly the
+>  > __cxa_atexit list is invoked - whoever provides the implementation of
+>  > __cxa_atexit and __cxa_finalize is also responsible for having the
+>  > finalizers called at the right point in time (i.e. as a result of
+>  > std::exit invocation).
+> 
+> That won't work; anything that involves .fini must be specified by the ABI.
+
+Maybe. My concern was the extra call to __cxa_finalize if __cxa_atexit
+is integrated with C atexit. This is probably not a problem, since
+multiple calls to __cxa_finalize do not hurt - provided there really
+is a guarantee that C atexit functions will be run before DT_FINI.
+
+Regards,
+Martin
+
+
+
+From loewis at informatik.hu-berlin.de  Mon Dec 20 11:32:52 1999
+From: loewis at informatik.hu-berlin.de (Martin von Loewis)
+Date: Mon, 20 Dec 1999 12:32:52 +0100
+Subject: __cxa_finalize and `on_exit'
+In-Reply-To: <19991219173920D.mitchell@codesourcery.com> (message from Mark
+	Mitchell on Sun, 19 Dec 1999 17:39:20 -0800)
+References: <u97liadd12.fsf@yorick.cygnus.com>
+	<19991219125342K.mitchell@codesourcery.com>
+	<u9r9gibdsa.fsf@yorick.cygnus.com> <19991219173920D.mitchell@codesourcery.com>
+Message-ID: <199912201132.MAA29719@pandora>
+
+> The problem is that something different needs to happen in the
+> integrated and unintegrated cases:
+
+Re-thinking about this, it may not be a problem.
+
+>   o Integrated case
+> 
+>     Calling __cxa_finalize from the main program, either directly
+>     or via atexit, is bad: it means that __cxa_atexit/atexit calls
+>     may not be properly interleaved with on_exit.
+
+The draft says that __cxa_finalize is called via DT_FINI from the main
+program. In the integrated case, C atexit processing will be done when
+this call is made, including both on_exit and __cxa_atexit.
+
+>   o Unintegrated case
+> 
+>     We need to call __cxa_finalize from the main program to run
+>     cleanups.
+
+That would be done via the DT_FINI call. I'm not sure whether this
+could come 'too late', though, since atexit processing is already
+over.
+
+> One possibility: check a weak variable, defined to a non-zero value in
+> an integrated library.  If the variable is non-zero, we don't need to
+> register __cxa_finalize for the main program.  If it is zero, then we
+> know we've got an unintegrated library, and we have to register
+> __cxa_finalize, either in via fini processing or via the C atexit
+> routine.  Does that work?
+
+In reconsideration, I don't think this is needed.
+
+Regards,
+Martin
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Dec 21 00:44:39 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Mon, 20 Dec 1999 16:44:39 -0800 (PST)
+Subject: __cxa_finalize and `on_exit'
+References: <u97liadd12.fsf@yorick.cygnus.com>
+    <19991219125342K.mitchell@codesourcery.com>
+    <u9r9gibdsa.fsf@yorick.cygnus.com>
+    <19991219173920D.mitchell@codesourcery.com>
+Message-ID: <199912210044.QAA56459@baalbek.engr.sgi.com>
+
+This is an interesting discussion, but I think the objectives
+characterization has gotten a little confused, so let me an attempt to
+draw it a little differently.
+
+In the elf context assumed by the base IA-64 ABI, I expect that a C++
+program will typically be running with the C run-time library libc.so,
+the C++ runtime library libC.so, likely other system DSOs, and its own
+components.
+
+In this context, achieving an integrated solution could be accomplished
+in a couple of ways.  The obvious one is to replace the routines
+atexit, on_exit, and exit in the C run-time library with routines that
+are cognizant of the C++ __cxa_atexit and __cxa_finalize facilities.
+a less obvious method, but still generally usable, would be to insert
+C++-specific versions of them in the C++ runtime library, and depend on
+preemption to achieve the replacement.  This works as long as libC.so
+precedes libc.so in the library list.
+
+There are other possible non-integrated solutions, but given the
+assumption of the underlying IA-64 ABI, and the fact that the second
+solution above can work without changing the underlying C run-time
+library, it doesn't seem necessary to consider them.
+
+What is an issue, however, is that the application could in theory be
+linked on a different system than the one where it ultimately runs,
+and therefore presumably on a different system than that which built
+the run-time library DSOs.  It is that interface which we need to pin
+down, namely (a) what routines (with what interfaces and semantics)
+must be present in libC.so/libc.so, and (b) what sequences of calls
+the libraries may assume the program will make.
+
+We appear to be agreed on the presence of __cxa_atexit and
+__cxa_finalize in libC.so, on the registration of C++ destructors
+and C atexit cleanup with __cxa_atexit, and on the use of
+__cxa_finalize for destructor execution upon early unloading.
+The open questions are (1) whether (or how) on_exit registration can
+be integrated, and (2) how the final cleanup is invoked.
+
+The original proposal adopted ignored (1) out of ignorance, and
+answered (2) by specifying a call to __cxa_finalize(NULL).  If (1) is
+addressed by calling __cxa_atexit for on_exit with a parameter, and
+passing an additional exit code parameter to __cxa_finalize (and thence
+to all the finalization actions it invokes), this works, i.e. on_exit
+works as currently defined by Sun and is properly integrated into the
+finalization order.  But that assumes that the exit code is available
+for passing to __cxa_finalize, which may imply calling it from exit if
+it's not available to a .fini_array routine (which was what the
+original proposal specified).
+
+Mark points out that it works to just assume that exit does the
+call to __cxa_finalize, or performs the equivalent processing,
+eliminating the need for the explicit __cxa_finalize call in
+.fini_array.  This is slightly simpler in that it doesn't require
+generation of the .fini_array entry, and the library implementation
+can coordinate features like on_exit without exposing the interfaces
+necessary to implement them.  It also probably preserves more
+faithfully the traditional semantics that atexit routines are executed
+before the main program .fini_array, although doing __cxa_finalize
+first in the latter should produce the same effect.
+
+Note that we can't just not choose -- one approach requires the builder
+of the main executable to insert a .fini_array entry, while the other
+doesn't -- unless we want to require the run-time to handle either,
+which doesn't seem useful.
+
+My current preference is to proceed with Mark's proposal, requiring
+that exit handle the __cxa_atexit -registered calls (but _not_
+requiring that anyone explicitly register __cxa_finalize or anything
+else to accomplish that).  Upon re-reading all the mail, this seems
+quite workable.  In any case, I'll re-open the issue and we can discuss
+it next time.
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From mark at codesourcery.com  Tue Dec 21 21:12:29 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 21 Dec 1999 13:12:29 -0800
+Subject: Clarifying "nearly empty class"
+Message-ID: <19991221131229T.mitchell@codesourcery.com>
+
+
+The definition of "nearly empty class" is not as clear as it could be.
+
+How about:
+
+  "A class that:
+
+   o Has no non-static data members (except, possibly, zero-width bitfields)
+   o Has no base classes that are not either empty or nearly-empty.
+   o Has at most one nearly-empty base class.
+   o Has at least one virtual function (possibly inherited from a base class).
+   
+   Such a class contains only a Vptr."
+
+Does that conform the committee's intent?
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Tue Dec 21 22:27:47 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Tue, 21 Dec 1999 14:27:47 -0800 (PST)
+Subject: Clarifying "nearly empty class"
+Message-ID: <199912212227.OAA63460@baalbek.engr.sgi.com>
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> The definition of "nearly empty class" is not as clear as it could be.
+> 
+> How about:
+> 
+>   "A class that:
+> 
+>    o Has no non-static data members (except, possibly, zero-width bitfields)
+>    o Has no base classes that are not either empty or nearly-empty.
+>    o Has at most one nearly-empty base class.
+>    o Has at least one virtual function (possibly inherited from a base class).
+>    
+>    Such a class contains only a Vptr."
+> 
+> Does that conform the committee's intent?
+
+I believe so, and I've fixed the documents.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From mark at codesourcery.com  Wed Dec 29 08:24:29 1999
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 29 Dec 1999 00:24:29 -0800
+Subject: Class layout algorithm
+Message-ID: <19991229002429X.mitchell@codesourcery.com>
+
+
+The class layout algorithm in the "Non_POD Class Types" section of the
+ABI layout document seems to me to rather unclear with respect to
+virtual base classes.
+
+In particular, a literal reading of the "Data Layout" document would
+seem to imply that given:
+
+  class A { int i; };
+  class B : virtual public A { int j; };
+  class C : virtual public A { int k; };
+  class D : public B, public C { int l; };
+
+an object of class `D' would look like:
+
+  j
+  i
+  k
+  i
+  l
+
+In particular, there would be two copies of `A' in `D'.
+
+Something in the description needs to indicate that when allocating
+bases, one allocates only enough space for the portion of the base
+that does not include virtual base classes, i.e., `sizeof (D)' after
+step II, but before step III.  And, the section on "Virtual Base
+Allocation" needs to indicate that indirect (as well as direct)
+virtual bases are allocated in that step.
+
+--
+Mark Mitchell                   mark at codesourcery.com
+CodeSourcery, LLC               http://www.codesourcery.com
+
+
+
+From dehnert at baalbek.engr.sgi.com  Wed Dec 29 19:56:53 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 29 Dec 1999 11:56:53 -0800 (PST)
+Subject: Class layout algorithm
+Message-ID: <199912291956.LAA06907@baalbek.engr.sgi.com>
+
+I'll fix these.  I believe your interpretation of the intent is correct.
+I believe, too, that the intent was to allocate the (indirect) virtual
+base classes in depth-first rather than breadth-first order.  Correct?
+
+But they raise another interesting point.  What if the only non-vptr
+data in a class comes from virtual base classes?  Then it seems that we
+could treat it as a "nearly empty" class for purposes of being a
+primary base class (which I think is the only use of the concept).
+
+Now that I look at it, there's another question.  Virtual base classes
+that are primary base classes of some non-virtual base class (direct or
+indirect) are inherently allocated (vptr only, I trust, since they
+should be nearly empty, modulo the above question) as part of that base
+class.  I suggest that we use the first such occurrence (depth-first
+again) as the allocation of the virtual base rather than doing it again.
+(Again, this may have been the intent, but it isn't stated that I see.)
+
+I will open both of these questions as issues (but make Mark's
+suggested changes without one).  I will also attempt the changes
+suggested by the questions as a draft proposal.  If you see problems,
+let me know ASAP...
+
+> From: Mark Mitchell <mark at codesourcery.com>
+> 
+> The class layout algorithm in the "Non_POD Class Types" section of the
+> ABI layout document seems to me to rather unclear with respect to
+> virtual base classes.
+> 
+> In particular, a literal reading of the "Data Layout" document would
+> seem to imply that given:
+> 
+>   class A { int i; };
+>   class B : virtual public A { int j; };
+>   class C : virtual public A { int k; };
+>   class D : public B, public C { int l; };
+> 
+> an object of class `D' would look like:
+> 
+>   j
+>   i
+>   k
+>   i
+>   l
+> 
+> In particular, there would be two copies of `A' in `D'.
+> 
+> Something in the description needs to indicate that when allocating
+> bases, one allocates only enough space for the portion of the base
+> that does not include virtual base classes, i.e., `sizeof (D)' after
+> step II, but before step III.  And, the section on "Virtual Base
+> Allocation" needs to indicate that indirect (as well as direct)
+> virtual bases are allocated in that step.
+
+-	    Jim Dehnert		dehnert at sgi.com
+				(650)933-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Dec 30 01:47:25 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Wed, 29 Dec 1999 17:47:25 -0800 (PST)
+Subject: Virtual base alignment
+Message-ID: <199912300147.RAA08553@baalbek.engr.sgi.com>
+
+Mark's observation raises yet another question about virtual bases,
+which I've opened as issue A-18.  I've described it as:
+
+  Since the allocation of virtual bases is "floating" relative to the
+  classes in which they occur, it is possible for them to have
+  independent alignment constraints.  Specifically, when allocating a
+  base class with a virtual base, we could treat its alignment as that
+  obtained by ignoring the virtual base, and later allocate the
+  virtual base with greater alignment.
+
+  Since the class with a virtual base already has a vptr, this only
+  matters if the virtual base contains components more strictly aligned
+  than a pointer.  Thus, the benefit of doing so is probably not large.
+  To get some idea of the effect on the layout definition, look at
+  dsize and nvsize, and assume a similar pair of alignment values.
+
+(For that last, you'll have to wait for my new version of
+abi-layout.html tomorrow.)
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+
+From dehnert at baalbek.engr.sgi.com  Thu Dec 30 23:52:47 1999
+From: dehnert at baalbek.engr.sgi.com (Jim Dehnert)
+Date: Thu, 30 Dec 1999 15:52:47 -0800 (PST)
+Subject: Status page updates
+Message-ID: <199912302352.PAA11184@baalbek.engr.sgi.com>
+
+I've posted updates to the status pages to the website (HTML -- I'll
+update the PDF shortly).  The most significant changes have to do with
+the data layout document.  I've incorporated the clarifications that
+Mark brought up, and opened three new issues suggested by them, two
+with suggested resolutions in the abi-layout document.  I also removed
+a couple of already-answered questions from that document, and put a
+section of outstanding questions at the beginning, with pointers to the
+relevant text.  Please look all of this over, and comment as appropriate
+as soon as you can.
+
+I'll send an agenda next week, but we'll go first for the data layout,
+then exceptions, and then whatever active issues we get proposals for.
+_Please_, if we're waiting for a proposal/writeup from you, try to get
+it out early next week.  If the power goes out at midnight Friday, use
+the opportunity on your battery-powered laptop :-).
+
+Have a Happy New Year, and we'll see you Thursday!
+
+Jim
+
+-		Jim Dehnert  x3-4272
+
+
+

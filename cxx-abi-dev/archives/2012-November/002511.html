@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Transfer modes for parameters and return values
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Transfer%20modes%20for%20parameters%20and%20return%20values&In-Reply-To=%3CCAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK%3Dnsg3LwAiFCg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002510.html">
+   <LINK REL="Next"  HREF="002512.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Transfer modes for parameters and return values</H1>
+    <B>Richard Smith</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Transfer%20modes%20for%20parameters%20and%20return%20values&In-Reply-To=%3CCAGL0aWf3mBjEzG5wA3YDsTxB-w3c-wQdVQm9DK%3Dnsg3LwAiFCg%40mail.gmail.com%3E"
+       TITLE="[cxx-abi-dev] Transfer modes for parameters and return values">richardsmith at google.com
+       </A><BR>
+    <I>Mon Nov 26 05:03:38 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002510.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+        <LI>Next message: <A HREF="002512.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2511">[ date ]</a>
+              <a href="thread.html#2511">[ thread ]</a>
+              <a href="subject.html#2511">[ subject ]</a>
+              <a href="author.html#2511">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Nov 23, 2012 at 12:37 PM, Jason Merrill &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">jason at redhat.com</A>&gt; wrote:
+
+&gt;<i> On 06/03/2009 04:59 PM, David Vandevoorde wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> In 3.1.1 and 3.1.4, the ABI specifies that &quot;by value&quot; class type
+</I>&gt;&gt;<i> parameters and class type return values are passed via the address of a
+</I>&gt;&gt;<i> reference if the class type has
+</I>&gt;&gt;<i>      (a) a nontrivial destructor, or
+</I>&gt;&gt;<i>      (b) a nontrivial copy constructor.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Should we now also add to that:
+</I>&gt;&gt;<i>      (c) a (nontrivial) move constructor
+</I>&gt;&gt;<i> ?
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> This change doesn't seem to have been applied to the ABI, though G++
+</I>&gt;<i> implements it.  What are other compilers doing?
+</I>
+
+I happened to be looking into this very recently... Clang implements the
+ABI as currently specified (along with the corresponding miscompiles).
+However, the proposed approach doesn't appear to remove all the
+miscompiles, for at least two reasons:
+
+1) A parameter can be passed or a return value constructed by calling a
+constructor which is not a copy or move constructor. This can happen when a
+templated constructor is selected:
+
+struct A {
+  A(const A&amp;) = default; // suppress implicit move constructor, still
+trivial
+  template&lt;typename T&gt; A(T &amp;&amp;); // chosen for copies from non-const objects
+and for moves, not a copy constructor nor a move constructor
+};
+
+2) A parameter can be passed or a return value constructed by
+copy-list-initialization with no copy or move occurring:
+
+struct B {
+  B(int);
+  B(const B&amp;) = delete; // deleted, but still trivial
+  B(B&amp;&amp;) = delete; // likewise
+  B *p = this;
+};
+B f(B x) {
+  return { 1 };
+}
+void g() {
+  f({2});
+}
+
+Both of these cases can lead to miscompiles with both g++ 4.7 and Clang
+trunk due to the ABI's rules. Both problems can also arise for classes with
+no user-declared special members.
+
+The second issue in particular seems unsolvable without a major ABI break
+or a core language change (we cannot pass types in registers if they have
+any non-trivial constructors).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121125/2a714368/attachment.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20121125/2a714368/attachment.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002510.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+	<LI>Next message: <A HREF="002512.html">[cxx-abi-dev] Transfer modes for parameters and return values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2511">[ date ]</a>
+              <a href="thread.html#2511">[ thread ]</a>
+              <a href="subject.html#2511">[ subject ]</a>
+              <a href="author.html#2511">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

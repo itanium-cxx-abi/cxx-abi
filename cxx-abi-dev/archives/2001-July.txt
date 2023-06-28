@@ -1,0 +1,279 @@
+From peter.torpman at ericsson.com  Fri Jul 13 19:12:45 2001
+From: peter.torpman at ericsson.com (Peter R. Torpman)
+Date: Fri, 13 Jul 2001 21:12:45 +0200
+Subject: IA-64... and GCC 3
+Message-ID: <021d01c10bcf$cc58ec00$722f8496@ks.ericsson.se>
+
+Hi!
+
+I'm using GCC 3 now and earlier we used the following for defining 
+a virtual function table for use when calling functions in C++ from C.
+
+struct myVtbl {
+    short offset_0__;
+    short pad_0__;
+    void ( *method_0__)(void);
+    short offset_MethodA;
+    short pad_MethodA;
+    void (*MethodA)(int a, int b);
+};
+
+It works with GCC 2, but with GCC 3 it
+does not work since they say that the IA-64 ABI
+is used...
+
+I'm on Solaris 7 if that helps....
+
+Do you have any idea of how I should write this code now?
+
+Best Regards,
+/ Peter
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Peter R Torpman.vcf
+Type: text/x-vcard
+Size: 431 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20010713/d3c8e463/attachment.vcf>
+
+From mark at codesourcery.com  Fri Jul 13 17:04:51 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 13 Jul 2001 10:04:51 -0700
+Subject: [cxx-abi-dev] IA-64... and GCC 3
+In-Reply-To: <021d01c10bcf$cc58ec00$722f8496@ks.ericsson.se>
+Message-ID: <13140000.995043891@warlock.codesourcery.com>
+
+
+
+--On Friday, July 13, 2001 09:12:45 PM +0200 "Peter R. Torpman" 
+<peter.torpman at ericsson.com> wrote:
+
+> Hi!
+>
+> I'm using GCC 3 now and earlier we used the following for defining
+> a virtual function table for use when calling functions in C++ from C.
+
+It is extremely difficult to do this with the C++ ABI, in general.
+If there are virtual bases, I would say that it becomes nearly impossible. 
+If there are not virtual bases, then you should be able to do something
+like:
+
+  struct vtbl {
+    void *dummy;
+    void (*fn1) ();
+  };
+
+However, this will *not* work on IA64 in the long-term because
+it will use function-descriptors, not function-pointers, in the
+vtable.  (GCC doesn't do this, yet.)
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From jason_merrill at redhat.com  Tue Jul 17 23:01:35 2001
+From: jason_merrill at redhat.com (Jason Merrill)
+Date: 18 Jul 2001 00:01:35 +0100
+Subject: ABI: Mangling of reference temporaries
+Message-ID: <m3y9pnv1ud.fsf@prospero.cambridge.redhat.com>
+
+Consider:
+
+  int f ();
+  inline int g ()
+  {
+    static int &r = f ();
+    return r;
+  }
+
+  int main ()
+  {
+    return g ();
+  }
+
+Since f() is not an lvalue, we need to create a temporary to bind to r,
+with the same storage duration.  Furthermore, since there is no way to
+refer to r itself, a compiler could easily optimize away all references to
+r and just use the temporary variable directly.  So it seems to me that we
+need to define the mangling of such a variable.
+
+I would think that a special-name starting with 'G' or 'T' would make
+sense; perhaps "GR"?
+
+Similarly, we should clarify what name is used for the guard variable in
+this initialization; currently g++ names the guard variable after the
+temporary, but I would expect it to be named after the user-written
+variable.
+
+Thoughts?
+
+Jason
+
+
+From mark at codesourcery.com  Wed Jul 18 05:23:24 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 17 Jul 2001 22:23:24 -0700
+Subject: [cxx-abi-dev] ABI: Mangling of reference temporaries
+In-Reply-To: <m3y9pnv1ud.fsf@prospero.cambridge.redhat.com>
+Message-ID: <12430000.995433804@warlock.codesourcery.com>
+
+> Thoughts?
+>
+
+That you've got to be kidding. :-) :-)
+
+If this doesn't drive home the point that I tried to make in the committe 
+meetings (namely, that we should either leave this undefined -- or simply 
+ban inlining of functions with local statics), nothing will. :-)
+
+There is, in my opinion, absolutely no hope of getting multiple compilers
+to handle this in the same way.  We've already tried to implement this ABI 
+in three different compilers, and we already had to punt on some of the 
+details about manglings of templates with non-type template parameters, and 
+the details about discriminators.
+
+We should not kid ourselves that we can make this work.
+
+In fact, I would go back and change the spec to say that inlining
+functions with local classes and/or local statics causes undefined
+behavior.
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From alainm at cup.hp.com  Wed Jul 18 20:17:26 2001
+From: alainm at cup.hp.com (Alain Miniussi)
+Date: Wed, 18 Jul 2001 13:17:26 -0700
+Subject: [cxx-abi-dev] ABI: Mangling of reference temporaries
+References: <m3y9pnv1ud.fsf@prospero.cambridge.redhat.com>
+Message-ID: <3B55EED6.FFC34386@cup.hp.com>
+
+Jason Merrill wrote:
+> 
+> Consider:
+> 
+>   int f ();
+>   inline int g ()
+>   {
+>     static int &r = f ();
+>     return r;
+>   }
+> 
+>   int main ()
+>   {
+>     return g ();
+>   }
+ [..]
+> Thoughts?
+
+"What a mess..."
+Ok, that's more a reflex than a thought :-)
+
+I think we should define which subset of simple cases is required to work
+a specify the rest as "implementationS defined/I_might_even_work" cases. 
+Unless it can be established that the benefit is worth the trouble, 
+stuff like "two statics with same name" "static bound to temporary"
+should fall in the later category.
+
+Alain
+
+
+From donl at cup.hp.com  Mon Jul 30 18:07:05 2001
+From: donl at cup.hp.com (Donald B. Larson)
+Date: Mon, 30 Jul 2001 11:07:05 -0700
+Subject: Issue with C++ ABI for Itanium: Exception Handling
+Message-ID: <3B65A249.769D6BDD@cup.hp.com>
+
+Hi:  
+      In the "C++ ABI for Itanium: Exception Handling"  Section
+1.6.2 Personality Routine Actions  states
+"The actions argument to the personality routine is a bitwise OR of one or more of the following constants: 
+
+    typedef int _Unwind_Action;
+    const _Unwind_Action _UA_SEARCH_PHASE = 1;
+    const _Unwind_Action _UA_CLEANUP_PHASE = 2;
+    const _Unwind_Action _UA_HANDLER_FRAME = 4;
+    const _Unwind_Action _UA_FORCE_UNWIND = 8;"
+
+
+It is important that the specification note the above constants should be
+file scoped statics (in the event this source is compiled for
+other languages such as standard C.)  For example a C header
+file will need to specify 
+static const _Unwind_Action _UA_SEARCH_PHASE = 1;
+
+
+-- 
+
+					Don Larson   
+					Internet Platform Development Lab
+					Hewlett Packard   Cupertino, CA
+
+
+From mark at codesourcery.com  Tue Jul 31 07:34:09 2001
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Tue, 31 Jul 2001 00:34:09 -0700
+Subject: [cxx-abi-dev] Issue with C++ ABI for Itanium: Exception
+ Handling
+In-Reply-To: <3B65A249.769D6BDD@cup.hp.com>
+Message-ID: <24540000.996564849@warlock.codesourcery.com>
+
+
+> It is important that the specification note the above constants should be
+> file scoped statics (in the event this source is compiled for
+> other languages such as standard C.)
+
+I made this editorial change.
+
+Thanks,
+
+-- 
+Mark Mitchell                mark at codesourcery.com
+CodeSourcery, LLC            http://www.codesourcery.com
+
+
+From dehnert at transmeta.com  Tue Jul 31 03:45:56 2001
+From: dehnert at transmeta.com (Jim Dehnert)
+Date: Mon, 30 Jul 2001 20:45:56 -0700
+Subject: [cxx-abi-dev] Issue with C++ ABI for Itanium: Exception Handling
+References: <3B65A249.769D6BDD@cup.hp.com>
+Message-ID: <3B6629F4.550F9F1E@transmeta.com>
+
+"Donald B. Larson" wrote:
+> 
+> Hi:
+>       In the "C++ ABI for Itanium: Exception Handling"  Section
+> 1.6.2 Personality Routine Actions  states
+> "The actions argument to the personality routine is a bitwise OR of one or more of the following constants:
+> 
+>     typedef int _Unwind_Action;
+>     const _Unwind_Action _UA_SEARCH_PHASE = 1;
+>     const _Unwind_Action _UA_CLEANUP_PHASE = 2;
+>     const _Unwind_Action _UA_HANDLER_FRAME = 4;
+>     const _Unwind_Action _UA_FORCE_UNWIND = 8;"
+> 
+> It is important that the specification note the above constants should be
+> file scoped statics (in the event this source is compiled for
+> other languages such as standard C.)  For example a C header
+> file will need to specify
+> static const _Unwind_Action _UA_SEARCH_PHASE = 1;
+
+In general, the C++ ABI is a binary specification, defining binary
+formats and APIs (for C++).  Outside of C++, everything is presumed
+to be manipulated as required for the requirements of a different
+language.  I think it is unnecessary (and could become quite
+distracting) to carefully explain what manipulations are required.
+
+Jim
+
+-- 
+-	    Jim Dehnert		dehnert at transmeta.com
+	    (408)919-6984	dehnertj at acm.org
+
+

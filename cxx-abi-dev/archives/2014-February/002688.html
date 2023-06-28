@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] A question about terminate handlers
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20question%20about%20terminate%20handlers&In-Reply-To=%3C6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002687.html">
+   <LINK REL="Next"  HREF="002689.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] A question about terminate handlers</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20A%20question%20about%20terminate%20handlers&In-Reply-To=%3C6268FB35-4AC5-4CD0-9D7B-BF6E6F87D2A8%40apple.com%3E"
+       TITLE="[cxx-abi-dev] A question about terminate handlers">rjmccall at apple.com
+       </A><BR>
+    <I>Mon Feb 17 18:50:00 UTC 2014</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002687.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+        <LI>Next message: <A HREF="002689.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2688">[ date ]</a>
+              <a href="thread.html#2688">[ thread ]</a>
+              <a href="subject.html#2688">[ subject ]</a>
+              <a href="author.html#2688">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Feb 15, 2014, at 11:05 AM, Marshall Clow &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">mclow.lists at gmail.com</A>&gt; wrote:
+&gt;<i> Consider the following code (example from Stephen T. Lajavev)
+</I>&gt;<i> 
+</I>&gt;<i> #include &lt;stdio.h&gt;
+</I>&gt;<i> #include &lt;stdlib.h&gt;
+</I>&gt;<i> #include &lt;exception&gt;
+</I>&gt;<i> using namespace std;
+</I>&gt;<i> 
+</I>&gt;<i> void MyTerminate() {
+</I>&gt;<i>    puts(&quot;MyTerminate()&quot;);
+</I>&gt;<i>    abort();
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> int main() {
+</I>&gt;<i>    try {
+</I>&gt;<i>        try {
+</I>&gt;<i>            puts(&quot;main() throwing int&quot;);
+</I>&gt;<i>            throw 5;
+</I>&gt;<i>        } catch (int) {
+</I>&gt;<i>            puts(&quot;int caught initially&quot;);
+</I>&gt;<i>            #ifdef MEOW
+</I>&gt;<i>                puts(&quot;calling set_terminate()&quot;);
+</I>&gt;<i>                set_terminate(MyTerminate);
+</I>&gt;<i>            #endif
+</I>&gt;<i>            puts(&quot;rethrowing&quot;);
+</I>&gt;<i>            throw;
+</I>&gt;<i>        }
+</I>&gt;<i>    } catch (int) {
+</I>&gt;<i>        puts(&quot;int caught again, calling terminate()&quot;);
+</I>&gt;<i>        terminate();
+</I>&gt;<i>    }
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> [ Tests on Mac OS X Mavericks  - g++11 is an alias for &#8220;g++-4.8.2 -std=c++11&#8221; ]
+</I>&gt;<i> 
+</I>&gt;<i> $ clang++ -std=c++11 -stdlib=libc++ -DMEOW meow.cpp &amp;&amp; ./a.out
+</I>&gt;<i> main() throwing int
+</I>&gt;<i> int caught initially
+</I>&gt;<i> calling set_terminate()
+</I>&gt;<i> rethrowing
+</I>&gt;<i> int caught again, calling terminate()
+</I>&gt;<i> libc++abi.dylib: terminating with uncaught exception of type int
+</I>&gt;<i> Abort trap: 6
+</I>&gt;<i> $ g++11 meow.cpp -DMEOW &amp;&amp; ./a.out
+</I>&gt;<i> main() throwing int
+</I>&gt;<i> int caught initially
+</I>&gt;<i> calling set_terminate()
+</I>&gt;<i> rethrowing
+</I>&gt;<i> int caught again, calling terminate()
+</I>&gt;<i> MyTerminate()
+</I>&gt;<i> Abort trap: 6
+</I>&gt;<i> $ 
+</I>&gt;<i> 
+</I>&gt;<i> Specifically:
+</I>&gt;<i> 	libc++ &amp; libc++abi call the terminate handler that was active when the exception was created.
+</I>&gt;<i> 	libstdc++ and libsup++ call the terminate handler that was installed when the exception was rethrown.
+</I>&gt;<i> 
+</I>&gt;<i> Does the C++ ABI document have anything to say about terminate handlers being updated while an exception is in flight?
+</I>
+I would expect this to be controlled by the language standard, not by the
+ABI document.
+
+Amusingly, the current standard is simply ungrammatical:
+  N3797 [terminate]p1:
+    Called by the implementation when exception handling must be abandoned
+    for any of several reasons, in effect immediately after throwing the exception.
+Clearly what&#8217;s &#8220;in effect&#8221; is supposed to be the terminate_handler, but...
+
+As far as I can tell, this is a splice left over from a previous revision.  e.g.
+  C++03 [lib.terminate]p1:
+    Effect: Calls the terminate_handler function in effect immediately after evaluating
+    the throw-expression, if called by the implementation, or calls the current
+    terminate_handler function, if called by the program.
+
+Both standards are vague about *which* throw-expression is meant when more
+than one is associated with the same exception object.  If you can get the
+committee to clarify, please ask them to consider what should happen with
+std::rethrow_exception as well.
+
+John.
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002687.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+	<LI>Next message: <A HREF="002689.html">[cxx-abi-dev] A question about terminate handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2688">[ date ]</a>
+              <a href="thread.html#2688">[ thread ]</a>
+              <a href="subject.html#2688">[ subject ]</a>
+              <a href="author.html#2688">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

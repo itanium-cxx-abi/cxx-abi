@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Proposing an ABI restriction on loads from	an	object's vtable pointer
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Proposing%20an%20ABI%20restriction%20on%20loads%20from%0A%09an%09object%27s%20vtable%20pointer&In-Reply-To=%3CA468432F-5821-4E0A-AF6B-795FCDC6020F%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002945.html">
+   <LINK REL="Next"  HREF="002947.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Proposing an ABI restriction on loads from	an	object's vtable pointer</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Proposing%20an%20ABI%20restriction%20on%20loads%20from%0A%09an%09object%27s%20vtable%20pointer&In-Reply-To=%3CA468432F-5821-4E0A-AF6B-795FCDC6020F%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Proposing an ABI restriction on loads from	an	object's vtable pointer">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Jul 28 02:21:01 UTC 2016</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002945.html">[cxx-abi-dev] Proposing an ABI restriction on loads from an	object's vtable pointer
+</A></li>
+        <LI>Next message: <A HREF="002947.html">[cxx-abi-dev] Proposing an ABI restriction on loads from	an object's vtable pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2946">[ date ]</a>
+              <a href="thread.html#2946">[ thread ]</a>
+              <a href="subject.html#2946">[ subject ]</a>
+              <a href="author.html#2946">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+&gt;<i> On Jul 21, 2016, at 6:42 PM, Peter Collingbourne &lt;<A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">pcc at google.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;<i> Hi all,
+</I>&gt;<i> 
+</I>&gt;<i> The ABI currently requires that virtual tables for a class appear consecutively in a virtual table group. I would like to propose a restriction that would require that compilers may only access the virtual table associated with the address point stored in an object's virtual table pointer, and may not rely on any knowledge that the compiler may have about the relative layout of other virtual tables in the virtual table group.
+</I>&gt;<i> 
+</I>&gt;<i> The purpose of this restriction is to allow an implementation to split a virtual table group along virtual table boundaries.
+</I>&gt;<i> 
+</I>&gt;<i> Motivation
+</I>&gt;<i> 
+</I>&gt;<i> There are at least two scenarios which would benefit from vtable splitting: clients which want to place data either before or after the ABI-required part of a virtual table, and clients which want to control the layout of virtual tables for performance or security reasons.
+</I>&gt;<i> 
+</I>&gt;<i> As an example of the first scenario, when performing whole-program virtual call optimization, Clang will apply an optimization known as virtual constant propagation [0], which causes data to be laid out at a specific offset from the address point of each virtual table in a hierarchy. If that virtual table appears in a virtual table group, padding is required to place the data at an appropriate offset for each class. Because of the current restriction that vtables must appear consecutively, the optimizer may need to add more padding than necessary, or inhibit the optimization entirely if it would require too much padding.
+</I>&gt;<i> 
+</I>&gt;<i> As an example of the second scenario, an implementation may wish to lay out virtual tables hierarchically either in order to increase the likelihood of a cache hit when repeatedly making the same virtual call over a set of heterogeneous objects, or to efficiently implement a security mitigation (specifically control flow integrity [1]) based on checking virtual table addresses for set membership. Placing only virtual tables (rather than virtual table groups) consecutively would likely increase the cache hit likelihood further and reduces the amount of metadata required to implement set membership checks.
+</I>&gt;<i> 
+</I>&gt;<i> In an experiment involving the Chromium web browser, I have measured a binary size decrease of 1.5%, and a median performance improvement of about 1% on Chromium's layout benchmarks when comparing a binary compiled with control flow integrity and whole-program virtual call optimization against a binary compiled with control flow integrity, whole-program virtual call optimization and a prototype implementation of vtable splitting.
+</I>&gt;<i> 
+</I>&gt;<i> Commentary
+</I>&gt;<i> 
+</I>&gt;<i> Although the ABI specifies [2] the calling convention for virtual calls, which requires the call to be made using the this-adjustment appropriate for the object from which the virtual table pointer was loaded, the as-if rule could in principle allow a program to make a call using a different virtual table if the virtual table group contains multiple secondary virtual tables, as the distance between these virtual tables would be fixed (the same would be possible for all virtual tables if the dynamic type were known, but in that case the program could just call the appropriate virtual function directly).
+</I>
+In what situation would the distance between secondary virtual tables in a VTT be fixed where you don't know the dynamic type?  Derived classes can always introduce or re-introduce virtual bases in ways that re-order the secondary virtual tables.
+
+John.
+
+&gt;<i> 
+</I>&gt;<i> The purported benefit would be to avoid an additional virtual pointer load from the object in cases where consecutive calls are made to virtual functions introduced in different bases. However, it seems to me that cases where this is beneficial would be rare: not only would you need at least three bases and a derived class which does not override any of the called virtual functions, but when performing two consecutive calls it seems likely that the vtable would need to be reloaded anyway, either from the object or from the stack, especially with majority caller-save ABIs such as x86-64, or in any event because the first virtual call may have changed the object's dynamic type. It seems (according to experiments [3] carried out at godbolt.org &lt;<A HREF="http://godbolt.org/">http://godbolt.org/</A>&gt;) that all major compilers (gcc, clang, icc) do already use the appropriate vtable group and therefore are compliant with the proposed restriction.
+</I>&gt;<i> 
+</I>&gt;<i> (There would also seem to be nothing preventing an implementation from choosing to load the RTTI pointer or offset-to-top from another virtual table group. However I would consider this even less likely to be beneficial than a virtual call via another virtual table.)
+</I>&gt;<i> 
+</I>&gt;<i> The ABI specifies that the vtables in a group shall be laid out consecutively when referenced via a vtable group symbol, and I'm not proposing to change this. The effect of this proposal would be to allow a vtable to be split if the vtable group symbol is not referenced directly by name outside of the translation unit(s) participating in the optimization. This may be the case when a class has internal linkage, or if the program is linked with LTO, which allows the compiler to know which symbols are referenced outside of the LTO'd part of the program.
+</I>&gt;<i> 
+</I>&gt;<i> Wording
+</I>&gt;<i> 
+</I>&gt;<i> I propose to add two paragraphs to the section of the ABI describing virtual table groups, as follows:
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/abi.html b/abi.html
+</I>&gt;<i> index 79cda2c..fce0c60 100644
+</I>&gt;<i> --- a/abi.html
+</I>&gt;<i> +++ b/abi.html
+</I>&gt;<i> @@ -1193,6 +1193,18 @@ and again excluding primary bases
+</I>&gt;<i>  (which share virtual tables with the classes for which they are primary).
+</I>&gt;<i>  &lt;/ul&gt;
+</I>&gt;<i>  
+</I>&gt;<i> +&lt;p&gt;
+</I>&gt;<i> +When performing a virtual call or loading any other data from an address
+</I>&gt;<i> +derived from the address point stored in an object's virtual table pointer,
+</I>&gt;<i> +a program may only load from the virtual table associated with that address
+</I>&gt;<i> +point, and not from any other virtual table in the same virtual table group
+</I>&gt;<i> +which might be presumed to be located at a fixed offset from the address
+</I>&gt;<i> +point as a result of the above layout algorithm.
+</I>&gt;<i> +
+</I>&gt;<i> +&lt;p&gt;
+</I>&gt;<i> +The purpose of this restriction is to allow an implementation to split a
+</I>&gt;<i> +virtual table group along virtual table boundaries if its symbol is not
+</I>&gt;<i> +visible to other translation units.
+</I>&gt;<i>  
+</I>&gt;<i>  &lt;p&gt;
+</I>&gt;<i>  &lt;a name=&quot;vtable-construction&quot;&gt;
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Thanks,
+</I>&gt;<i> Peter
+</I>&gt;<i> 
+</I>&gt;<i> [0] <A HREF="http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html">http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html</A> &lt;<A HREF="http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html">http://lists.llvm.org/pipermail/llvm-dev/2016-January/094600.html</A>&gt;
+</I>&gt;<i> [1] <A HREF="http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html">http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html</A> &lt;<A HREF="http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html">http://clang.llvm.org/docs/ControlFlowIntegrityDesign.html</A>&gt;
+</I>&gt;<i> [2] <A HREF="https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller">https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller</A> &lt;<A HREF="https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller">https://mentorembedded.github.io/cxx-abi/abi.html#vcall.caller</A>&gt;
+</I>&gt;<i> [3] <A HREF="https://godbolt.org/g/wX7Ay6">https://godbolt.org/g/wX7Ay6</A> &lt;<A HREF="https://godbolt.org/g/wX7Ay6">https://godbolt.org/g/wX7Ay6</A>&gt; is a three-bases test case by Richard Smith, <A HREF="https://godbolt.org/g/7eG8A1">https://godbolt.org/g/7eG8A1</A> &lt;<A HREF="https://godbolt.org/g/7eG8A1">https://godbolt.org/g/7eG8A1</A>&gt; is a dynamic-type-known test case by me
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> cxx-abi-dev mailing list
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">cxx-abi-dev at codesourcery.com</A>
+</I>&gt;<i> <A HREF="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev</A>
+</I>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160727/ba8f807d/attachment-0001.html">http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20160727/ba8f807d/attachment-0001.html</A>&gt;
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002945.html">[cxx-abi-dev] Proposing an ABI restriction on loads from an	object's vtable pointer
+</A></li>
+	<LI>Next message: <A HREF="002947.html">[cxx-abi-dev] Proposing an ABI restriction on loads from	an object's vtable pointer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2946">[ date ]</a>
+              <a href="thread.html#2946">[ thread ]</a>
+              <a href="subject.html#2946">[ subject ]</a>
+              <a href="author.html#2946">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

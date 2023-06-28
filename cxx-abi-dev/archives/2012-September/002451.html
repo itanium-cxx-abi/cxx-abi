@@ -1,0 +1,95 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [cxx-abi-dev] Run-time array checking
+   </TITLE>
+   <LINK REL="Index" HREF="index.html" >
+   <LINK REL="made" HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CF948B75F-501A-4872-B4C8-C1A3628235FF%40apple.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002450.html">
+   <LINK REL="Next"  HREF="002452.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[cxx-abi-dev] Run-time array checking</H1>
+    <B>John McCall</B> 
+    <A HREF="mailto:cxx-abi-dev%40codesourcery.com?Subject=Re%3A%20%5Bcxx-abi-dev%5D%20Run-time%20array%20checking&In-Reply-To=%3CF948B75F-501A-4872-B4C8-C1A3628235FF%40apple.com%3E"
+       TITLE="[cxx-abi-dev] Run-time array checking">rjmccall at apple.com
+       </A><BR>
+    <I>Thu Sep  6 17:52:12 UTC 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002450.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+        <LI>Next message: <A HREF="002452.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2451">[ date ]</a>
+              <a href="thread.html#2451">[ thread ]</a>
+              <a href="subject.html#2451">[ subject ]</a>
+              <a href="author.html#2451">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sep 6, 2012, at 5:46 AM, Mike Herrick wrote:
+&gt;<i> As part of the changes for C++11, there are new requirements on checking of the value of the expression in a new[] operation.  5.3.4p7 says:
+</I>&gt;<i> 
+</I>&gt;<i> When the value of the expression in a noptr-new-declarator is zero, the allocation function is called to
+</I>&gt;<i> allocate an array with no elements. If the value of that expression is less than zero or such that the size
+</I>&gt;<i> of the allocated object would exceed the implementation-defined limit, or if the new-initializer is a
+</I>&gt;<i> braced-init-list for which the number of initializer-clauses exceeds the number of elements to initialize, no storage
+</I>&gt;<i> is obtained and the new-expression terminates by throwing an exception of a type that would match a
+</I>&gt;<i> handler (15.3) of type std::bad_array_new_length (18.6.2.2).
+</I>&gt;<i> 
+</I>&gt;<i> We're wondering if there needs to be an ABI change here to support this.
+</I>&gt;<i> 
+</I>&gt;<i> Here are some basic strategies for doing the run-time checking:
+</I>&gt;<i> 
+</I>&gt;<i> 1) Have the compiler generate inline code to do the bounds checking before calling the existing runtime routines.  The problem with this is that there is no IA-64 ABI standard way to throw a std::bad_array_new_length exception once a violation has been detected (so we'd need to add something like __cxa_throw_bad_array_new_length).
+</I>
+Having such a function is a good idea anyway, because you can't always use one of the vec helpers, e.g. if the allocation function takes placement args.
+
+For what it's worth, clang has always done this overflow checking (counting negative counts as an overflow in the signed-&gt;unsigned computation), although we don't reliably cause the right exception to be thrown &#8212; we simply pass (size_t) -1 to the allocation function.  Unfortunately, I think that's pretty obviously wrong under the standard, which seems to make it clear that we're not supposed to be calling the allocation function at all in this case.
+
+&gt;<i> 2) Have the runtime libraries do the checking and throw std::bad_array_new_length as needed.  In order to do this (in a backwards compatible way) I think we'd need to add new versions of __cxa_vec_new2/__cxa_vec_new3 where the element_count is signed and the number of initializers in the array is passed as a new argument.
+</I>
+Well, if we can use (size_t) -1 as a signal value, we don't need any new entrypoints.  That would be safe on any platform where there are values of size_t which cannot possibly be allocated;  of course, that property of size_t isn't guaranteed by the standard, although it's universally true these days, I think.
+
+Don't get me wrong, adding new entrypoints is definitely cleaner.  The main problem with adding and using new entrypoints is that it means that old, C++98-compliant code being recompiled will suddenly require new things from the runtime, which introduces deployment problems.  And these problems are arguably inherent.   std::bad_array_new_length doesn't even exist in a C++98 standard library, so it's not like we can just emit our own copy of __cxa_throw_bad_array_new_length when we're not sure it exists;  we'd potentially have to emit the class itself, which has all sorts of nasty problems (e.g. because the RTTI is almost certainly a strong symbol in the stdlib's shared library).  So in practice we're talking about emitting this code only if it's known that the deployment target can handle it;  this is is okay for me, because clang has a relatively rich deployment-target model, but I wanted to raise the point.
+
+&gt;<i> 3) A new routine, say __cxa_vec_new_check, that takes a signed element_count, element_size, and number of initialized elements and does all necessary checks, throwing std::bad_array_new_length if required, otherwise returning.
+</I>
+It would also need to know how much cookie to add.  The cookie causing an overflow would certainly be an example of &quot;the value of that expression is ... such that the size of the allocated object would exceed the implementation-defined limit&quot;.
+
+Anyway, I don't think there's any advantage in adding a new entrypoint for just the check over adding some new vec helpers.
+
+John.
+</PRE>
+
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002450.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+	<LI>Next message: <A HREF="002452.html">[cxx-abi-dev] Run-time array checking
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2451">[ date ]</a>
+              <a href="thread.html#2451">[ thread ]</a>
+              <a href="subject.html#2451">[ subject ]</a>
+              <a href="author.html#2451">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="http://sourcerytools.com/cgi-bin/mailman/listinfo/cxx-abi-dev">More information about the cxx-abi-dev
+mailing list</a><br>
+</body></html>

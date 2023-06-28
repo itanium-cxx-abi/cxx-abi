@@ -1,0 +1,335 @@
+From jason at redhat.com  Fri Jul  9 21:51:25 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 09 Jul 2010 17:51:25 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+Message-ID: <4C3799DD.3000109@redhat.com>
+
+On 06/30/2010 11:33 AM, David Vandevoorde wrote:
+> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".
+
+Why specify the zero?  That's the natural internal representation, but 
+nullptr_t need not have any actual value.  Speaking of which, the ABI 
+should specify how it is passed/returned from a function.
+
+> - The patch includes an encoding for parenthesized initializers (code "pi") in new-expressions (see the production for<initializer>).
+
+Why is that necessary?  Presumably a braced-initializer-list will be 
+encoded somehow, leaving parenthesized as the only alternative.
+
+The rest of your overview sounds good; I'll look at the diffs soon.
+
+Jason
+
+
+From daveed at edg.com  Fri Jul  9 22:11:08 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 9 Jul 2010 18:11:08 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C3799DD.3000109@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C3799DD.3000109@redhat.com>
+Message-ID: <91C6AFF6-3A54-444A-9A19-481B576EE555@edg.com>
+
+
+On Jul 9, 2010, at 5:51 PM, Jason Merrill wrote:
+
+> On 06/30/2010 11:33 AM, David Vandevoorde wrote:
+>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".
+> 
+> Why specify the zero?  That's the natural internal representation, but nullptr_t need not have any actual value.  Speaking of which, the ABI should specify how it is passed/returned from a function.
+
+
+Right.  We considered dropping the zero, but this matched the pattern of some other scalar literals.
+
+If someone strongly prefers dropping the 0, or some other modification, I have no strong feelings about it.
+
+
+> 
+>> - The patch includes an encoding for parenthesized initializers (code "pi") in new-expressions (see the production for<initializer>).
+> 
+> Why is that necessary?
+
+
+We need a way to e.g. distinguish "new T" and "new T()".
+
+
+>  Presumably a braced-initializer-list will be encoded somehow, leaving parenthesized as the only alternative.
+> 
+> The rest of your overview sounds good; I'll look at the diffs soon.
+
+
+Thanks!
+
+	Daveed
+
+
+
+From jason at redhat.com  Tue Jul 13 21:04:08 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Tue, 13 Jul 2010 17:04:08 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <91C6AFF6-3A54-444A-9A19-481B576EE555@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C3799DD.3000109@redhat.com> <91C6AFF6-3A54-444A-9A19-481B576EE555@edg.com>
+Message-ID: <4C3CD4C8.209@redhat.com>
+
+On 07/09/2010 06:11 PM, David Vandevoorde wrote:
+> If someone strongly prefers dropping the 0, or some other modification, I have no strong feelings about it.
+
+That would be my preference.  The language specifically doesn't specify 
+that nullptr has a value, so I'd rather not put it in the mangling.
+
+> We need a way to e.g. distinguish "new T" and "new T()".
+
+Ah, OK.
+
+> !   &lt;unresolved-name&gt; ::= [gs] &lt;base-unresolved-name&gt;                     # x or (with "gs") ::x
+> !                     ::= sr &lt;unresolved-type&gt; &lt;base-unresolved-name&gt;     # T::x / decltype(p)::x
+> !                     ::= srN &lt;unresolved-type> &lt;unresolved-qualifier-level>+ E &lt;base-unresolved-name>
+> !                                                                         # T::N::x /decltype(p)::N::x
+> !                     ::= [gs] sr &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+> !                                                                         # A::x, N::y, A&lt;T&gt;::z; "gs" means leading "::"
+
+This doesn't seem to allow for, say, A::B<T>::x where A is a 
+non-template class or namespace.
+
+Jason
+
+
+From daveed at edg.com  Tue Jul 13 21:45:41 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Tue, 13 Jul 2010 17:45:41 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C3CD4C8.209@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <4C3799DD.3000109@redhat.com> <91C6AFF6-3A54-444A-9A19-481B576EE555@edg.com> <4C3CD4C8.209@redhat.com>
+Message-ID: <B2199A31-E268-4C62-AFC3-D9D2F0103C43@edg.com>
+
+
+On Jul 13, 2010, at 5:04 PM, Jason Merrill wrote:
+
+> On 07/09/2010 06:11 PM, David Vandevoorde wrote:
+>> If someone strongly prefers dropping the 0, or some other modification, I have no strong feelings about it.
+> 
+> That would be my preference.  The language specifically doesn't specify that nullptr has a value, so I'd rather not put it in the mangling.
+
+
+Okay, I'll make that change.
+
+> 
+>> We need a way to e.g. distinguish "new T" and "new T()".
+> 
+> Ah, OK.
+> 
+>> !   &lt;unresolved-name&gt; ::= [gs] &lt;base-unresolved-name&gt;                     # x or (with "gs") ::x
+>> !                     ::= sr &lt;unresolved-type&gt; &lt;base-unresolved-name&gt;     # T::x / decltype(p)::x
+>> !                     ::= srN &lt;unresolved-type> &lt;unresolved-qualifier-level>+ E &lt;base-unresolved-name>
+>> !                                                                         # T::N::x /decltype(p)::N::x
+>> !                     ::= [gs] sr &lt;unresolved-qualifier-level&gt;+ E &lt;base-unresolved-name&gt;
+>> !                                                                         # A::x, N::y, A&lt;T&gt;::z; "gs" means leading "::"
+> 
+> This doesn't seem to allow for, say, A::B<T>::x where A is a non-template class or namespace.
+
+
+The intent was that the last production be used for that.  In general, we cannot be sure about the "A" because a dependent left-hand expression could end up having e.g. a nested class A.  I suppose there could be cases with a non-dependent left-hand?  I'll look at clarifying that.
+
+Thanks,
+
+	Daveed
+
+
+
+From rjmccall at apple.com  Wed Jul 14 02:08:54 2010
+From: rjmccall at apple.com (John McCall)
+Date: Tue, 13 Jul 2010 19:08:54 -0700
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com>
+Message-ID: <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+
+On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where <character type> is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+
+Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+  template <class T> auto foo(T x) -> decltype(bar(x, "abc"));
+  template <class T> auto foo(T x) -> decltype(bar(x, "abcd"));
+
+John.
+
+From jason at redhat.com  Wed Jul 14 13:30:56 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 14 Jul 2010 09:30:56 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+Message-ID: <4C3DBC10.2000405@redhat.com>
+
+On 07/13/2010 10:08 PM, John McCall wrote:
+> On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where<character type>  is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+>
+> Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+>    template<class T>  auto foo(T x) ->  decltype(bar(x, "abc"));
+>    template<class T>  auto foo(T x) ->  decltype(bar(x, "abcd"));
+
+Ah, yes.
+
+template <class T>
+T bar(T, const char (&)[3]);
+template <class T>
+T* bar(T, const char (&)[4]);
+
+So we need to encode the length as well.
+
+Jason
+
+
+From daveed at edg.com  Wed Jul 14 14:56:15 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 14 Jul 2010 10:56:15 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com>
+Message-ID: <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+
+
+On Jul 13, 2010, at 10:08 PM, John McCall wrote:
+
+> On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where <character type> is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+> 
+> Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+>  template <class T> auto foo(T x) -> decltype(bar(x, "abc"));
+>  template <class T> auto foo(T x) -> decltype(bar(x, "abcd"));
+
+Good catch!
+
+How about using:
+
+	L <string type> E
+
+?
+
+That matches the (new) nullptr approach.  In addition to the string size, it also encodes the cv-qualifier, which ensures that we get distinct encodings for compilations with a mode where string literals are non-const.
+
+	Daveed
+
+
+
+
+From rjmccall at apple.com  Wed Jul 14 17:01:16 2010
+From: rjmccall at apple.com (John McCall)
+Date: Wed, 14 Jul 2010 10:01:16 -0700
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com>
+Message-ID: <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com>
+
+
+On Jul 14, 2010, at 7:56 AM, David Vandevoorde wrote:
+
+> 
+> On Jul 13, 2010, at 10:08 PM, John McCall wrote:
+> 
+>> On Jun 30, 2010, at 8:33 AM, David Vandevoorde wrote:
+>>> - We propose additional encodings for literals that can now appear in signatures.  nullptr is "LDn0E"; i.e., "a zero of type std::nullptr_t".  More interestingly, string literals are encoded as L<character type>E, where <character type> is the encoding of the (unqualified) underlying character type.  This has a few consequences for the demangler: It cannot actually reproduce the string, and it can only distinguish character literals from string literals after having seen the first character following the character type code.
+>> 
+>> Is this sufficient?  Overloading can be dependent on the length of the string, i.e. these are different templates:
+>> template <class T> auto foo(T x) -> decltype(bar(x, "abc"));
+>> template <class T> auto foo(T x) -> decltype(bar(x, "abcd"));
+> 
+> Good catch!
+> 
+> How about using:
+> 
+> 	L <string type> E
+> 
+> ?
+> 
+> That matches the (new) nullptr approach.  In addition to the string size, it also encodes the cv-qualifier, which ensures that we get distinct encodings for compilations with a mode where string literals are non-const.
+
+That seems reasonable to me, and has the advantage of not colliding with character literals.
+
+I'm a little worried about giving literals different manglings in different translation units, but only a little, since it already affects overloading.  I feel like I can adequately explain to a user why their program doesn't link and what they can do about it.
+
+John.
+
+From daveed at edg.com  Thu Jul 15 17:56:53 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 15 Jul 2010 13:56:53 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com>
+Message-ID: <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com>
+
+Attached are updated diffs for the ABI spec that incorporate Jason and John's review notes, as well as a few issues we found here.
+
+Plain-English changes from the previous version:
+
+- The encoding of destructor names was previously incorrect (and vague); this is now hopefully fixed.
+
+- nullptr is now encoded as "LDnE" instead of "LDn0E".
+
+- String literals are now encoded with L <string type> E.
+
+- Some words and an example have been added to clarify that <unresolved-qualifier-level> may sometimes encode a qualifier that is actually know.
+
+- A couple of examples have been corrected.
+
+
+If you see any more remaining issues, let me know.
+
+	Daveed
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: SFINAE_diffs-2
+Type: application/octet-stream
+Size: 33372 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20100715/9e7125f5/attachment.obj>
+
+From jason at redhat.com  Thu Jul 15 20:06:47 2010
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 15 Jul 2010 16:06:47 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com>
+Message-ID: <4C3F6A57.40307@redhat.com>
+
+On 07/15/2010 01:56 PM, David Vandevoorde wrote:
+> !           template&lt;class T> auto f(T p)->decltype(p->x)::Y;
+> !             // The return type in the mangling of the template signature
+> !             // is encoded as "NDTptfp_1xE1YE".
+
+Shouldn't this one use Dt rather than DT, too?
+
+Jason
+
+
+From daveed at edg.com  Thu Jul 15 21:57:12 2010
+From: daveed at edg.com (David Vandevoorde)
+Date: Thu, 15 Jul 2010 17:57:12 -0400
+Subject: [cxx-abi-dev] Proposed ABI changes for new C++0x SFINAE rules
+In-Reply-To: <4C3F6A57.40307@redhat.com>
+References: <4D177A70-DEFC-4B57-9F6C-53223CA094BE@edg.com> <A0D46970-889E-4A27-9CDD-61982C1C3726@apple.com> <43128D08-6DC1-4A9C-9C80-7C2D990996E0@edg.com> <C1964306-29E9-41A3-9B8E-D15C26DBADB5@apple.com> <604A1F6D-7579-483C-A5FD-F25CCC1311EA@edg.com> <4C3F6A57.40307@redhat.com>
+Message-ID: <9B112282-2010-4468-93FB-29AA1F0ED857@edg.com>
+
+
+On Jul 15, 2010, at 4:06 PM, Jason Merrill wrote:
+
+> On 07/15/2010 01:56 PM, David Vandevoorde wrote:
+>> !           template&lt;class T> auto f(T p)->decltype(p->x)::Y;
+>> !             // The return type in the mangling of the template signature
+>> !             // is encoded as "NDTptfp_1xE1YE".
+> 
+> Shouldn't this one use Dt rather than DT, too?
+
+Oh yes, thanks.
+
+	Daveed
+
+
+
+

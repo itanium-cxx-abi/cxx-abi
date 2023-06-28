@@ -1,0 +1,1138 @@
+From jason at redhat.com  Thu Dec  4 19:30:51 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Thu, 04 Dec 2008 14:30:51 -0500
+Subject: Mangling of ISO/IEC TR 18037 fixed-point types?
+Message-ID: <49382FEB.4080403@redhat.com>
+
+GCC supports fixed-point arithmetic along the lines of the above 
+standard, but there's currently no mangling specified in the ABI. 
+Anyone want to propose one?  Do other compilers have support for these 
+types?
+
+Jason
+
+
+From crowl at google.com  Thu Dec  4 21:22:05 2008
+From: crowl at google.com (Lawrence Crowl)
+Date: Thu, 4 Dec 2008 13:22:05 -0800
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <49382FEB.4080403@redhat.com>
+References: <49382FEB.4080403@redhat.com>
+Message-ID: <29bd08b70812041322t2957e538ob1c103db07584e7d@mail.gmail.com>
+
+On 12/4/08, Jason Merrill <jason at redhat.com> wrote:
+> GCC supports fixed-point arithmetic along the lines of the above
+> standard, but there's currently no mangling specified in the
+> ABI. Anyone want to propose one?  Do other compilers have support
+> for these types?
+
+As a personal opinion, the ISO/IEC TR 18037 specifies data types
+specific to the current digital signal processors.  As such it is
+not general enough for inclusion into C or C++.  Any support for
+those types would be counter-productive in that it might inhibit
+development of more general fixed-point arithmetic.
+
+-- 
+Lawrence Crowl
+
+
+From daveed at edg.com  Fri Dec  5 15:38:47 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 5 Dec 2008 10:38:47 -0500
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <49382FEB.4080403@redhat.com>
+References: <49382FEB.4080403@redhat.com>
+Message-ID: <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com>
+
+
+On Dec 4, 2008, at 2:30 PM, Jason Merrill wrote:
+
+> GCC supports fixed-point arithmetic along the lines of the above  
+> standard, but there's currently no mangling specified in the ABI.  
+> Anyone want to propose one?  Do other compilers have support for  
+> these types?
+
+
+We implemented these some time ago for C, but not C++ (so we didn't  
+decide on mangling).
+
+How about:
+
+	DF [a|f] <kind>
+
+with "a" for _Accum types, and "f" for _Fract types, and <kind>  
+imitating the integer types:
+
+	<kind> = s for "signed short"
+	         t for "unsigned short"
+	         i for "signed"
+	         j for "unsigned"
+	         l for "long"
+	         m for "unsigned long"
+
+
+E.g., "unsigned long _Accum" would be encoded as "DFam".
+
+Alternatively, if we think a single platform may have different  
+precision choices for these types, we could go with:
+
+	DF <accumbits(opt)> <kind> <fractbits> _
+
+where
+
+	<accumbits(opt)> = nothing for _Fract types
+	                   the number of explicit nonfractional bits for  
+_Accum types (base 10 digits)
+	<fractbits> = the number of fractional bits (base 10 digits)
+
+E.g., "short _Fract" might get encoded as "DFs15_" if the compiler  
+implements _Fract as a 16-bit type, or "DFs7_" if it uses an 8-bit  
+type (e.g., to map on Intel MMX).
+
+	Daveed
+
+
+
+From jason at redhat.com  Fri Dec  5 19:36:22 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Fri, 05 Dec 2008 14:36:22 -0500
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com>
+References: <49382FEB.4080403@redhat.com> <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com>
+Message-ID: <493982B6.2030306@redhat.com>
+
+David Vandevoorde wrote:
+> How about:
+> 
+>     DF [a|f] <kind>
+> 
+> with "a" for _Accum types, and "f" for _Fract types, and <kind> 
+> imitating the integer types:
+> 
+>     <kind> = s for "signed short"
+>              t for "unsigned short"
+>              i for "signed"
+>              j for "unsigned"
+>              l for "long"
+>              m for "unsigned long"
+
+Don't we need something for the _Sat variants too?  Maybe follow the 
+kind with [s|n] for _Sat or non-_Sat?
+
+> Alternatively, if we think a single platform may have different 
+> precision choices for these types
+
+I don't have a sense of how likely this is.
+
+Jason
+
+
+
+From mark at codesourcery.com  Fri Dec  5 20:41:38 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Fri, 05 Dec 2008 12:41:38 -0800
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <493982B6.2030306@redhat.com>
+References: <49382FEB.4080403@redhat.com> <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com> <493982B6.2030306@redhat.com>
+Message-ID: <49399202.9030804@codesourcery.com>
+
+Jason Merrill wrote:
+
+>> Alternatively, if we think a single platform may have different
+>> precision choices for these types
+> 
+> I don't have a sense of how likely this is.
+
+I think we'd better design for that.  I don't know for sure what current
+or future hardware is going to do, but I'd expect that there might be
+cases for using different precisions.
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Fri Dec  5 20:49:11 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Fri, 5 Dec 2008 15:49:11 -0500
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <493982B6.2030306@redhat.com>
+References: <49382FEB.4080403@redhat.com> <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com> <493982B6.2030306@redhat.com>
+Message-ID: <988717A2-BBFF-42A1-9436-7C72DBB300E3@edg.com>
+
+
+On Dec 5, 2008, at 2:36 PM, Jason Merrill wrote:
+
+> David Vandevoorde wrote:
+>> How about:
+>>    DF [a|f] <kind>
+>> with "a" for _Accum types, and "f" for _Fract types, and <kind>  
+>> imitating the integer types:
+>>    <kind> = s for "signed short"
+>>             t for "unsigned short"
+>>             i for "signed"
+>>             j for "unsigned"
+>>             l for "long"
+>>             m for "unsigned long"
+>
+> Don't we need something for the _Sat variants too?  Maybe follow the  
+> kind with [s|n] for _Sat or non-_Sat?
+
+Ah yes, I forgot.  Your proposal sounds good.
+
+In the alternative proposal, the [s|n] could replace the final  
+underscore.
+
+>
+>
+>> Alternatively, if we think a single platform may have different  
+>> precision choices for these types
+>
+> I don't have a sense of how likely this is.
+
+I don't really either.  But DSP-like additions to instruction sets  
+seem to evolve a lot faster than their host base set, which caused me  
+to think it might be worth anticipating future incompatibilities in  
+this area.
+
+	Daveed
+
+
+
+From jason at redhat.com  Mon Dec  8 17:11:12 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 08 Dec 2008 12:11:12 -0500
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com>
+References: <49382FEB.4080403@redhat.com> <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com>
+Message-ID: <493D5530.4060106@redhat.com>
+
+So:
+
+   DF <accumbits(opt)> <kind> <fractbits> <sat>
+      <kind> = s for "signed short"
+               t for "unsigned short"
+               i for "signed"
+               j for "unsigned"
+               l for "long"
+               m for "unsigned long"
+      <sat> = s for _Sat, n for non-_Sat
+
+This seems good to me, I've gone ahead and implemented it in GCC. 
+Here's a patch to the ABI document:
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: abi-fixed.patch
+Type: text/x-patch
+Size: 1935 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20081208/77445467/attachment.bin>
+
+From mark at codesourcery.com  Mon Dec  8 17:46:12 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Mon, 08 Dec 2008 09:46:12 -0800
+Subject: [cxx-abi-dev] Mangling of ISO/IEC TR 18037 fixed-point types?
+In-Reply-To: <493D5530.4060106@redhat.com>
+References: <49382FEB.4080403@redhat.com> <40FA9952-6AD2-4E60-ADD8-6CDAB6E350C8@edg.com> <493D5530.4060106@redhat.com>
+Message-ID: <493D5D64.2070009@codesourcery.com>
+
+Jason Merrill wrote:
+
+>   DF <accumbits(opt)> <kind> <fractbits> <sat>
+>      <kind> = s for "signed short"
+>               t for "unsigned short"
+>               i for "signed"
+>               j for "unsigned"
+>               l for "long"
+>               m for "unsigned long"
+>      <sat> = s for _Sat, n for non-_Sat
+
+This looks good to me.
+
+However, I think you should specify the encoding for the numeric parts
+(base-10, or base-36, or?) and that accumbits is present iff it is non-zero.
+
+FWIW,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Mon Dec 15 15:50:45 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Mon, 15 Dec 2008 10:50:45 -0500
+Subject: Mangling C++0x Lambdas
+Message-ID: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+
+Hi all,
+
+Has anyone on this list already implemented C++0x lambdas and chosen a  
+mangling scheme for them?
+
+(We think a mangling convention is needed because they can appear in  
+inline function bodies or determine template argument types.)
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Mon Dec 15 18:00:53 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 15 Dec 2008 10:00:53 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+Message-ID: <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+
+On Mon, Dec 15, 2008 at 7:50 AM, David Vandevoorde <daveed at edg.com> wrote:
+> Has anyone on this list already implemented C++0x lambdas and chosen a
+> mangling scheme for them?
+
+The prototype GCC implementation had a mangling scheme, but it won't
+work in the general case.
+
+> (We think a mangling convention is needed because they can appear in inline
+> function bodies or determine template argument types.)
+
+Agreed. They can also appear in the initialization of variables at
+namespace scope, e.g.,
+
+  struct X {
+    template<typename T> X(T);
+  };
+  X x = [](int x) -> int { return x; }
+
+  - Doug
+
+
+From crowl at google.com  Mon Dec 15 20:02:42 2008
+From: crowl at google.com (Lawrence Crowl)
+Date: Mon, 15 Dec 2008 12:02:42 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+Message-ID: <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+
+On 12/15/08, Doug Gregor <doug.gregor at gmail.com> wrote:
+> On Mon, Dec 15, 2008 at 7:50 AM, David Vandevoorde <daveed at edg.com> wrote:
+> > Has anyone on this list already implemented C++0x lambdas and chosen a
+> > mangling scheme for them?
+>
+> The prototype GCC implementation had a mangling scheme, but it won't
+> work in the general case.
+
+Why?
+
+> > (We think a mangling convention is needed because they can appear in
+> > inline function bodies or determine template argument types.)
+>
+> Agreed. They can also appear in the initialization of variables at
+> namespace scope, e.g.,
+>
+>   struct X {
+>     template<typename T> X(T);
+>   };
+>   X x = [](int x) -> int { return x; }
+
+The semantics here might vary because of the empty capture list.
+
+Let's assume for the moment that we have an "interesting" capture
+list, which implies a full-scale constructed type.  Does the mangling
+of this type need to be part of the ABI?  Why isn't a per-compiler
+scheme sufficient?
+
+-- 
+Lawrence Crowl
+
+
+From doug.gregor at gmail.com  Mon Dec 15 20:40:17 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Mon, 15 Dec 2008 12:40:17 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+Message-ID: <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+
+On Mon, Dec 15, 2008 at 12:02 PM, Lawrence Crowl <crowl at google.com> wrote:
+> On 12/15/08, Doug Gregor <doug.gregor at gmail.com> wrote:
+>> On Mon, Dec 15, 2008 at 7:50 AM, David Vandevoorde <daveed at edg.com> wrote:
+>> > Has anyone on this list already implemented C++0x lambdas and chosen a
+>> > mangling scheme for them?
+>>
+>> The prototype GCC implementation had a mangling scheme, but it won't
+>> work in the general case.
+>
+> Why?
+
+The scheme it used was to mangle the lambda name as "__lambda_#",
+where # is just a counter of the number of lambdas seen in the
+translation unit. This will cause problems if, for example, the
+following inline function "foo" occurs in several translation units
+(with varying numbers of lambdas before it):
+
+  template<typename T> void bar(T);
+
+  void foo() { bar([](int x) -> int { return x; }); } // the type of
+this lambda must always be the same
+
+We need something that encodes the context of the lambda (function
+"::foo" with no parameters) followed by, perhaps, a numbering scheme
+within that context. The context encoding needs to account for (at
+least) inline functions, classes, and namespaces.
+
+>> > (We think a mangling convention is needed because they can appear in
+>> > inline function bodies or determine template argument types.)
+>>
+>> Agreed. They can also appear in the initialization of variables at
+>> namespace scope, e.g.,
+>>
+>>   struct X {
+>>     template<typename T> X(T);
+>>   };
+>>   X x = [](int x) -> int { return x; }
+>
+> The semantics here might vary because of the empty capture list.
+>
+> Let's assume for the moment that we have an "interesting" capture
+> list, which implies a full-scale constructed type.  Does the mangling
+> of this type need to be part of the ABI?
+
+Yes.
+
+> Why isn't a per-compiler
+> scheme sufficient?
+
+Because we're going to be instantiating templates based on this type,
+and everyone needs to instantiate the same templates.
+
+I don't think that the formulation of the capture list will have
+anything to do with the mangling of the lambda's type name. If the
+capture list only has & captures, the resulting type will derive from
+std::reference_closure (and may have different members, depending on
+how we choose to layout the lambda class), but that doesn't change the
+name of the type itself.
+
+  - Doug
+
+
+From jason at redhat.com  Tue Dec 16 01:10:55 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Mon, 15 Dec 2008 20:10:55 -0500
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <490B7B2F.2010802@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com> <490B4E19.209@redhat.com> <490B7B2F.2010802@redhat.com>
+Message-ID: <4947001F.2000801@redhat.com>
+
+Here's a patch to the ABI document for the various mangling changes I've 
+proposed recently other than the fixed-point mangling.
+
+Jason
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stub-mangling.patch
+Type: text/x-patch
+Size: 7010 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20081215/ae0c034d/attachment.bin>
+
+From dhandly at cup.hp.com  Tue Dec 16 01:26:36 2008
+From: dhandly at cup.hp.com (Dennis Handly)
+Date: Mon, 15 Dec 2008 17:26:36 -0800 (PST)
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+Message-ID: <200812160126.RAA06456@hpcll183.cup.hp.com>
+
+>From: "Doug Gregor" <doug.gregor at gmail.com>
+>The scheme it used was to mangle the lambda name as "__lambda_#",
+>where # is just a counter of the number of lambdas seen in the
+>translation unit. This will cause problems if, for example, the
+>following inline function "foo" occurs in several translation units
+>(with varying numbers of lambdas before it):
+
+Right.  We had that nasty bug in cfront for typedefs on tagless classes.
+Until the Standard was changed to say the name of the class is the first
+typedef name.
+
+
+From jfreeman at cs.tamu.edu  Wed Dec 17 15:39:34 2008
+From: jfreeman at cs.tamu.edu (John Freeman)
+Date: Wed, 17 Dec 2008 09:39:34 -0600
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+Message-ID: <49491D36.6010308@cs.tamu.edu>
+
+Doug Gregor wrote:
+>
+> We need something that encodes the context of the lambda (function
+> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+> within that context. The context encoding needs to account for (at
+> least) inline functions, classes, and namespaces.
+>   
+
+This sounds like a problem that must have been encountered before.  Is 
+there already a solution for it?  At least for the unnumbered portion?
+
+- John
+
+P.S.  I'm switching to my new email address.
+
+
+From doug.gregor at gmail.com  Wed Dec 17 16:00:20 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 17 Dec 2008 08:00:20 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <49491D36.6010308@cs.tamu.edu>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+	 <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+	 <49491D36.6010308@cs.tamu.edu>
+Message-ID: <24b520d20812170800k1dd2a7dfo9fb502853b13b983@mail.gmail.com>
+
+On Wed, Dec 17, 2008 at 7:39 AM, John Freeman <jfreeman at cs.tamu.edu> wrote:
+> Doug Gregor wrote:
+>>
+>> We need something that encodes the context of the lambda (function
+>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>> within that context. The context encoding needs to account for (at
+>> least) inline functions, classes, and namespaces.
+>>
+>
+> This sounds like a problem that must have been encountered before.  Is there
+> already a solution for it?  At least for the unnumbered portion?
+
+Now that we can use local and unnamed types as template arguments, we
+have the same issues there. But before those changes and the
+introduction of lambdas, we didn't have to cope with this issue.
+
+  - Doug
+
+
+From daveed at edg.com  Wed Dec 17 16:00:25 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 17 Dec 2008 11:00:25 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <49491D36.6010308@cs.tamu.edu>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu>
+Message-ID: <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+
+
+On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+
+> Doug Gregor wrote:
+>>
+>> We need something that encodes the context of the lambda (function
+>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>> within that context. The context encoding needs to account for (at
+>> least) inline functions, classes, and namespaces.
+>>
+>
+> This sounds like a problem that must have been encountered before.   
+> Is there already a solution for it?  At least for the unnumbered  
+> portion?
+
+
+Yes, see 5.1.6.  We can reuse that general scheme for local lambdas.   
+E.g.:
+
+	<local-lambda-name> := Z <function encoding> E l [<discriminator>]
+
+and maybe introduce something similar for local unnamed classes:
+
+	<local-unnamed-class_name> := Z <function encoding> E u  
+[<discriminator>]
+
+
+A tougher problem are namespace-scope lambdas (e.g., in initializers  
+or default arguments).  There a discriminator count cannot be scope  
+based (since the mangling then could depend on which header files were  
+previously included, etc.).
+
+	Daveed
+
+
+
+
+From doug.gregor at gmail.com  Wed Dec 17 16:17:45 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 17 Dec 2008 08:17:45 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+	 <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+	 <49491D36.6010308@cs.tamu.edu>
+	 <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+Message-ID: <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com>
+
+On Wed, Dec 17, 2008 at 8:00 AM, David Vandevoorde <daveed at edg.com> wrote:
+>
+> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>
+>> Doug Gregor wrote:
+>>>
+>>> We need something that encodes the context of the lambda (function
+>>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>>> within that context. The context encoding needs to account for (at
+>>> least) inline functions, classes, and namespaces.
+>>>
+>>
+>> This sounds like a problem that must have been encountered before.  Is
+>> there already a solution for it?  At least for the unnumbered portion?
+>
+>
+> Yes, see 5.1.6.  We can reuse that general scheme for local lambdas.  E.g.:
+>
+>        <local-lambda-name> := Z <function encoding> E l [<discriminator>]
+>
+> and maybe introduce something similar for local unnamed classes:
+>
+>        <local-unnamed-class_name> := Z <function encoding> E u
+> [<discriminator>]
+>
+>
+> A tougher problem are namespace-scope lambdas (e.g., in initializers or
+> default arguments).
+
+In an initializer, we could mangle the name of the entity being
+initialized (and then a counter, in case there are multiple lambdas in
+the initializer).
+
+In a default argument, we could mangle it as if it's part of the
+entity where the default argument lives (in a function or template).
+
+  - Doug
+
+
+From daveed at edg.com  Wed Dec 17 16:28:07 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 17 Dec 2008 11:28:07 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com> <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com> <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com>
+Message-ID: <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com>
+
+
+On Dec 17, 2008, at 11:17 AM, Doug Gregor wrote:
+
+> On Wed, Dec 17, 2008 at 8:00 AM, David Vandevoorde <daveed at edg.com>  
+> wrote:
+>>
+>> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>>
+>>> Doug Gregor wrote:
+>>>>
+>>>> We need something that encodes the context of the lambda (function
+>>>> "::foo" with no parameters) followed by, perhaps, a numbering  
+>>>> scheme
+>>>> within that context. The context encoding needs to account for (at
+>>>> least) inline functions, classes, and namespaces.
+>>>>
+>>>
+>>> This sounds like a problem that must have been encountered  
+>>> before.  Is
+>>> there already a solution for it?  At least for the unnumbered  
+>>> portion?
+>>
+>>
+>> Yes, see 5.1.6.  We can reuse that general scheme for local  
+>> lambdas.  E.g.:
+>>
+>>       <local-lambda-name> := Z <function encoding> E l  
+>> [<discriminator>]
+>>
+>> and maybe introduce something similar for local unnamed classes:
+>>
+>>       <local-unnamed-class_name> := Z <function encoding> E u
+>> [<discriminator>]
+>>
+>>
+>> A tougher problem are namespace-scope lambdas (e.g., in  
+>> initializers or
+>> default arguments).
+>
+> In an initializer, we could mangle the name of the entity being
+> initialized (and then a counter, in case there are multiple lambdas in
+> the initializer).
+
+
+I'm not sure that we need to deal with the initializer case at all,  
+because I _think_ that such a lambda would only be referenced  
+internally.
+
+
+> In a default argument, we could mangle it as if it's part of the
+> entity where the default argument lives (in a function or template).
+
+
+I believe it would require a different code from the entities local to  
+that function/template, though (since the the two might not coexist in  
+the same translation unit).
+
+I'm concerned that there might be other contexts where there isn't a  
+"top-level" entity to key off from.  For example, explicit template  
+instantiations are such a context.  Like initializers, I think any  
+lambda there would be purely internal, and so there wouldn't be an  
+issue in that particular case.  But are there other contexts?
+
+	Daveed
+
+
+
+From doug.gregor at gmail.com  Wed Dec 17 16:40:08 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 17 Dec 2008 08:40:08 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+	 <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+	 <49491D36.6010308@cs.tamu.edu>
+	 <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+	 <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com>
+	 <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com>
+Message-ID: <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com>
+
+On Wed, Dec 17, 2008 at 8:28 AM, David Vandevoorde <daveed at edg.com> wrote:
+>
+> On Dec 17, 2008, at 11:17 AM, Doug Gregor wrote:
+>
+>> On Wed, Dec 17, 2008 at 8:00 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>>
+>>> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>>>
+>>>> Doug Gregor wrote:
+>>>>>
+>>>>> We need something that encodes the context of the lambda (function
+>>>>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>>>>> within that context. The context encoding needs to account for (at
+>>>>> least) inline functions, classes, and namespaces.
+>>>>>
+>>>>
+>>>> This sounds like a problem that must have been encountered before.  Is
+>>>> there already a solution for it?  At least for the unnumbered portion?
+>>>
+>>>
+>>> Yes, see 5.1.6.  We can reuse that general scheme for local lambdas.
+>>>  E.g.:
+>>>
+>>>      <local-lambda-name> := Z <function encoding> E l [<discriminator>]
+>>>
+>>> and maybe introduce something similar for local unnamed classes:
+>>>
+>>>      <local-unnamed-class_name> := Z <function encoding> E u
+>>> [<discriminator>]
+>>>
+>>>
+>>> A tougher problem are namespace-scope lambdas (e.g., in initializers or
+>>> default arguments).
+>>
+>> In an initializer, we could mangle the name of the entity being
+>> initialized (and then a counter, in case there are multiple lambdas in
+>> the initializer).
+>
+>
+> I'm not sure that we need to deal with the initializer case at all, because
+> I _think_ that such a lambda would only be referenced internally.
+
+  struct X {
+    template <typename Lambda> X(Lambda);
+  };
+
+  X x = [](int x) -> int { return x; };
+
+We'll need to mangle X's constructor with the name of the lambda.
+
+>> In a default argument, we could mangle it as if it's part of the
+>> entity where the default argument lives (in a function or template).
+>
+>
+> I believe it would require a different code from the entities local to that
+> function/template, though (since the the two might not coexist in the same
+> translation unit).
+
+Ah, right. So we need to have a separate mangling scheme and counter
+for the default arguments and for the entities local to that
+function/template.
+
+> I'm concerned that there might be other contexts where there isn't a
+> "top-level" entity to key off from.  For example, explicit template
+> instantiations are such a context.
+
+Oh, yuck.
+
+  - Doug
+
+
+From daveed at edg.com  Wed Dec 17 16:46:16 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 17 Dec 2008 11:46:16 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com> <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com> <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com> <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com> <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com>
+Message-ID: <DA449426-BBFC-487B-970F-1A8AF5E4CA29@edg.com>
+
+
+On Dec 17, 2008, at 11:40 AM, Doug Gregor wrote:
+
+> On Wed, Dec 17, 2008 at 8:28 AM, David Vandevoorde <daveed at edg.com>  
+> wrote:
+>>
+>> On Dec 17, 2008, at 11:17 AM, Doug Gregor wrote:
+>>
+>>> On Wed, Dec 17, 2008 at 8:00 AM, David Vandevoorde  
+>>> <daveed at edg.com> wrote:
+>>>>
+>>>> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>>>>
+>>>>> Doug Gregor wrote:
+>>>>>>
+>>>>>> We need something that encodes the context of the lambda  
+>>>>>> (function
+>>>>>> "::foo" with no parameters) followed by, perhaps, a numbering  
+>>>>>> scheme
+>>>>>> within that context. The context encoding needs to account for  
+>>>>>> (at
+>>>>>> least) inline functions, classes, and namespaces.
+>>>>>>
+>>>>>
+>>>>> This sounds like a problem that must have been encountered  
+>>>>> before.  Is
+>>>>> there already a solution for it?  At least for the unnumbered  
+>>>>> portion?
+>>>>
+>>>>
+>>>> Yes, see 5.1.6.  We can reuse that general scheme for local  
+>>>> lambdas.
+>>>> E.g.:
+>>>>
+>>>>     <local-lambda-name> := Z <function encoding> E l  
+>>>> [<discriminator>]
+>>>>
+>>>> and maybe introduce something similar for local unnamed classes:
+>>>>
+>>>>     <local-unnamed-class_name> := Z <function encoding> E u
+>>>> [<discriminator>]
+>>>>
+>>>>
+>>>> A tougher problem are namespace-scope lambdas (e.g., in  
+>>>> initializers or
+>>>> default arguments).
+>>>
+>>> In an initializer, we could mangle the name of the entity being
+>>> initialized (and then a counter, in case there are multiple  
+>>> lambdas in
+>>> the initializer).
+>>
+>>
+>> I'm not sure that we need to deal with the initializer case at all,  
+>> because
+>> I _think_ that such a lambda would only be referenced internally.
+>
+>  struct X {
+>    template <typename Lambda> X(Lambda);
+>  };
+>
+>  X x = [](int x) -> int { return x; };
+>
+> We'll need to mangle X's constructor with the name of the lambda.
+
+
+But that call and construct is internal to whatever TU x is defined  
+in, no?
+
+(If x were itself a temploid instance, the constructor would have to  
+go in its comdat section, I suppose.)
+
+
+>>> In a default argument, we could mangle it as if it's part of the
+>>> entity where the default argument lives (in a function or template).
+>>
+>>
+>> I believe it would require a different code from the entities local  
+>> to that
+>> function/template, though (since the the two might not coexist in  
+>> the same
+>> translation unit).
+>
+> Ah, right. So we need to have a separate mangling scheme and counter
+> for the default arguments and for the entities local to that
+> function/template.
+
+
+Right.
+
+
+>> I'm concerned that there might be other contexts where there isn't a
+>> "top-level" entity to key off from.  For example, explicit template
+>> instantiations are such a context.
+>
+> Oh, yuck.
+
+If that's how we feel, we must be on the right path ;-)
+
+	Daveed
+
+
+
+From jason at redhat.com  Wed Dec 17 16:50:58 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 17 Dec 2008 11:50:58 -0500
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <4947001F.2000801@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com> <490B4E19.209@redhat.com> <490B7B2F.2010802@redhat.com> <4947001F.2000801@redhat.com>
+Message-ID: <49492DF2.9090408@redhat.com>
+
+Jason Merrill wrote:
+> Here's a patch to the ABI document for the various mangling changes I've 
+> proposed recently other than the fixed-point mangling.
+
+After sending this I noticed that we have to take into account that the 
+expression could use auto.  Here are both a replacement patch and a 
+patch relative to the one I sent on Monday.
+
+Jason
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stub-mangling-2.patch
+Type: text/x-patch
+Size: 7389 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20081217/467c67ae/attachment.bin>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stub-mangling-3.patch
+Type: text/x-patch
+Size: 2324 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20081217/467c67ae/attachment-0001.bin>
+
+From jason at redhat.com  Wed Dec 17 17:03:55 2008
+From: jason at redhat.com (Jason Merrill)
+Date: Wed, 17 Dec 2008 12:03:55 -0500
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <49492DF2.9090408@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com> <490B4E19.209@redhat.com> <490B7B2F.2010802@redhat.com> <4947001F.2000801@redhat.com> <49492DF2.9090408@redhat.com>
+Message-ID: <494930FB.9090502@redhat.com>
+
+One small further patch to add a bit of rationale:
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stub-mangling-4.patch
+Type: text/x-patch
+Size: 1191 bytes
+Desc: not available
+URL: <http://sourcerytools.com/pipermail/cxx-abi-dev/attachments/20081217/38b723c0/attachment.bin>
+
+From doug.gregor at gmail.com  Wed Dec 17 17:05:51 2008
+From: doug.gregor at gmail.com (Doug Gregor)
+Date: Wed, 17 Dec 2008 09:05:51 -0800
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <DA449426-BBFC-487B-970F-1A8AF5E4CA29@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com>
+	 <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com>
+	 <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com>
+	 <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com>
+	 <49491D36.6010308@cs.tamu.edu>
+	 <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com>
+	 <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com>
+	 <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com>
+	 <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com>
+	 <DA449426-BBFC-487B-970F-1A8AF5E4CA29@edg.com>
+Message-ID: <24b520d20812170905i3b785a6cl8eee692c8e30d4ca@mail.gmail.com>
+
+On Wed, Dec 17, 2008 at 8:46 AM, David Vandevoorde <daveed at edg.com> wrote:
+>
+> On Dec 17, 2008, at 11:40 AM, Doug Gregor wrote:
+>
+>> On Wed, Dec 17, 2008 at 8:28 AM, David Vandevoorde <daveed at edg.com> wrote:
+>>>
+>>> On Dec 17, 2008, at 11:17 AM, Doug Gregor wrote:
+>>>
+>>>> On Wed, Dec 17, 2008 at 8:00 AM, David Vandevoorde <daveed at edg.com>
+>>>> wrote:
+>>>>>
+>>>>> On Dec 17, 2008, at 10:39 AM, John Freeman wrote:
+>>>>>
+>>>>>> Doug Gregor wrote:
+>>>>>>>
+>>>>>>> We need something that encodes the context of the lambda (function
+>>>>>>> "::foo" with no parameters) followed by, perhaps, a numbering scheme
+>>>>>>> within that context. The context encoding needs to account for (at
+>>>>>>> least) inline functions, classes, and namespaces.
+>>>>>>>
+>>>>>>
+>>>>>> This sounds like a problem that must have been encountered before.  Is
+>>>>>> there already a solution for it?  At least for the unnumbered portion?
+>>>>>
+>>>>>
+>>>>> Yes, see 5.1.6.  We can reuse that general scheme for local lambdas.
+>>>>> E.g.:
+>>>>>
+>>>>>    <local-lambda-name> := Z <function encoding> E l [<discriminator>]
+>>>>>
+>>>>> and maybe introduce something similar for local unnamed classes:
+>>>>>
+>>>>>    <local-unnamed-class_name> := Z <function encoding> E u
+>>>>> [<discriminator>]
+>>>>>
+>>>>>
+>>>>> A tougher problem are namespace-scope lambdas (e.g., in initializers or
+>>>>> default arguments).
+>>>>
+>>>> In an initializer, we could mangle the name of the entity being
+>>>> initialized (and then a counter, in case there are multiple lambdas in
+>>>> the initializer).
+>>>
+>>>
+>>> I'm not sure that we need to deal with the initializer case at all,
+>>> because
+>>> I _think_ that such a lambda would only be referenced internally.
+>>
+>>  struct X {
+>>   template <typename Lambda> X(Lambda);
+>>  };
+>>
+>>  X x = [](int x) -> int { return x; };
+>>
+>> We'll need to mangle X's constructor with the name of the lambda.
+>
+>
+> But that call and construct is internal to whatever TU x is defined in, no?
+
+Ah, right. Well, decltype will surely get us into trouble:
+
+  template<typename Lambda> struct Y { };
+
+  Y<decltype([](int x) -> int { return x; })> y;
+
+  - Doug
+
+
+From mark at codesourcery.com  Wed Dec 17 17:32:15 2008
+From: mark at codesourcery.com (Mark Mitchell)
+Date: Wed, 17 Dec 2008 09:32:15 -0800
+Subject: [cxx-abi-dev] Mangling late-specified return types/decltype
+In-Reply-To: <49492DF2.9090408@redhat.com>
+References: <48C16BEA.1050301@redhat.com> <48D1511D.60402@redhat.com> <48DD5CB9.1010401@redhat.com> <48ED24AC.9080702@redhat.com> <490A136A.7030600@redhat.com> <490A1BA9.5000305@codesourcery.com> <490B4E19.209@redhat.com> <490B7B2F.2010802@redhat.com> <4947001F.2000801@redhat.com> <49492DF2.9090408@redhat.com>
+Message-ID: <4949379F.7050006@codesourcery.com>
+
+Jason Merrill wrote:
+> Jason Merrill wrote:
+>> Here's a patch to the ABI document for the various mangling changes
+>> I've proposed recently other than the fixed-point mangling.
+> 
+> After sending this I noticed that we have to take into account that the
+> expression could use auto.  Here are both a replacement patch and a
+> patch relative to the one I sent on Monday.
+
+I've applied this patch, and the followup rationale patch, since nobody
+had any negative comments.
+
+(Jason, for whatever reason, the patches didn't apply nicely; I did my
+humanoid simulation of patch.  I'm not sure if this is because of me
+being dumb, or some CR/LF issue, or some editor you're using being smart
+about HTML even though this document is crufty, or what.  Anyhow, you
+might wish to double-check my changes.)
+
+Thanks,
+
+-- 
+Mark Mitchell
+CodeSourcery
+mark at codesourcery.com
+(650) 331-3385 x713
+
+
+From daveed at edg.com  Wed Dec 17 17:48:38 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 17 Dec 2008 12:48:38 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <24b520d20812170905i3b785a6cl8eee692c8e30d4ca@mail.gmail.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com> <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com> <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com> <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com> <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com> <DA449426-BBFC-487B-970F-1A8AF5E4CA29@edg.com> <24b520d20812170905i3b785a6cl8eee692c8e30d4ca@mail.gmail.com>
+Message-ID: <676563C3-EA23-481B-80DD-55C2102C3831@edg.com>
+
+
+On Dec 17, 2008, at 12:05 PM, Doug Gregor wrote:
+[...]
+> Ah, right. Well, decltype will surely get us into trouble:
+>
+>  template<typename Lambda> struct Y { };
+>
+>  Y<decltype([](int x) -> int { return x; })> y;
+
+
+Having thought about that some more... I think that cannot be matched  
+across translation units either.
+
+I.e., every occurrence of a lambda has a different type.  E.g.:
+
+   template<typename Lambda> struct Y { };
+   extern Y<decltype([](int x) -> int { return x; })> y;  // Okay,  
+but...
+   Y<decltype([](int x) -> int { return x; })> y;         // Error:  
+not redeclared with the same type.
+
+	Daveed
+
+
+
+From daveed at edg.com  Wed Dec 17 18:01:41 2008
+From: daveed at edg.com (David Vandevoorde)
+Date: Wed, 17 Dec 2008 13:01:41 -0500
+Subject: [cxx-abi-dev] Mangling C++0x Lambdas
+In-Reply-To: <676563C3-EA23-481B-80DD-55C2102C3831@edg.com>
+References: <325117E2-DBE7-488C-B8C7-554A3B80F54E@edg.com> <24b520d20812151000n586ad5e4yee947efbaa43774e@mail.gmail.com> <29bd08b70812151202jb9e9d24n2f2816edde9a3055@mail.gmail.com> <24b520d20812151240j7d6dc575t8109cc7e4e446839@mail.gmail.com> <49491D36.6010308@cs.tamu.edu> <A63A5AAD-5ECC-4143-ABC7-57F908AEEF69@edg.com> <24b520d20812170817s6569e95cvfe19cd4f42d0166c@mail.gmail.com> <FD177A54-AAF7-4A0C-8122-724F772F6252@edg.com> <24b520d20812170840xb3cb9f8x3b21ead27a2649b9@mail.gmail.com> <DA449426-BBFC-487B-970F-1A8AF5E4CA29@edg.com> <24b520d20812170905i3b785a6cl8eee692c8e30d4ca@mail.gmail.com> <676563C3-EA23-481B-80DD-55C2102C3831@edg.com>
+Message-ID: <A90AB883-813F-47C5-87A5-FF52F8F5EB46@edg.com>
+
+
+On Dec 17, 2008, at 12:48 PM, David Vandevoorde wrote:
+
+>
+> On Dec 17, 2008, at 12:05 PM, Doug Gregor wrote:
+> [...]
+>> Ah, right. Well, decltype will surely get us into trouble:
+>>
+>> template<typename Lambda> struct Y { };
+>>
+>> Y<decltype([](int x) -> int { return x; })> y;
+>
+>
+> Having thought about that some more... I think that cannot be  
+> matched across translation units either.
+>
+> I.e., every occurrence of a lambda has a different type.  E.g.:
+>
+>  template<typename Lambda> struct Y { };
+>  extern Y<decltype([](int x) -> int { return x; })> y;  // Okay,  
+> but...
+>  Y<decltype([](int x) -> int { return x; })> y;         // Error:  
+> not redeclared with the same type.
+
+
+And I think that principle would cover all nonlocal uses of lambdas  
+that require mangling.  I.e., it sufficient that those be mangled  
+uniquely; reproducibility is not required (and therefore not really an  
+ABI issue).
+
+Have I got that right?
+
+	Daveed
+
+
+
