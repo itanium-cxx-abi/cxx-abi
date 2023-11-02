@@ -363,6 +363,20 @@ The instance of a virtual table for a base class
 that is embedded in the virtual table of a class derived from it.
 
 <p>
+<dt> <i>templated entity</i></dt>
+<dd>
+An entity that is defined or created within a template, such as:
+<ul compact>
+<li>an instantiation of a class, function, or variable template,
+  including from a partial specialization, but <i>not</i> including
+  an explicit specialization;
+<li>a member or friend function definition of a templated class;
+<li>an enumerator of a templated enum;
+<li>a local entity in a templated function; or
+<li>a lambda in a templated entity.
+</ul>
+
+<p>
 <dt> <i>thunk</i> </dt>
 <dd>
 A segment of code associated (in this ABI) with a target function,
@@ -6426,57 +6440,134 @@ In either case, it must be weak.
 <h4><a href="#vague-vtable"> 5.2.3 Virtual Tables</a></h4>
 
 <p>
-The virtual table for a class is emitted in the same object containing
-the definition of its <i>key function</i>,
-i.e. the first non-pure virtual function
-that is not inline at the point of class definition.
-If there is no key function, it is emitted everywhere used.
-The emitted virtual table includes the full virtual table group for the class,
-any new construction virtual tables required for subobjects,
-and the VTT for the class.
-They are emitted in a COMDAT group,
-with the virtual table mangled name as the identifying symbol.
-<i>
-Note that if the key function is not declared inline in the class definition,
-but its definition later is always declared inline,
-it will be emitted in every object containing the definition.</i>
-A constexpr or consteval function is always declared constexpr or consteval on
-its first declaration, and is implicitly inline, so is never a key function.
+Virtual tables for dynamic classes are emitted as follows:
+
+<ul compact>
+<li>If the class is templated, the tables are emitted in every
+  object that references any of them.
+<li>Otherwise, if the class is attached to a module, the tables
+  are uniquely emitted in the object for the module unit in which
+  it is defined.
+<li>Otherwise, if the class has a key function (see below), the
+  tables are emitted in the object for the translation unit
+  containing the definition of the key function.  This is unique
+  if the key function is not inline.
+<li>Otherwise, the tables are emitted in every object that
+  references any of them.
+</ul>
 
 <p>
-<img src=warning.gif alt="<b>NOTE</b>:">
-<i>In the abstract, a pure virtual destructor could be used as the key
-function, as it must be defined even though it is pure.  However, the
-ABI committee did not realize this fact until after the specification
-of key function was complete; therefore a pure virtual destructor
-cannot be the key function.</i>
+All of the following must be emitted whenever tables are emitted:
+
+<ul compact>
+<li>the full virtual table group for the class,
+<li>any new construction virtual tables required for subobjects, and
+<li>the VTT for the class if it has virtual bases.
+</ul>
+
+<p>
+If the emission of the virtual tables is not unique (as defined
+above), they are emitted with vague linkage in a single COMDAT
+group, using the mangled name for the virtual table as the COMDAT
+identifier.  On platforms that do not use COMDATs, the tables are
+emitted separately, and unreferenced tables can be omitted.
+
+<blockquote>
+  Note: previous versions of this ABI required virtual tables
+  to always be emitted with vague linkage, even when emitted in
+  an unique object.  This is unnecessary and should not detectable
+  in a valid program; however, it is also harmless, and
+  implementations may opt to continue to do it for compatibility
+  with programs that are not strictly valid.
+</blockquote>
+
+<blockquote>
+  Note: the requirement to emit all of the tables for a class in a
+  single COMDAT does not currently serve any clear purpose beyond
+  reducing the number of COMDATs.  There is no known optimization
+  that would result in e.g. a VTT that would only work correctly
+  with the paired virtual table or vice-versa.  Nonetheless, it is
+  required by the ABI and is largely harmless.
+</blockquote>
+
+<p>
+The key function is the first non-pure virtual function that is
+not inline at the point of class definition.  <code>constexpr</code>
+or <code>consteval</code> functions are always declared as such on
+their first declarations and so are implicitly <code>inline</fixed>,
+so they are never key functions.
+
+<p>
+Note that if the key function is not inline in the class definition,
+but its later definition is inline, it will be emitted in every object
+containing the definition.
+
+<blockquote>
+  <span class="future-abi">Recommendation for new platforms: when
+  selecting the key function, ignore virtual function definitions
+  that are inline outside of the class definition.  Inline function
+  definitions must be defined in every translation unit that ODR-use
+  them, and virtual functions are considered to always be ODR-used.
+  Therefore, in a valid program, every translation unit that sees
+  a class definition must agree about which of its virtual functions
+  are defined inline outside of the class.  Some platforms are known
+  to have already adopted this rule.</span>
+</blockquote>
+
+<blockquote>
+  <span class="future-abi">Recommendation for new platforms:
+  when selecting the key function, also consider pure virtual
+  destructors as candidates.  Virtual destructors must be defined
+  even if they are pure.</span>
+</blockquote>
 
 <p>
 <a name="vague-rtti">
-<h4><a href="#vague-rtti"> 5.2.4 Typeinfo</a></h4>
+<h4><a href="#vague-rtti"> 5.2.4 <code>std::type_info</code></a></h4>
 
 <p>
-The RTTI std::type_info structure for a complete class type is
-emitted in the same object as its virtual table if dynamic,
-or everywhere referenced if not.
-The RTTI std::type_info structure for an incomplete class type is
-emitted wherever referenced.
-The RTTI std::type_info structures for various basic types as
-specified by the <a href=#rtti>Run-Time Type Information</a> section
-are provided by the runtime library.
-The RTTI name NTBS objects are emitted with each referencing
-std::type_info object.
+The RTTI <code>std::type_info</code> structure for a complete dynamic
+class type whose virtual tables are emitted in a unique object (see
+<a href="#vague-vtable">above</a>) is emitted with non-vague linkage
+in the same object as its virtual tables.
 
 <p>
-The RTTI std::type_info structures for complete class types and basic
-types are emitted in COMDAT groups identified by their mangled names.
-The RTTI std::type_info structures for incomplete class types
-are emitted with other than the ABI-defined complete type mangled names;
-an implementation may choose to emit them as local static objects,
-or in COMDAT groups with implementation-defined names and COMDAT identifiers.
-The RTTI name NTBS objects are emitted in separate COMDAT groups
-identified by the NTBS mangled names
-as weak symbols.
+The RTTI <code>std::type_info</code> structure for an incomplete class
+type is emitted wherever referenced.  It is implementation-defined
+what symbol name it uses, other than that it must not be the same
+symbol name as any other entity, including the complete class type.
+It also implementation-defined whether they are emitted in a COMDAT
+group or just with internal linkage.
+
+<p>
+The RTTI <code>std::type_info</code> structures for various basic
+types as specified by the <a href=#rtti>Run-Time Type Information</a>
+section are provided by the runtime library.
+
+<p>
+The RTTI <code>std::type_info</code> structure for any other type
+is emitted with vague linkage using the symbol name as the COMDAT
+identifier.
+
+<p>
+The RTTI NTBS name object for a type is emitted in every object
+that references it, with vague linkage using the NTBS mangled name
+as the COMDAT identifier.  Vague linkage is required even for classes
+where the <code>std::type_info</code> object has non-vague linkage
+in order to support interoperation with incomplete RTTI for incomplete
+types.
+
+<blockquote>
+  <span class="future-abi">Recommendation for new platforms:
+  the linkage rules for RTTI <code>std::type_info</code> and name
+  objects are known to cause both semantic and performance problems
+  when dynamic linking is in use.  This is an area where there is
+  widespread divergence from this ABI, chiefly to avoid the need
+  for cross-image symbol coalescing.  Several different approaches
+  for this are in use, with different underlying goals.  For now,
+  there is not a clear recommendation to make, other than that the
+  current rule is not the best.</span>
+</blockquote>
 
 <p>
 <a name="vague-ctor">
