@@ -4155,22 +4155,21 @@ with no other entries in the <code>DT_INIT_ARRAY</code> section.
 
 <p>
 <a name="dso-dtor">
-<h4><a href="#dso-dtor"> 3.3.6 DSO Object Destruction API </a></h4>
+<h4><a href="#dso-dtor"> 3.3.6 Global and Thread-Local Object Destruction API </a></h4>
 
 <p>
 <a name="dso-dtor-motivation">
 <h5><a href="#dso-dtor-motivation"> 3.3.6.1 Motivation </a></h5>
 
 <p>
-The C++ Standard requires that destructors be called for global objects
-when a program exits in the opposite order of construction.
-Most implementations have handled this by calling the C library
-<code>atexit</code> routine to register the destructors.
-This is problematic because the 1999 C Standard only requires that the
-implementation support 32 registered functions,
-although most implementations support many more.
-More important,
-it does not deal at all with the ability in most implementations to
+The C++ Standard requires that destructors be called for global
+objects when a program exits.  Most implementations have handled
+this by calling the C library <code>atexit</code> routine to
+register the destructors.
+This is problematic because the C standard only requires that the
+implementation support 32 registered functions, although most
+implementations support many more. More importantly, it does not
+deal at all with the ability in most implementations to
 remove DSOs from a running program image by calling
 <code>dlclose</code> prior to program termination.
 
@@ -4183,73 +4182,156 @@ and reasonable treatment during early DSO unload (e.g. <code>dlclose</code>).
 
 <p>
 <a name="dso-dtor-runtime-data">
-<h5><a href="#dso-dtor-runtime-data"> 3.3.6.2 Runtime Data Structure </a></h5>
+<h5><a href="#dso-dtor-runtime-data">3.3.6.2 Runtime Data Structure</a></h5>
 
 <p>
-The runtime library shall maintain a list of termination functions
-with the following information about each:
+The runtime library shall maintain a list of <i>global termination
+functions</i> with the following information about each:
 
 <ul>
 <li> A function pointer (a pointer to a function descriptor on Itanium).
-<li> A void* operand to be passed to the function.
-<li> A void* handle for the <i>home DSO</i> of the entry (below).
+<li> A <code>void*</code> operand to be passed to the function.
+<li> A <code>void*</code> handle for the <i>home DSO</i> of the entry (below).
 </ul>
 
 <p>
-The representation of this structure is implementation defined.
+Entries in this list need not be unique.  If the same function
+is registered multiple times, it is called multiple times as
+described below.
+
+<p>
+The runtime library shall also maintain an analogous list of
+<i>thread-local termination functions</i> for each thread, with
+the same information about each.
+
+<p>
+The representation of these lists is implementation defined.
 All references are via the API described below.
 
-<p>
-<a name="dso-dtor-runtime-api">
-<h5><a href="#dso-dtor-runtime-api"> 3.3.6.3 Runtime API </a></h5>
-
-<ol type=A>
-<p>
-<li> Object construction:
-<p>
-After constructing a global (or local static) object,
-that will require destruction on exit,
-a termination function is <i>registered</i> as follows:
-<center><code>
-extern "C" int __cxa_atexit ( void (*f)(void *), void *p, void *d );
-</code></center>
-This registration, e.g. <code>__cxa_atexit(f,p,d)</code>,
-is intended to cause the call <code>f(p)</code> when DSO <code>d</code> is unloaded,
-before all such termination calls registered before this one.
-It returns zero if registration is successful, nonzero on failure.
+<a name="dso-dtor-runtime-api"> <!-- legacy anchor -->
+<a name="global-dtor">
+<h5><a href="#global-dtor">3.3.6.3 Destructors for global objects</a></h5>
 
 <p>
-The registration function is not called from within the constructor.
+After constructing an object with static storage duration
+that will require destruction on process exit, a global
+termination function is registered by calling the following
+function:
+
+<code><pre>extern "C" int __cxa_atexit(void (*f)(void *), void *p, void *d);</pre></code>
+
+<p>The third argument, <code>d</code>, must be the value
+<code>&__dso_handle</code> for the DSO which defines the object;
+see below.  The first and second arguments may be chosen at the
+implementation's convenience.
 
 <p>
-<li> User <code>atexit</code> calls:
+The runtime library will call <code>f(p)</code> when the unloading
+of DSO <code>d</code> is required, including when the process exits.
+The call will occur before the DSO is actually unloaded from the
+process.  Calls to global termination functions will be made in the
+reverse order of their registration.
+
 <p>
-When the user registers exit functions with <code>atexit</code>,
-they should be registered with NULL parameters and DSO handles, i.e.
-<center><code>
-    __cxa_atexit ( f, NULL, NULL );
-</code></center>
-It is expected that implementations supporting both C and C++ will
-integrate this capability into the libc <code>atexit</code>
-implementation so that C-only DSOs will nevertheless interact with C++
-programs in a C++-standard-conforming manner.
-No user interface to <code>__cxa_atexit</code> is supported,
-so the user is not able to register an <code>atexit</code> function
+Note that global termination functions may be registered
+concurrently.  If the registrations of two separate termination
+functions are not well-ordered by the <i>strongly happens before</i>
+relation, the order in which they are called is unspecified.
+
+<p>
+<code>__cxa_atexit</code> returns zero if registration is successful,
+nonzero on failure.
+
+<a name="thread-local-dtor">
+<h5><a href="#thread-local-dtor">3.3.6.4 Destructors for thread-local objects</a></h5>
+
+<p>
+After constructing an object with thread storage duration
+that will require destruction on process or thread exit,
+a thread-local termination function is registered for the
+current thread by calling the following function:
+
+<code><pre>extern "C" int __cxa_thread_atexit(void (*f)(void *), void *p, void *d);</pre></code>
+
+<p>The third argument, <code>d</code>, must be the value
+<code>&__dso_handle</code> for the DSO which defines the object;
+see below.  The first and second arguments may be chosen at the
+implementation's convenience.
+
+<p>
+The runtime library will call <code>f(p)</code> if the
+registering thread either terminates or exits the process (e.g.
+by calling <code>std::exit</code>).  Calls will be made in the
+reverse order of registration.  Calls will be made from the
+registering thread.
+
+<p>
+If the process is exited by a thread, it is unspecified whether
+thread-local termination functions registered for different
+threads are called.  This applies even if another thread has
+terminated but has not yet finished calling all of its
+termination functions.
+
+<p>
+If the unloading of a DSO is required other than during process
+exit (e.g. by calling <code>dlclose</code>), and there are any
+any thread-local termination functions associated with that DSO,
+the behavior is undefined.  Some implementations choose to support
+this by delaying the unloading of the DSO until all such functions
+have been called on all threads.  Implementations that wish to
+unload the DSO immediately are encouraged to at least call
+thread-local termination functions registered for the current
+thread.
+
+<p>
+<code>__cxa_thread_atexit</code> returns zero if registration
+is successful, nonzero on failure.
+
+<a name="atexit">
+<h5><a href="#atexit">3.3.6.5 User calls to <code>atexit</code></a></h5>
+
+<p>
+The C++ standard requires calls to exit functions registered with
+<code>atexit</code> to occur in reverse order of registration,
+appropriately interordered with the destruction of global objects
+according to the completion order of their initialization; see
+<span class="cxxref">[basic.start.term]</span>.  It is expected
+that implementations supporting C++ will integrate support for
+<code>__cxa_atexit</code> into the C library in order to achieve
+these semantics.
+
+<p>
+There is no analogous thread-specific <code>atexit</code> API
+in the C or C++ standards, or in POSIX threads.  If there were,
+it would be expected to be appropriately interordered with the
+destruction of thread-local objects.  It is currently unclear
+what the appropriate interordering rules are for the destruction
+of thread-local storage such as C11's <code>tss_create</code> or
+POSIX's <code>pthread_key_create</code>; these APIs do not
+specify any particular destruction order for multiple keys.
+
+<p>
+The C++ standard does not provide a user interface corresponding
+to <code>__cxa_atexit</code> or <code>__cxa_thread_atexit</code>.
+There is no way to register an <code>atexit</code> function
 with a parameter or a home DSO.
 
+<a name="termination">
+<h5><a href="#termination">3.3.6.6 Termination</a></h5>
+
 <p>
-<li> Termination:
-<p>
-When linking any DSO containing a call to <code>__cxa_atexit</code>,
+When linking any DSO containing a call to <code>__cxa_atexit</code>
+or <code>__cxa_thread_atexit</code>,
 the linker should define a hidden symbol <code>__dso_handle</code>,
 with a value which is an address in one of the object's segments.
-(It does not matter what address,
-as long as they are different in different DSOs.)
-It should also include a call to the following function in the FINI
+(It does not matter what address, as long as they are different in
+different DSOs.)
+
+<p>
+Additionally, DSOs that contain a call to <code>__cxa_atexit</code>
++should also include a call to the following function in the FINI
 list (to be executed first):
-<center><code>
-extern "C" void __cxa_finalize ( void *d );
-</code></center>
+<code><pre>extern "C" void __cxa_finalize ( void *d );</pre></code>
 The parameter passed should be <code>&__dso_handle</code>.
 
 <p>
@@ -4272,8 +4354,10 @@ the implementation may either remove entries or mark them finished.
 
 <p>
 When the main program calls <code>exit</code>,
-it must call any remaining <code>__cxa_atexit</code>-registered functions,
-either by calling <code>__cxa_finalize(NULL)</code>,
+it must first call any <code>__cxa_thread_atexit</code>-registered
+functions for the exiting thread.
+Next, it must call any remaining <code>__cxa_atexit</code>-registered
+functions, either by calling <code>__cxa_finalize(NULL)</code>,
 or by walking the registration list itself.
 
 <p>
@@ -4284,8 +4368,9 @@ in the opposite of the order in which they were enqueued by
 </ol>
 
 <p>
-Since <code>__cxa_atexit</code> and <code>__cxa_finalize</code>
-must both manipulate the same termination function list,
+Since calls to <code>__cxa_atexit</code>,
+<code>__cxa_thread_atexit</code>, and <code>__cxa_finalize</code>
+must manipulate the same termination function lists,
 they must be defined in the implementation's runtime library,
 rather than in the individual linked objects.
 
