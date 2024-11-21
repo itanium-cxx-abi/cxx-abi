@@ -2189,86 +2189,125 @@ function resolution.
 <h3><a href="#array-cookies"> 2.7 Array Operator <code>new</code> Cookies </a></h3>
 
 <p>
-When operator <code>new</code> is used to create a new array,
-a cookie is usually stored to remember the allocated length
-(number of array elements)
-so that it can be deallocated correctly.
+When a <code>new</code> expression is used to create a new array,
+a "cookie" must sometimes be added to the allocation.  A cookie is
+a header on the array allocation, preceding the array elements,
+which stores the number of array elements that were allocated.
 
 <p>
-Specifically:
+Let <code>T</code> be the element type of the allocated array,
+looking through all levels of nested array.
+Whether a cookie is required is determined as follows:
+
 <ul>
-<p>
-<li> No cookie is required if the array element type T has a trivial
-    destructor (12.4 [class.dtor])
-    and the usual (array) deallocation function
-    (3.7.3.2 [basic.stc.dynamic.deallocation])
-    function does not take two arguments.
+<li>No cookie is required if the selected allocation function
+    is the reserved placement allocation function
+    (that is, <code>::operator new[](size_t, void*)</code>).
 
-    <p>
-    (Note: if the usual array deallocation function takes two arguments,
-    then it is a member function whose second argument is of type size_t.
-    The standard guarantees (12.5 [class.free])
-    that this function will be passed the
-    number of bytes allocated with the previous array new expression.)
+<li>Otherwise, a cookie is required if:
 
-<p>
-<li> No cookie is required if the <code>new</code> operator being used
-    is <code>::operator new[](size_t, void*)</code>.
-
-<p>
-<li> Otherwise, this ABI requires a cookie, setup as follows:
   <ul>
-  <li> The cookie will have size <code>sizeof(size_t)</code>.
-  <li> Let <code>align</code> be the maximum alignment of
-  <code>size_t</code> and an element of the array to be allocated.
-  <li> Let <code>padding</code> be the maximum of
-  <code>sizeof(size_t)</code> and <code>align</code> bytes.
-  <li> The space allocated for the array will be the space required
-  by the array itself plus <code>padding</code> bytes.
-  <li> The alignment of the space allocated for the array will be
-  <code>align</code> bytes.
-  <li> The array data will begin at an offset of <code>align</code> bytes
-  from the space allocated for the array.
-  <li> The cookie will be stored in the <code>sizeof(size_t)</code> bytes
-  immediately preceding the array data.
+    <li><code>T</code> has a non-trivial destructor, or else
+
+    <li>there is an unambiguous usual class-specific array deallocation
+	function for <code>T</code> (as would be found for the
+	<code>delete[]</code> operator on an operand of type
+	<code>T*</code>), and that function takes a <code>size_t</code>
+	argument.
+
+      <p>This operator must be looked up as if for a <code>delete[]</code>
+        without a <code>::</code> prefix, even if the <code>new</code>
+        expression does include a <code>::</code> prefix.  This is
+        necessary to ensure consistency between <code>new</code>
+        and <code>delete</code>, as it is not always ill-defined
+        under the standard to mix the use of global and class-scoped
+        allocation and deallocation functions.  (For example, a
+        class-specific deallocation function might delegate to the
+        corresponding global deallocation function.)
+    </ul>
   </ul>
 
-  <i>
-  <p>
-  These rules have the following consequences:
-  <ul>
-  <li> The array elements and the cookie are all aligned naturally.
-  <li> Padding will be required if <code>sizeof(size_t)</code>
-  is smaller than the array element alignment,
-  and if present will precede the cookie.
-  </ul>
-  </i>
+<p>If a cookie is required, the allocation is adjusted as follows:
 
+<ul>
+  <li>Let <code>cookie_t</code> be the type of a cookie.  Under the
+    standard ABI, this is <code>size_t</code>; however, some platforms
+    use a variant ABI which stores additional information.
+
+  <li>Let <code>count</code> be the total number of objects of type
+    <code>T</code> that will be created (including any scaling
+    necessary for nested arrays).  This is the value that will be
+    stored in the cookie.  For example, given the expresssion
+    <code>new T[len][7][5]</code>, <code>count</code> is
+    <code>len * 7 * 5</code>.
+
+  <li>Let <code>align</code> be <code>alignof(T)</code>.
+    This is the alignment of the allocation.  Note that this does
+    not include the alignment of <code>cookie_t</code>.  The standard
+    permits array allocation to request a larger allocation to
+    accommodate cookies, but not a more-aligned allocation.  Adding a
+    cookie is also not permitted to change the choice of allocation or
+    deallocation function, which it otherwise could in uncommon situations
+    where <code>cookie_t</code> has a new-extended alignment.  As a
+    result, the implementation may be required to load and store the
+    cookie with less than its natural alignment.
+
+  <li>Let <code>prefix_size</code> be <code>max(sizeof(cookie_t), align)</code>.
+
+  <li>Let <code>allocation_size</code> be
+    <code>prefix_size + count * sizeof(T)</code>.
+    This is the size value that will be passed to the allocation
+    function.
+
+  <li>The first array element begins at offset <code>prefix_size</code>
+    from the start of the allocation.  This pointer is the result of the
+    <code>new</code> expression.
+
+  <li>In the standard ABI, padding is added before the cookie, so the
+    cookie is stored at offset <code>prefix_size - sizeof(cookie_t)</code>
+    from the start of the allocation.  However, in some variant ABIs,
+    padding is added after the cookie, which is stored at the start of
+    the allocation.  In either case, the contents of any padding bytes
+    are undefined.
+  </ul>
 </ul>
 
 <p>
-Given the above, the following is pseudocode for processing
-<code>new(ARGS) T[n]</code>:
-<code><pre>
-  if T has a trivial destructor (C++ standard, 12.4/3)
-    padding = 0
-  else if we're using ::operator new[](size_t, void*)
-    padding = 0
-  else
-    padding = max(sizeof(size_t), alignof(T))
+A <code>delete[]</code> expression must also compensate for the
+possible presence of an array cookie:
 
-  p = operator new[](n * sizeof(T) + padding, ARGS)
-  p1 = (T*) ( (char *)p + padding )
+<ul>
+<li>First, the operand is converted to a pointer type as described
+  in the standard.
 
-  if padding > 0
-    *( (size_t *)p1 - 1) = n
+<li>Let <code>T</code> be the element type of the pointer,
+  looking through nested array types as above.
 
-  for i = [0, n)
-    create a T, using the default constructor, at p1[i]
+<li>Let <code>ptr</code> be the pointer (of type <code>T*</code>)
+  to the first array element.
 
-  return p1
-</pre></code>
+<li>Whether a cookie is required is determined as if for a
+  non-<code>::</code>-prefixed, non-placement <code>new</code>
+  expression creating an array of type <code>T</code>.  Note that
+  it is not possible to invoke the reserved placement deallocation
+  function (<code>::operator delete[](void*, void*)</code>) with
+  a <code>delete[]</code> expression, and so there is no need for
+  an exception for this case.
 
+<li>If a cookie is required, it is found at offset
+  <code>-sizeof(cookie_t)</code> from <code>ptr</code>, and the
+  original allocation is found at offset <code>-prefix_size</code>
+  from <code>ptr</code>.  In variant ABIs that pad after the cookie,
+  the cookie will be at offset <code>-prefix_size</code>.
+
+<li>If <code>T</code> has a non-trivial destructor, the value of
+  <code>count</code> stored in the cookie is the number of
+  elements to destroy.
+
+<li>If the deallocation function has a <code>size_t</code> argument,
+  it is passed <code>allocation_size</code>, computed as above given the
+  value of <code>count</code> stored in the cookie.
+</ul>
 
 
 <p> <hr> <p>
