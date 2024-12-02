@@ -5627,10 +5627,9 @@ in function signatures.
 In general, expression manglings reflect a prefix traversal of the
 syntactic expression tree, with parentheses omitted.  (Parentheses
 may be ignored because they are implicit in the prefix representation
-and typically do not affect semantics.  However, a parenthesized
-<code>&lt;<a href="#mangle.unresolved-name">unresolved-name</a>&gt;</code>
-must be mangled differently because the parentheses act to suppress
-argument-dependent lookup.)  Unless explicitly stated otherwise, the
+and typically do not affect semantics.  However, when parentheses
+are used to suppress argument-dependent lookup, the call expression may
+need to be mangled differently.)  Unless explicitly stated otherwise, the
 expression is mangled without constant folding or other
 simplification.
 
@@ -5675,6 +5674,7 @@ For example:
                ::= pp_ &lt;<a href="#mangle.expression">expression</a>&gt;                                     # prefix ++
                ::= mm_ &lt;<a href="#mangle.expression">expression</a>&gt;                                     # prefix --
                ::= cl &lt;<a href="#mangle.expression">expression</a>&gt;+ E                                   # expression (expr-list), call
+               ::= cp &lt;<a href="#mangle.base-unresolved-name">base-unresolved-name</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;* E            # (name) (expr-list), call that would use argument-dependent lookup but for the parentheses
                ::= cv &lt;<a href="#mangle.type">type</a>&gt; &lt;<a href="#mangle.expression">expression</a>&gt;                               # type (expression), conversion with one argument
                ::= cv &lt;<a href="#mangle.type">type</a>&gt; _ &lt;<a href="#mangle.expression">expression</a>&gt;* E                          # type (expr-list), conversion with other than one argument
                ::= tl &lt;<a href="#mangle.type">type</a>&gt; &lt;<a href="#mangle.braced-expression">braced-expression</a>&gt;* E                     # type {expr-list}, conversion with braced-init-list argument
@@ -5770,6 +5770,18 @@ source construct (name, new-expression, or delete-expression) includes a global-
 
 <p>If an implementation supports the full C99 designated initializer syntax (as an extension), a designator list comprising multiple designators results in
 multiple nested &lt;<a href="#mangle.braced-expression">braced-expression</a>&gt;s. For example, <code>X{.a.b[3] = 1}</code> should be mangled <code>tl1Xdi1adi1bdxLi3ELi1EE</code>.</p>
+
+<p>In C++, a call expression where the callee operand is an unqualified name
+uses argument-dependent lookup unless unqualified lookup finds certain kinds of
+declarations; see C++11 [basic.lookup.argdep]p3.  Because this rule does not
+apply when the name is parenthesized, it is sometimes necessary to distinguish
+parenthesized and unparenthesized calls in the mangling, despite the general
+rule that parentheses can be ignored.  This is encoded using the choice of
+<code>cl</code> or <code>cp</code> for the call expression.  The
+<code>cp</code> mangling is used only when the callee operand is a parenthesized
+unresolved name and would have used ADL if it were not parenthesized.  In
+particular, <code>cl</code> is still used when unqualified lookup finds a
+declaration that would suppress the use of ADL, such as a class member.</p>
 
 <a name="mangling.literal">
 <h5><a href="#mangling.literal">5.1.6.1 Literals</a></h5>
