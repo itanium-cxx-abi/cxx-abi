@@ -5464,13 +5464,6 @@ of the parameter, with a special mangling for the first parameter.
 The sequence of parameters is therefore <code class=mangle>T_</code>,
 <code class=mangle>T0_</code>, <code class=mangle>T1_</code>, and so on.
 
-<pre><code><font color=blue>
-  &lt;template-param&gt; ::= T_ # first template parameter
-                   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _
-  &lt;<a name="mangle.template-template-param">template-template-param</a>&gt; ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
-                            ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
-</font></code></pre>
-
 <p>
 For example:
 <pre><code>
@@ -5480,6 +5473,35 @@ For example:
     template void f(int);
 
 </code></pre>
+
+<p>
+In some contexts, it is necessary to mangle references to template parameters
+that are not introduced by the innermost enclosing template parameter list.
+Let L be the number of template parameter scopes enclosing the
+template parameter scope in which the parameter is declared,
+excluding any template parameter scopes whose template arguments
+have already been substituted into the type or expression being mangled.
+Typically L will be zero, but can be nonzero when a generic lambda
+occurs within the signature of a function template, when mangling
+a template template parameter declaration, or when mangling a constraint.
+For example:
+
+<pre><code>
+	template&lt;typename&gt; struct A {
+	  // Type of a is TL0_0_, type of b is T_, type of c is TL0__, type of u is TL1__.
+	  template&lt;typename T&gt; void f(decltype([]&lt;typename U, template&lt;U u&gt; typename&gt;(auto a, T b, U c){})) {}
+	};
+</code></pre>
+</p>
+
+<pre><code><font color=blue>
+  &lt;template-param&gt; ::= T_									# L == 0, first parameter
+		   ::= T &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _					# L == 0, second and later parameters
+		   ::= TL &lt;<i>L-1 non-negative</i> <a href="#mangle.number">number</a>&gt; __						# L &gt; 0, first parameter
+		   ::= TL &lt;<i>L-1 non-negative</i> <a href="#mangle.number">number</a>&gt; _ &lt;<i>parameter-2 non-negative</i> <a href="#mangle.number">number</a>&gt; _	# L &gt; 0, second and later parameters
+  &lt;<a name="mangle.template-template-param">template-template-param</a>&gt; ::= &lt;<a href="#mangle.template-param">template-param</a>&gt;
+			    ::= &lt;<a href="#mangle.substitution">substitution</a>&gt;
+</font></code></pre>
 
 <p>
 Note that a template parameter reference is a
@@ -5747,6 +5769,7 @@ For example:
                  ::= L &lt;<i>nullptr</i> <a href="#mangle.type">type</a>&gt; E                                 # nullptr literal (i.e., "LDnE")
                  ::= L &lt;<i>pointer</i> <a href="#mangle.type">type</a>&gt; 0 E                               # null pointer template argument
 		 ::= L &lt;<a href="#mangle.type">type</a>&gt; &lt;<i>real-part</i> <a href="#mangle.float">float</a>&gt; _ &lt;<i>imag-part</i> <a href="#mangle.float">float</a>&gt; E   # complex floating point literal (C 2000)
+                 ::= L &lt;<i>lambda</i> <a href="#mangle.closure-type-name">closure-type-name</a>&gt; E                     # lambda expression
                  ::= L _Z &lt;<a href="#mangle.encoding">encoding</a>&gt; E                                  # external name
 
   &lt;<a name="mangle.braced-expression">braced-expression</a>&gt; ::= &lt;<a href="#mangle.expression">expression</a>&gt;
@@ -5765,6 +5788,16 @@ takes precedence over one that is expressed in terms of (unary/binary/ternary) &
 source construct (name, new-expression, or delete-expression) includes a global-scope qualifier 
 (e.g., <code>::x</code>).
 </p>
+
+<p>When a lambda expression appears in the type of a function template at namespace scope,
+that function template cannot be redeclared in other translation units,
+so this ABI does not constrain its mangling except that it cannot collide
+with symbols in other translation units.
+When a lambda expression appears in an instantiation-dependent expression
+in other contexts (for example, in the signature of a function template at class scope),
+it is mangled as a &lt;<a href="#mangle.closure-type-name">closure-type-name</a>&gt;,
+excluding any name prefix, but including its number within its context.
+The context is implied by the remaining portion of the encoding.</p>
 
 <p><code>tl</code> is used for direct-list-initializations, where the type name is directly followed by a braced-init-list; e.g., <code>MyArray{1,2,3}</code> should be mangled <code>tl7MyArrayLi1ELi2ELi3EE</code>.  If the braced-init-list is parenthesized, this is not a direct-list-initialization, and it should be mangled with <code>cv</code> and a nested <code>il</code>; for example, <code>MyArray({1,2,3})</code> should be mangled <code>cv7MyArrayilLi1ELi2ELi3EE</code>.</p>
 
@@ -6065,7 +6098,8 @@ closure types in different translation units to "correspond":
 <li>default arguments appearing in class definitions</li>
 <li>default member initializers</li>
 <li>the bodies of inline or templated functions</li>
-<li>the initializers of inline or templated variables</li>
+<li>the initializers of inline or templated variables and static data members</li>
+<li>the remaining contexts in class definitions</li>
 </ul>
 
 In all these contexts, the encoding of the closure types builds on an
@@ -6076,7 +6110,8 @@ the form
   &lt;<a name="mangle.closure-type-name">closure-type-name</a>&gt; ::= Ul &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; E [ &lt;<i>nonnegative</i> <a href="#mangle.number">number</a>&gt; ] _ 
 </pre></font></code>
 with
-<pre><code><font color=blue>  &lt;<a name="mangle.lambda-sig">lambda-sig</a>&gt; ::= &lt;<i>parameter</i> <a href="#mangle.type">type</a>&gt;+  # Parameter types or "v" if the lambda has no parameters
+<pre><code><font color=blue>  &lt;<a name="mangle.lambda-sig">lambda-sig</a>&gt; ::= &lt;<i>explicit</i> <a href="#mangle.template-param-decl">template-param-decl</a>&gt;*	# Excluding template parameters introduced for <code>auto</code> parameters
+                   &lt;<i>parameter</i> <a href="#mangle.type">type</a>&gt;+			# Parameter types or "v" if the lambda has no parameters
 </pre></font></code>
 The number is omitted for the first closure type with a given
 &lt;<a href="#mangle.lambda-sig">lambda-sig</a>&gt; in a given context; it is n-2 for the nth closure
@@ -6154,15 +6189,74 @@ For example:
 </pre></code>
 
 <p>
+If the context is within a class definition,
+and not within one of the above more specific cases,
+the closure class and its members are encoded as follows:
+<code><pre><font color=blue>  &lt;<a href="#mangle.local-name">local-name</a>&gt; ::= Z &lt;<i>class</i> <a href="#mangle.name">name</a>&gt; E &lt;<i>entity</i> <a href="#mangle.name">name</a>&gt;
+</font></pre></code>
+As above, the <code>&lt;<i>entity</i> <a href="#mangle.name">name</a>&gt;</code> will contain a
+<code>&lt;<a href="#mangle.closure-type-name">closure-type-name</a>&gt;</code>,
+which is numbered within the class, counting only those closure types for which
+this mangling rule applies.
+For example:
+<code><pre>
+	struct S {
+	  // Template argument is LZ1SEUlvE_E; f&lt;true&gt; is _ZN1S1fILb1EEEv1XILUlvE_EE
+	  template&lt;bool B&gt; void f(X&lt;[]{ return B; }()&gt;) { ... }
+	  int n = []{ return 0; }(); // not counted towards numbering in struct S
+	  // Template argument is LZ1SEUlvE0_E; f&lt;true&gt; is _ZN1S1fILb1EEEv1XILUlvE0_EE
+	  template&lt;bool B&gt; void f(X&lt;[]{ return !B; }()&gt;) { ... }
+	};
+</pre></code>
+</p>
+
+<p>
+When a lambda appears in the declaration portion of a function template,
+it is numbered within the enclosing context when determining
+the mangling of the function template and its instantiations.
+Similarly, when a lambda appears in the declaration portion
+of a non-template variable or function,
+it is numbered within the enclosing context.
+However, when a function or variable template is instantiated,
+all lambdas produced by that instantiation,
+including those in the declaration portion,
+are numbered within the resulting instantiated function or variable
+as part of the same numbering sequence as lambdas appearing
+in the function definition or variable initializer.
+For example:
+<code><pre>
+	struct S {
+	  // S::f&lt;int, int&gt; is _ZN1S1fIJiiEEEv1XIJXspLUlvE_EEEE
+	  // The lambda call operators for the two lambdas are
+	  // _ZZN1S1fIJiiEEEv1XIJXspLUlvE_EEEEENKUlvE_clEi and
+	  // _ZZN1S1fIJiiEEEv1XIJXspLUlvE_EEEEENKUlvE0_clEi,
+	  // and numbering of lambdas with a &lt;lambda-sig&gt; of v
+	  // within the body starts at UlvE1_.
+	  template&lt;typename ...T&gt; void f(X&lt;[]{ static T n; return &n; }...&gt;) { ... }
+	};
+</pre></code>
+</p>
+
+
+<p>
 In a generic lambda, uses of <code>auto</code> in the parameter list
 are mangled as the corresponding artificial template type parameter.
-This is never ambiguous with a lambda parameter whose type is an
-enclosing template type parameter, because lambdas are never mangled
-in a dependent context (they are forbidden from appearing in function
-signatures).  A &lt;<a
-href="#mangle.template-param">template-param</a>&gt; in a &lt;<a
-href="#mangle.lambda-sig">lambda-sig</a>&gt; can only ever refer to a
-template parameter of a generic lambda.
+If a generic lambda appears in a dependent context (for example, in
+the signature of a function template), references to its template
+parameters (including those introduced by uses of <code>auto</code>)
+are encoded as <code>&lt;<a href="#mangle.template-param">template-param</a>&gt;</code>s
+with a non-zero level.
+</p>
+
+<p>
+<img src=warning.gif alt="<b>NOTE</b>:">
+<i>
+A non-member function template whose signature contains a lambda-expression can
+never redeclare a function template declared in a different translation unit.
+Implementations must ensure that such symbols are not linked together across
+translation units, perhaps by giving affected symbols internal linkage.
+</i>
+</p>
 
 <p>
 <a name="lexical-ordering">
